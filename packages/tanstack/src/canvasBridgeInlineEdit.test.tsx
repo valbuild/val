@@ -256,4 +256,80 @@ describe("the canvas bridge editing a field on the page", () => {
       posted.filter((message) => message.type.startsWith("inlineEdit")),
     ).toEqual([]);
   });
+
+  const BODY = '/content/page.val.ts?p="body"';
+  const body = [{ tag: "p", children: ["We are forty people."] }];
+  const bold = [
+    {
+      tag: "p",
+      children: [
+        "We are ",
+        { tag: "span", styles: ["bold"], children: ["forty"] },
+        " people.",
+      ],
+    },
+  ];
+  const richtextPage = () =>
+    render(
+      <>
+        <div data-val-path={BODY}>
+          <p>We are forty people.</p>
+        </div>
+        <ValCanvasBridge draftMode />
+      </>,
+    );
+  const settle = () =>
+    act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  it("says what is selected in a richtext being edited, and where it is", async () => {
+    richtextPage();
+    editInline([{ path: BODY, kind: "richtext", value: body }]);
+    await settle();
+    expect(of("inlineEditSelection").at(-1)).toMatchObject({
+      path: BODY,
+      // At the end of the text, where an edit that no click asked for starts.
+      selection: {
+        anchor: { block: 0, offset: 20 },
+        head: { block: 0, offset: 20 },
+      },
+      rect: expect.objectContaining({ top: expect.any(Number) }),
+    });
+  });
+
+  it("shows what one of the Studio's controls made of the text", () => {
+    richtextPage();
+    editInline([{ path: BODY, kind: "richtext", value: body }]);
+    tell({
+      val: VAL_CANVAS_MESSAGE,
+      type: "applyInlineEdit",
+      path: BODY,
+      value: bold,
+      selection: {
+        anchor: { block: 0, offset: 7 },
+        head: { block: 0, offset: 12 },
+      },
+    });
+    expect(editor()?.querySelector("span")?.textContent).toBe("forty");
+    expect(document.getSelection()?.toString()).toBe("forty");
+    // The Studio made it: the page does not send it back.
+    expect(of("inlineEdit")).toEqual([]);
+  });
+
+  it("...for nobody but its parent, and only in the text being edited", () => {
+    richtextPage();
+    editInline([{ path: BODY, kind: "richtext", value: body }]);
+    const apply: ValCanvasStudioMessage = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "applyInlineEdit",
+      path: BODY,
+      value: bold,
+      selection: null,
+    };
+    tell(apply, { source: null, origin: "https://elsewhere.example" });
+    expect(editor()?.querySelector("span")).toBeNull();
+    tell({ ...apply, path: TITLE });
+    expect(editor()?.querySelector("span")).toBeNull();
+    tell(apply);
+    expect(editor()?.querySelector("span")).not.toBeNull();
+  });
 });

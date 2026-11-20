@@ -277,13 +277,13 @@ export type ShellProps = {
    */
   onAutoSaveChange?: (autoSave: boolean) => void;
   /**
-   * Whether a text picked on the page is edited there (a beta): see
-   * `useCanvasInlineEdit`. A prop for the reason `autoSave` is one: it is
-   * persisted, and the canvas that acts on it is the app's, not the shell's.
+   * What Content's Select does with a pick on the page, and how to change
+   * it. See `PageWorkspaceProps`. Props for the reason `autoSave` is one:
+   * the choice is persisted, and the canvas that acts on it is the app's,
+   * not the shell's.
    */
-  inlineEditing?: boolean;
-  /** Absent hides the setting: a shell with no page to edit on. */
-  onInlineEditingChange?: (inlineEditing: boolean) => void;
+  selectMode?: PageWorkspaceProps["selectMode"];
+  onSelectModeChange?: PageWorkspaceProps["onSelectModeChange"];
   /**
    * Show source paths beside fields.
    *
@@ -719,8 +719,8 @@ export function Shell({
   onRetrySave,
   autoSave = false,
   onAutoSaveChange,
-  inlineEditing = false,
-  onInlineEditingChange,
+  selectMode,
+  onSelectModeChange,
   isDevMode = true,
   pendingChanges = 12,
   reviewCount,
@@ -1986,6 +1986,8 @@ export function Shell({
             onSelectCanvasPath={onSelectCanvasPath}
             selectedCanvasPath={selectedCanvasPath}
             editingCanvasPath={canCanvas ? editingCanvasPath : undefined}
+            selectMode={selectMode}
+            onSelectModeChange={canCanvas ? onSelectModeChange : undefined}
             canvasRoute={canCanvas ? canvasRoute : undefined}
             onCanvasRouteChange={onCanvasRouteChange}
             canvasRoutes={canvasRoutes}
@@ -2427,8 +2429,6 @@ export function Shell({
             admin={data.admin}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
-            inlineEditing={inlineEditing}
-            onInlineEditingChange={onInlineEditingChange}
             branch={data.branch}
             /**
              * No deploy feed in dev.

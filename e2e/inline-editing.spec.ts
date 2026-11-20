@@ -4,8 +4,8 @@ import {
   columnRow,
   defineInlineEditingSuite,
   inlineEditor,
+  inlineToolbar,
   selectOnPreview,
-  turnOnInlineEditing,
   written,
 } from "./inlineEditingSuite";
 
@@ -24,10 +24,9 @@ test.describe("editing a richtext with marks on the page", () => {
     page,
     request,
   }) => {
-    await turnOnInlineEditing(page);
     await openStudio(page);
     await page.getByRole("button", { name: "Open the canvas" }).click();
-    const preview = await selectOnPreview(page);
+    const preview = await selectOnPreview(page, "edit");
     await preview
       .locator("main > div span", { hasText: "Val" })
       .first()
@@ -71,10 +70,9 @@ test.describe("a text typed in on the page, in the column", () => {
   test("the column turns to the page's fields and scrolls to the one being typed in", async ({
     page,
   }) => {
-    await turnOnInlineEditing(page);
     await openStudio(page);
     await page.getByRole("button", { name: "Open the canvas" }).click();
-    const preview = await selectOnPreview(page);
+    const preview = await selectOnPreview(page, "edit");
     // The last thing on the page, and so the last row of the column.
     const footer = preview.locator("footer");
     await footer.scrollIntoViewIfNeeded();
@@ -94,5 +92,48 @@ test.describe("a text typed in on the page, in the column", () => {
     );
     // The column showing it did not take the caret from the page.
     await expect(copy).toBeFocused();
+  });
+});
+
+/**
+ * And the front page's prose block, whose richtext allows headings and
+ * lists: the controls that change what a paragraph IS.
+ */
+test.describe("the floating controls, on a richtext with headings", () => {
+  test.use({ viewport: { width: 1512, height: 900 } });
+
+  test("a paragraph is made a heading from the menu, and typing goes on in it", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page);
+    await page.getByRole("button", { name: "Open the canvas" }).click();
+    const preview = await selectOnPreview(page, "edit");
+    await preview.getByText("The blocks below are one").first().click();
+    const copy = inlineEditor(preview);
+    await expect(copy).toBeFocused();
+    const toolbar = inlineToolbar(page);
+    // What the field's schema allows, and nothing it does not: headings,
+    // marks, links and lists, and no image button.
+    await expect(toolbar.getByTitle(/Bullet list/)).toBeVisible();
+    await expect(toolbar.getByTitle(/Insert image/)).toHaveCount(0);
+
+    await toolbar.getByRole("button", { name: "Normal" }).click();
+    // Normal, H2, H3: the third.
+    await page.getByRole("menuitem").nth(2).click();
+    const body = ["/", "blocks", "0", "body"];
+    await expect
+      .poll(() => written(request, body))
+      .toMatch(/\{"tag":"h3","children":\["The blocks below are one /);
+    await expect(copy.locator("h3")).toContainText("The blocks below are one");
+    // The image the block holds is still there.
+    await expect(copy.locator("img")).toHaveCount(1);
+    // The menu closing did not keep the focus: the next keys are the text's.
+    await expect(copy).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Typed after.");
+    await expect
+      .poll(() => written(request, body))
+      .toContain("rendered inline. Typed after.");
   });
 });

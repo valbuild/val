@@ -466,6 +466,22 @@ export function ValCanvasBridge({
         inlineEditing.current?.stop();
         return;
       }
+      if (message.type === "focusInlineEdit") {
+        inlineEditing.current?.focus();
+        return;
+      }
+      if (message.type === "applyInlineEdit") {
+        // What one of the Studio's controls made of the text being typed
+        // in. It replaces what is on the page, so as `editInline`: only
+        // from the frame's parent, when that is the Studio here.
+        if (event.source !== window.parent) return;
+        if (event.origin !== window.location.origin) return;
+        const editing = inlineEditing.current;
+        if (editing === null || !editing.isActive()) return;
+        if (editing.path !== message.path) return;
+        editing.apply(message.value, message.selection);
+        return;
+      }
       if (message.type === "editInline") {
         // A field's words go back as they are typed, unpublished ones
         // included. As `readPage`: only for the frame's parent, when that
@@ -508,6 +524,15 @@ export function ValCanvasBridge({
               }),
             onEnd: () =>
               reply({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path }),
+            onSelection: (selection, rect, caret) =>
+              reply({
+                val: VAL_CANVAS_MESSAGE,
+                type: "inlineEditSelection",
+                path,
+                selection,
+                rect,
+                caret,
+              }),
           });
           if (editing === null) continue;
           inlineEditing.current = editing;

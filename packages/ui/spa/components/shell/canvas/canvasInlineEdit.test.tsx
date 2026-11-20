@@ -211,4 +211,106 @@ describe("editing a field on the page", () => {
     ready(BRIDGE_CAPABILITIES);
     expect(on.onInlineEditEnded).toHaveBeenCalledWith(TITLE);
   });
+
+  const started = () =>
+    say({
+      val: VAL_CANVAS_MESSAGE,
+      type: "inlineEditStarted",
+      requestId: "inline-1",
+      path: TITLE,
+    });
+  const selection = {
+    anchor: { block: 0, offset: 2 },
+    head: { block: 0, offset: 5 },
+  };
+
+  it("hands on what is selected in the text, once it is being edited", () => {
+    const onInlineEditSelection = jest.fn();
+    const rendered = renderFrame({ ...handlers(), onInlineEditSelection });
+    ready(BRIDGE_CAPABILITIES);
+    rendered.set({ inlineEdit: request });
+    const report: ValCanvasPageMessage = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "inlineEditSelection",
+      path: TITLE,
+      selection,
+      rect: { top: 10, left: 20, width: 300, height: 40 },
+    };
+    // Before the page said it started: a selection of nothing known.
+    say(report);
+    expect(onInlineEditSelection).not.toHaveBeenCalled();
+    started();
+    say(report);
+    expect(onInlineEditSelection).toHaveBeenCalledWith(TITLE, selection);
+  });
+
+  it("sends the page what a control made of the text, once per press", () => {
+    const rendered = renderFrame(handlers());
+    ready(BRIDGE_CAPABILITIES);
+    rendered.set({ inlineEdit: request });
+    started();
+    const value = [{ tag: "p", children: ["Our team"] }];
+    const apply = { id: 1, path: TITLE, value, selection };
+    rendered.set({ inlineEdit: request, inlineEditApply: apply });
+    rendered.set({ inlineEdit: request, inlineEditApply: { ...apply } });
+    expect(of("applyInlineEdit")).toEqual([
+      {
+        val: VAL_CANVAS_MESSAGE,
+        type: "applyInlineEdit",
+        path: TITLE,
+        value,
+        selection,
+      },
+    ]);
+    rendered.set({ inlineEdit: request, inlineEditApply: { ...apply, id: 2 } });
+    expect(of("applyInlineEdit")).toHaveLength(2);
+  });
+
+  it("a press elsewhere in the Studio ends the edit; one on the controls does not", () => {
+    const rendered = renderFrame(handlers());
+    ready(BRIDGE_CAPABILITIES);
+    rendered.set({ inlineEdit: request });
+    const controls = document.createElement("div");
+    controls.setAttribute("data-val-inline-toolbar", "");
+    const button = controls.appendChild(document.createElement("button"));
+    const elsewhere = document.createElement("button");
+    document.body.append(controls, elsewhere);
+    const press = (target: Element) =>
+      act(() => {
+        target.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+    // Nothing is being edited yet: a press is only a press.
+    press(elsewhere);
+    expect(of("stopInlineEdit")).toEqual([]);
+    started();
+    press(button);
+    expect(of("stopInlineEdit")).toEqual([]);
+    press(elsewhere);
+    expect(of("stopInlineEdit")).toHaveLength(1);
+    controls.remove();
+    elsewhere.remove();
+  });
+
+  it("hands over the way to find the text and to get back to it, and takes it away", () => {
+    const onInlineEditPlace = jest.fn();
+    const rendered = renderFrame({ ...handlers(), onInlineEditPlace });
+    const place = onInlineEditPlace.mock.calls[0][0];
+    // Nothing is being edited: there is nowhere to point at.
+    expect(place.locate()).toBeNull();
+    ready(BRIDGE_CAPABILITIES);
+    rendered.set({ inlineEdit: request });
+    started();
+    say({
+      val: VAL_CANVAS_MESSAGE,
+      type: "inlineEditSelection",
+      path: TITLE,
+      selection,
+      rect: { top: 10, left: 20, width: 300, height: 40 },
+    });
+    expect(place.locate()).toMatchObject({ field: expect.any(Object) });
+    say({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path: TITLE });
+    expect(place.locate()).toBeNull();
+    rendered.unmount();
+    expect(onInlineEditPlace).toHaveBeenLastCalledWith(null);
+  });
 });

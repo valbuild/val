@@ -13,7 +13,7 @@ import {
 } from "./studio";
 
 /**
- * Editing on the page (a beta): with it turned on, a click on a text in the
+ * Editing on the page: in Select's "Select & edit" mode, a click on a text in the
  * preview puts the caret in that text, on the page, and what is typed is
  * written as the field in the Studio's column would write it.
  *
@@ -30,9 +30,6 @@ import {
  * it against TanStack and `inline-editing.next.spec.ts` against Next, on the
  * blog page both have.
  */
-
-/** `inlineEditingPreference.ts`: what the account panel's setting writes. */
-export const INLINE_EDITING_PREFERENCE = "val:beta:inline-editing";
 
 /**
  * What the SERVER holds for a field: the value of the last patch that
@@ -61,16 +58,40 @@ export async function written(
   return values.at(-1) ?? null;
 }
 
-/** The page in the preview, once Select is on and there is something to pick. */
-export async function selectOnPreview(page: Page): Promise<FrameLocator> {
+/** What Content's Select does with a pick: `CanvasSelectMode` in the Studio. */
+export type SelectMode = "select" | "edit";
+
+/**
+ * The page in the preview, once Select is on in `mode` and there is
+ * something to pick.
+ *
+ * "Select & edit" is chosen as a person chooses it, from the menu beside
+ * Select -- which also turns it on.
+ */
+export async function selectOnPreview(
+  page: Page,
+  mode: SelectMode = "select",
+): Promise<FrameLocator> {
   // The page reporting its fields is when there is something to pick.
   await expect(page.getByRole("tab", { name: /On this page \d/ })).toBeVisible({
     timeout: 60_000,
   });
-  await page.getByRole("button", { name: "Select on the page" }).click();
-  await expect(
-    page.getByRole("button", { name: "Stop selecting on the page" }),
-  ).toHaveAttribute("aria-pressed", "true");
+  if (mode === "edit") {
+    await page
+      .getByRole("button", { name: "Choose what selecting on the page does" })
+      .click();
+    await page.getByRole("menuitemradio", { name: /Select & edit/ }).click();
+    await expect(
+      page.getByRole("button", {
+        name: "Stop selecting and editing on the page",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+  } else {
+    await page.getByRole("button", { name: "Select on the page" }).click();
+    await expect(
+      page.getByRole("button", { name: "Stop selecting on the page" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  }
   return page.frameLocator('iframe[title^="Preview of"]');
 }
 
@@ -86,24 +107,38 @@ export const inlineEditor = (preview: FrameLocator) =>
 export const columnRow = (page: Page, pathEnd: string) =>
   page.locator(`[data-canvas-field$='${pathEnd}']`);
 
-/** Turn the beta on for every page this test opens. */
-export async function turnOnInlineEditing(page: Page): Promise<void> {
-  await page.addInitScript((key) => {
-    window.localStorage.setItem(key, "1");
-  }, INLINE_EDITING_PREFERENCE);
+/** The Studio's formatting controls for a richtext being typed in on the page. */
+export const inlineToolbar = (page: Page) =>
+  page.getByRole("toolbar", { name: "Format the text on the page" });
+
+/**
+ * Select the first `count` characters of the line the caret is on, as a
+ * person does it: Home, then Shift and the arrow.
+ */
+export async function selectFromLineStart(
+  page: Page,
+  count: number,
+): Promise<void> {
+  await page.keyboard.press("Home");
+  for (let index = 0; index < count; index++) {
+    await page.keyboard.press("Shift+ArrowRight");
+  }
 }
 
 const BLOG = "/blogs/blog1";
 
 /** The blog page both apps have, in the preview, with Select on. */
-async function openBlog(page: Page): Promise<FrameLocator> {
+async function openBlog(
+  page: Page,
+  mode: SelectMode = "select",
+): Promise<FrameLocator> {
   await openStudio(page);
   const studio = await openSiteMap(page);
   await expandRow(studio, "blogs");
   await expandRow(studio, "blog1");
   await closeNavPanel(studio, "Pages");
   await studio.getByRole("button", { name: "Canvas" }).click();
-  const preview = await selectOnPreview(page);
+  const preview = await selectOnPreview(page, mode);
   // The first request for the route compiles it: see `canvasSuite.ts`.
   await expect(preview.locator("h1")).toHaveText("Blog 1", {
     timeout: 60_000,
@@ -116,7 +151,7 @@ export function defineInlineEditingSuite(): void {
   test.use({ viewport: { width: 1512, height: 900 } });
 
   test.describe("editing on the page", () => {
-    test("is off until someone turns it on: a pick opens the field in the column", async ({
+    test("Select, the mode it starts in, opens the field in the column", async ({
       page,
     }) => {
       const preview = await openBlog(page);
@@ -131,16 +166,12 @@ export function defineInlineEditingSuite(): void {
       await expect(headline).not.toHaveAttribute("contenteditable");
     });
 
-    test.describe("turned on", () => {
-      test.beforeEach(async ({ page }) => {
-        await turnOnInlineEditing(page);
-      });
-
+    test.describe("in Select & edit", () => {
       test("a headline is typed in where it is, and written as its field", async ({
         page,
         request,
       }) => {
-        const preview = await openBlog(page);
+        const preview = await openBlog(page, "edit");
         await preview.locator("h1").click();
         const copy = inlineEditor(preview);
         await expect(
@@ -181,7 +212,9 @@ export function defineInlineEditingSuite(): void {
           .toBe(JSON.stringify("Blog 1, on the page!"));
         // Select is still on: Enter ended the edit, not the mode.
         await expect(
-          page.getByRole("button", { name: "Stop selecting on the page" }),
+          page.getByRole("button", {
+            name: "Stop selecting and editing on the page",
+          }),
         ).toHaveAttribute("aria-pressed", "true");
       });
 
@@ -189,7 +222,7 @@ export function defineInlineEditingSuite(): void {
         page,
         request,
       }) => {
-        const preview = await openBlog(page);
+        const preview = await openBlog(page, "edit");
         await preview.getByText("Blog 1 content").click();
         const copy = inlineEditor(preview);
         await expect(
@@ -237,15 +270,138 @@ export function defineInlineEditingSuite(): void {
         await page.keyboard.press("Escape");
         await expect(inlineEditor(preview)).toHaveCount(0);
         await expect(
-          page.getByRole("button", { name: "Stop selecting on the page" }),
+          page.getByRole("button", {
+            name: "Stop selecting and editing on the page",
+          }),
         ).toHaveAttribute("aria-pressed", "true");
+      });
+
+      test("the floating controls are beside the text, inside the preview, and make the selection bold", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.getByText("Blog 1 content").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        const toolbar = inlineToolbar(page);
+        await expect(toolbar).toBeVisible();
+
+        // Beside the text and never over it -- above it where there is
+        // room, below it where the text is at the top of the preview, as it
+        // is in one of the two apps -- and not cut off by the preview's edge
+        // or drawn over the Studio around it.
+        const bar = await toolbar.boundingBox();
+        const text = await copy.boundingBox();
+        const frame = await page
+          .locator('iframe[title^="Preview of"]')
+          .boundingBox();
+        if (bar === null || text === null || frame === null) {
+          throw new Error("the controls, the text or the preview has no box");
+        }
+        const above = bar.y + bar.height <= text.y;
+        const below = bar.y >= text.y + text.height;
+        expect(above || below, "the controls are over the text").toBe(true);
+        expect(bar.y).toBeGreaterThanOrEqual(frame.y);
+        expect(bar.x).toBeGreaterThanOrEqual(frame.x);
+        expect(bar.x + bar.width).toBeLessThanOrEqual(frame.x + frame.width);
+
+        await selectFromLineStart(page, 4);
+        await toolbar.getByTitle(/Bold/).click();
+        const content = [BLOG, "content"];
+        await expect
+          .poll(() => written(request, content))
+          .toBe(
+            JSON.stringify([
+              {
+                tag: "p",
+                children: [
+                  { tag: "span", styles: ["bold"], children: ["Blog"] },
+                  " 1 content",
+                ],
+              },
+            ]),
+          );
+        // Shown on the page, in the text being typed in...
+        await expect(copy.locator("span")).toHaveText("Blog");
+        // ...where the caret still is: the press did not take it.
+        await expect(copy).toBeFocused();
+        await page.keyboard.press("End");
+        await page.keyboard.type(", and on");
+        await expect
+          .poll(() => written(request, content))
+          .toBe(
+            JSON.stringify([
+              {
+                tag: "p",
+                children: [
+                  { tag: "span", styles: ["bold"], children: ["Blog"] },
+                  " 1 content, and on",
+                ],
+              },
+            ]),
+          );
+        // Bold again takes it off.
+        await selectFromLineStart(page, 4);
+        await toolbar.getByTitle(/Bold/).click();
+        await expect
+          .poll(() => written(request, content))
+          .toBe(
+            JSON.stringify([
+              { tag: "p", children: ["Blog 1 content, and on"] },
+            ]),
+          );
+      });
+
+      test("a link is picked from the site's pages, and Esc in the picker closes only the picker", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.getByText("Blog 1 content").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        const toolbar = inlineToolbar(page);
+        await selectFromLineStart(page, 4);
+
+        await toolbar.getByTitle(/Link/).click();
+        const filter = page.getByPlaceholder("Filter...");
+        await expect(filter).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(filter).toHaveCount(0);
+        // The edit goes on, with the caret back in the text.
+        await expect(copy).toBeFocused();
+
+        await toolbar.getByTitle(/Link/).click();
+        await expect(filter).toBeFocused();
+        await page.keyboard.type("blog-2");
+        await page.keyboard.press("Enter");
+        await expect
+          .poll(() => written(request, [BLOG, "content"]))
+          .toMatch(
+            /^\[\{"tag":"p","children":\[\{"tag":"a","href":"\/blogs\/blog-2[^"]*","children":\["Blog"\]\}," 1 content"\]\}\]$/,
+          );
+        await expect(copy.locator("a")).toHaveText("Blog");
+        await expect(copy).toBeFocused();
+      });
+
+      test("a press elsewhere in the Studio ends the edit", async ({
+        page,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.getByText("Blog 1 content").click();
+        await expect(inlineEditor(preview)).toBeFocused();
+        await expect(inlineToolbar(page)).toBeVisible();
+        await page.getByPlaceholder("Filter fields…").click();
+        await expect(inlineEditor(preview)).toHaveCount(0);
+        await expect(inlineToolbar(page)).toHaveCount(0);
       });
 
       test("of a link's two fields, its words are the one typed in", async ({
         page,
         request,
       }) => {
-        const preview = await openBlog(page);
+        const preview = await openBlog(page, "edit");
         await preview.getByRole("link", { name: "See more" }).click();
         await expect(inlineEditor(preview)).toBeFocused();
         await page.keyboard.press("End");
@@ -261,7 +417,7 @@ export function defineInlineEditingSuite(): void {
       test("a text shown inside a sentence still opens in the column", async ({
         page,
       }) => {
-        const preview = await openBlog(page);
+        const preview = await openBlog(page, "edit");
         // "Author: <name>": the name is a field, and the element holds more
         // than it. The page says it cannot edit that in place, and the
         // Studio does what a pick does: opens the field, which its address

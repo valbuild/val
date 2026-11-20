@@ -69,6 +69,25 @@ export type InlineEditCandidate =
     }
   | { path: string; kind: "richtext"; value: InlineRichTextNode[] };
 
+/**
+ * A place in a richtext document: which paragraph or heading, counted in the
+ * order they are read, and how far into it. Text counts by the character
+ * and an image or a line break as one -- which is how the Studio's editor
+ * counts too, so a place means the same on both sides of the frame.
+ */
+export type InlinePoint = { block: number; offset: number };
+
+/** What is selected in a richtext being edited: from `anchor` to `head`. */
+export type InlineSelection = { anchor: InlinePoint; head: InlinePoint };
+
+/** Where the copy being typed in is, in the page's viewport. */
+export type InlineRect = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
 /** An edit in progress. */
 export type InlineEditing = {
   /** The field being edited. */
@@ -88,6 +107,21 @@ export type InlineEditing = {
    * away.
    */
   release(): void;
+  /**
+   * Put a whole new document in the copy, with this selected: what one of
+   * the Studio's controls made of the document (a word made bold, a
+   * paragraph made a heading). A richtext only.
+   *
+   * Drawn at once with what this can tell of the page's look -- a new node
+   * is classed as one of its kind already in the document is -- and again,
+   * exactly, once the page's own element has rendered it.
+   */
+  apply(value: InlineRichTextNode[], selection: InlineSelection | null): void;
+  /**
+   * Put the caret back in the copy, where it was: the focus went to one of
+   * the Studio's controls -- a box to type a link in -- and is done there.
+   */
+  focus(): void;
 };
 
 /** On the copy being typed in. */
@@ -192,6 +226,29 @@ export function isInlineEditCandidate(
   return kind === "richtext" && isInlineRichText(held);
 }
 
+/** Whether a value is a selection: what `applyInlineEdit` may carry. */
+export function isInlineSelection(value: unknown): value is InlineSelection {
+  if (typeof value !== "object" || value === null) return false;
+  return (
+    isInlinePoint(Reflect.get(value, "anchor")) &&
+    isInlinePoint(Reflect.get(value, "head"))
+  );
+}
+
+function isInlinePoint(value: unknown): value is InlinePoint {
+  if (typeof value !== "object" || value === null) return false;
+  const block: unknown = Reflect.get(value, "block");
+  const offset: unknown = Reflect.get(value, "offset");
+  return (
+    typeof block === "number" &&
+    Number.isInteger(block) &&
+    block >= 0 &&
+    typeof offset === "number" &&
+    Number.isInteger(offset) &&
+    offset >= 0
+  );
+}
+
 /** Whether a value is what an edit reports: a string, or a document. */
 export function isInlineEditValue(value: unknown): value is InlineEditValue {
   return typeof value === "string" || isInlineRichText(value);
@@ -249,6 +306,17 @@ export function startInlineEditing(
     onChange: (value: InlineEditValue) => void;
     /** Editing ended, however it did. Called once. */
     onEnd: () => void;
+    /**
+     * A richtext's selection moved, or the copy did: what the Studio's
+     * controls act on, and where to draw them. Not called for a string,
+     * which has none.
+     */
+    onSelection?: (
+      selection: InlineSelection | null,
+      rect: InlineRect,
+      /** The caret itself, where the browser can say: to keep off it. */
+      caret: InlineRect | null,
+    ) => void;
     /** {@link INLINE_EDIT_SETTLE_MS}, for a test that will not wait. */
     settleMs?: number;
   },
@@ -266,11 +334,12 @@ export function startInlineEditing(
 
   /** The richtext document's nodes, by the index their elements carry. */
   const nodes: InlineRichTextElement[] = [];
+  const annotate = (el: Element, node: InlineRichTextElement) => {
+    el.setAttribute(NODE_ATTRIBUTE, String(nodes.length));
+    nodes.push(node);
+  };
   if (candidate.kind === "richtext") {
-    mirrors(copy, candidate.value, (el, node) => {
-      el.setAttribute(NODE_ATTRIBUTE, String(nodes.length));
-      nodes.push(node);
-    });
+    mirrors(copy, candidate.value, annotate);
   }
 
   // --- The copy, in the original's place ---------------------------------
@@ -319,6 +388,7 @@ export function startInlineEditing(
     if (settleTimer !== null) clearTimeout(settleTimer);
     settleObserver?.disconnect();
     presence.disconnect();
+    pageObserver.disconnect();
     copy.remove();
     if (!hadHidden) original.removeAttribute("hidden");
     original.removeAttribute(INLINE_ORIGINAL_ATTRIBUTE);
@@ -349,6 +419,9 @@ export function startInlineEditing(
     if (serialized === lastReported) return;
     lastReported = serialized;
     options.onChange(value);
+    // What was typed can have made the copy taller, or moved the caret
+    // without the browser saying so.
+    scheduleSelection();
   };
 
   const stop = () => {
@@ -362,6 +435,11 @@ export function startInlineEditing(
     copy.removeEventListener("paste", onPaste);
     copy.removeEventListener("drop", onDrop);
     copy.removeEventListener("focusout", onFocusOut);
+    doc.removeEventListener("pointerdown", onPressElsewhere, true);
+    doc.removeEventListener("selectionchange", scheduleSelection);
+    view?.removeEventListener("scroll", scheduleSelection, true);
+    view?.removeEventListener("resize", scheduleSelection);
+    pageObserver.disconnect();
     copy.setAttribute("contenteditable", "false");
     copy.style.removeProperty("outline-style");
     copy.style.removeProperty("outline-width");
@@ -466,15 +544,15 @@ export function startInlineEditing(
     return isHtmlElement(shallow) ? shallow : null;
   })();
   const newParagraph = (): HTMLElement => {
-    if (paragraphSample !== null) {
-      const fresh = paragraphSample.cloneNode(false);
-      if (isHtmlElement(fresh)) return fresh;
-    }
-    // No paragraph in the document to take the class of: a bare one, which
-    // the page's renderer styles once the edit has reached it.
-    const fresh = doc.createElement("p");
-    fresh.setAttribute(NODE_ATTRIBUTE, String(nodes.length));
-    nodes.push({ tag: "p", children: [] });
+    // The sample's class where there is one. Where there is not: a bare
+    // paragraph, which the page's renderer styles once the edit has
+    // reached it. Either way a node of its own, never the sample's.
+    const sampled = paragraphSample?.cloneNode(false);
+    const fresh =
+      sampled !== undefined && isHtmlElement(sampled)
+        ? sampled
+        : doc.createElement("p");
+    annotate(fresh, { tag: "p", children: [] });
     return fresh;
   };
   const removeFillers = (el: Element) => {
@@ -635,6 +713,264 @@ export function startInlineEditing(
     if (first !== undefined) placeCaret(first, 0);
   };
 
+  // --- Where the caret is, for the Studio's controls -----------------------
+  /** A place in the copy, as a place in the document. */
+  const pointOf = (node: Node | null, offset: number): InlinePoint | null => {
+    const block = textBlockOf(node);
+    if (block === null || node === null) return null;
+    const index = textBlocks().indexOf(block);
+    if (index < 0) return null;
+    const before = doc.createRange();
+    before.setStart(block, 0);
+    before.setEnd(node, offset);
+    const held = before.cloneContents();
+    let leaves = 0;
+    held.querySelectorAll(`[${NODE_ATTRIBUTE}]`).forEach((el) => {
+      if (LEAVES.has(tagOf(el) ?? "")) leaves += 1;
+    });
+    return { block: index, offset: (held.textContent ?? "").length + leaves };
+  };
+  /** And back: a place in the document, as a place in the copy. */
+  const placeOf = (
+    point: InlinePoint,
+  ): { node: Node; offset: number } | null => {
+    const block = textBlocks()[point.block];
+    if (block === undefined) return null;
+    let left = point.offset;
+    const within = (parent: Node): { node: Node; offset: number } | null => {
+      for (let index = 0; index < parent.childNodes.length; index++) {
+        const child = parent.childNodes[index];
+        if (child.nodeType === 3) {
+          const length = (child.nodeValue ?? "").length;
+          if (left <= length) return { node: child, offset: left };
+          left -= length;
+        } else if (isElement(child) && !child.hasAttribute(FILLER_ATTRIBUTE)) {
+          if (LEAVES.has(tagOf(child) ?? "")) {
+            if (left === 0) return { node: parent, offset: index };
+            left -= 1;
+          } else {
+            const found = within(child);
+            if (found !== null) return found;
+          }
+        }
+      }
+      return null;
+    };
+    const found = within(block);
+    if (found !== null) return found;
+    // Past the end, or in a block with nothing in it: its end, before the
+    // filler that holds it open.
+    const last = block.lastChild;
+    const hasFiller =
+      last !== null && isElement(last) && last.hasAttribute(FILLER_ATTRIBUTE);
+    return {
+      node: block,
+      offset: block.childNodes.length - (hasFiller ? 1 : 0),
+    };
+  };
+  const selected = (): InlineSelection | null => {
+    const sel = selection();
+    if (sel === null || sel.rangeCount === 0) return null;
+    if (!copy.contains(sel.anchorNode) || !copy.contains(sel.focusNode)) {
+      return null;
+    }
+    const anchor = pointOf(sel.anchorNode, sel.anchorOffset);
+    const head = pointOf(sel.focusNode, sel.focusOffset);
+    return anchor !== null && head !== null ? { anchor, head } : null;
+  };
+  const select = (wanted: InlineSelection | null) => {
+    const sel = selection();
+    if (sel === null || wanted === null) return;
+    const anchor = placeOf(wanted.anchor);
+    const head = placeOf(wanted.head);
+    if (anchor === null || head === null) return;
+    sel.setBaseAndExtent(anchor.node, anchor.offset, head.node, head.offset);
+  };
+
+  const view = doc.defaultView;
+  let selectionTimer: number | null = null;
+  let lastSelection = "";
+  /** The last selection there was in the copy: where the caret goes back to. */
+  let keptSelection: InlineSelection | null = null;
+  const reportSelection = () => {
+    selectionTimer = null;
+    if (ended || options.onSelection === undefined) return;
+    const box = copy.getBoundingClientRect();
+    const rect: InlineRect = {
+      top: box.top,
+      left: box.left,
+      width: box.width,
+      height: box.height,
+    };
+    const now = selected();
+    // No selection while the focus is elsewhere is not a selection of
+    // nothing: a control the focus went to still acts on the last one.
+    if (now === null && !copy.contains(doc.activeElement)) return;
+    keptSelection = now ?? keptSelection;
+    const sel = selection();
+    const range =
+      now !== null && sel !== null && sel.rangeCount > 0
+        ? sel.getRangeAt(0)
+        : null;
+    const at =
+      range !== null && typeof range.getBoundingClientRect === "function"
+        ? range.getBoundingClientRect()
+        : null;
+    // A caret in an empty line has no box of its own to report.
+    const caret: InlineRect | null =
+      at !== null && (at.width > 0 || at.height > 0)
+        ? { top: at.top, left: at.left, width: at.width, height: at.height }
+        : null;
+    const serialized = JSON.stringify([now, rect, caret]);
+    if (serialized === lastSelection) return;
+    lastSelection = serialized;
+    options.onSelection(now, rect, caret);
+  };
+  /*
+   * A turn later, and once however many times it was asked for in that
+   * turn: a keystroke moves the selection, changes the text and can move
+   * the copy, and the Studio is told once, after it has the text.
+   */
+  const scheduleSelection = () => {
+    if (candidate.kind !== "richtext" || options.onSelection === undefined) {
+      return;
+    }
+    if (selectionTimer !== null || ended || view === null) return;
+    selectionTimer = view.setTimeout(reportSelection, 0);
+  };
+
+  // --- What one of the Studio's controls made of the document --------------
+  /**
+   * An element of each kind of node the document has had, to class a new
+   * one by: the page's theme gives a bold word its class, and the only
+   * place this can read that is a bold word the page already rendered.
+   */
+  const samples = new Map<string, Element>();
+  const stylesOf = (node: InlineRichTextElement): string[] => {
+    const styles: unknown = node.styles;
+    return Array.isArray(styles)
+      ? styles
+          .filter((style): style is string => typeof style === "string")
+          .sort()
+      : [];
+  };
+  const kindOf = (node: InlineRichTextElement): string =>
+    node.tag === "span" ? `span ${stylesOf(node).join(" ")}` : node.tag;
+  const gatherSamples = () => {
+    copy.querySelectorAll(`[${NODE_ATTRIBUTE}]`).forEach((el) => {
+      const source = sourceOf(el);
+      if (source !== null) samples.set(kindOf(source), el);
+    });
+  };
+  const build = (
+    children: readonly InlineRichTextNode[],
+    into: Node,
+    images: Map<string, Element[]>,
+  ) => {
+    for (const child of children) {
+      if (typeof child === "string") {
+        into.appendChild(doc.createTextNode(child));
+        continue;
+      }
+      if (!KNOWN_TAGS.has(child.tag)) continue;
+      // An image is the one the document had: nothing here can make one.
+      const image =
+        child.tag === "img"
+          ? images.get(JSON.stringify(child))?.shift()
+          : undefined;
+      const sample = samples.get(kindOf(child));
+      const made =
+        image?.cloneNode(true) ??
+        sample?.cloneNode(false) ??
+        doc.createElement(child.tag);
+      if (!isHtmlElement(made)) continue;
+      if (sample === undefined && child.tag === "span") {
+        // No word of this kind on the page yet to take the class of: shown
+        // as what it is until the page's own rendering arrives.
+        const styles = stylesOf(child);
+        if (styles.includes("bold")) made.style.fontWeight = "bold";
+        if (styles.includes("italic")) made.style.fontStyle = "italic";
+        if (styles.includes("line-through")) {
+          made.style.textDecoration = "line-through";
+        }
+      }
+      if (child.tag === "a") {
+        if (typeof child.href === "string") {
+          made.setAttribute("href", child.href);
+        } else {
+          made.removeAttribute("href");
+        }
+      }
+      annotate(made, child);
+      into.appendChild(made);
+      if (!LEAVES.has(child.tag)) build(child.children ?? [], made, images);
+    }
+  };
+  /** Whether the page's own element has yet to show what was applied. */
+  let awaitingPage = false;
+  /**
+   * The copy, drawn again from the page's own element, once that shows the
+   * very document the copy holds: every class is then the page's, where
+   * `apply` could only guess at one it had no example of.
+   *
+   * Only then. While they differ -- more was typed since, or the page has
+   * not rendered yet -- the copy is what the person is looking at, and it
+   * stays.
+   */
+  const refresh = () => {
+    if (ended || !awaitingPage || candidate.kind !== "richtext") return;
+    const value = readRichText(copy, nodes);
+    if (!mirrors(original, value, () => undefined)) return;
+    awaitingPage = false;
+    const kept = selected();
+    copy.replaceChildren(
+      ...Array.from(original.childNodes, (child) => child.cloneNode(true)),
+    );
+    nodes.length = 0;
+    mirrors(copy, value, annotate);
+    textBlocks().forEach(fill);
+    select(kept);
+    scheduleSelection();
+  };
+  const apply = (
+    value: InlineRichTextNode[],
+    wanted: InlineSelection | null,
+  ) => {
+    if (ended || candidate.kind !== "richtext") return;
+    if (!value.every(isKnownNode)) return;
+    gatherSamples();
+    const images = new Map<string, Element[]>();
+    copy.querySelectorAll(`[${NODE_ATTRIBUTE}]`).forEach((el) => {
+      const source = sourceOf(el);
+      if (source === null || source.tag !== "img") return;
+      const key = JSON.stringify(source);
+      images.set(key, [...(images.get(key) ?? []), el]);
+    });
+    nodes.length = 0;
+    const built = doc.createDocumentFragment();
+    build(value, built, images);
+    copy.replaceChildren(built);
+    if (textBlocks().length === 0) copy.appendChild(newParagraph());
+    textBlocks().forEach(fill);
+    copy.focus({ preventScroll: true });
+    select(wanted);
+    keptSelection = wanted ?? keptSelection;
+    // The Studio made this value, so it is not news to it -- unless the
+    // copy could not hold it as given, which it is then told.
+    lastReported = JSON.stringify(value);
+    report();
+    awaitingPage = true;
+    refresh();
+    scheduleSelection();
+  };
+  const pageObserver = new MutationObserver(refresh);
+  pageObserver.observe(original, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+  });
+
   const onBeforeInput = (event: InputEvent) => {
     const type = event.inputType;
     if (type.startsWith("format")) {
@@ -760,7 +1096,25 @@ export function startInlineEditing(
 
   const onFocusOut = (event: FocusEvent) => {
     const to = event.relatedTarget;
-    if (isNode(to) && copy.contains(to)) return;
+    // To something else on the page: the edit is over.
+    if (isNode(to) && !copy.contains(to)) stop();
+    /*
+     * To nothing the page can name, it is not: the focus has left the page
+     * for the Studio around it, or for another window. The Studio's own
+     * controls for this text are out there, and pressing one must not take
+     * away what it acts on. What a press elsewhere in the Studio means is
+     * the Studio's to say (`stopInlineEdit`), and a press elsewhere on the
+     * page is heard below.
+     *
+     * Not `document.hasFocus()`, which would seem to be the question: for a
+     * document in a frame it goes on answering yes after the focus has
+     * gone to the document around it, wherever focus is emulated.
+     */
+  };
+  /** A press on the page, outside the text: the edit is over. */
+  const onPressElsewhere = (event: Event) => {
+    const target = event.target;
+    if (isNode(target) && copy.contains(target)) return;
     stop();
   };
 
@@ -772,6 +1126,13 @@ export function startInlineEditing(
   copy.addEventListener("paste", onPaste);
   copy.addEventListener("drop", onDrop);
   copy.addEventListener("focusout", onFocusOut);
+  doc.addEventListener("pointerdown", onPressElsewhere, true);
+  if (candidate.kind === "richtext" && options.onSelection !== undefined) {
+    doc.addEventListener("selectionchange", scheduleSelection);
+    // Capturing: a scroll of anything the copy is inside moves it.
+    view?.addEventListener("scroll", scheduleSelection, true);
+    view?.addEventListener("resize", scheduleSelection);
+  }
 
   if (candidate.kind === "richtext") textBlocks().forEach(fill);
 
@@ -789,6 +1150,7 @@ export function startInlineEditing(
     placeCaret(end, end.childNodes.length);
     if (last !== undefined) fill(last);
   }
+  scheduleSelection();
 
   return {
     path: candidate.path,
@@ -798,6 +1160,12 @@ export function startInlineEditing(
     release: () => {
       stop();
       finish();
+    },
+    apply,
+    focus: () => {
+      if (ended) return;
+      copy.focus({ preventScroll: true });
+      if (selected() === null) select(keptSelection);
     },
   };
 }

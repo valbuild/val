@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import {
@@ -12,6 +13,7 @@ import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import {
   CanvasFrame,
+  type InlineEditPlace,
   PageCamera,
   PageLogReader,
   PageReader,
@@ -162,7 +164,11 @@ import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useBuildEpoch } from "./canvas/useServedBuild";
 import { useCanvasInlineEdit } from "./canvas/useCanvasInlineEdit";
-import { useInlineEditingPreference } from "../../hooks/inlineEditingPreference";
+import {
+  CanvasInlineRichTextToolbar,
+  CanvasInlineToolbarLayer,
+} from "./canvas/CanvasInlineRichTextToolbar";
+import { useSelectModePreference } from "../../hooks/selectModePreference";
 import {
   useCodeModeQuickPreview,
   withQuickPreviewState,
@@ -1236,17 +1242,37 @@ function ValShellBody({
   );
   const documentKey = `${buildEpoch}:${codeReloads}`;
   /**
-   * Editing on the page (a beta, turned on in the account panel): a pick of
-   * a text puts the caret in it where it is, and only what cannot be typed
-   * there opens in the column. See `useCanvasInlineEdit`.
+   * What Content's Select does with a pick. In its "Select & edit" mode a
+   * pick of a text puts the caret in it where the page shows it, and only
+   * what cannot be typed there opens in the column. See
+   * `useCanvasInlineEdit`.
    */
-  const [inlineEditing, setInlineEditing] = useInlineEditingPreference();
+  const [selectMode, setSelectMode] = useSelectModePreference();
   const inlineEdit = useCanvasInlineEdit({
-    enabled: inlineEditing && pendingChangesLoaded,
+    enabled: selectMode === "edit" && pendingChangesLoaded,
   });
   const offerInlineEdit = inlineEdit.offer;
   const inlineEditRequest = inlineEdit.request;
   const inlineEditingPath = inlineEdit.editingPath;
+  const inlineEditApplied = inlineEdit.applied;
+  const onInlineEditSelection = inlineEdit.onSelection;
+  /**
+   * Where the text being typed in is, and how to get back to it: the
+   * frame's to say (`CanvasFrame`'s `onInlineEditPlace`), and the floating
+   * controls' to ask. In a ref, behind two functions that never change, so
+   * the controls are not rebuilt every time the frame hands it over.
+   */
+  const inlineEditPlace = useRef<InlineEditPlace | null>(null);
+  const onInlineEditPlace = useCallback((place: InlineEditPlace | null) => {
+    inlineEditPlace.current = place;
+  }, []);
+  const locateInlineEdit = useCallback(
+    () => inlineEditPlace.current?.locate() ?? null,
+    [],
+  );
+  const refocusInlineEdit = useCallback(() => {
+    inlineEditPlace.current?.focus();
+  }, []);
   const onInlineEditStarted = inlineEdit.onStarted;
   const onInlineEdit = inlineEdit.onEdit;
   const onInlineEditEnded = inlineEdit.onEnded;
@@ -1362,6 +1388,9 @@ function ValShellBody({
         }}
         onPickingStopped={onPickingStopped}
         inlineEdit={inlineEditRequest}
+        inlineEditApply={inlineEditApplied}
+        onInlineEditSelection={onInlineEditSelection}
+        onInlineEditPlace={onInlineEditPlace}
         onInlineEditStarted={onInlineEditStarted}
         onInlineEdit={onInlineEdit}
         onInlineEditEnded={onInlineEditEnded}
@@ -1435,6 +1464,9 @@ function ValShellBody({
     offerInlineEdit,
     inlineEditRequest,
     inlineEditingPath,
+    inlineEditApplied,
+    onInlineEditSelection,
+    onInlineEditPlace,
     onInlineEditStarted,
     onInlineEdit,
     onInlineEditEnded,
@@ -1944,8 +1976,8 @@ function ValShellBody({
             onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
             autoSave={autoPublish}
             onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
-            inlineEditing={inlineEditing}
-            onInlineEditingChange={setInlineEditing}
+            selectMode={selectMode}
+            onSelectModeChange={setSelectMode}
             pendingChanges={data.pendingChanges ?? 0}
             /*
              * Zeroed when the pending patches cancel out, so Review does not put a
@@ -2084,6 +2116,27 @@ function ValShellBody({
             proposals={proposals}
           />
           {proposalDialogs}
+          {/*
+           * The formatting controls for a richtext being typed in on the
+           * page: the Studio's own, floated over the preview where the text
+           * is. In the portal, outside the preview's zoom.
+           */}
+          {inlineEdit.richText !== null &&
+            portalContainer !== null &&
+            portalContainer !== undefined &&
+            createPortal(
+              <CanvasInlineToolbarLayer locate={locateInlineEdit}>
+                <CanvasInlineRichTextToolbar
+                  key={inlineEdit.richText.path}
+                  path={inlineEdit.richText.path}
+                  value={inlineEdit.richText.value}
+                  selection={inlineEdit.richText.selection}
+                  onApply={inlineEdit.apply}
+                  onRefocus={refocusInlineEdit}
+                />
+              </CanvasInlineToolbarLayer>,
+              portalContainer,
+            )}
           <ProposalSiteCompare
             changes={siteChanges}
             siteUrl={proposalSiteUrl}

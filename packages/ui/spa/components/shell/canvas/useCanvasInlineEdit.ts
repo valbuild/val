@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Internal, type SourcePath } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
-import type { InlineEditValue } from "@valbuild/shared/internal";
+import type {
+  InlineEditValue,
+  InlineRichTextNode,
+  InlineSelection,
+} from "@valbuild/shared/internal";
 import { useValSystem } from "../../../stores/react/SystemContext";
 import { writePatch } from "../../../stores/react/writePatch";
 import { stringFieldPatch } from "../../fields/stringFieldPatch";
@@ -48,6 +52,24 @@ export type CanvasInlineEdit = {
    * for as long: two outlines say two things are selected.
    */
   editingPath: SourcePath | null;
+  /**
+   * The richtext being typed in, for the Studio's formatting controls: the
+   * document as of the last keystroke, and what is selected in it. `null`
+   * while nothing is being edited, and for a string, which has none.
+   */
+  richText: CanvasInlineRichText | null;
+  /**
+   * What one of those controls made of the document. Written at once, as
+   * the field's own patch, and handed to `CanvasFrame` (`applied`) for the
+   * page to show.
+   */
+  apply: (
+    value: InlineRichTextNode[],
+    selection: InlineSelection | null,
+  ) => void;
+  /** For `CanvasFrame`'s `inlineEditApply`. */
+  applied: CanvasInlineEditApplied | null;
+  onSelection: (path: SourcePath, selection: InlineSelection | null) => void;
   onStarted: (requestId: string, path: SourcePath) => void;
   onEdit: (path: SourcePath, value: InlineEditValue) => void;
   onEnded: (path: SourcePath) => void;
@@ -57,6 +79,19 @@ export type CanvasInlineEdit = {
    * answer is to a request that has been replaced since.
    */
   onUnavailable: (requestId: string) => SourcePath[] | null;
+};
+
+export type CanvasInlineRichText = {
+  path: SourcePath;
+  value: readonly InlineRichTextNode[];
+  selection: InlineSelection | null;
+};
+
+export type CanvasInlineEditApplied = {
+  id: number;
+  path: SourcePath;
+  value: InlineRichTextNode[];
+  selection: InlineSelection | null;
 };
 
 type Pending = {
@@ -112,6 +147,9 @@ export function useCanvasInlineEdit({
   /** The field the caret is in, from the page's `started` to its `ended`. */
   const active = useRef<CanvasInlineEditCandidate | null>(null);
   const [editingPath, setEditingPath] = useState<SourcePath | null>(null);
+  const [richText, setRichText] = useState<CanvasInlineRichText | null>(null);
+  const [applied, setApplied] = useState<CanvasInlineEditApplied | null>(null);
+  const applyCount = useRef(0);
   const requestCount = useRef(0);
 
   /*
@@ -176,6 +214,12 @@ export function useCanvasInlineEdit({
       asked.request.candidates.find((candidate) => candidate.path === path) ??
       null;
     setEditingPath(active.current?.path ?? null);
+    const started = active.current;
+    setRichText(
+      started !== null && started.kind === "richtext"
+        ? { path: started.path, value: started.value, selection: null }
+        : null,
+    );
   }, []);
 
   const onEdit = useCallback(
@@ -183,6 +227,46 @@ export function useCanvasInlineEdit({
       const candidate = active.current;
       if (candidate === null || candidate.path !== path) return;
       write.push({ candidate, value });
+      // The controls act on what is on the page NOW, not on what the last
+      // patch wrote.
+      if (typeof value !== "string") {
+        setRichText((current) =>
+          current !== null && current.path === path
+            ? { ...current, value }
+            : current,
+        );
+      }
+    },
+    [write],
+  );
+
+  const onSelection = useCallback(
+    (path: SourcePath, selection: InlineSelection | null) => {
+      setRichText((current) =>
+        current !== null && current.path === path
+          ? { ...current, selection }
+          : current,
+      );
+    },
+    [],
+  );
+
+  const apply = useCallback(
+    (value: InlineRichTextNode[], selection: InlineSelection | null) => {
+      const candidate = active.current;
+      if (candidate === null || candidate.kind !== "richtext") return;
+      // Now, not on a pause: a press on Bold is a whole edit, and the page
+      // shows its own rendering of it only once this has been written.
+      write.push({ candidate, value });
+      write.flush();
+      applyCount.current += 1;
+      setApplied({
+        id: applyCount.current,
+        path: candidate.path,
+        value,
+        selection,
+      });
+      setRichText({ path: candidate.path, value, selection });
     },
     [write],
   );
@@ -193,6 +277,8 @@ export function useCanvasInlineEdit({
       if (candidate === null || candidate.path !== path) return;
       active.current = null;
       setEditingPath(null);
+      setRichText(null);
+      setApplied(null);
       // Written now rather than on the pause: the page is waiting to show
       // its own element again, and shows the old words until this lands.
       write.flush();
@@ -220,6 +306,10 @@ export function useCanvasInlineEdit({
     offer,
     request,
     editingPath,
+    richText,
+    apply,
+    applied,
+    onSelection,
     onStarted,
     onEdit,
     onEnded,

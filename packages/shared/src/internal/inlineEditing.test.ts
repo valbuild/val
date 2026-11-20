@@ -7,6 +7,7 @@ import {
   type InlineEditCandidate,
   type InlineEditValue,
   type InlineRichTextNode,
+  type InlineSelection,
 } from "./inlineEditing";
 
 /*
@@ -595,5 +596,250 @@ describe("editing a richtext on the page", () => {
     caret(editor()!.querySelector("span")!.firstChild!, 3);
     beforeInput("insertParagraph");
     expect(original.innerHTML).toBe(before);
+  });
+});
+
+describe("the Studio's controls for a richtext on the page", () => {
+  const body: InlineRichTextNode[] = [
+    { tag: "h2", children: ["Who we are"] },
+    {
+      tag: "p",
+      children: [
+        "We are ",
+        { tag: "span", styles: ["bold"], children: ["forty"] },
+        " people.",
+        { tag: "br" },
+        "Since 2012.",
+      ],
+    },
+  ];
+  const rendered = `<div class="prose"><h2 class="t">Who we are</h2><p class="p">We are <span class="font-bold">forty</span> people.<br>Since 2012.</p></div>`;
+  const begin = () => {
+    const root = page(rendered);
+    const original = root.firstElementChild!;
+    const changes: InlineEditValue[] = [];
+    const selections: (InlineSelection | null)[] = [];
+    const editing = startInlineEditing(
+      original,
+      { path: "body", kind: "richtext", value: body },
+      {
+        color: "#079455",
+        onChange: (value) => changes.push(value),
+        onEnd: () => undefined,
+        onSelection: (selection) => selections.push(selection),
+      },
+    );
+    return { original, editing, changes, selections };
+  };
+  /** The selection is told a turn later, once per turn. */
+  const told = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const lastOf = <T>(list: T[]) => list[list.length - 1];
+
+  test("is told where the caret is, as a place in the document", async () => {
+    const { selections } = begin();
+    const copy = editor()!;
+    // "We are for|ty people.": seven characters, then three into the mark.
+    caret(copy.querySelector("span")!.firstChild!, 3);
+    document.dispatchEvent(new Event("selectionchange"));
+    await told();
+    expect(lastOf(selections)).toEqual({
+      anchor: { block: 1, offset: 10 },
+      head: { block: 1, offset: 10 },
+    });
+  });
+
+  test("a line break counts as one, as the Studio's editor counts it", async () => {
+    const { selections } = begin();
+    const paragraph = editor()!.querySelector("p")!;
+    // After the <br>: "We are forty people." is 20, the break makes 21.
+    caret(paragraph.lastChild!, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    await told();
+    expect(lastOf(selections)?.head).toEqual({ block: 1, offset: 21 });
+  });
+
+  test("a selection is told with both its ends", async () => {
+    const { selections } = begin();
+    const copy = editor()!;
+    document
+      .getSelection()!
+      .setBaseAndExtent(
+        copy.querySelector("h2")!.firstChild!,
+        4,
+        copy.querySelector("p")!.firstChild!,
+        2,
+      );
+    document.dispatchEvent(new Event("selectionchange"));
+    await told();
+    expect(lastOf(selections)).toEqual({
+      anchor: { block: 0, offset: 4 },
+      head: { block: 1, offset: 2 },
+    });
+  });
+
+  test("a string has none to tell", async () => {
+    const root = page(`<h1>Our people</h1>`);
+    const onSelection = jest.fn();
+    startInlineEditing(root.querySelector("h1")!, title, {
+      color: "#079455",
+      onChange: () => undefined,
+      onEnd: () => undefined,
+      onSelection,
+    });
+    document.dispatchEvent(new Event("selectionchange"));
+    await told();
+    expect(onSelection).not.toHaveBeenCalled();
+  });
+
+  const italic: InlineRichTextNode[] = [
+    { tag: "h2", children: ["Who we are"] },
+    {
+      tag: "p",
+      children: [
+        "We ",
+        { tag: "span", styles: ["italic"], children: ["are"] },
+        " ",
+        { tag: "span", styles: ["bold"], children: ["forty"] },
+        " people.",
+        { tag: "br" },
+        "Since 2012.",
+      ],
+    },
+  ];
+
+  test("what a control made of the document is shown, classed as the page classes its own", () => {
+    const { editing, changes } = begin();
+    editing?.apply(italic, {
+      anchor: { block: 1, offset: 3 },
+      head: { block: 1, offset: 6 },
+    });
+    const copy = editor()!;
+    // The bold word keeps the page's class; the heading and paragraph too.
+    expect(copy.querySelector("h2")!.className).toBe("t");
+    expect(copy.querySelector("p")!.className).toBe("p");
+    const [made, bold] = Array.from(copy.querySelectorAll("span"));
+    expect(bold.className).toBe("font-bold");
+    // No italic word on the page yet to take the class of: shown as one.
+    expect(made.textContent).toBe("are");
+    expect(made.style.fontStyle).toBe("italic");
+    // What was selected still is.
+    expect(document.getSelection()!.toString()).toBe("are");
+    // The Studio made it, so it is not told of it.
+    expect(changes).toEqual([]);
+  });
+
+  test("...and typing goes on from it", () => {
+    const { editing, changes } = begin();
+    editing?.apply(italic, null);
+    typed((copy) => {
+      copy.querySelector("h2")!.firstChild!.nodeValue = "Who we were";
+    });
+    expect(lastOf(changes)).toEqual([
+      { tag: "h2", children: ["Who we were"] },
+      italic[1],
+    ]);
+  });
+
+  test("...and it is drawn again from the page's own element, once that shows it", async () => {
+    const { editing, original } = begin();
+    editing?.apply(italic, {
+      anchor: { block: 1, offset: 3 },
+      head: { block: 1, offset: 6 },
+    });
+    // The page renders the edit, with the class its theme gives italic.
+    original.innerHTML = `<h2 class="t">Who we are</h2><p class="p">We <span class="font-italic">are</span> <span class="font-bold">forty</span> people.<br>Since 2012.</p>`;
+    await told();
+    const made = editor()!.querySelector("span")!;
+    expect(made.className).toBe("font-italic");
+    expect(made.style.fontStyle).toBe("");
+    expect(document.getSelection()!.toString()).toBe("are");
+  });
+
+  test("...but not while more has been typed than the page shows", async () => {
+    const { editing, original } = begin();
+    editing?.apply(italic, null);
+    typed((copy) => {
+      copy.querySelector("h2")!.firstChild!.nodeValue = "Who we were";
+    });
+    original.innerHTML = `<h2 class="t">Who we are</h2><p class="p">We <span class="font-italic">are</span> <span class="font-bold">forty</span> people.<br>Since 2012.</p>`;
+    await told();
+    // The copy is what the person is looking at, and it stays.
+    expect(editor()!.querySelector("h2")!.textContent).toBe("Who we were");
+    expect(editor()!.querySelector("span")!.className).toBe("");
+  });
+
+  test("a paragraph made a heading is a heading, and one made a list is a list", () => {
+    const { editing, changes } = begin();
+    const restructured: InlineRichTextNode[] = [
+      { tag: "h2", children: ["Who we are"] },
+      { tag: "h2", children: ["We are forty people."] },
+      {
+        tag: "ul",
+        children: [
+          { tag: "li", children: [{ tag: "p", children: ["Since 2012."] }] },
+        ],
+      },
+    ];
+    editing?.apply(restructured, null);
+    const copy = editor()!;
+    expect(copy.querySelectorAll("h2")).toHaveLength(2);
+    expect(copy.querySelectorAll("h2")[1].className).toBe("t");
+    expect(copy.querySelector("ul > li > p")!.textContent).toBe("Since 2012.");
+    typed((el) => {
+      el.querySelector("li p")!.firstChild!.nodeValue = "Since 2011.";
+    });
+    expect(lastOf(changes)).toEqual([
+      restructured[0],
+      restructured[1],
+      {
+        tag: "ul",
+        children: [
+          { tag: "li", children: [{ tag: "p", children: ["Since 2011."] }] },
+        ],
+      },
+    ]);
+  });
+
+  test("nothing this cannot edit around is put on the page", () => {
+    const { editing } = begin();
+    const before = editor()!.innerHTML;
+    editing?.apply(
+      [
+        { tag: "script", children: ["alert(1)"] },
+        { tag: "p", children: [] },
+      ],
+      null,
+    );
+    expect(editor()!.innerHTML).toBe(before);
+  });
+
+  test("the focus leaving the PAGE does not end it: the controls are out there", async () => {
+    const root = page(rendered);
+    const onEnd = jest.fn();
+    startInlineEditing(
+      root.firstElementChild!,
+      { path: "body", kind: "richtext", value: body },
+      { color: "#079455", onChange: () => undefined, onEnd },
+    );
+    // To nothing the page can name: the Studio around it, another window.
+    editor()!.blur();
+    await told();
+    expect(onEnd).not.toHaveBeenCalled();
+  });
+
+  test("...and a press elsewhere on the page does, but not one in the text", () => {
+    const root = page(`${rendered}<p id="elsewhere">Elsewhere</p>`);
+    const onEnd = jest.fn();
+    startInlineEditing(
+      root.firstElementChild!,
+      { path: "body", kind: "richtext", value: body },
+      { color: "#079455", onChange: () => undefined, onEnd },
+    );
+    const press = (target: Element) =>
+      target.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    press(editor()!.querySelector("span")!);
+    expect(onEnd).not.toHaveBeenCalled();
+    press(root.querySelector("#elsewhere")!);
+    expect(onEnd).toHaveBeenCalledTimes(1);
   });
 });

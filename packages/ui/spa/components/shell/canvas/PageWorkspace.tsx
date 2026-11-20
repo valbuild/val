@@ -30,6 +30,7 @@ import { CanvasFields } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
+import type { CanvasSelectMode } from "../../../hooks/selectModePreference";
 import type { ContentPlacement } from "../workspace/placePanes";
 import { PaneStrip } from "../workspace/WorkspaceChrome";
 import { ColumnDivider } from "../workspace/ColumnDivider";
@@ -108,6 +109,14 @@ export type PageWorkspaceProps = {
    * shows it as the selected one. See `useFieldShownInColumn`.
    */
   editingCanvasPath?: SourcePath | null;
+  /**
+   * What Content's Select does with a pick (`CanvasSelectMode`), and how to
+   * change it. With `onSelectModeChange`, Select has a menu for it; without
+   * -- Storybook's demo page, which has no page to type on -- it is the one
+   * Select it always was.
+   */
+  selectMode?: CanvasSelectMode;
+  onSelectModeChange?: (mode: CanvasSelectMode) => void;
   /**
    * The route the canvas is showing, and how to change it.
    *
@@ -281,6 +290,8 @@ export function PageWorkspace({
   onSelectCanvasPath,
   selectedCanvasPath,
   editingCanvasPath = null,
+  selectMode,
+  onSelectModeChange,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -556,6 +567,8 @@ export function PageWorkspace({
       // the focus is one the preview will not turn preview mode on in.
       pressed={isPicking && fieldCount > 0}
       onPressedChange={setIsPicking}
+      mode={selectMode}
+      onModeChange={onSelectModeChange}
       unavailable={
         fieldCount > 0
           ? undefined
@@ -564,7 +577,10 @@ export function PageWorkspace({
       label={!compact}
       className={
         compact && isPhone
-          ? "h-[2.125rem] w-[2.125rem] justify-center px-0"
+          ? // With the menu beside it the button is wider than it is tall.
+            onSelectModeChange !== undefined
+            ? "h-[2.125rem]"
+            : "h-[2.125rem] w-[2.125rem] justify-center px-0"
           : undefined
       }
     />

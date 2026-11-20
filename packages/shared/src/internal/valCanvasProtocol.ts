@@ -29,8 +29,13 @@ import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 import {
   isInlineEditCandidate,
   isInlineEditValue,
+  isInlineRichText,
+  isInlineSelection,
   type InlineEditCandidate,
   type InlineEditValue,
+  type InlineRect,
+  type InlineRichTextNode,
+  type InlineSelection,
 } from "./inlineEditing";
 
 /** Marks a page load as the studio's canvas frame. */
@@ -388,6 +393,21 @@ export type ValCanvasPageMessage =
       value: InlineEditValue;
     }
   | {
+      /**
+       * A richtext being edited on the page: what is selected in it, and
+       * where its element is in the page's viewport. The Studio draws its
+       * formatting controls there and has them act on that selection
+       * (`applyInlineEdit`). Sent when either moves.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditSelection";
+      path: SourcePath;
+      selection: InlineSelection | null;
+      rect: InlineRect;
+      /** Where the caret itself is, when the page could say. */
+      caret?: InlineRect | null;
+    }
+  | {
       /** Editing on the page ended: Enter, Esc, or the focus went elsewhere. */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "inlineEditEnded";
@@ -619,6 +639,28 @@ export type ValCanvasStudioMessage =
       candidates: InlineEditCandidate[];
     }
   | {
+      /**
+       * The richtext being edited on the page is now this, with this
+       * selected: what one of the Studio's formatting controls made of it.
+       * The Studio has already written it; the page shows it in the copy
+       * being typed in, and goes on from there.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "applyInlineEdit";
+      /** Which field: as its `editInline` candidate named it. */
+      path: string;
+      value: InlineRichTextNode[];
+      selection: InlineSelection | null;
+    }
+  | {
+      /**
+       * Put the caret back in the text being edited on the page: the focus
+       * was in one of the Studio's controls for it, and is done there.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "focusInlineEdit";
+    }
+  | {
       /** End whatever is being edited on the page: Select was turned off. */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "stopInlineEdit";
@@ -665,7 +707,30 @@ export function isValCanvasPageMessage(
       typeof (data as { path?: unknown }).path === "string" &&
       isInlineEditValue((data as { value?: unknown }).value)) ||
     (message.type === "inlineEditUnavailable" &&
-      typeof (data as { requestId?: unknown }).requestId === "string")
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "inlineEditSelection" && isSelectionReport(data))
+  );
+}
+
+function isSelectionReport(value: object): boolean {
+  const report = value as Record<string, unknown>;
+  return (
+    typeof report.path === "string" &&
+    (report.selection === null || isInlineSelection(report.selection)) &&
+    isRect(report.rect) &&
+    (report.caret === undefined ||
+      report.caret === null ||
+      isRect(report.caret))
+  );
+}
+
+function isRect(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ["top", "left", "width", "height"].every((side) =>
+      Number.isFinite(Reflect.get(value, side)),
+    )
   );
 }
 
@@ -834,6 +899,14 @@ export function isValCanvasStudioMessage(
       edit.candidates.every(isInlineEditCandidate)
     );
   }
+  if (message.type === "applyInlineEdit") {
+    const apply = data as Record<string, unknown>;
+    return (
+      typeof apply.path === "string" &&
+      isInlineRichText(apply.value) &&
+      (apply.selection === null || isInlineSelection(apply.selection))
+    );
+  }
   if (message.type === "readPage") {
     const read = data as Record<string, unknown>;
     return (
@@ -849,6 +922,7 @@ export function isValCanvasStudioMessage(
     message.type === "sourceUpdate" ||
     message.type === "sourcesSynced" ||
     message.type === "stopInlineEdit" ||
+    message.type === "focusInlineEdit" ||
     (message.type === "confirmed" &&
       ((data as { seq?: unknown }).seq === null ||
         typeof (data as { seq?: unknown }).seq === "number"))

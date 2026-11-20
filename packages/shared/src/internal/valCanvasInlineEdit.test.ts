@@ -112,4 +112,56 @@ describe("editing on the page, over the canvas protocol", () => {
     expect(bridgeAnswers(undefined, "editInline")).toBe(false);
     expect(bridgeAnswers(["readPage"], "editInline")).toBe(false);
   });
+
+  const selection = {
+    anchor: { block: 0, offset: 2 },
+    head: { block: 1, offset: 0 },
+  };
+  const rect = { top: 10, left: 20, width: 300, height: 40 };
+
+  test("the page says what is selected in a richtext, and where it is", () => {
+    const report = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "inlineEditSelection",
+      path: body.path,
+      selection,
+      rect,
+    };
+    expect(isValCanvasPageMessage(report)).toBe(true);
+    expect(isValCanvasPageMessage({ ...report, selection: null })).toBe(true);
+    expect(isValCanvasPageMessage({ ...report, caret: rect })).toBe(true);
+    expect(isValCanvasPageMessage({ ...report, caret: null })).toBe(true);
+    for (const wrong of [
+      { rect: undefined },
+      { rect: { ...rect, width: "wide" } },
+      { caret: { top: 1 } },
+      { selection: { anchor: { block: 0, offset: 2 } } },
+      { selection: { ...selection, head: { block: -1, offset: 0 } } },
+      { selection: { ...selection, head: { block: 0, offset: 1.5 } } },
+      { path: undefined },
+    ]) {
+      expect(isValCanvasPageMessage({ ...report, ...wrong })).toBe(false);
+    }
+  });
+
+  test("the studio sends what a control made of the document", () => {
+    const apply = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "applyInlineEdit",
+      path: body.path,
+      value: body.value,
+      selection,
+    };
+    expect(isValCanvasStudioMessage(apply)).toBe(true);
+    expect(isValCanvasStudioMessage({ ...apply, selection: null })).toBe(true);
+    for (const wrong of [
+      { value: "We are forty" },
+      { value: [{ children: ["no tag"] }] },
+      { selection: undefined },
+      { selection: { anchor: { block: 0, offset: 0 } } },
+      { path: undefined },
+    ]) {
+      expect(isValCanvasStudioMessage({ ...apply, ...wrong })).toBe(false);
+    }
+  });
 });

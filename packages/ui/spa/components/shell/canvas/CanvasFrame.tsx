@@ -9,6 +9,9 @@ import {
   type CanvasRequest,
   type InlineEditCandidate,
   type InlineEditValue,
+  type InlineRect,
+  type InlineRichTextNode,
+  type InlineSelection,
   type PageLocation,
   type PageLogLevel,
   type PageLogSnapshot,
@@ -44,6 +47,11 @@ import {
 } from "../../../stores/react/sourceRelay";
 import type { ModuleVersion } from "@valbuild/shared/internal";
 import { unansweredRequestError, type FrameBridge } from "./canvasCapabilities";
+import {
+  INLINE_TOOLBAR_ATTRIBUTE,
+  type InlineEditLocation,
+  type ViewportBox,
+} from "./placeInlineToolbar";
 
 /**
  * How the frame is currently doing.
@@ -177,6 +185,31 @@ export type CanvasFrameProps = {
   /** The page can edit none of what was offered. */
   onInlineEditUnavailable?: (requestId: string) => void;
   /**
+   * What is selected in a richtext being edited on the page: what the
+   * Studio's formatting controls act on.
+   */
+  onInlineEditSelection?: (
+    path: SourcePath,
+    selection: InlineSelection | null,
+  ) => void;
+  /**
+   * What one of those controls made of the document: sent to the page when
+   * `id` changes, to be shown in the text being typed in.
+   */
+  inlineEditApply?: {
+    id: number;
+    path: SourcePath;
+    value: InlineRichTextNode[];
+    selection: InlineSelection | null;
+  } | null;
+  /**
+   * Handed the way to find the text being edited in the Studio's own
+   * viewport, and to put the focus back in it -- and `null` when the frame
+   * goes. The frame is the one that knows: it is scaled and moved, and the
+   * page only knows where things are inside itself.
+   */
+  onInlineEditPlace?: (place: InlineEditPlace | null) => void;
+  /**
    * A two-finger gesture on the page.
    *
    * Relayed rather than observed: a frame keeps its own touches, so nothing the
@@ -242,6 +275,14 @@ export type CanvasFrameProps = {
    * (`quickPreview`), and `null` when the frame goes.
    */
   onQuickPreviewStorer?: (store: QuickPreviewStorer | null) => void;
+};
+
+/** Where the text being edited on the page is, and how to get back to it. */
+export type InlineEditPlace = {
+  /** `null` while the page has not said, or nothing is being edited. */
+  locate: () => InlineEditLocation | null;
+  /** Put the focus back in the page, where the caret is. */
+  focus: () => void;
 };
 
 /** Store a quick preview's files at the page's origin: see `quickPreview.ts`. */
@@ -315,6 +356,9 @@ export function CanvasFrame({
   onInlineEdit,
   onInlineEditEnded,
   onInlineEditUnavailable,
+  onInlineEditSelection,
+  inlineEditApply = null,
+  onInlineEditPlace,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -375,6 +419,11 @@ export function CanvasFrame({
    * say an edit ended with its document, never rendered.
    */
   const inlineEditing = useRef<SourcePath | null>(null);
+  /** Where the page last said that text and its caret are, inside itself. */
+  const inlineRects = useRef<{
+    rect: InlineRect;
+    caret: InlineRect | null;
+  } | null>(null);
 
   /*
    * The document the frame holds, which follows the one asked for
@@ -498,6 +547,7 @@ export function CanvasFrame({
         const cutShort = inlineEditing.current;
         if (cutShort !== null) {
           inlineEditing.current = null;
+          inlineRects.current = null;
           onInlineEditEnded?.(cutShort);
         }
         setState({
@@ -565,8 +615,16 @@ export function CanvasFrame({
       } else if (message.type === "inlineEditEnded") {
         if (inlineEditing.current === message.path) {
           inlineEditing.current = null;
+          inlineRects.current = null;
         }
         onInlineEditEnded?.(message.path);
+      } else if (message.type === "inlineEditSelection") {
+        if (inlineEditing.current !== message.path) return;
+        inlineRects.current = {
+          rect: message.rect,
+          caret: message.caret ?? null,
+        };
+        onInlineEditSelection?.(message.path, message.selection);
       } else if (message.type === "inlineEditUnavailable") {
         onInlineEditUnavailable?.(message.requestId);
       } else if (message.type === "pageLogRead") {
@@ -597,6 +655,7 @@ export function CanvasFrame({
     onInlineEdit,
     onInlineEditEnded,
     onInlineEditUnavailable,
+    onInlineEditSelection,
     onPinch,
     onZoom,
     onRefreshingChange,
@@ -847,6 +906,83 @@ export function CanvasFrame({
       send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
     }
   }, [send, isPicking]);
+
+  // What one of the Studio's formatting controls made of the text.
+  const applyId = inlineEditApply?.id ?? null;
+  const applying = useRef(inlineEditApply);
+  applying.current = inlineEditApply;
+  useEffect(() => {
+    const apply = applying.current;
+    if (applyId === null || apply === null) return;
+    if (inlineEditing.current !== apply.path) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "applyInlineEdit",
+      path: apply.path,
+      value: apply.value,
+      selection: apply.selection,
+    });
+  }, [send, applyId]);
+
+  /*
+   * A press anywhere in the Studio but on those controls ends the edit.
+   *
+   * The page no longer ends it when the focus leaves for the Studio -- it
+   * cannot tell the controls from the rest (`onFocusOut` in
+   * `inlineEditing.ts`) -- so the Studio says. On `window`, capturing, and
+   * by the composed path: the Studio is in a shadow root, and from outside
+   * it every press looks like a press on its host.
+   */
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (inlineEditing.current === null) return;
+      const onControls = event
+        .composedPath()
+        .some(
+          (target) =>
+            target instanceof Element &&
+            target.hasAttribute(INLINE_TOOLBAR_ATTRIBUTE),
+        );
+      if (onControls) return;
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [send]);
+
+  const locateInlineEdit = useCallback((): InlineEditLocation | null => {
+    const frame = frameRef.current;
+    const at = inlineRects.current;
+    if (frame === null || at === null || inlineEditing.current === null) {
+      return null;
+    }
+    const box = frame.getBoundingClientRect();
+    // The frame is laid out at the page's own size and then scaled: what
+    // the page measured in its pixels is that many of these.
+    const scale = frame.offsetWidth > 0 ? box.width / frame.offsetWidth : 1;
+    const inStudio = (rect: InlineRect): ViewportBox => ({
+      top: box.top + rect.top * scale,
+      left: box.left + rect.left * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    });
+    return {
+      field: inStudio(at.rect),
+      caret: at.caret === null ? null : inStudio(at.caret),
+      clip: visibleBox(frame),
+    };
+  }, []);
+  const focusFrame = useCallback(() => {
+    // The frame, and then the text in it: a document that lost the focus
+    // to the one around it has forgotten which of its elements had it.
+    frameRef.current?.contentWindow?.focus();
+    send({ val: VAL_CANVAS_MESSAGE, type: "focusInlineEdit" });
+  }, [send]);
+  useEffect(() => {
+    if (onInlineEditPlace === undefined) return;
+    onInlineEditPlace({ locate: locateInlineEdit, focus: focusFrame });
+    return () => onInlineEditPlace(null);
+  }, [onInlineEditPlace, locateInlineEdit, focusFrame]);
 
   // Whole, every time, and again for every new document: a reload starts the
   // page's picker afresh.
@@ -1119,4 +1255,41 @@ export function CanvasFrame({
 function enableUrlOf(frameSrc: string): string {
   const redirectTo = new URL(frameSrc, window.origin).toString();
   return `/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
+}
+
+/**
+ * The part of an element that is on screen: its box, cut down by every
+ * ancestor that clips what overflows it, and by the window.
+ *
+ * The frame is scaled and panned inside the preview's pane, so its own box
+ * can reach under the Studio's column or past the pane's edge. Controls
+ * placed by that box would be drawn over the column, or cut off.
+ */
+function visibleBox(element: Element): ViewportBox {
+  const box = element.getBoundingClientRect();
+  let top = Math.max(box.top, 0);
+  let left = Math.max(box.left, 0);
+  let bottom = Math.min(box.bottom, window.innerHeight);
+  let right = Math.min(box.right, window.innerWidth);
+  for (
+    let ancestor = element.parentElement;
+    ancestor !== null;
+    ancestor = ancestor.parentElement
+  ) {
+    const style = getComputedStyle(ancestor);
+    if (style.overflowX === "visible" && style.overflowY === "visible") {
+      continue;
+    }
+    const clip = ancestor.getBoundingClientRect();
+    top = Math.max(top, clip.top);
+    left = Math.max(left, clip.left);
+    bottom = Math.min(bottom, clip.bottom);
+    right = Math.min(right, clip.right);
+  }
+  return {
+    top,
+    left,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
 }
