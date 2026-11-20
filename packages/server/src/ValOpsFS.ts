@@ -1,4 +1,10 @@
 import {
+  isMediaFilePath,
+  isPublicFilePath,
+  isSafePatchId,
+  MEDIA_FILE_PATH_ACCEPTS,
+} from "./safeFilePath";
+import {
   PatchId,
   ModuleFilePath,
   ValModules,
@@ -1006,6 +1012,17 @@ export class ValOpsFS extends ValOps {
     //
     // Staging is what makes that state unreachable rather than tolerated. See
     // `uploadsDir`.
+    // Both are joined onto the patches directory below. See `safeFilePath`.
+    if (!isSafePatchId(patchId)) {
+      return { error: { message: "Not a valid patch id." } };
+    }
+    if (!isMediaFilePath(filePath)) {
+      return {
+        error: {
+          message: `Cannot store a file at '${filePath}'. ${MEDIA_FILE_PATH_ACCEPTS}`,
+        },
+      };
+    }
     const patchesDir = this.getPatchesDir();
     const patchFilePath = stagedPatchBinaryFile(patchesDir, patchId, filePath);
     const metadataFilePath = stagedPatchBinaryFileMetadata(
@@ -1114,6 +1131,9 @@ export class ValOpsFS extends ValOps {
   ): Promise<Buffer | null> {
     // Straight from the id. This used to read and parse every patch on disk to
     // work out which directory the file was under, on every single image request.
+    if (!isSafePatchId(patchId) || !isMediaFilePath(filePath)) {
+      return null;
+    }
     const patchesDir = this.getPatchesDir();
     const absPath = this.wherePatchFileIs(
       patchBinaryFile(patchesDir, patchId, filePath),
@@ -1347,6 +1367,16 @@ export class ValOpsFS extends ValOps {
     for (const [ref, { patchId }] of localFileDescriptors) {
       const filePath = ref;
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
+      // A publish writes uploaded files under /public and nowhere else.
+      // `createPatch` refuses any other path, so this is for a patch that was
+      // already on disk, or put there by hand.
+      if (!isPublicFilePath(filePath) || !isSafePatchId(patchId)) {
+        errors[absPath] = {
+          message: `Not written: '${filePath}' is not under /public.`,
+          filePath,
+        };
+        continue;
+      }
       try {
         this.host.copyFile(
           patchBinaryFile(this.getPatchesDir(), patchId, filePath),
@@ -1408,6 +1438,9 @@ export class ValOpsFS extends ValOps {
   ): Promise<BinaryFileReader | null> {
     let absPath: string | null;
     if (fromPatch) {
+      if (!isSafePatchId(fromPatch.patchId) || !isMediaFilePath(filePath)) {
+        return null;
+      }
       const patchesDir = this.getPatchesDir();
       absPath = this.wherePatchFileIs(
         patchBinaryFile(patchesDir, fromPatch.patchId, filePath),

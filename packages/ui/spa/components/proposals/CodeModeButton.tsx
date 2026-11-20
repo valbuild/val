@@ -273,7 +273,9 @@ export function CodeModeButton({
         disabled={disabled}
         onClick={codeMode.onOpenSiteCode}
         className={cn(
-          "inline-flex h-full items-center rounded-md border border-border-float px-2 text-fg-secondary",
+          // The size of the `</>` in a proposal: it stands alone in the bar,
+          // with no menu's container to take its height from.
+          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border-float text-fg-secondary",
           "hover:bg-bg-float-raised hover:text-fg-primary",
           "disabled:cursor-progress disabled:opacity-60",
         )}

@@ -1726,3 +1726,26 @@ row being typed in was gone. `examples/tanstack/vite.config.ts` lists them in
 back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
 see it. An app that installs Val from npm is not affected:
 `@valbuild/tanstack` is pre-bundled there, with what it imports lazily.
+
+## fs mode refuses requests that are not the Studio's own
+
+Symptom: every `/api/val` request answers 403 in local dev, with a message
+naming `VAL_ALLOWED_HOSTS`, or one about another site, or one about
+`VAL_API_KEY` and `VAL_SECRET`.
+
+fs mode has no sign-in, so `requestGuard.ts` decides which requests it answers
+at all, before any route:
+
+- `NODE_ENV=production` with no credentials: refused. `next build && next
+start` (or `vite preview`) of an app in fs mode is this case, so a production
+  build tried locally has no Studio. Set the credentials, or use the dev server.
+- An `Origin` that is neither `Host` nor `X-Forwarded-Host`: refused. A proxy
+  that rewrites `Host` without setting `X-Forwarded-Host` looks like this.
+- A `Host` that is not `localhost`, `*.localhost` or an IP address: refused,
+  unless it is in `VAL_ALLOWED_HOSTS` (comma separated, no port). That is DNS
+  rebinding, and it is also `my-app.test` in `/etc/hosts`.
+
+`/analytics` is exempt (a beacon writes nothing in fs mode), and so are the
+Studio's static files. http and memory mode are not checked here: they have a
+session. The MCP endpoint has its own, stricter, copy of the rule in
+`@valbuild/mcp`.
