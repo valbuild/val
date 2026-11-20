@@ -1,5 +1,45 @@
 # @valbuild/ui
 
+## 0.154.0
+
+### Minor Changes
+
+- [#895](https://github.com/valbuild/val/pull/895) [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834) Thanks [@freekh](https://github.com/freekh)! - Set a hosted project's variables and secrets from the Studio: **Settings › Variables**.
+
+  The tab shows Val Build's own `<val-env-vars>` for a project connected to Val Build, the same panel as the project's **Variables** page in Val Build:
+
+  - **Variables** are configuration, such as an API's address or a feature flag. Their values are shown and edited in place. Names starting with `PUBLIC_` reach the browser as `import.meta.env.NAME`; every variable is `process.env.NAME` on the server.
+  - **Secrets** are credentials. A secret is sealed in the browser it is typed into before it is sent, and nobody can read it back. On the server it is `process.env.NAME`; it never reaches the browser.
+
+  A change is live on the site within a minute, with no build. Owners and developers can change them; everyone in the project can see the variables and the secrets' names. A project on its own hosting is told to set them at its host.
+
+### Patch Changes
+
+- [#1060](https://github.com/valbuild/val/pull/1060) [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea) Thanks [@freekh](https://github.com/freekh)! - The assistant can now use the page in the preview, not only read it. A new `interact_page` tool opens a path on the site, clicks an element, types into a field, presses a key (Enter, Escape, Tab, the arrows), or shows the page at phone, tablet or desktop width — and answers with the page as it is afterwards: it waits for the page to settle (no changes and no requests in flight for a moment, at most 15 seconds), then gives the page's outline, whether the address or title changed, and what the page logged as going wrong since. When the page is still busy after that, the answer says so instead of describing it as finished. The assistant is told to use it to check its own changes: after a quick preview or a build, open the route, try what changed, and read the log.
+
+  The preview is the real site, talking to its real backend. What is enforced:
+
+  - **Every click, and every Enter or Space, asks you first.** A card in the chat — written by the Studio, not the assistant — names the element as the page shows it (its label, what it is, the page it is on, and whether Enter would submit its form), and nothing reaches the page until you allow it. Allow does exactly that, once, on that element; if the element changed in the meantime, you are asked again.
+  - **While the assistant types, presses other keys, or waits for a page it opened or resized to settle,** requests the page makes with any method but `GET`, `HEAD` and `OPTIONS` are held until the page settles, and a card shows each one — its method, its address and an excerpt of what it sends. Allow sends exactly those, as they were; Don't allow, or stopping the answer, drops them and the page sees them fail.
+  - **Sends of data to another site** (`POST`, `PUT`, `PATCH`, `DELETE`, forms, beacons) are refused, and so are links and forms that go to another site or open a new window. It never types into a password field.
+  - After a web search in the same answer, the assistant asks before it uses the preview at all.
+
+  What is **not** covered:
+
+  - requests a page sends while it loads, after `open` or after any navigation, and requests sent later on their own (an autosave after a delay);
+  - requests made through a `fetch` or `XMLHttpRequest` the page's code captured before the action (some libraries do this), and XHRs opened before it;
+  - `GET`, `HEAD` and `OPTIONS` requests — a `GET` to another site can still carry data in its address — and image or script loads;
+  - WebSockets, workers and embedded frames;
+  - script navigations and redirects, which can still leave the site; and plain links, which can have side effects of their own, such as a logout or unsubscribe link.
+
+  The ask-first rule is `interact_page`'s, not the whole session's: `quick_preview` runs code the assistant wrote in the preview, and what that code does is not asked about.
+
+  Reading pages needs no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.
+
+- [#961](https://github.com/valbuild/val/pull/961) [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e) Thanks [@freekh](https://github.com/freekh)! - An upgrade proposal no longer lists packages as `6.0.3 → 6.0.3`. When an upgrade only raises a package's version range (pnpm moves `^6.0.2` up to `^6.0.3` when 6.0.3 is already installed), the list now reads `typescript range ^6.0.2 → ^6.0.3`. And the notice names Val's version only when Val's version moved, instead of "This proposal upgrades Val 0.150.0 → 0.150.0".
+
 ## 0.153.6
 
 ### Patch Changes
