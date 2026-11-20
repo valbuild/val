@@ -4,6 +4,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import { storesReceived } from "../intake";
 import { encodeJwt, getExpire } from "../../packages/server/src/jwt";
 import {
   HTTP_APP_PORT,
@@ -180,19 +181,10 @@ async function openHttpStudioOn(
 
   await page.goto(route);
   await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: INTAKE_TIMEOUT,
-        message: "the store system never took the project in",
-      },
-    )
+    .poll(() => storesReceived(page), {
+      timeout: INTAKE_TIMEOUT,
+      message: "the store system never took the project in",
+    })
     .toBe(true);
   await expect
     .poll(() => sockets, {
