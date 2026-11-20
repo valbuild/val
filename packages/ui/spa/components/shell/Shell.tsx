@@ -277,6 +277,14 @@ export type ShellProps = {
    */
   onAutoSaveChange?: (autoSave: boolean) => void;
   /**
+   * Whether a text picked on the page is edited there (a beta): see
+   * `useCanvasInlineEdit`. A prop for the reason `autoSave` is one: it is
+   * persisted, and the canvas that acts on it is the app's, not the shell's.
+   */
+  inlineEditing?: boolean;
+  /** Absent hides the setting: a shell with no page to edit on. */
+  onInlineEditingChange?: (inlineEditing: boolean) => void;
+  /**
    * Show source paths beside fields.
    *
    * A prop, not state, and no longer a setting. It used to be a "Dev mode"
@@ -327,6 +335,8 @@ export type ShellProps = {
   canvasPaths?: PageWorkspaceProps["canvasPaths"];
   onSelectCanvasPath?: PageWorkspaceProps["onSelectCanvasPath"];
   selectedCanvasPath?: PageWorkspaceProps["selectedCanvasPath"];
+  /** The field being typed in on the page. See `PageWorkspaceProps`. */
+  editingCanvasPath?: PageWorkspaceProps["editingCanvasPath"];
   /** The canvas's address bar. See `PageWorkspaceProps`. */
   canvasRoute?: PageWorkspaceProps["canvasRoute"];
   onCanvasRouteChange?: PageWorkspaceProps["onCanvasRouteChange"];
@@ -709,6 +719,8 @@ export function Shell({
   onRetrySave,
   autoSave = false,
   onAutoSaveChange,
+  inlineEditing = false,
+  onInlineEditingChange,
   isDevMode = true,
   pendingChanges = 12,
   reviewCount,
@@ -722,6 +734,7 @@ export function Shell({
   canvasPaths,
   onSelectCanvasPath,
   selectedCanvasPath,
+  editingCanvasPath,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -1972,6 +1985,7 @@ export function Shell({
             canvasPaths={canCanvas ? canvasPaths : undefined}
             onSelectCanvasPath={onSelectCanvasPath}
             selectedCanvasPath={selectedCanvasPath}
+            editingCanvasPath={canCanvas ? editingCanvasPath : undefined}
             canvasRoute={canCanvas ? canvasRoute : undefined}
             onCanvasRouteChange={onCanvasRouteChange}
             canvasRoutes={canvasRoutes}
@@ -2413,6 +2427,8 @@ export function Shell({
             admin={data.admin}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
+            inlineEditing={inlineEditing}
+            onInlineEditingChange={onInlineEditingChange}
             branch={data.branch}
             /**
              * No deploy feed in dev.

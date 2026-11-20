@@ -58,6 +58,14 @@ export type AccountPanelProps = {
   autoSave: boolean;
   /** Absent where there is nothing to auto save to: the demo. */
   onAutoSaveChange?: (autoSave: boolean) => void;
+  /**
+   * Whether a text picked on the page is edited there, in the preview (a
+   * beta). One person's, on one machine, like the theme: here, not in the
+   * project's settings.
+   */
+  inlineEditing?: boolean;
+  /** Absent where there is no preview to edit on, and the setting goes. */
+  onInlineEditingChange?: (inlineEditing: boolean) => void;
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
@@ -124,6 +132,8 @@ export function AccountPanel({
   mode,
   autoSave,
   onAutoSaveChange,
+  inlineEditing = false,
+  onInlineEditingChange,
   branch,
   deployments,
   onSignOut,
@@ -241,6 +251,15 @@ export function AccountPanel({
               description="Write changes to the working tree on a pause in typing."
               checked={autoSave}
               onChange={onAutoSaveChange}
+            />
+          )}
+          {onInlineEditingChange && (
+            <SettingsToggle
+              label="Edit on the page"
+              badge="Beta"
+              description="With Select on, a click on a text in the preview puts the caret in it there. Everything else still opens here."
+              checked={inlineEditing}
+              onChange={onInlineEditingChange}
             />
           )}
           {branch && (
@@ -364,11 +383,14 @@ function AdminLink({
 
 function SettingsToggle({
   label,
+  badge,
   description,
   checked,
   onChange,
 }: {
   label: string;
+  /** A word beside the label: what stage the setting is at. */
+  badge?: string;
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -381,7 +403,14 @@ function SettingsToggle({
         className="mt-0.5 w-3.5 h-3.5 shrink-0"
       />
       <span className="min-w-0">
-        <span className="block text-xs text-fg-primary">{label}</span>
+        <span className="flex items-center gap-1.5 text-xs text-fg-primary">
+          {label}
+          {badge !== undefined && (
+            <span className="rounded border border-border-float px-1 text-[0.625rem] font-medium uppercase tracking-wide text-fg-secondary">
+              {badge}
+            </span>
+          )}
+        </span>
         <span className="block text-[0.6875rem] text-fg-secondary-alt">
           {description}
         </span>

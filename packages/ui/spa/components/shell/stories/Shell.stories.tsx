@@ -422,6 +422,8 @@ function ShellHarness({
    * dev-server setting.
    */
   const [autoSave, setAutoSave] = useState(false);
+  // The beta's setting, in the Account panel: see `AccountPanel`.
+  const [inlineEditing, setInlineEditing] = useState(false);
   const full = empty ? emptyShellData : mockShellData;
   // A project of nothing but content files: no `s.router`, no `s.imagedir()`.
   // The shell answers by showing one destination instead of three.
@@ -556,6 +558,8 @@ function ShellHarness({
       mode={mode}
       autoSave={autoSave}
       onAutoSaveChange={setAutoSave}
+      inlineEditing={inlineEditing}
+      onInlineEditingChange={setInlineEditing}
       isLoading={isLoading}
       loadError={loadError || undefined}
       initialDeploymentsOpen={deploymentsOpen}

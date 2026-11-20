@@ -167,6 +167,16 @@ describe("the canvas bridge, looked at from the Studio", () => {
         },
         answer: "quickPreviewStored",
       },
+      editInline: {
+        // Nothing offered, so nothing to edit: said, not left unanswered.
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "editInline",
+          requestId: "e1",
+          candidates: [],
+        },
+        answer: "inlineEditUnavailable",
+      },
     };
     for (const request of BRIDGE_CAPABILITIES) {
       tell(asks[request].ask);
