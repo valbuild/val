@@ -60,6 +60,14 @@ async function loadBuilder(): Promise<
       import("@valbuild/tanstack-build"),
       import("@valbuild/tanstack-build/node"),
     ]);
+    /*
+     * Native rolldown rather than its WebAssembly build, whose glue the site's
+     * lockfile picks and can break (`rolldown.ts` in tanstack-build). Asked
+     * for, because the project's own tanstack-build may predate the choice.
+     */
+    if ("useRolldown" in build && "nativeRolldown" in node) {
+      build.useRolldown(node.nativeRolldown);
+    }
     return { status: "ok", build, node };
   } catch (e) {
     return {
@@ -71,6 +79,97 @@ async function loadBuilder(): Promise<
         "    npm install --save-dev @valbuild/tanstack-build rolldown @tanstack/router-generator @tanstack/router-plugin\n\n" +
         "or publish a build made elsewhere with --artifacts <dir>.",
     };
+  }
+}
+
+/**
+ * Whether `val publish` could build here: the builder loaded as a publish
+ * loads it, and its bundler made to parse and bundle a module. Nothing is
+ * read from the project and nothing is asked of content.
+ *
+ * What Val Build runs on an upgrade's install before a connected project
+ * may publish it, since the project's CI is what builds a connected publish:
+ * an upgrade that resolved a bundler which cannot load would otherwise land
+ * on the branch and fail every build after it (architecture/quirks.md,
+ * 2026-10-26).
+ */
+export async function checkBuildTools(): Promise<
+  { status: "ok" } | { status: "error"; message: string }
+> {
+  const loaded = await loadBuilder();
+  if (loaded.status === "error") return loaded;
+  try {
+    // A builder older than `loadRolldown` loaded its bundler on import.
+    if (!("loadRolldown" in loaded.build)) return { status: "ok" };
+    const { build, parseAstAsync } = await loaded.build.loadRolldown();
+    await parseAstAsync("export const checked = true;");
+    const ENTRY = "\0val-check-build-tools";
+    await build({
+      input: ENTRY,
+      cwd: "/",
+      write: false,
+      plugins: [
+        {
+          name: "val-check-build-tools",
+          resolveId: (id) => (id === ENTRY ? id : null),
+          load: (id) => (id === ENTRY ? "export default 1;" : null),
+        },
+      ],
+    });
+    return { status: "ok" };
+  } catch (e) {
+    return {
+      status: "error",
+      message: `rolldown loaded, and could not build: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+/**
+ * The `@valbuild/ui` this checkout runs: the one its `@valbuild/tanstack`
+ * resolves, which is a transitive dependency pnpm does not hoist -- so it is
+ * looked for FROM that package, and only then from the project itself. `null`
+ * when neither has one installed.
+ *
+ * Handed to `wireUp`, which declares `@valbuild/ui` for a project that does
+ * not and can only see source files.
+ */
+export function installedStudioVersion(root: string): string | null {
+  const tanstack = installedPackageDir(root, "@valbuild/tanstack");
+  const ui =
+    (tanstack ? installedPackageDir(tanstack, "@valbuild/ui") : null) ??
+    installedPackageDir(root, "@valbuild/ui");
+  if (ui === null) return null;
+  try {
+    const manifest: unknown = JSON.parse(
+      fs.readFileSync(path.join(ui, "package.json"), "utf8"),
+    );
+    return typeof manifest === "object" &&
+      manifest !== null &&
+      "version" in manifest &&
+      typeof manifest.version === "string"
+      ? manifest.version
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where `name` is installed as Node would find it from `from`: in the nearest
+ * `node_modules` upward, through pnpm's symlinks. Walked by hand rather than
+ * with `require.resolve`, which a test runner replaces with its own resolver.
+ */
+function installedPackageDir(from: string, name: string): string | null {
+  let dir = path.resolve(from);
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", name);
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      return fs.realpathSync(candidate);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
@@ -254,12 +353,14 @@ export async function buildArtifacts(options: {
      * same thing for a record that is already wired.
      */
     const { sources: onDisk, assets } = readProjectFiles(root, builder.isAsset);
+    const studioVersion = installedStudioVersion(root);
     const wiring =
       builder.isValProject(onDisk) && !builder.isWired(onDisk)
         ? builder.wireUp(onDisk, {
             project: options.project,
             loader: options.contentHost,
             ...(options.git ? { git: options.git } : {}),
+            ...(studioVersion ? { studioVersion } : {}),
           })
         : null;
     // Less the one about the layer, which is the thing this goes on to build.

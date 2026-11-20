@@ -105,6 +105,70 @@ test.describe("analytics mode, for a visitor", () => {
     expect(problems.logged, "console errors").toEqual([]);
   });
 
+  test("on a long page, what was scrolled to is viewed and what was not is rendered only", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
+    });
+    const beacons: {
+      route: string;
+      rendered: Record<string, string[]>;
+      viewed: Record<string, string[]>;
+    }[] = [];
+    page.on("request", (request) => {
+      if (
+        request.url().endsWith("/api/val/analytics") &&
+        request.method() === "POST"
+      ) {
+        beacons.push(request.postDataJSON());
+      }
+    });
+    await page.goto("/showcase");
+    await expect.poll(() => beacons.length).toBeGreaterThan(0);
+
+    // Content well below the fold: two screens down at least. One path, so
+    // the beacon's entry for it is exactly this element's.
+    const below = await page.evaluate(() => {
+      const fold = window.innerHeight * 2;
+      const found = [...document.querySelectorAll("[data-val-path]")]
+        .filter((element) => {
+          const path = element.getAttribute("data-val-path") ?? "";
+          return (
+            path.includes("?p=") &&
+            !path.includes(",") &&
+            element.getBoundingClientRect().top > fold
+          );
+        })
+        .pop();
+      if (found === undefined) return null;
+      found.setAttribute("data-e2e-below", "");
+      return found.getAttribute("data-val-path");
+    });
+    expect(below, "content two screens below the fold").not.toBeNull();
+    const [module, path] = (below ?? "").split("?p=");
+    const first = beacons[0];
+    expect(first.route).toBe("/showcase");
+    expect(first.rendered[module]).toContain(path);
+    expect(first.viewed[module] ?? []).not.toContain(path);
+
+    // Scrolled to, and left on screen for longer than it takes to count.
+    await page.locator("[data-e2e-below]").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1_500);
+    // A navigation ends the page view, and sends what it was still holding.
+    await page.getByRole("link", { name: "Home" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect
+      .poll(() =>
+        beacons.some(
+          (beacon) =>
+            beacon.route === "/showcase" &&
+            (beacon.viewed[module] ?? []).includes(path),
+        ),
+      )
+      .toBe(true);
+  });
+
   test("a client-side navigation is a page view of its own", async ({
     page,
   }) => {

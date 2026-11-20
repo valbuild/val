@@ -231,6 +231,13 @@ export function SortableList({
 
 export const LIST_ITEM_MAX_HEIGHT = 170;
 
+/**
+ * How many lines a card in a list gives an item with no `.preview()` — the
+ * field dump in `ObjectLikePreview`. Four lines of `leading-4` with `gap-y-1`
+ * is 76px: a card you scan, rather than the item printed out.
+ */
+export const CARD_MAX_FIELDS = 4;
+
 export function SortableItemRow({
   id,
   path,
@@ -285,7 +292,7 @@ export function SortableItemRow({
         {...attributes}
         {...listeners}
         className={cn(
-          "pb-1 pr-2 rounded-sm text-fg-secondary hover:text-fg-primary",
+          "flex-shrink-0 pb-1 pr-2 rounded-sm text-fg-secondary hover:text-fg-primary",
           // Keyboard reordering STARTS here — dnd-kit gives the handle
           // `tabIndex=0` — so it needs the same focus ring as every other
           // control, not the browser default.
@@ -306,7 +313,11 @@ export function SortableItemRow({
       </button>
       <button
         className={cn(
-          "flex-grow",
+          // `min-w-0`: a flex item is otherwise at least as wide as its
+          // content, so one long string made the card as wide as the whole
+          // text and pushed the menu beside it off the screen — the
+          // `truncate` inside never got a width to truncate to.
+          "flex-grow min-w-0",
           "relative flex text-left border rounded-lg border-border-primary gap-y-2 bg-bg-primary",
           "hover:bg-bg-secondary-hover",
           "overflow-y-clip",
@@ -320,7 +331,11 @@ export function SortableItemRow({
           onClick(path);
         }}
       >
-        <RefPreview path={path} className="flex-grow w-full" />
+        <RefPreview
+          path={path}
+          className="flex-grow w-full"
+          maxFields={CARD_MAX_FIELDS}
+        />
         {isTruncated && (
           /*
            * The fade into the row's own background, so a clipped preview does
@@ -349,7 +364,7 @@ export function SortableItemRow({
       <Popover>
         <PopoverTrigger
           className={cn(
-            "flex hover:bg-bg-secondary-hover px-2 hover:rounded-lg",
+            "flex flex-shrink-0 hover:bg-bg-secondary-hover px-2 hover:rounded-lg",
             {
               "items-start mt-4": !centerGripAndDeleteIcons,
               "items-center py-2": centerGripAndDeleteIcons,

@@ -1,0 +1,5 @@
+{
+  "title": "FAQ",
+  "body": "Frequently asked questions about Val. Each support page is its own *.val.json so the router scales to many pages.",
+  "order": 2
+}

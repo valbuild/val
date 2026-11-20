@@ -7,6 +7,7 @@ import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 import { ValScript } from "./ValScript";
 import type { ValDemoOptions, ValDemoRuntime } from "@valbuild/shared/internal";
 import { startDemoRelay } from "./demo/demoRelayHost";
+import { VERSION } from "./version";
 
 /**
  * How often the embedded Studio announces itself to the opener.
@@ -57,9 +58,9 @@ export const ValApp = ({
    * Set it from the build -- `demo={import.meta.env.VITE_VAL_DEMO === "true"}`
    * -- never from anything a visitor controls.
    *
-   * Options instead of `true` give the demo a tour of the site's own:
-   * `demo={{ tour }}`, steps written as data (`ValDemoTourStep`), so what it
-   * says changes with the site rather than with a Val release.
+   * Options instead of `true` give the demo tours of the site's own:
+   * `demo={{ tours, audiences }}`, written as data (`ValDemoOptions`), so what
+   * they say changes with the site rather than with a Val release.
    */
   demo?: boolean | ValDemoOptions;
 }) => {
@@ -199,7 +200,9 @@ export const ValApp = ({
       >
         <style>
           {`.${valPrefixedClass}animate-spin {
+  display: inline-flex;
   animation: ${valPrefixedClass}spin 2s linear infinite;
+  will-change: transform;
 }
 @keyframes ${valPrefixedClass}spin {
   0% {
@@ -210,20 +213,23 @@ export const ValApp = ({
   }
 }`}
         </style>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn(["animate-spin"])}
-        >
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
+        {/* The span spins, not the SVG: Safari wobbles a spinning SVG that
+            sits at a fractional pixel offset, which centring produces. */}
+        <span className={cn(["animate-spin"])}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        </span>
       </div>
     );
   if (isClientSIde && loadingScreen !== null) {
@@ -307,13 +313,20 @@ function useDemoServer(
           retryable: false,
         };
       }
-      const fetch = createInTabValFetch(modules, { config });
+      const fetch = createInTabValFetch(modules, {
+        config,
+        ...(VERSION !== null
+          ? { framework: { name: "tanstack", version: VERSION } }
+          : {}),
+      });
       const uploads = await startDemoRelay(fetch);
-      const tour = optionsRef.current?.tour;
+      const { tour, tours, audiences } = optionsRef.current ?? {};
       const runtime: ValDemoRuntime = {
         fetch,
         uploads,
         ...(tour ? { tour } : {}),
+        ...(tours ? { tours } : {}),
+        ...(audiences ? { audiences } : {}),
       };
       window.__VAL_DEMO__ = runtime;
       return { status: "ready" };

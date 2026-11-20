@@ -13,6 +13,8 @@ import { isJsonArray } from "../utils/isJsonArray";
 export type ThemeSettings = {
   /** A hex string, or `null` for Val's own green. Not validated here — see below. */
   accent: string | null;
+  /** A hex string, or `null` for Val's violet. Checked where `accent` is. */
+  proposal: string | null;
   radius: ThemeRadius | null;
   /** The project's default, which never overrides an editor's own choice. */
   mode: "dark" | "light" | null;
@@ -29,6 +31,7 @@ export type ThemeSettings = {
 
 export const NO_THEME_SETTINGS: ThemeSettings = {
   accent: null,
+  proposal: null,
   radius: null,
   mode: null,
   logo: null,
@@ -54,6 +57,7 @@ export function readThemeSettings(source: Json | undefined): ThemeSettings {
   }
   return {
     accent: nonEmptyString(theme["accent"]),
+    proposal: nonEmptyString(theme["proposal"]),
     radius: radiusOrNull(theme["radius"]),
     mode: modeOrNull(theme["mode"]),
     logo: logoOrNull(theme["logo"]),

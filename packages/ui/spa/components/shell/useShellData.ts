@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { ModuleFilePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { localeOfModuleRoot, localeScopeAt } from "@valbuild/shared/internal";
 import { useNavMenuData } from "../NavMenu/useNavMenuData";
 import {
   useCommittedPatches,
@@ -15,7 +16,13 @@ import {
   useValMode,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
+import {
+  useAllSources,
+  useFilePatchIds,
+  useSchemas,
+  useValConfig,
+} from "../ValFieldProvider";
+import { useProjectLocales } from "../../hooks/useProjectLocales";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
 import { useValBuildAccess } from "./useValBuildAccess";
@@ -121,6 +128,25 @@ export function useShellData(): ShellDataState {
     [externalPath, mediaPaths],
   );
   const records = useShallowModulesAtPaths(recordPaths, "record");
+  const recordData = records.status === "success" ? records.data : null;
+
+  /**
+   * Every gallery's files, sorted by name: a memo of its own, moved only by
+   * the galleries' own source.
+   *
+   * It was part of the one below, which moves with the patch list and the
+   * validation errors -- so every keystroke anywhere listed and sorted every
+   * library again, 10,000 files each, and a page that only pointed at three
+   * of them froze for a tenth of a second per character.
+   */
+  const mediaFiles = useMemo(
+    () =>
+      (recordData?.slice(externalPath ? 1 : 0) ?? []).map((record) => ({
+        itemCount: countKeys(record),
+        files: toMediaFiles(record),
+      })),
+    [recordData, externalPath],
+  );
 
   // Which modules have unpublished work. Patch sets are keyed by module, so
   // one pass gives the draft marker for every row in the navigation.
@@ -145,6 +171,44 @@ export function useShellData(): ShellDataState {
    */
   const proposalBranch = useCurrentProposal()?.branch ?? null;
 
+  /*
+   * Which language each page and each module is in, so the shell can list only
+   * the ones the picked language shows. The same `localeAt` question the server
+   * asks — a route whose URL names its language answers from the key, content
+   * with a locale field from that field. A project that declares no languages
+   * reads nothing for it.
+   */
+  const projectLocales = useProjectLocales();
+  const schemas = useSchemas();
+  const allSources = useAllSources();
+  const locales = useMemo(() => {
+    if (projectLocales.length === 0 || schemas.status !== "success") {
+      return null;
+    }
+    const schemaData = schemas.data;
+    const schemaByPath = new Map(Object.entries(schemaData));
+    const sourceByPath = new Map(Object.entries(allSources));
+    return {
+      ofPage: (sourcePath: SourcePath): string | null => {
+        const [moduleFilePath] =
+          Internal.splitModuleFilePathAndModulePath(sourcePath);
+        const schema = schemaData[moduleFilePath];
+        const source = allSources[moduleFilePath];
+        if (schema === undefined || source === undefined) return null;
+        return (
+          localeScopeAt(sourcePath, schema, source, projectLocales)?.locale ??
+          null
+        );
+      },
+      ofModule: (moduleFilePath: string): string | null => {
+        const schema = schemaByPath.get(moduleFilePath);
+        const source = sourceByPath.get(moduleFilePath);
+        if (schema === undefined || source === undefined) return null;
+        return localeOfModuleRoot(schema, source, projectLocales);
+      },
+    };
+  }, [projectLocales, schemas, allSources]);
+
   return useMemo((): ShellDataState => {
     if (navMenu.status === "loading") {
       return { status: "loading" };
@@ -159,9 +223,7 @@ export function useShellData(): ShellDataState {
       collected && collected.routes.length > 0
         ? { routes: collected.routes }
         : undefined;
-    const recordData = records.status === "success" ? records.data : null;
     const externalRecord = externalPath ? recordData?.[0] : undefined;
-    const mediaRecords = recordData?.slice(externalPath ? 1 : 0) ?? [];
 
     return {
       status: "success",
@@ -176,7 +238,7 @@ export function useShellData(): ShellDataState {
         branch: proposalBranch ?? config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
-          ? toShellPages(navData.sitemap, modulesWithDrafts)
+          ? toShellPages(navData.sitemap, modulesWithDrafts, locales?.ofPage)
           : [],
         // Absent rather than empty when nothing accepts a page, so the shell
         // hides the New page buttons instead of opening a form that can only
@@ -194,8 +256,8 @@ export function useShellData(): ShellDataState {
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
             ...(entry.fonts ? { fonts: true } : {}),
-            itemCount: countKeys(mediaRecords[index]),
-            files: toMediaFiles(mediaRecords[index]),
+            itemCount: mediaFiles[index]?.itemCount ?? 0,
+            files: mediaFiles[index]?.files,
           }),
         ),
         settings: navData?.settings
@@ -209,7 +271,11 @@ export function useShellData(): ShellDataState {
             }
           : undefined,
         data: navData?.explorer
-          ? toDataModules(navData.explorer, modulesWithDrafts)
+          ? toDataModules(
+              navData.explorer,
+              modulesWithDrafts,
+              locales?.ofModule,
+            )
           : [],
         validationErrors: toValidationErrors(validationErrors),
         /*
@@ -246,7 +312,8 @@ export function useShellData(): ShellDataState {
     filePatchIds,
     navMenu,
     navData,
-    records,
+    recordData,
+    mediaFiles,
     externalPath,
     externalRouter,
     config,
@@ -262,5 +329,6 @@ export function useShellData(): ShellDataState {
     valBuild.studioMode,
     mode,
     proposalBranch,
+    locales,
   ]);
 }

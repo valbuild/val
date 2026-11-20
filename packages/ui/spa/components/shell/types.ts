@@ -35,6 +35,11 @@ export type ShellPage = {
   /** Whether the page has unpublished changes. */
   hasDraft?: boolean;
   /**
+   * The language the page is in, where it is in one. Absent for a page in no
+   * language, which is listed whatever language the Studio is showing.
+   */
+  locale?: string;
+  /**
    * Whether Val tracks this route well enough to put it on a canvas.
    *
    * Only a route Val resolves — a page-router page, not an arbitrary
@@ -219,6 +224,11 @@ export type ShellDataModule = {
   moduleFilePath: string;
   errorCount?: number;
   hasDraft?: boolean;
+  /**
+   * The language the whole module is in, where its root says so with a locale
+   * field. Absent for nearly every module, which is in none.
+   */
+  locale?: string;
 };
 
 export type ShellNotificationKind =
@@ -349,7 +359,15 @@ export type ShellPanel =
   | "account"
   | "utility"
   | "ai"
-  | "notifications";
+  /** On a phone this is the activity sheet: notifications, errors, history. */
+  | "notifications"
+  /**
+   * Phone only: where you are -- the site or a proposal, named in full -- and
+   * the way somewhere else. Behind the top bar's location chip.
+   */
+  | "proposals"
+  /** Phone only: what can be done with the changes. Behind the primary's caret. */
+  | "changes";
 /*
  * There is no `"history"` panel. The list of publishes is a PAGE — see
  * `VAL_HISTORY_ROUTE` — because every step of a restore after picking the
@@ -575,3 +593,29 @@ export type ShellDeployment = {
 export type ShellDeploymentPublish =
   | { kind: "running"; percent: number; step: string }
   | { kind: "done"; ms: number; steps: Array<{ label: string; ms: number }> };
+
+/**
+ * The versions of Val's packages, for the list at the foot of the account
+ * panel: what someone reporting a bug is asked for first.
+ */
+export type ShellVersions = {
+  /** What this tab loaded, known without asking anyone. */
+  studio: { ui: string; core: string };
+  /**
+   * Asks the server what it runs. Called when the account panel opens, and
+   * again on Try again.
+   */
+  loadServer: () => Promise<ShellServerVersions>;
+};
+
+export type ShellServerVersions =
+  | {
+      status: "success";
+      /** Null where no binding said: the demo. */
+      framework: { name: "next" | "tanstack"; version: string } | null;
+      core: string;
+      server: string;
+    }
+  /** A server older than the Studio, which has no `/versions` to ask. */
+  | { status: "unsupported" }
+  | { status: "error"; message: string };

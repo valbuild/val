@@ -1,3 +1,4 @@
+import type { JSONValue } from "@valbuild/core/patch";
 import type {
   ValDemoTourMoveOn,
   ValDemoTourPanel,
@@ -120,6 +121,7 @@ export function demoTourStepsFromSite(
     }
     const panel = panelOf(step.panel);
     const moveOn = moveOnOf(step.moveOn);
+    const code = codeOf(step.code);
     out.push({
       id: typeof step.id === "string" ? step.id : `step-${out.length}`,
       title: step.title,
@@ -133,6 +135,7 @@ export function demoTourStepsFromSite(
         ? { page: step.page }
         : {}),
       ...(moveOn ? { moveOn } : {}),
+      ...(code ? { code } : {}),
     });
   }
   return out;
@@ -162,12 +165,18 @@ function moveOnOf(moveOn: ValDemoTourMoveOn | undefined): TourMoveOn | null {
       : null;
   }
   if ("edit" in moveOn) {
-    const { path, value } = moveOn;
-    return typeof path === "string" &&
-      isSourcePath(path) &&
-      typeof value === "string"
-      ? { type: "edit", write: { path, value } }
+    const { path, value, add } = moveOn;
+    return typeof path === "string" && isSourcePath(path) && isJson(value)
+      ? {
+          type: "edit",
+          write: { path, value, ...(add === true ? { add: true } : {}) },
+        }
       : { type: "edit" };
+  }
+  if ("newPage" in moveOn) {
+    return typeof moveOn.newPage === "string" && isSourcePath(moveOn.newPage)
+      ? { type: "newPage", path: moveOn.newPage }
+      : null;
   }
   if ("panel" in moveOn) {
     const panel = panelOf(moveOn.panel);
@@ -175,6 +184,33 @@ function moveOnOf(moveOn: ValDemoTourMoveOn | undefined): TourMoveOn | null {
   }
   if ("locale" in moveOn) return { type: "locale" };
   return null;
+}
+
+function codeOf(code: unknown): TourStep["code"] | null {
+  if (typeof code !== "object" || code === null) return null;
+  if (!("file" in code) || !("text" in code)) return null;
+  const { file, text } = code;
+  return typeof file === "string" && typeof text === "string"
+    ? { file, text }
+    : null;
+}
+
+/** A value a patch can write: what JSON can say, and nothing else. */
+function isJson(value: unknown): value is JSONValue {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return true;
+    case "number":
+      return Number.isFinite(value);
+    case "object":
+      return Array.isArray(value)
+        ? value.every(isJson)
+        : Object.values(value).every(isJson);
+    default:
+      return false;
+  }
 }
 
 /**

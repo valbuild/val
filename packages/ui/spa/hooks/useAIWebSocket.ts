@@ -35,16 +35,17 @@ export type AIModelInfo = {
 };
 
 /**
- * The models the Studio offers, best first within each provider.
+ * The models the Studio offers when the content server cannot say which ones
+ * the project's keys reach.
  *
- * This is the catalog, and it lives here rather than on the content server so
- * that offering a newly released model is a change to the editor and nothing
- * else. The server only checks that it implements the provider and that the
- * caller has a key for it.
+ * Only a fallback: normally the providers report their own list and the
+ * default is chosen from it by `pickDefaultModel`, so a newly released model
+ * is picked up without a change here. This list is what is offered when that
+ * listing failed or the server predates it.
  *
- * Order is the fallback order: with bring-your-own-key an org may have a key
- * for one provider and not another, so the first entry whose provider is
- * reachable is the one used.
+ * The first entry is also what an older content server -- one with a shared
+ * OpenAI key and a single model, which does not report providers -- is asked
+ * for, so it stays the model that server was built for.
  */
 export const VAL_AI_MODELS: AIModelInfo[] = [
   {
@@ -52,16 +53,16 @@ export const VAL_AI_MODELS: AIModelInfo[] = [
     label: "GPT-5.1",
   },
   {
-    ref: { provider: "anthropic", model: "claude-sonnet-5" },
-    label: "Claude Sonnet 5",
+    ref: { provider: "anthropic", model: "claude-sonnet-5-5" },
+    label: "Claude Sonnet 5.5",
   },
   {
-    ref: { provider: "anthropic", model: "claude-opus-5" },
-    label: "Claude Opus 5",
+    ref: { provider: "anthropic", model: "claude-opus-5-5" },
+    label: "Claude Opus 5.5",
   },
   {
-    ref: { provider: "anthropic", model: "claude-haiku-4-5" },
-    label: "Claude Haiku 4.5",
+    ref: { provider: "anthropic", model: "claude-haiku-5-5" },
+    label: "Claude Haiku 5.5",
   },
 ];
 
@@ -83,6 +84,66 @@ export function pickAvailableModel(
   const reachable = new Set(serverProviders);
   return (
     VAL_AI_MODELS.find((info) => reachable.has(info.ref.provider))?.ref ?? null
+  );
+}
+
+/** The part of the `/ai/initialize` answer that says which models to offer. */
+export type AIInitializeModels = {
+  providers?: string[];
+  models?: { provider: string; model: string; label: string }[];
+  defaultModel?: { provider: string; model: string } | null;
+};
+
+/**
+ * The picker's state, from what `/ai/initialize` says the keys reach.
+ *
+ * `defaultModel` is what a chat starts on before anyone picks: the content
+ * server's choice, so it can change for every project without a Val upgrade,
+ * or the catalog's when the server made none (an older one) or chose a model
+ * that is not on offer. `selected` is the editor's remembered pick where it is
+ * still offered, and the default otherwise.
+ */
+export function resolveModels(json: AIInitializeModels): {
+  defaultModel: AIModel | null;
+  offered: AIModelInfo[];
+  selected: AIModel | null;
+} {
+  const fallback = pickAvailableModel(json.providers);
+  // What the providers actually offer, when the server could ask them. The
+  // built-in catalog is the fallback, filtered to reachable providers, so an
+  // older content server or a provider that would not answer still leaves a
+  // usable picker rather than an empty one.
+  const reported = toModelInfos(json.models);
+  const offered =
+    reported.length > 0 ? reported : fallbackModels(json.providers, fallback);
+  const refs = offered.map((info) => info.ref);
+  const defaultModel = offeredModel(refs, json.defaultModel) ?? fallback;
+  return {
+    defaultModel,
+    offered,
+    selected: resolvePreferredModel(refs, defaultModel),
+  };
+}
+
+/**
+ * The content server's default, if it is one of the models on offer.
+ *
+ * Checked against the list rather than trusted: a default the picker does not
+ * show would start a chat on a model the editor cannot see or switch back to.
+ */
+function offeredModel(
+  offered: AIModel[],
+  serverDefault: { provider: string; model: string } | null | undefined,
+): AIModel | null {
+  if (!serverDefault) {
+    return null;
+  }
+  return (
+    offered.find(
+      (entry) =>
+        entry.provider === serverDefault.provider &&
+        entry.model === serverDefault.model,
+    ) ?? null
   );
 }
 
@@ -166,6 +227,11 @@ export const AIAgentDefinition = z.object({
   model: AIModel,
   tools: z.array(AITool).optional(),
   description: z.string().optional(),
+  /**
+   * Let the agent search the web with the provider's own search tool, which
+   * the server adds. From the project's `assistant.webSearch` setting.
+   */
+  webSearch: z.boolean().optional(),
 });
 
 export type AIAgentDefinition = z.infer<typeof AIAgentDefinition>;
@@ -181,6 +247,16 @@ export const AIToolCallMessage = z.object({
 });
 export type AIToolCallMessage = z.infer<typeof AIToolCallMessage>;
 
+/**
+ * The provider searched the web during the turn. The rest of the turn is
+ * tainted: see `webSearchGate.ts`.
+ */
+export const AIWebSearchMessage = z.object({
+  type: z.literal("ai_web_search"),
+  id: z.string(),
+  query: z.string(),
+});
+
 export const AIErrorCode = z.enum([
   "max_iterations_reached",
   "token_limit_reached",
@@ -191,6 +267,8 @@ export const AIErrorCode = z.enum([
   "byok_invalid_key",
   "provider_not_configured",
   "model_refusal",
+  // Someone else's question is running in this chat (a proposal's, shared).
+  "session_busy",
 ]);
 export type AIErrorCode = z.infer<typeof AIErrorCode>;
 
@@ -296,26 +374,86 @@ export const AIUsageMessage = z.object({
 });
 export type AIUsageMessage = z.infer<typeof AIUsageMessage>;
 
-export const AIServerMessage = z.discriminatedUnion("type", [
-  AIResponseMessage,
-  AIStreamingMessage,
-  AIToolCallMessage,
-  AIErrorMessage,
-  AICancelledMessage,
-  AISessionUnhiddenMessage,
-  AIAgentHandoffMessage,
-  AIUsageMessage,
-]);
-
-export type AIServerMessage = z.infer<typeof AIServerMessage>;
-
-// --- Client → Server message types ---
-
 export const AIMessageContentBlock = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
   z.object({ type: z.literal("image_key"), key: z.string() }),
 ]);
 export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
+
+// --- A shared chat, watched (valbuild/home docs/proposals.md, Flow H) ---
+
+/** Someone else asked in a watched chat: their question, as they sent it. */
+export const AITurnStartedEvent = z.object({
+  type: z.literal("ai_turn_started"),
+  id: z.string(),
+  sessionId: z.string(),
+  authorId: z.string(),
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]),
+});
+
+/**
+ * A tool ran in a watched turn, and how it went: the row the asker sees,
+ * without the request to run it, which is theirs alone.
+ */
+export const AIToolActivityEvent = z.object({
+  type: z.literal("ai_tool_activity"),
+  id: z.string(),
+  toolCallId: z.string(),
+  name: z.string(),
+  status: z.enum(["pending", "complete", "error"]),
+});
+
+/** That question's turn is over, however it ended. */
+export const AITurnEndedEvent = z.object({
+  type: z.literal("ai_turn_ended"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+
+/**
+ * An event of a turn someone else asked in a chat this socket watches. The
+ * same events the asker gets, but never a tool call: those ask the asker's
+ * Studio to act.
+ */
+export const AIWatchedMessage = z.object({
+  type: z.literal("ai_watched"),
+  sessionId: z.string(),
+  event: z.discriminatedUnion("type", [
+    AITurnStartedEvent,
+    AIToolActivityEvent,
+    AIStreamingMessage,
+    AIResponseMessage,
+    AICancelledMessage,
+    AIErrorMessage,
+    AITurnEndedEvent,
+  ]),
+});
+export type AIWatchedMessage = z.infer<typeof AIWatchedMessage>;
+
+/** A watch was taken, and who holds the chat now, if anyone does. */
+export const AIWatchingMessage = z.object({
+  type: z.literal("ai_watching"),
+  sessionId: z.string(),
+  runningAuthorId: z.string().nullable(),
+});
+
+export const AIServerMessage = z.discriminatedUnion("type", [
+  AIResponseMessage,
+  AIStreamingMessage,
+  AIToolCallMessage,
+  AIWebSearchMessage,
+  AIErrorMessage,
+  AICancelledMessage,
+  AISessionUnhiddenMessage,
+  AIAgentHandoffMessage,
+  AIUsageMessage,
+  AIWatchedMessage,
+  AIWatchingMessage,
+]);
+
+export type AIServerMessage = z.infer<typeof AIServerMessage>;
+
+// --- Client → Server message types ---
 
 export const AIPromptMessage = z.object({
   type: z.literal("ai_prompt"),
@@ -333,6 +471,12 @@ export const AIPromptMessage = z.object({
   hidden: z.boolean().optional(),
   /** Ask for `ai_usage` messages while the turn runs. */
   reportUsage: z.boolean().optional(),
+  /**
+   * The proposal the Studio is in, by name. A chat created with one belongs to
+   * it, and everyone on the project can read and continue it (valbuild/home
+   * `docs/proposals.md`, Flow H). Honoured only when the session is created.
+   */
+  proposal: z.string().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -342,6 +486,12 @@ export const AIToolResultMessage = z.object({
   toolCallId: z.string(),
   result: z.unknown(),
   isError: z.boolean().optional(),
+  /**
+   * Images the model is shown with the result, by their key as uploaded to
+   * the chat (`/ai/images`): `screenshot_page`'s picture. A server that
+   * predates them drops them and hands over the result alone.
+   */
+  images: z.array(z.string()).max(4).optional(),
 });
 export type AIToolResultMessage = z.infer<typeof AIToolResultMessage>;
 
@@ -396,11 +546,26 @@ export const AIUnhideSessionMessage = z.object({
 });
 export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
 
+/** See every turn of a shared chat, whoever asks it, as it is written. */
+export const AIWatchSessionMessage = z.object({
+  type: z.literal("ai_watch_session"),
+  sessionId: z.string(),
+});
+export type AIWatchSessionMessage = z.infer<typeof AIWatchSessionMessage>;
+
+export const AIUnwatchSessionMessage = z.object({
+  type: z.literal("ai_unwatch_session"),
+  sessionId: z.string(),
+});
+export type AIUnwatchSessionMessage = z.infer<typeof AIUnwatchSessionMessage>;
+
 export type AIClientMessage =
   | AIPromptMessage
   | AIToolResultMessage
   | AICancelMessage
-  | AIUnhideSessionMessage;
+  | AIUnhideSessionMessage
+  | AIWatchSessionMessage
+  | AIUnwatchSessionMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 
@@ -411,6 +576,8 @@ export type AISession = {
   name: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who is in a proposal's chat, starter first. Absent on your own chats. */
+  authorIds?: string[];
 };
 
 const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;
@@ -522,32 +689,12 @@ export function useAIWebSocket(
   }, []);
 
   /** What `/ai/initialize` says the keys reach, as the picker's state. */
-  const applyModels = useCallback(
-    (json: {
-      providers?: string[];
-      models?: { provider: string; model: string; label: string }[];
-    }) => {
-      const fallback = pickAvailableModel(json.providers);
-      setAvailableModel(fallback);
-      // What the providers actually offer, when the server could ask them. The
-      // built-in catalog is the fallback, filtered to reachable providers, so
-      // an older content server or a provider that would not answer still
-      // leaves a usable picker rather than an empty one.
-      const reported = toModelInfos(json.models);
-      const offered =
-        reported.length > 0
-          ? reported
-          : fallbackModels(json.providers, fallback);
-      setAvailableModels(offered);
-      setSelectedModel(
-        resolvePreferredModel(
-          offered.map((info) => info.ref),
-          fallback,
-        ),
-      );
-    },
-    [],
-  );
+  const applyModels = useCallback((json: AIInitializeModels) => {
+    const { defaultModel, offered, selected } = resolveModels(json);
+    setAvailableModel(defaultModel);
+    setAvailableModels(offered);
+    setSelectedModel(selected);
+  }, []);
   const applyModelsRef = useRef(applyModels);
   applyModelsRef.current = applyModels;
 

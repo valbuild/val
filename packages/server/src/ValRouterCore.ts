@@ -1,7 +1,11 @@
 import { Internal } from "@valbuild/core";
+import { resolveRedirectTo } from "./redirectTo";
+import { refuseUnsafeRequest } from "./requestGuard";
 import {
   Api,
   ApiEndpoint,
+  QUICK_PREVIEW_SERVICE_WORKER_PATH,
+  QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
   ValServerGenericResult,
 } from "@valbuild/shared/internal";
 import type { ValServer } from "./ValServer";
@@ -63,6 +67,24 @@ export function createValRequestHandler<Res>(
     }
 
     const path = url.pathname.slice(route.length);
+    if (path === QUICK_PREVIEW_SERVICE_WORKER_PATH) {
+      /*
+       * The quick preview worker (`quickPreview.ts` in
+       * `@valbuild/shared`). `Service-Worker-Allowed: /` lets a script at
+       * this path control the whole origin, which it needs: it serves the
+       * page's `/_app/` files. It serves them only to a page opened as a
+       * quick preview, and the bridge stores them only for the site.
+       */
+      return convert({
+        status: 200,
+        headers: {
+          "Content-Type": "text/javascript; charset=utf-8",
+          "Service-Worker-Allowed": "/",
+          "Cache-Control": "no-cache",
+        },
+        body: QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
+      });
+    }
     const groupQueryParams = (arr: [string, string][]) => {
       const map: Record<string, string[]> = {};
       for (const [key, value] of arr) {
@@ -81,6 +103,10 @@ export function createValRequestHandler<Res>(
         Api as any;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyValServer = valServer as any;
+      const refused = refuseUnsafeRequest(valServer, req, reqApiRoutePath);
+      if (refused !== null) {
+        return refused;
+      }
       const method = req.method?.toUpperCase();
       let route = null;
       let path: string | undefined = undefined;
@@ -223,6 +249,23 @@ export function createValRequestHandler<Res>(
           );
         }
         query = queryRes.data;
+      }
+      // `redirect_to` is a URL or a path on this site: see `resolveRedirectTo`.
+      if (
+        "redirect_to" in query &&
+        typeof query.redirect_to === "string" &&
+        query.redirect_to !== ""
+      ) {
+        // Behind a proxy `url` can be an internal address: the site's own
+        // name is then in `Host` or `X-Forwarded-Host`.
+        const resolved = resolveRedirectTo(query.redirect_to, url.origin, [
+          req.headers.get("host"),
+          req.headers.get("x-forwarded-host")?.split(",")[0]?.trim(),
+        ]);
+        if (!resolved.ok) {
+          return { status: 400, json: { message: resolved.message } };
+        }
+        query = { ...query, redirect_to: resolved.href };
       }
 
       /*

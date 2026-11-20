@@ -567,20 +567,20 @@ describe("availableDestinations", () => {
         project({ hasRouters: true, media: [gallery], data: [dataModule] }),
         false,
       ),
-    ).toEqual(["pages", "media", "data"]);
+    ).toEqual(["pages", "media", "data", "settings"]);
   });
 
   test("no router means no Pages", () => {
     expect(
       availableDestinations(project({ data: [dataModule] }), false),
-    ).toEqual(["data"]);
+    ).toEqual(["data", "settings"]);
   });
 
   test("a router with no pages in it yet still offers Pages", () => {
     // The site map is the thing you add the first page from, so hiding it
     // would leave a new project with no way to make one.
     expect(availableDestinations(project({ hasRouters: true }), false)).toEqual(
-      ["pages"],
+      ["pages", "settings"],
     );
   });
 
@@ -594,7 +594,7 @@ describe("availableDestinations", () => {
     // `itemCount: 0` is a gallery with nothing uploaded into it — which is
     // exactly where "Upload media" is most useful.
     expect(availableDestinations(project({ media: [gallery] }), false)).toEqual(
-      ["media"],
+      ["media", "settings"],
     );
   });
 
@@ -604,26 +604,16 @@ describe("availableDestinations", () => {
         project({ hasRouters: true, media: [gallery] }),
         false,
       ),
-    ).toEqual(["pages", "media"]);
+    ).toEqual(["pages", "media", "settings"]);
   });
 
-  test("no settings module means no Settings", () => {
-    expect(
-      availableDestinations(project({ hasRouters: true }), false),
-    ).not.toContain("settings");
-  });
-
-  test("an empty settings module is still a settings module", () => {
-    // `{}` is the normal starting point for `s.settings()`, so its presence —
-    // not its contents — is what the cog hangs off.
-    expect(
-      availableDestinations(
-        project({
-          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
-        }),
-        false,
-      ),
-    ).toEqual(["settings"]);
+  test("Settings is offered without a settings module", () => {
+    // The panel holds more than `s.settings()`: Updates, in a hosted project
+    // made from a template, is the only way to upgrade it. Without a module
+    // the panel says how to add one.
+    expect(availableDestinations(project({ hasRouters: true }), false)).toEqual(
+      ["pages", "settings"],
+    );
   });
 
   test("Settings is last, since it sits at the foot of the rail", () => {
@@ -646,8 +636,8 @@ describe("availableDestinations", () => {
     ).toEqual(["pages", "media", "data", "settings"]);
   });
 
-  test("a project using none of it offers nothing", () => {
-    expect(availableDestinations(project({}), false)).toEqual([]);
+  test("a project using none of it offers Settings alone", () => {
+    expect(availableDestinations(project({}), false)).toEqual(["settings"]);
   });
 
   test("everything is on offer while the navigation loads", () => {

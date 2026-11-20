@@ -25,7 +25,7 @@ import {
  *
  * Skipped otherwise rather than given a project of its own, because the thing
  * under test is the SERVER's configuration -- the two env vars in
- * `playwright.config.ts` -- and a second project would mean a second Next
+ * `playwright.config.ts` -- and a second project would mean a second dev
  * build of the same app for two variables.
  */
 test.skip(

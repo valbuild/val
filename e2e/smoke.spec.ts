@@ -1,6 +1,15 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./studio";
 import { renderedText, watchForProblems } from "./pageProblems";
+import { NEXT_APP_URL } from "./apps";
+
+/*
+ * Against `examples/next`, on purpose: the rest of the fs-mode suite drives
+ * TanStack, and this is one of the specs that keep `@valbuild/next` covered.
+ * The blocking `smoke` CI job runs it, together with `tanstack/`, to gate
+ * "the Studio does not come up at all" on both frameworks. See `apps.ts`.
+ */
+test.use({ baseURL: NEXT_APP_URL });
 
 /**
  * The fast smoke test: does the Studio come up, and does it render?
@@ -102,7 +111,8 @@ const ROUTES: { route: string; shape: string; expect: RegExp }[] = [
    * The three shapes that used to loop, kept apart because of what made them
    * loop: a `.jsonValues()` module whose entries arrive one request at a time.
    *
-   * `substituteJsonEntries` is copy-on-write, so the first loaded entry made
+   * `substituteJsonEntries` (gone since: the Studio's view of a module is made
+   * once per version) was copy-on-write, so the first loaded entry made
    * every subsequent read of the module's source return a fresh object. `peek`
    * compares by identity, so it reported a change on every call, and the fields
    * reading it through `useSyncExternalStore` re-rendered until React gave up.

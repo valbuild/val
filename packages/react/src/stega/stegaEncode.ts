@@ -720,6 +720,13 @@ export function stegaEncode(
             },
           );
         }
+        // Where an object was read from, for `attrs`: an object has no text
+        // to carry its path in, and a field Val does not encode (a key, a
+        // date) is named from its object's. Not in production, where nothing
+        // else is tagged either.
+        if (recOpts?.path && !opts.disabled) {
+          Internal.setValPath(res, recOpts.path);
+        }
         return res;
       }
 

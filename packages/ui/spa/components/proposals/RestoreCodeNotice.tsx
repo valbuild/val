@@ -41,16 +41,18 @@ export function RestoreCodeNotice({
       className="relative rounded-lg border border-border-proposal bg-bg-tertiary p-4"
     >
       <div className="flex gap-3">
-        <Icon
-          size={16}
+        {/* The span spins, not the SVG: see designSystem/spinner. */}
+        <span
           className={cn(
-            "mt-0.5 shrink-0",
+            "mt-0.5 inline-flex h-4 w-4 shrink-0",
             state.kind === "failed"
               ? "text-fg-error-primary"
               : "text-fg-proposal",
-            state.kind === "restoring" && "animate-spin",
+            state.kind === "restoring" && "animate-spin will-change-transform",
           )}
-        />
+        >
+          <Icon size={16} />
+        </span>
         <div className="min-w-0">
           <p className="text-sm font-medium text-fg-primary">{title}</p>
           <p className="mt-1 text-xs text-fg-secondary">

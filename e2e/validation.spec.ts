@@ -25,7 +25,7 @@ import { clearPatchChain, openStudio } from "./studio";
  */
 
 /** The example app's home page: `hero.title` is `s.string().minLength(4)`. */
-const HOME = "/val/~/app/page.val.ts?p=%22%2F%22";
+const HOME = "/val/~/src/routes/_site.index.val.ts?p=%22%2F%22";
 const TOO_SHORT = "Expected string to be at least 4 characters long";
 
 test.describe("validation while editing", () => {

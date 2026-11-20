@@ -1,5 +1,6 @@
 import { Internal } from "@valbuild/core";
-import { BaseAlignment, type FetchBaseSources } from "./BaseAlignment";
+import { ManifestSource, type FetchManifest } from "./manifestSource";
+import type { FetchModule } from "./originTier";
 import type {
   ModuleFilePath,
   PatchId,
@@ -16,17 +17,18 @@ import { describeStuckSave } from "../utils/describeStuckSave";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore, type FetchJsonEntry } from "./SourceStore";
 import {
+  oneRequestPerKey,
+  type FetchJsonEntries,
+} from "./react/jsonEntriesBatch";
+import {
   PatchStore,
   type CreatePatchId,
   type FetchPatches,
   type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
-import {
-  SchemaFreshnessWatch,
-  type ReadServedSchemaSha,
-} from "./SchemaFreshnessWatch";
-import { StatusStore } from "./StatusStore";
+import { BuildCode, type ImportRegistry, type ReloadStudio } from "./buildCode";
+import { StatusStore, type HeldEdit } from "./StatusStore";
 import {
   PatchSync,
   isSaveStuck,
@@ -173,6 +175,22 @@ export type WorkerRealm = {
 export type System = HostRealm &
   WorkerRealm & {
     /**
+     * Read the server's manifest now, rather than at the next `/stat`, and
+     * take in the code of a build it names that this Studio does not run
+     * (`ManifestSource.refresh`, `BuildCode`): a page in the preview loaded,
+     * and it may be a newer build's.
+     */
+    checkCodeNow(): void;
+    /**
+     * Call `listener` once the source store is in step with the server --
+     * before that it holds the bundle's source, which can be an older build's
+     * or not the content version the site serves, and a page handed it shows
+     * the old text: see `ManifestSource.onInStep`.
+     */
+    onInStep(listener: () => void): () => void;
+    /** What each module is on the server, as adopted: see `ManifestSource`. */
+    manifest: ManifestSource;
+    /**
      * Gather the snapshot the search index needs and hand it across the worker
      * seam. Explicit, because this is the one operation in the system that
      * copies every module — it must be a thing someone chose to do, not a side
@@ -224,6 +242,15 @@ export type System = HostRealm &
       message?: string,
       options?: PublishOptions,
     ): Promise<PublishResult>;
+    /**
+     * Get every local edit onto the server, and answer the ones that could
+     * not get there. Waits on the write queue until it drains or the sync
+     * calls the save stuck (`isSaveStuck`), the same wait Publish makes
+     * before it decides. Code mode on the site makes it before it moves the
+     * site's pending changes into the site-code proposal: a move takes only
+     * what the server has.
+     */
+    saveUnsaved(): Promise<PatchId[]>;
     /**
      * Validate every loaded module, announcing start and finish.
      *
@@ -319,6 +346,12 @@ export type SystemOptions = {
    */
   fetchJsonEntry?: FetchJsonEntry;
   /**
+   * The same, many keys of one module in one request (`GET /json` with
+   * `keys`): what the Studio sends. Preferred over {@link fetchJsonEntry},
+   * which then goes one request per key.
+   */
+  fetchJsonEntries?: FetchJsonEntries;
+  /**
    * Where a local patch is written back to (`PUT /patches`).
    *
    * Omitting it means this system never writes: edits stay local, and
@@ -335,18 +368,25 @@ export type SystemOptions = {
    */
   resyncChain?: ResyncChain;
   /**
-   * Which schema the server runs, asked now. What settles a schema
-   * disagreement — see {@link SchemaFreshnessWatch}.
+   * Import a new build's `val.modules` registry from the entry its manifest
+   * names (`BuildCode`). Absent: a driver that cannot, which then reloads
+   * (or, without {@link reloadStudio}, keeps its code).
    */
-  readServedSchemaSha?: ReadServedSchemaSha;
+  importRegistry?: ImportRegistry;
   /**
-   * Another build's base source, for a `/stat` answered by that build.
-   *
-   * Without it a stat from a build other than the bundle's is applied to the
-   * bundle's source, which is the mismatch `BaseAlignment` exists to prevent --
-   * so absent is the old behaviour, for a driver with no server.
+   * Reload the page, for a build whose code cannot be taken in place
+   * (`BuildCode`). Absent: a driver that cannot reload keeps its code.
    */
-  fetchBaseSources?: FetchBaseSources;
+  reloadStudio?: ReloadStudio;
+  /**
+   * `GET /manifest`: what each module is on the server, read before each
+   * stat is adopted (`ManifestSource`). Absent for a driver with no server:
+   * then the source store stays on the bundle and shows every patch of the
+   * chain on top, and nothing decides a patch is gone.
+   */
+  fetchManifest?: FetchManifest;
+  /** `GET /modules`: a module at a version, for `ManifestSource`. */
+  fetchModule?: FetchModule;
   /**
    * How long `publish` waits for a save that never answers.
    *
@@ -471,7 +511,10 @@ export function createSystem(options: SystemOptions): System {
   const sourceStore = new SourceStore(
     schemaStore,
     activity,
-    options.fetchJsonEntry,
+    options.fetchJsonEntries ??
+      (options.fetchJsonEntry === undefined
+        ? undefined
+        : oneRequestPerKey(options.fetchJsonEntry)),
   );
   const stat = new StatStore();
   const status = new StatusStore(activity);
@@ -598,38 +641,66 @@ export function createSystem(options: SystemOptions): System {
   const UNAPPLICABLE_ATTEMPTS = 3;
 
   /**
+   * The schema of its module each patch last APPLIED under, by
+   * `SchemaStore.version`: what tells an edit the code moved under from one
+   * that never fitted.
+   */
+  const fittedUnder = new Map<PatchId, number>();
+  /**
+   * Edits that stopped fitting when their module's code changed: held, not
+   * deleted. See {@link HeldEdit}. In the order they were found.
+   */
+  const held = new Map<PatchId, HeldEdit>();
+  const reportHeld = () => status.reportHeld([...held.values()]);
+
+  /**
    * Act on patches the apply refused. See the `source:patch-apply` listener.
    */
   async function discardUnapplicable(
     failed: readonly { patchId: PatchId; message: string }[],
   ): Promise<void> {
     const toDelete: PatchId[] = [];
+    let heldMoved = false;
     for (const { patchId, message } of failed) {
       const record = patchStore.recordsFor([patchId])[0];
       const moduleFilePath = record?.moduleFilePath;
-      /**
-       * "Cannot apply" is not reliably permanent, and assuming it was destroyed
-       * a real edit.
-       *
-       * A module with `.jsonValues()` entries still unloaded is the case that
-       * proved it: entry content is stitched in on read, so a patch INTO an entry
-       * nobody has loaded fails against a marker — and would succeed once the
-       * entry arrives. Reported, never deleted.
+      /*
+       * An edit that applied under another schema of its module, and does not
+       * under this one: the code moved under it -- a field renamed or removed
+       * (S14). Held, not deleted: it is somebody's work, and the editor
+       * decides (discard it, or move it where the field went). Everything
+       * below is for a patch that never fitted, which nothing could ever
+       * apply.
        */
-      const uncertain =
+      const fitted = fittedUnder.get(patchId);
+      if (
         moduleFilePath !== undefined &&
-        sourceStore.hasUnloadedEntries(moduleFilePath);
+        (held.has(patchId) ||
+          (fitted !== undefined &&
+            fitted !== schemaStore.version(moduleFilePath)))
+      ) {
+        const before = held.get(patchId);
+        if (before === undefined || before.message !== message) {
+          held.set(patchId, { patchId, moduleFilePath, message });
+          heldMoved = true;
+        }
+        continue;
+      }
+      /*
+       * A patch into a `.jsonValues()` entry nobody has loaded used to fail
+       * against the entry's marker, and was kept until the entry arrived.
+       * The engine holds such an edit instead (`applyPatchRecord`'s
+       * `waiting`), so it never fails for that, and one whose entry it does
+       * not fit is reported once that entry is read: every failure here is
+       * a patch that cannot apply.
+       */
       const attempts = (unapplicableAttempts.get(patchId) ?? 0) + 1;
       unapplicableAttempts.set(patchId, attempts);
 
       Internal.log.error(
-        uncertain
-          ? "a patch could not be applied, and this module still has " +
-              "unloaded .jsonValues() entries — so it may apply once they " +
-              "arrive. Keeping it. If the edit never appears, please report this."
-          : "discarding a patch that cannot be applied. If you see this " +
-              "often, please report it — it means a patch is being generated " +
-              "that does not fit the source it targets.",
+        "discarding a patch that cannot be applied. If you see this " +
+          "often, please report it — it means a patch is being generated " +
+          "that does not fit the source it targets.",
         {
           patchId,
           reason: message,
@@ -644,7 +715,6 @@ export function createSystem(options: SystemOptions): System {
           attempt: attempts,
         },
       );
-      if (uncertain) continue;
       if (attempts > UNAPPLICABLE_ATTEMPTS) {
         Internal.log.error(
           "giving up on deleting an unapplicable patch — it keeps coming " +
@@ -656,6 +726,13 @@ export function createSystem(options: SystemOptions): System {
         continue;
       }
       toDelete.push(patchId);
+    }
+    if (heldMoved) {
+      Internal.log.info(
+        "holding edits that do not fit their module's new schema",
+        [...held.values()],
+      );
+      reportHeld();
     }
     if (toDelete.length === 0) return;
 
@@ -738,18 +815,65 @@ export function createSystem(options: SystemOptions): System {
     });
   }
 
-  const baseAlignment = new BaseAlignment(
+  // A new build's code, taken in before the manifest that names it is.
+  const buildCode = new BuildCode(host, sourceStore, patchSync, patchStore, {
+    mode: () => mode,
+    ...(options.importRegistry !== undefined
+      ? { importRegistry: options.importRegistry }
+      : {}),
+    ...(options.reloadStudio !== undefined
+      ? { reloadStudio: options.reloadStudio }
+      : {}),
+    activity,
+  });
+  const manifest = new ManifestSource(
     host,
     sourceStore,
     patchStore,
-    options.fetchBaseSources,
+    options.fetchManifest,
+    options.fetchModule,
+    activity,
+    (adopting, ahead) => buildCode.follow(adopting, ahead),
   );
+  /** The module messages the last intake raised, to take back on the next. */
+  let moduleFailureMessages: string[] = [];
   const unsubscribe = [
-    baseAlignment.listenTo(stat),
-    // Says "reload" when the server runs a schema this page does not.
-    new SchemaFreshnessWatch(host, stat, status, {
-      readServedSchemaSha: options.readServedSchemaSha,
-    }).listen(),
+    manifest.listenTo(stat),
+    schemaStore.events.on("schema:init", (event) =>
+      manifest.codeMoved(event.modules),
+    ),
+    () => buildCode.dispose(),
+    /**
+     * A module intake could not read reaches the EDITOR, not only the dev
+     * banner: which module, what its code threw under Details, and that the
+     * Studio still shows the version it had. Taken back once an intake reads
+     * it again, because nothing is wrong any more.
+     */
+    host.events.on("host:receive", () => {
+      const failures = host.failures();
+      const messages = failures.map((failure) =>
+        failure.moduleFilePath === null
+          ? "A module could not be loaded, so the Studio does not show it. It appears once its code loads."
+          : failure.kept
+            ? `${failure.moduleFilePath} could not be loaded, so the Studio shows it as it was before. Its code threw an error, and it updates once that is fixed.`
+            : `${failure.moduleFilePath} could not be read, so the Studio does not show it. It appears once its code can be read.`,
+      );
+      const gone = new Set(
+        moduleFailureMessages.filter((message) => !messages.includes(message)),
+      );
+      if (gone.size > 0) {
+        status.dismissErrors(
+          status
+            .current()
+            .errors.filter((error) => gone.has(error.message))
+            .map((error) => error.id),
+        );
+      }
+      for (const [index, failure] of failures.entries()) {
+        status.reportError(messages[index], failure.message);
+      }
+      moduleFailureMessages = messages;
+    }),
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
@@ -827,7 +951,7 @@ export function createSystem(options: SystemOptions): System {
         "Unpublished changes could not be loaded.",
         `${event.patches.length} ${
           event.patches.length === 1 ? "change is" : "changes are"
-        } affected: ${event.message} Until this succeeds, the editor shows published content for the fields they touch.`,
+        } affected: ${event.message} Val asks again on its own. Until it gets them, the editor shows published content for the fields they touch.`,
       );
     }),
     patchStore.events.on("patch:announced-not-delivered", (event) => {
@@ -973,8 +1097,22 @@ export function createSystem(options: SystemOptions): System {
      * legible from a user's console.
      */
     sourceStore.events.on("source:patch-apply", (event) => {
-      if (event.failed.length === 0) return;
-      void discardUnapplicable(event.failed);
+      if (event.failed.length > 0) void discardUnapplicable(event.failed);
+      /*
+       * AFTER the failures, which compare against the schema each patch last
+       * fitted: recording first would make this apply's schema the one it
+       * "fitted" under. And an edit that applies again -- the code moved back,
+       * or on to a schema it fits -- is no longer held.
+       */
+      let released = false;
+      for (const record of patchStore.recordsFor(event.success)) {
+        fittedUnder.set(
+          record.patchId,
+          schemaStore.version(record.moduleFilePath),
+        );
+        released = held.delete(record.patchId) || released;
+      }
+      if (released) reportHeld();
     }),
 
     // --- host-side staleness ----------------------------------------------
@@ -993,9 +1131,24 @@ export function createSystem(options: SystemOptions): System {
       searchStale.mark(event.modules);
       referenceStale.mark(event.modules);
     }),
+    // Only what moved: a re-intake hands every module over, and one that
+    // came back as it was is indexed as it is. A module that is new, or whose
+    // code moved, is marked here or by `schema:init` below.
     sourceStore.events.on("source:init", (event) => {
-      searchStale.mark(event.sources);
-      referenceStale.mark(event.sources);
+      searchStale.mark(event.moved);
+      referenceStale.mark(event.moved);
+    }),
+    // A module whose code changed: what search finds in it and what it points
+    // at are read through its schema (which fields are text, which are
+    // references), so both are owed a pass even where the source did not move.
+    // `schema:init` names the modules whose schema moved, and a removed one.
+    schemaStore.events.on("schema:init", (event) => {
+      searchStale.mark(event.modules);
+      referenceStale.mark(event.modules);
+      // A module that LEFT is owed no pass: a pass walks loaded modules, and
+      // it is not one. So it is taken out of both indexes here, or it stays
+      // findable and its references stay counted.
+      forgetGone(event.modules);
     }),
 
     // --- patch-set invalidation -------------------------------------------
@@ -1030,6 +1183,27 @@ export function createSystem(options: SystemOptions): System {
      */
     patchStore.events.on("patch:drop", (event) => {
       patchSync.forget(event.patches);
+    }),
+    // A held edit discarded, or gone from the server: nothing left to hold.
+    patchStore.events.on("patch:drop", (event) => {
+      let released = false;
+      for (const patchId of event.patches) {
+        fittedUnder.delete(patchId);
+        released = held.delete(patchId) || released;
+      }
+      if (released) reportHeld();
+    }),
+    // Published: in the base, and never back in the chain. What was kept
+    // per patch goes with it -- `unapplicableAttempts` too, which a DROPPED
+    // patch keeps, since it can come back and the count is what ends that.
+    patchStore.events.on("patch:forget-published", (event) => {
+      let released = false;
+      for (const patchId of event.patches) {
+        fittedUnder.delete(patchId);
+        unapplicableAttempts.delete(patchId);
+        released = held.delete(patchId) || released;
+      }
+      if (released) reportHeld();
     }),
   ];
 
@@ -1097,6 +1271,22 @@ export function createSystem(options: SystemOptions): System {
   }
 
   /**
+   * Take the modules of `modules` that are no longer in the project out of
+   * the search and reference indexes. Called when one leaves, and after a
+   * pass, which may have been handed one in its snapshot before it left.
+   */
+  function forgetGone(modules: readonly ModuleFilePath[]): void {
+    const schemas = schemaStore.all();
+    for (const moduleFilePath of modules) {
+      if (schemas[moduleFilePath] !== undefined) continue;
+      searchStale.forget(moduleFilePath);
+      referenceStale.forget(moduleFilePath);
+      void searchStore.forget(moduleFilePath);
+      void referenceStore.forget(moduleFilePath);
+    }
+  }
+
+  /**
    * Bring the reference index up to date, then answer from it.
    *
    * Shared by both reference entry points so the scan-then-read pair cannot
@@ -1121,6 +1311,7 @@ export function createSystem(options: SystemOptions): System {
     // never gets another chance. And only marks older than the pass: a module
     // that changed during the await was scanned as it was, not as it is.
     referenceStale.covers(scanned, pass);
+    forgetGone(scanned);
   }
 
   function gatherReferenceSnapshot(
@@ -1141,7 +1332,42 @@ export function createSystem(options: SystemOptions): System {
     return snapshot;
   }
 
+  /**
+   * Wait for the write queue to drain, bounded by FAILURE (see the comment
+   * in `publish`, which this was written for).
+   */
+  const waitForSave = async (): Promise<void> => {
+    if (!isSaveStuck(patchSync.currentState())) {
+      let stopWaiting = () => {};
+      await Promise.race([
+        patchSync.flush().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(
+            resolve,
+            options.saveFlushTimeoutMs ?? SAVE_FLUSH_TIMEOUT_MS,
+          );
+          // Node keeps the process alive for a pending timer; nothing here
+          // needs it to.
+          if (typeof timer === "object" && "unref" in timer) {
+            timer.unref();
+          }
+          const off = patchSync.events.on("patch:sync-state", (event) => {
+            if (isSaveStuck(event.state)) resolve();
+          });
+          stopWaiting = () => {
+            clearTimeout(timer);
+            off();
+          };
+        }),
+      ]);
+      stopWaiting();
+    }
+  };
+
   return {
+    checkCodeNow: () => manifest.refresh(),
+    onInStep: (listener) => manifest.onInStep(listener),
+    manifest,
     host,
     stat,
     status,
@@ -1157,6 +1383,13 @@ export function createSystem(options: SystemOptions): System {
     async findReferences(query) {
       await rescanReferences();
       return referenceStore.find(query);
+    },
+    async saveUnsaved() {
+      // A system with no save seam holds patches that are local by
+      // definition: nothing could ever get them up, so none is waited on.
+      if (options.savePatches === undefined) return [];
+      if (patchStore.unsavedRecords().length > 0) await waitForSave();
+      return patchStore.unsavedRecords().map((record) => record.patchId);
     },
     async referenceAt(path) {
       await rescanReferences();
@@ -1175,6 +1408,7 @@ export function createSystem(options: SystemOptions): System {
         const target = searchStale.target(sourceStore.loadedModules());
         const indexed = await searchStore.reindex(gatherSnapshot(target));
         searchStale.covers(indexed.all, pass);
+        forgetGone(indexed.all);
       }
       const found = await searchStore.search(query, limit, offset);
       if (found.status === "no-index") {
@@ -1189,6 +1423,7 @@ export function createSystem(options: SystemOptions): System {
       const loaded = sourceStore.loadedModules();
       const result = await searchStore.buildIndex(gatherSnapshot(loaded));
       searchStale.covers(result.all, pass);
+      forgetGone(result.all);
       return result;
     },
     /**
@@ -1296,31 +1531,7 @@ export function createSystem(options: SystemOptions): System {
            * The timer is left only as a backstop for a request that never
            * answers at all, which no state change would ever report.
            */
-          if (!isSaveStuck(patchSync.currentState())) {
-            let stopWaiting = () => {};
-            await Promise.race([
-              patchSync.flush().catch(() => undefined),
-              new Promise<void>((resolve) => {
-                const timer = setTimeout(
-                  resolve,
-                  options.saveFlushTimeoutMs ?? SAVE_FLUSH_TIMEOUT_MS,
-                );
-                // Node keeps the process alive for a pending timer; nothing here
-                // needs it to.
-                if (typeof timer === "object" && "unref" in timer) {
-                  timer.unref();
-                }
-                const off = patchSync.events.on("patch:sync-state", (event) => {
-                  if (isSaveStuck(event.state)) resolve();
-                });
-                stopWaiting = () => {
-                  clearTimeout(timer);
-                  off();
-                };
-              }),
-            ]);
-            stopWaiting();
-          }
+          await waitForSave();
         }
         // Only where a save is possible at all. A system with no save seam holds
         // patches that are local by definition — there is nothing to wait for,
@@ -1340,6 +1551,9 @@ export function createSystem(options: SystemOptions): System {
             patchIds: stillUnsaved.map((record) => record.patchId),
             ...(syncState.status === "refused"
               ? { planRefusal: syncState.message }
+              : {}),
+            ...(syncState.status === "failed"
+              ? { saveFailure: syncState.message }
               : {}),
           };
         }
@@ -1383,6 +1597,20 @@ export function createSystem(options: SystemOptions): System {
         if (toPublish.length === 0) {
           return { status: "nothing-to-publish" };
         }
+        /*
+         * An edit held because the code moved under it applies nowhere, and
+         * the save would throw it away to write the rest ("could not be
+         * applied and was removed"). It is the editor's to discard or move
+         * first.
+         */
+        const heldNow = toPublish.filter((patchId) => held.has(patchId));
+        if (heldNow.length > 0) {
+          return {
+            status: "refused",
+            reason: "held-edits",
+            patchIds: heldNow,
+          };
+        }
 
         // Validate the affected modules, and validate them rather than reading
         // what is cached. The engine's own comment explains why: custom
@@ -1405,7 +1633,10 @@ export function createSystem(options: SystemOptions): System {
          */
         const chainAt = patchStore.chainVersion();
         const invalid: ModuleFilePath[] = [];
-        for (const moduleFilePath of affected) {
+        // A save that may be invalid checks nothing: see `invalidAllowed`.
+        for (const moduleFilePath of publishOptions?.invalidAllowed === true
+          ? []
+          : affected) {
           const result = await validationStore.validate(moduleFilePath);
           if (result.status !== "validated" || result.errors === false) {
             continue;

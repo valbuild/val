@@ -11,6 +11,7 @@ import { Preview } from "../../components/Preview";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 import { FieldNull } from "../../components/FieldNull";
+import { InlineObjectPreview } from "./InlineObjectPreview";
 
 export function ObjectFields({
   path,
@@ -110,9 +111,12 @@ export function ObjectFields({
 export function ObjectPreview({
   path,
   size,
+  maxFields,
 }: {
   path: SourcePath;
   size?: "compact";
+  /** See {@link ObjectLikePreview}. */
+  maxFields?: number;
 }) {
   const type = "object";
   const schemaAtPath = useSchemaAtPath(path);
@@ -137,36 +141,78 @@ export function ObjectPreview({
     );
   }
   const schema = schemaAtPath.data;
-  return <ObjectLikePreview path={path} schema={schema} size={size} />;
+  return (
+    <ObjectLikePreview
+      path={path}
+      schema={schema}
+      size={size}
+      maxFields={maxFields}
+    />
+  );
 }
 
+/**
+ * The fallback for a value with no `.preview()`: its fields, one per line.
+ *
+ * `maxFields` is for a card in a list, where this dump is the whole card. A
+ * list row is something you scan, not something you read, and an item with a
+ * dozen fields made a card per item a screen tall. Past the limit the last line
+ * says how many were left out instead, so the card is never more than
+ * `maxFields` lines and still does not pretend to be the whole value. The real
+ * fix for a list that reads badly is a `.preview()` on the item, which this
+ * does not try to replace.
+ *
+ * A field that is itself an object takes one line too, rather than a field
+ * list of its own inside this one's value cell: see {@link InlineObjectPreview}.
+ *
+ * `minmax(0,1fr)`, not `1fr`: a bare `1fr` track is at least as wide as its
+ * content, so one unbreakable value (a URL) widened the whole card past its
+ * pane rather than truncating.
+ */
 export function ObjectLikePreview({
   path,
   schema,
   size,
+  maxFields,
 }: {
   path: SourcePath;
   schema: { items: Record<string, SerializedSchema> };
   size?: "compact";
+  maxFields?: number;
 }) {
+  const visible = Object.entries(schema.items).filter(
+    ([, itemSchema]) => !itemSchema.hidden,
+  );
+  const overflowing = maxFields !== undefined && visible.length > maxFields;
+  const shown = overflowing ? visible.slice(0, maxFields - 1) : visible;
+  const leftOut = visible.length - shown.length;
   return (
     <div
       id={path}
-      className={`grid grid-cols-[min-content,1fr] text-left gap-2 text-xs ${
+      className={`grid grid-cols-[min-content,minmax(0,1fr)] text-left gap-x-2 gap-y-1 text-xs leading-4 ${
         size === "compact" ? "max-h-[60px] overflow-hidden" : ""
       }`}
     >
-      {Object.entries(schema.items).map(([key, itemSchema]) => {
-        if (itemSchema.hidden) {
-          return null;
-        }
+      {shown.map(([key, itemSchema]) => {
         const subPath = sourcePathOfItem(path, key);
         return (
           <PreviewField key={key} label={key}>
-            <Preview path={subPath} size={size} />
+            <div className="min-w-0 truncate">
+              {itemSchema.type === "object" ||
+              itemSchema.type === "discriminated-union" ? (
+                <InlineObjectPreview path={subPath} schema={itemSchema} />
+              ) : (
+                <Preview path={subPath} size={size} />
+              )}
+            </div>
           </PreviewField>
         );
       })}
+      {overflowing && (
+        <span className="col-span-2 text-fg-disabled">
+          {`+${leftOut} more field${leftOut === 1 ? "" : "s"}`}
+        </span>
+      )}
     </div>
   );
 }

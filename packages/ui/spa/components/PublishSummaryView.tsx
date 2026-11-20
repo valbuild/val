@@ -1,10 +1,4 @@
-import {
-  AlertTriangle,
-  Loader2,
-  MessageSquare,
-  Sparkles,
-  Upload,
-} from "lucide-react";
+import { AlertTriangle, MessageSquare, Sparkles, Upload } from "lucide-react";
 import { Button } from "./designSystem/button";
 import {
   Tooltip,
@@ -13,6 +7,7 @@ import {
 } from "./designSystem/tooltip";
 import { cn } from "./designSystem/cn";
 import { useValPortal } from "./ValPortalProvider";
+import { Spinner } from "./designSystem/spinner";
 
 /**
  * What the AI is doing about this summary, if anything.
@@ -184,7 +179,7 @@ function AiSummaryButton({
         text="Writing a summary with AI. You do not have to wait — edit the text or publish whenever you like."
       >
         <span className="flex items-center gap-1 text-xs text-fg-secondary">
-          <Loader2 size={12} className="animate-spin" />
+          <Spinner size={12} />
           <span>AI is writing…</span>
         </span>
       </AiTooltip>

@@ -288,14 +288,33 @@ describe("moving a video to Val Remote and back", () => {
     }
   });
 
-  test("without --fix nothing moves, and it says what --fix would do", async () => {
+  test("without --fix nothing moves, and a warning names the files --fix would upload", async () => {
+    const up = contextFor(root, host, true, LOCAL_VALUE, "video:upload-remote");
+    const res = await handleVideoUploadRemote({ ...up, fix: false });
+    expect(res).toEqual({
+      success: true,
+      warning: expect.objectContaining({
+        files: [
+          "/public/val/intro_abcde/master.m3u8",
+          "/public/val/intro-poster_12345.webp",
+          "/public/val/intro-en_67890.vtt",
+        ],
+        hint: expect.stringContaining("--fix"),
+      }),
+    });
+    expect(host.stored.size).toBe(0);
+  });
+
+  test("without --fix a missing file is still an error", async () => {
+    fs.rmSync(path.join(root, "public/val/intro-en_67890.vtt"));
     const up = contextFor(root, host, true, LOCAL_VALUE, "video:upload-remote");
     const res = await handleVideoUploadRemote({ ...up, fix: false });
     expect(res).toEqual({
       success: false,
-      errorMessage: expect.stringContaining("use --fix to upload"),
+      errorMessage: expect.stringContaining(
+        "intro-en_67890.vtt does not exist",
+      ),
     });
-    expect(host.stored.size).toBe(0);
   });
 
   test("a missing file stops the upload before anything goes up", async () => {

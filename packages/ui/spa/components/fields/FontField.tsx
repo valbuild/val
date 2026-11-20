@@ -1,11 +1,12 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { getRefParts } from "@valbuild/shared/internal";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { FontSpecimen } from "../FontPreview";
 import { useModuleMediaEntries } from "../MediaPicker/useModuleMediaEntries";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { useNavigation } from "../ValRouter";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * A font field (`s.font(fontsVal)`, or any `s.file()` picked from a font set)
@@ -85,7 +86,7 @@ export function FontSetGrid({
   if (!ready) {
     return (
       <div className="flex items-center gap-2 text-xs text-fg-secondary">
-        <Loader2 size={14} className="animate-spin" />
+        <Spinner size={14} />
         Loading the fonts…
       </div>
     );

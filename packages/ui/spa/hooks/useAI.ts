@@ -18,11 +18,49 @@ import type { ParentRef } from "@valbuild/shared/internal";
  */
 const ops = new JSONOps();
 import { useValSystem } from "../stores/react/SystemContext";
+import {
+  markStagedCodeTold,
+  runStagedCode,
+  stagedCodeNotice,
+  untoldStagedCode,
+  type StagedCodeOutcome,
+} from "../proposals/stagedCode";
+import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
+  ChatMessage,
   ChatMessageAttachment,
+  SendContext,
 } from "../components/AIChat";
+import type { ProposalParticipant } from "../components/proposals/types";
+import type { ToolActivity } from "../components/AIChatToolActivities";
+import {
+  applyWatchedEvent,
+  runningAsker,
+  someoneElseAdded,
+  storedToolActivities,
+} from "./sharedChat";
+import { AskUserQuestionArgs } from "./askUserQuestion";
+import {
+  needsWebSearchConfirmation,
+  webSearchConfirmationOf,
+  webSearchConfirmationQuestions,
+  withWebSearchWaits,
+} from "./webSearchGate";
+import {
+  patchChangesWebSearchSetting,
+  readWebSearchSetting,
+  REQUEST_WEB_SEARCH_TOOL_NAME,
+  webSearchRequestOutcome,
+  webSearchRequestPromptSection,
+  webSearchRequestQuestions,
+  webSearchSettingOps,
+  withWebSearchRequest,
+  hasAssistantSection,
+  type WebSearchRequestOutcome,
+  type WebSearchAsk,
+} from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -33,15 +71,34 @@ import {
   SessionImageToPatchError,
   useAIModelSelection,
   useAvailableAIModel,
+  useCurrentAuthorId,
   useCurrentProfile,
   useCurrentProposal,
   useProfilesByAuthorId,
+  useValMode,
   useAIContext,
+  useClient,
+  type AIMessagesResponse,
 } from "../components/ValProvider";
+import { createSketchpadClient } from "../components/sketchpad/sketchpadClient";
+import {
+  CONVERT_SESSION_IMAGE_TOOL,
+  runConvertSessionImage,
+} from "../utils/convertSessionImage";
+import { encodeImage } from "../utils/encodeImage";
+import { knownSketchMedia } from "../components/sketchpad/sketchMediaLibrary";
+import { useSketchpadsState } from "../components/sketchpad/SketchpadsState";
+import {
+  isSketchpadToolName,
+  runSketchpadTool,
+  SKETCHPAD_TOOLS,
+} from "../components/sketchpad/sketchpadTools";
 import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
+  AIModel,
   AISession,
   AIServerMessage,
+  AIToolCallMessage,
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
@@ -54,6 +111,7 @@ import {
 } from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
 import { randomUUID } from "../utils/randomUUID";
+import { toast } from "../components/designSystem/sonner";
 import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -69,6 +127,12 @@ import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
+import {
+  useRemoteUploadSettings,
+  type RemoteUploadReadiness,
+} from "../components/ValRemoteProvider";
+import { nameSessionImageRemote } from "../utils/sessionImageToRemote";
+import { galleryEntrySchemaOf } from "../utils/uploadLocalMedia";
 import { z } from "zod";
 import {
   buildImageGalleryPatch,
@@ -84,29 +148,80 @@ import {
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
+  type SessionKeyRemoteNamer,
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
+  pickedElementPrompt,
   isCodeTool,
+  projectInstructionsPromptSection,
+  QUICK_PREVIEW_TOOL,
+  readProjectInstructions,
+  REQUEST_CODE_MODE_TOOL,
   runCodeTool,
+  runQuickPreviewTool,
 } from "../proposals/proposalCode";
+import { quickPreviewRunner } from "../proposals/quickPreviewControl";
+import {
+  NO_PREVIEW,
+  PAGE_PROMPT_SECTION,
+  READ_PAGE_LOG_TOOL,
+  READ_PAGE_TOOL,
+  runReadPage,
+  runReadPageLog,
+  runScreenshotPage,
+} from "./pageTools";
+import {
+  takePointedAt,
+  type AssistantPage,
+} from "../components/shell/canvas/AssistantPage";
+import type { PickedElement } from "@valbuild/shared/internal";
+import {
+  markTypeErrorsTold,
+  scheduleTypecheck,
+  typecheckProposal,
+  typecheckStatusOf,
+  untoldTypeErrors,
+} from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
   requestProposal,
+  proposalBuildControl,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
-import { createStudioPublishClient } from "../publish/publishClient";
+import {
+  codeModeState,
+  useCodeModeState,
+  readCodeMode,
+  openSiteCodeMode,
+  requestCodeModeMenu,
+  turnOnCodeMode,
+} from "../proposals/codeMode";
+import type { CodeModeRequest } from "../components/CodeModeRequestCard";
+import { createProjectSourceReader } from "@valbuild/shared/internal";
+import { assistantPersona, isInCodeMode } from "./assistantPersona";
+import { capToolResult, cappedToolResult } from "./capToolResult";
+import { valueAtPath } from "./sourceAtPath";
+import { allSchemaAnswer } from "./allSchemaAnswer";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
   description:
-    "Get all val schemas — returns the complete schema definitions for all val modules",
+    "Get all val schemas — returns the complete schema definitions for all val modules. " +
+    "In a very large project the answer can be cut, naming the modules left out: ask for those with module_file_paths.",
   parameters: {
     type: "object",
-    properties: {},
+    properties: {
+      module_file_paths: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only these modules' schemas, e.g. ['/content/homepage.val.ts']. Without it, every module's.",
+      },
+    },
     required: [],
   },
 };
@@ -122,6 +237,12 @@ const GET_SOURCE_TOOL: AITool = {
         type: "string",
         description:
           "The Val module file path, e.g. '/content/homepage.val.ts'. Can be obtained from the keys of get_all_schema.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only the value at this path in the module, as create_patch's path, e.g. ['posts', '3']. Use it to read part of a module too big to read whole.",
       },
     },
     required: ["module_file_path"],
@@ -449,33 +570,6 @@ const ASK_USER_QUESTION_TOOL: AITool = {
   // 30s timeout so the call doesn't get aborted while the user is deciding.
   timeoutMs: null,
 };
-// ask_user_question is the one tool whose arguments drive an interactive
-// render rather than a lookup, so a malformed payload is not recoverable the
-// way a bad argument to a read tool is: with no questions there is no card to
-// submit, and since the tool intentionally sends no immediate result the turn
-// would sit on a spinner forever.
-//
-// Only the fields the card cannot render without are strict. The cosmetic ones
-// use .catch so a wrong type drops just that field rather than rejecting an
-// otherwise perfectly answerable question.
-const AskUserQuestionArgs = z.object({
-  questions: z
-    .array(
-      z.object({
-        question: z.string(),
-        header: z.string().optional().catch(undefined),
-        options: z.array(
-          z.object({
-            label: z.string(),
-            description: z.string().optional().catch(undefined),
-          }),
-        ),
-        multiSelect: z.boolean().optional().catch(undefined),
-        defaults: z.array(z.number()).optional().catch(undefined),
-      }),
-    )
-    .min(1),
-});
 type AskUserQuestions = z.infer<typeof AskUserQuestionArgs>["questions"];
 
 const PATH_ARRAY_DESCRIPTION =
@@ -598,6 +692,22 @@ const GET_RECORD_KEYS_TOOL: AITool = {
     required: ["module_file_path", "path"],
   },
 };
+/**
+ * What the system prompt says about sketchpads, when they are offered: see
+ * `sketchpadsOn` where the prompt is sent.
+ */
+const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad, highlight_sketchpad_blocks, clear_sketchpad_highlights: see "Sketchpads" below.
+
+## Sketchpads
+A sketchpad is a rough page -- headings, text, boxes, columns -- that you and the person work out before anything is built. It is kept on the server for the project, not in this chat: it outlives the conversation, and anyone on the project can open it.
+- When a request changes how a page is laid out (new sections, moving things, a new page), offer to sketch it first with ask_user_question: options "Sketch it first" and "Just do it". Do not insist; "Just do it" is a full answer.
+- create_sketchpad returns an id. Remember it, and use it for the rest of the conversation instead of making another.
+- The person can change the sketchpad at any time. Before you change it or build from it, read_sketchpad, and write with the version you read.
+- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content. A \`--- /route\` line names the page the blocks under it are about.
+- A box whose kind is not a kind of section the site's schema has needs code. Before building one, point at those blocks with highlight_sketchpad_blocks and ask the person whether to go on; clear the highlights once they answer.
+- An image in a box is a path the content has, \`session:<image_key>\` for one in this chat (put it in the site with the image tools first), or a web address.
+`;
+
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -605,6 +715,7 @@ const ALL_TOOLS: AITool[] = [
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
   ADD_SESSION_IMAGE_TO_GALLERY_TOOL,
+  CONVERT_SESSION_IMAGE_TOOL,
   REMOVE_IMAGE_GALLERY_ENTRY_TOOL,
   NAVIGATE_TO_TOOL,
   GET_CURRENT_CONTEXT_TOOL,
@@ -626,7 +737,39 @@ export type UseAIOptions = {
   onSessionBorn?: (id: string) => void;
   /** Called when the session returns to the unborn state (newSession, or loadSession failure). */
   onSessionCleared?: () => void;
+  /**
+   * The page in the Studio's preview: what the Assistant's Select pointed at,
+   * which goes with the next message, and the page `read_page` reads.
+   * Absent outside the Studio.
+   */
+  page?: AssistantPage | null;
 };
+
+/**
+ * How the assistant's tools name a session image in remote storage. Needs the
+ * project's remote settings, so a remote image fails here, saying why, until
+ * they have loaded.
+ */
+function nameRemoteWith(
+  remoteUpload: RemoteUploadReadiness,
+): SessionKeyRemoteNamer {
+  return async ({ localPath, patchId, remoteSchema, metadata, sha256 }) => {
+    if (remoteUpload.status !== "ready") {
+      return {
+        status: "error",
+        message: `Remote files are not ready: ${remoteUpload.message}`,
+      };
+    }
+    return nameSessionImageRemote({
+      localPath,
+      patchId,
+      schema: remoteSchema,
+      metadata,
+      sha256,
+      remote: remoteUpload.settings,
+    });
+  };
+}
 
 export function useAI(
   chatRef: React.RefObject<AIChatHandle | null>,
@@ -643,21 +786,84 @@ export function useAI(
     aiSessionImagesToPatchFile,
   } = useAIContext();
   const valSystem = useValSystem();
+  // For the socket's handlers, which outlive a render: the system as it is now.
+  const valSystemRef = useRef(valSystem);
+  valSystemRef.current = valSystem;
+  /*
+   * The sketchpad tools (`components/sketchpad/sketchpadTools.ts`): the
+   * server's sketchpads, and the shell's state of them when there is one, so
+   * what the assistant makes is opened for the person. Refs, like the code
+   * tools below, because the message handler is subscribed once.
+   */
+  const valClient = useClient();
+  const sketchpadClient = useMemo(
+    () => createSketchpadClient(valClient),
+    [valClient],
+  );
+  const sketchpadClientRef = useRef(sketchpadClient);
+  sketchpadClientRef.current = sketchpadClient;
+  const sketchpadsState = useSketchpadsState();
+  const sketchpadsStateRef = useRef(sketchpadsState);
+  sketchpadsStateRef.current = sketchpadsState;
+  // "Send to AI" in the Sketchpad: a message in this chat, as the person's.
+  useEffect(
+    () =>
+      sketchpadsState?.registerAssistant((message) => {
+        if (!chatRef.current) {
+          return false;
+        }
+        chatRef.current.sendUserMessage(message);
+        return true;
+      }),
+    [sketchpadsState, chatRef],
+  );
   /*
    * The code tools (valbuild/home `docs/hosted-publishing.md`, step 7): the
    * proposal this Studio is in, its build, and the two APIs they read. Refs,
    * because the message handler below is subscribed once.
    */
-  const currentProposal = useCurrentProposal();
+  const studioProposal = useCurrentProposal();
+  const currentProposal = studioProposal;
   const currentProposalRef = useRef(currentProposal);
   currentProposalRef.current = currentProposal;
   const proposalBuild = useProposalBuild().build;
   const proposalBuildRef = useRef(proposalBuild);
+  /**
+   * `uploadAiImage`, for the message handler above where it is declared:
+   * `screenshot_page` uploads its picture as an image of the chat.
+   */
+  const uploadAiImageRef = useRef<
+    ((file: File) => Promise<{ key: string }>) | null
+  >(null);
+  /** The files this tab put in the chat, by key: `convert_session_image`. */
+  const sessionFilesRef = useRef(new Map<string, File>());
+  const pageRef = useRef(opts?.page ?? null);
+  pageRef.current = opts?.page ?? null;
+  /**
+   * The element the last message carried. The pick is cleared once it is
+   * sent, and the turn that message starts is when `read_page`'s `picked` is
+   * asked for: it means this one.
+   */
+  const lastPointedAtRef = useRef<PickedElement | null>(null);
+  /** The picked element, taken for a message that waits in the queue. */
+  const captureSendContext = useCallback(
+    (): SendContext => ({
+      pointedAt: takePointedAt(undefined, pageRef.current),
+    }),
+    [],
+  );
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
     () => ({
       proposals: createProposalsClient({ api: "/api/val" }),
-      publish: createStudioPublishClient({ api: "/api/val" }),
+      /*
+       * The site's source, by version: asked on every tool call, and sent
+       * whole only when a publish changed it. Not the publish client's,
+       * which holds its first answer for as long as it lives -- one deploy
+       * there, and this hook's whole life here, so a publish in between
+       * went unseen by the code tools.
+       */
+      siteSource: createProjectSourceReader({ api: "/api/val" }),
     }),
     [],
   );
@@ -699,6 +905,24 @@ export function useAI(
           return NO_ASSISTANT_SETTINGS;
         }
         return readAssistantSettings(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
+      },
+      /**
+       * `assistant.webSearch` as the project has it: on, off, or not decided.
+       * See `webSearchSetting.ts`.
+       */
+      getWebSearchSetting(): WebSearchAsk {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (
+          moduleFilePath === null ||
+          system?.schemaStore.get(moduleFilePath)?.readonly === true
+        ) {
+          return "cannot-save";
+        }
+        return readWebSearchSetting(
           system?.sourceStore.moduleSource(moduleFilePath),
         );
       },
@@ -851,6 +1075,12 @@ export function useAI(
        * PNG.
        */
       filesAlreadyUploaded?: boolean,
+      /**
+       * This write is `request_web_search` writing the person's answer. Every
+       * other assistant write is refused if it moves `assistant.webSearch`:
+       * see `changesWebSearchSetting`.
+       */
+      writesPersonsWebSearchAnswer?: boolean,
     ): Promise<
       | { status: "patch-synced"; patchId: PatchId }
       | { status: "patch-error"; message: string }
@@ -859,6 +1089,20 @@ export function useAI(
         return {
           status: "patch-error",
           message: "Cannot write: no store system is mounted.",
+        };
+      }
+      if (
+        writesPersonsWebSearchAnswer !== true &&
+        moduleFilePath ===
+          settingsModuleFilePath(valSystem.system.schemaStore.all()) &&
+        patchChangesWebSearchSetting(
+          valSystem.system.sourceStore.moduleSource(moduleFilePath),
+          patch,
+        )
+      ) {
+        return {
+          status: "patch-error",
+          message: `Only the person can turn web search on or off. Call ${REQUEST_WEB_SEARCH_TOOL_NAME} if it is not decided yet; otherwise leave it.`,
         };
       }
       const res = await valSystem.system.patchStore.createPatch(
@@ -889,7 +1133,66 @@ export function useAI(
   const { navigate, currentSourcePath } = useNavigation();
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
+  /** Names for the code tools' refusals: "Kari turned code mode off". */
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
+  /*
+   * The code tools, and asking for code mode, only where code is changed in
+   * proposals: a hosted Studio. Local development changes code in an editor.
+   */
+  const valMode = useValMode();
+  const hostedRef = useRef(valMode === "http");
+  hostedRef.current = valMode === "http";
+  /**
+   * The project's own instructions (`AGENTS.md`, `CLAUDE.md`), for the
+   * prompt in code mode: read as `read_file` reads the proposal's files, so
+   * a message is never held for them. Read when code mode comes on, and
+   * again after each message, so a change to them reaches the next one.
+   */
+  const projectInstructionsRef = useRef<{
+    proposal: string;
+    text: string | null;
+  } | null>(null);
+  const refreshProjectInstructions = useCallback(
+    (proposal: string) => {
+      readProjectInstructions({
+        proposal: { name: proposal },
+        client: codeClients.proposals,
+        siteSource: codeClients.siteSource,
+      })
+        .then((text) => {
+          projectInstructionsRef.current = { proposal, text };
+        })
+        .catch((error) => {
+          // Without them the assistant works as it would in a project that
+          // has none; read_file can still read them.
+          Internal.log.debug(
+            "Could not read the project's instructions for the assistant:",
+            error,
+          );
+        });
+    },
+    [codeClients],
+  );
+  const codeModeNowHere = useCodeModeState().proposal;
+  const inCodeModeNow = isInCodeMode(
+    valMode === "http",
+    currentProposal?.name ?? null,
+    codeModeNowHere,
+  );
+  useEffect(() => {
+    if (inCodeModeNow && currentProposal !== null) {
+      refreshProjectInstructions(currentProposal.name);
+    }
+  }, [inCodeModeNow, currentProposal?.name, refreshProjectInstructions]);
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
+  // Read by the image tools when they run, through a ref so a bucket being
+  // picked does not re-subscribe the tool handler.
+  const remoteUpload = useRemoteUploadSettings();
+  const remoteUploadRef = useRef(remoteUpload);
+  useEffect(() => {
+    remoteUploadRef.current = remoteUpload;
+  });
   const assistant = useAssistantAvailability();
   /**
    * Can the assistant be USED, as opposed to offered?
@@ -905,12 +1208,45 @@ export function useAI(
   // server does.
   const { selected: selectedModel } = useAIModelSelection();
   const defaultModel = useAvailableAIModel();
-  const chatModel = selectedModel ?? defaultModel;
+  const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  /**
+   * The model the open chat is held to, once it has started.
+   *
+   * A chat keeps the model it began with: changing it halfway through hands the
+   * rest of the conversation to a model that did not write the first half, and
+   * the picker is shared by every surface (the panel, the
+   * on-page window), so a pick made for a new chat in one of them would
+   * otherwise move a chat already running in another. Kept here because the
+   * content server does not say which model a chat used: a chat loaded from the
+   * list is held to the model it continues on.
+   *
+   * A ref beside the state because `sendMessage` locks on the first send and
+   * must read the lock in the same call, before a render has happened.
+   */
+  const [sessionModel, setSessionModel] = useState<AIModel | null>(null);
+  const sessionModelRef = useRef<AIModel | null>(null);
+  const lockModel = useCallback((model: AIModel | null) => {
+    sessionModelRef.current = model;
+    setSessionModel(model);
+  }, []);
+  const chatModel = sessionModel ?? pickedModel;
+  // A chat that exists is held, however it came to exist: a first message, an
+  // image attached before one, or a chat loaded from the list or the URL —
+  // which may happen before the models are known, hence the wait for one.
+  useEffect(() => {
+    if (currentSessionId === null) {
+      if (sessionModelRef.current !== null) lockModel(null);
+      return;
+    }
+    if (sessionModelRef.current === null && pickedModel !== null) {
+      lockModel(pickedModel);
+    }
+  }, [currentSessionId, pickedModel, lockModel]);
   // Keep callbacks in a ref so we don't have to thread them through every useCallback dep array.
   const onSessionBornRef = useRef(opts?.onSessionBorn);
   const onSessionClearedRef = useRef(opts?.onSessionCleared);
@@ -925,6 +1261,78 @@ export function useAI(
   // a successful send and cleared by whichever of response/error/cancelled
   // settles it.
   const inFlightPromptIdRef = useRef<string | null>(null);
+
+  /*
+   * A proposal's chats are everyone's on the project (valbuild/home
+   * `docs/proposals.md`, Flow H).
+   */
+  const sharedProposalName = studioProposal?.name ?? null;
+  const sharedProposalNameRef = useRef(sharedProposalName);
+  sharedProposalNameRef.current = sharedProposalName;
+  const viewerId = useCurrentAuthorId();
+  const viewerIdRef = useRef(viewerId);
+  viewerIdRef.current = viewerId;
+  /** The open chat as the server last had it: who asked what. */
+  const [serverMessages, setServerMessages] = useState<ServerMessage[]>([]);
+  const serverMessagesRef = useRef<ServerMessage[]>([]);
+  /** Who asked the question running in the open chat, when it is not you. */
+  const [turnBy, setTurnBy] = useState<ProposalParticipant | null>(null);
+  /** When the unanswered question was first seen: see `STALE_TURN_MS`. */
+  const pendingSinceRef = useRef<{ key: string; since: number } | null>(null);
+  const participantOf = useCallback(
+    (id: string): ProposalParticipant => {
+      const profile =
+        profiles[id] ?? (id === viewerId ? currentProfile : undefined);
+      return {
+        id,
+        name: profile?.fullName || "Someone on the project",
+        ...(profile?.avatar?.url ? { avatarUrl: profile.avatar.url } : {}),
+      };
+    },
+    [profiles, viewerId, currentProfile],
+  );
+  const participantOfRef = useRef(participantOf);
+  participantOfRef.current = participantOf;
+  /**
+   * The open chat, once the content server has said it relays it here
+   * (`ai_watching`). From then on others' turns stream in as they are written
+   * and whose turn runs is what the server says, not a guess.
+   */
+  const [watchedSessionId, setWatchedSessionId] = useState<string | null>(null);
+  const watchedSessionIdRef = useRef<string | null>(null);
+  /** The watched turn whose answer is on screen as it streams. */
+  const watchedActiveIdRef = useRef<string | null>(null);
+  /** Watched turns whose question was seen asked, rather than joined midway. */
+  const watchedStartedRef = useRef<Set<string>>(new Set());
+  /** Remember the open chat as the server has it, and whose turn is running. */
+  const takeServerMessages = useCallback(
+    (sessionId: string, messages: ServerMessage[]) => {
+      serverMessagesRef.current = messages;
+      setServerMessages(messages);
+      // Watched, the server says whose turn runs; the messages can only guess.
+      if (watchedSessionIdRef.current === sessionId) return;
+      const asker = runningAsker(messages, viewerIdRef.current);
+      if (asker === null) {
+        pendingSinceRef.current = null;
+        setTurnBy(null);
+        return;
+      }
+      const key = `${sessionId}:${messages.length}`;
+      if (pendingSinceRef.current?.key !== key) {
+        pendingSinceRef.current = { key, since: Date.now() };
+      }
+      const running =
+        Date.now() - pendingSinceRef.current.since < STALE_TURN_MS;
+      setTurnBy((prev) =>
+        !running
+          ? null
+          : prev?.id === asker
+            ? prev
+            : participantOfRef.current(asker),
+      );
+    },
+    [],
+  );
   /**
    * The prompts this chat started.
    *
@@ -939,9 +1347,73 @@ export function useAI(
   // assistant message that opened the card. Needed to reject them on session
   // change, and to fail that specific turn if the result cannot be delivered.
   const pendingQuestionsRef = useRef<Map<string, string>>(new Map());
+  // The `request_code_mode` cards shown, by tool call: what each asked.
+  const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
+  // Prompts whose turn has searched the web: see `webSearchGate.ts`.
+  const webSearchedPromptsRef = useRef<Set<string>>(new Set());
+  // Tool calls waiting on the person after a web search, by tool call, and
+  // the ones they allowed, which run without asking again.
+  const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
+  const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // `request_web_search` cards waiting on the person, by tool call: the id of
+  // the assistant message that opened each.
+  const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
+  // The message handler, so an allowed call can be run by the same code that
+  // runs every other.
+  const handleServerMessageRef = useRef<
+    ((message: AIServerMessage) => void) | null
+  >(null);
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      if (message.type === "ai_watching") {
+        if (message.sessionId !== sessionIdRef.current) return;
+        watchedSessionIdRef.current = message.sessionId;
+        setWatchedSessionId(message.sessionId);
+        // The viewer's own turn is nobody else's, as with `runningAsker`.
+        const by = message.runningAuthorId;
+        setTurnBy(
+          by === null || by === viewerIdRef.current
+            ? null
+            : participantOfRef.current(by),
+        );
+        return;
+      }
+      if (message.type === "ai_watched") {
+        if (message.sessionId !== sessionIdRef.current) return;
+        const sessionId = message.sessionId;
+        applyWatchedEvent(message.event, {
+          chat: chatRef.current,
+          activeId: watchedActiveIdRef,
+          started: watchedStartedRef.current,
+          participantOf: participantOfRef.current,
+          setTurnBy,
+          turnEnded: (joinedMidway) => {
+            aiGetSessionMessages(sessionId)
+              .then((res) => {
+                if (sessionIdRef.current !== sessionId) return;
+                if (joinedMidway) {
+                  chatRef.current?.loadMessages(
+                    toChatMessages(
+                      sessionId,
+                      res.messages,
+                      participantOfRef.current,
+                    ),
+                  );
+                }
+                takeServerMessages(sessionId, res.messages);
+              })
+              .catch((err) => {
+                // Only who is in the chat is stale, until the next turn ends.
+                Internal.log.debug(
+                  "Could not read the shared chat again:",
+                  err,
+                );
+              });
+          },
+        });
+        return;
+      }
       // Not ours: another part of the Studio is driving its own prompt on this
       // socket. `ai_session_unhidden` carries a request id rather than a prompt
       // id and is nobody's turn, so it is filtered the same way.
@@ -986,6 +1458,106 @@ export function useAI(
           message.outputTokens,
           !message.estimated,
         );
+      } else if (message.type === "ai_web_search") {
+        // The rest of this turn is tainted: see `webSearchGate.ts`.
+        webSearchedPromptsRef.current.add(message.id);
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        // The provider ran it, so it has no tool call id of its own and is
+        // already done: a row that says so, so the person can see it happened.
+        const rowId = `web_search:${randomUUID()}`;
+        chatRef.current.addToolCall(message.id, rowId, "web_search");
+        chatRef.current.completeToolCall(message.id, rowId);
+      } else if (
+        message.type === "ai_tool_call" &&
+        message.name === REQUEST_WEB_SEARCH_TOOL_NAME
+      ) {
+        // Someone may have decided since the prompt was sent: answer from what
+        // the project says now, and ask only if it is still undecided.
+        const setting = valReads.getWebSearchSetting();
+        if (setting !== null || !chatRef.current) {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result:
+              setting === true
+                ? {
+                    success: true,
+                    note: "Web search is already on for this project. It works from the person's next message.",
+                  }
+                : {
+                    success: false,
+                    error:
+                      setting === false
+                        ? "Web search is off for this project, by the person's choice. Answer without it, and do not ask."
+                        : setting === "cannot-save"
+                          ? "Web search cannot be turned on here: this project's settings cannot be changed from the Studio. Answer without it."
+                          : "The chat is not available to ask. Answer without web search.",
+                  },
+            ...(setting === true ? {} : { isError: true }),
+          });
+          return;
+        }
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        const reason = z
+          .object({ reason: z.string() })
+          .safeParse(message.arguments);
+        // Val's question on the tool's row, answered through
+        // `answerToolQuestions`, which writes the setting.
+        chatRef.current.addToolCall(
+          message.id,
+          message.toolCallId,
+          message.name,
+          webSearchRequestQuestions(
+            reason.success ? reason.data.reason.trim() || null : null,
+          ),
+        );
+        webSearchRequestsRef.current.set(message.toolCallId, message.id);
+        pendingQuestionsRef.current.set(message.toolCallId, message.id);
+      } else if (
+        message.type === "ai_tool_call" &&
+        !webAllowedCallsRef.current.has(message.toolCallId) &&
+        needsWebSearchConfirmation(
+          message.name,
+          webSearchedPromptsRef.current.has(message.id),
+        )
+      ) {
+        if (!chatRef.current) {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: false,
+              error:
+                "This needs the person's permission after a web search, and the chat is not available to ask. Do not change code in this answer.",
+            },
+            isError: true,
+          });
+          return;
+        }
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        // The Studio's own question, on the tool's row. Answered through
+        // `answerToolQuestions`, which runs the call if it is allowed.
+        chatRef.current.addToolCall(
+          message.id,
+          message.toolCallId,
+          message.name,
+          webSearchConfirmationQuestions(message.name),
+        );
+        webGatedCallsRef.current.set(message.toolCallId, message);
+        pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -1021,8 +1593,12 @@ export function useAI(
             return;
           }
         }
-        // Ensure assistant message is active so tool indicators can be shown
-        if (chatRef.current) {
+        // Ensure assistant message is active so tool indicators can be shown.
+        // A call the person allowed after a web search has its row already.
+        if (
+          chatRef.current &&
+          !webAllowedCallsRef.current.has(message.toolCallId)
+        ) {
           if (activeIdRef.current !== message.id) {
             activeIdRef.current = message.id;
             chatRef.current.startAssistantMessage(message.id);
@@ -1035,27 +1611,107 @@ export function useAI(
             askQuestions,
           );
         }
-        if (message.name === "ask_user_question") {
+        if (message.name === "request_code_mode") {
+          const reason = z
+            .object({ reason: z.string() })
+            .safeParse(message.arguments);
+          const inProposal = codeModeState().proposal;
+          if (inProposal?.on === true) {
+            // Nothing to ask: it is on already.
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: true,
+                note: "Code mode is already on in this proposal: change its code.",
+              },
+            });
+            chatRef.current?.completeToolCall(message.id, message.toolCallId);
+          } else if (!chatRef.current) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  "The chat UI is not available to show the request. Ask the person in plain text to turn on code mode with the </> beside the proposal's name.",
+              },
+              isError: true,
+            });
+          } else {
+            const request: CodeModeRequest = {
+              reason: reason.success
+                ? reason.data.reason
+                : "The assistant needs to change the code for this.",
+              where:
+                inProposal !== null
+                  ? { kind: "proposal", displayName: inProposal.displayName }
+                  : { kind: "site", siteCode: codeModeState().siteCode },
+              state: "asking",
+            };
+            chatRef.current.setCodeModeRequest(
+              message.id,
+              message.toolCallId,
+              request,
+            );
+            codeModeRequestsRef.current.set(message.toolCallId, request);
+            // Waits on the person, as a question does: answered by the card.
+            pendingQuestionsRef.current.set(message.toolCallId, message.id);
+          }
+        } else if (message.name === "ask_user_question") {
           pendingQuestionsRef.current.set(message.toolCallId, message.id);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
         } else if (message.name === "get_all_schema") {
-          const schemas = valReads.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot() ?? {};
+          const schemaArgs: unknown = message.arguments;
+          const asked =
+            typeof schemaArgs === "object" &&
+            schemaArgs !== null &&
+            "module_file_paths" in schemaArgs
+              ? schemaArgs.module_file_paths
+              : undefined;
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: schemas ?? {},
+            result: allSchemaAnswer(schemas, asked),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_source") {
-          const args = message.arguments as { module_file_path: string };
+          const args = message.arguments as {
+            module_file_path: string;
+            path?: unknown;
+          };
           const moduleFilePath = args.module_file_path as ModuleFilePath;
           const snapshot = valReads.getSourceSnapshot(moduleFilePath);
-          if (snapshot.status === "success") {
+          const at =
+            snapshot.status === "success"
+              ? valueAtPath(snapshot.data, args.path)
+              : null;
+          if (at !== null && at.status === "invalid") {
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
-              result: { success: true, source: snapshot.data },
+              result: { success: false, error: at.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          } else if (at !== null) {
+            const capped = capToolResult(at.value, {
+              narrow:
+                "Read what was left out with get_source and path: the path you asked with (if any) followed by an omitted path, e.g. path: ['posts', '12'].",
+            });
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: true,
+                ...(Array.isArray(args.path) ? { path: args.path } : {}),
+                source: capped.value,
+                ...(capped.truncated !== undefined
+                  ? { truncated: capped.truncated, omitted: capped.omitted }
+                  : {}),
+              },
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else {
@@ -1088,7 +1744,13 @@ export function useAI(
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
-                result: searchResult ?? { results: [], total: 0 },
+                result: cappedToolResult(
+                  searchResult ?? { results: [], total: 0 },
+                  {
+                    narrow:
+                      "Ask for fewer with limit and page with offset, or search for something more specific.",
+                  },
+                ),
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
@@ -1106,7 +1768,10 @@ export function useAI(
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: errors,
+            result: cappedToolResult(errors, {
+              narrow:
+                "Fix the errors that are here and validate again; get_source with a path reads the content an error is about.",
+            }),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "create_patch") {
@@ -1176,6 +1841,7 @@ export function useAI(
                 patchId,
                 parentRef,
                 transfer: aiSessionImagesToPatchFile,
+                nameRemote: nameRemoteWith(remoteUploadRef.current),
               });
             } catch (err) {
               const availableKeys =
@@ -1361,6 +2027,7 @@ export function useAI(
             let sessionRes: {
               filePath: string;
               metadata: ImageMetadata;
+              sha256?: string;
             };
             try {
               const batchRes = await aiSessionImagesToPatchFile({
@@ -1419,12 +2086,49 @@ export function useAI(
               metadata.hotspot = args.hotspot as { x: number; y: number };
             }
 
-            const buildResult: BuildResult = buildImageGalleryPatch(
-              {
-                filePath: args.file_path,
-                imageKey: args.image_key,
+            // Where the entry is keyed: the path the model named, or in a
+            // remote gallery the ref its bytes hash to. The bytes are on the
+            // patch either way, under the path.
+            let entryKey = args.file_path;
+            if (isRemote) {
+              if (moduleSchema.type !== "record") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Module schema is not an images gallery (got '${moduleSchema.type}').`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              const named = await nameRemoteWith(remoteUploadRef.current)({
+                localPath: args.file_path,
+                patchId,
+                remoteSchema: galleryEntrySchemaOf(moduleSchema),
                 metadata,
-              },
+                sha256: sessionRes.sha256,
+              });
+              if (named.status === "error") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Could not add the image to a remote gallery: ${named.message}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              entryKey = named.ref;
+            }
+
+            const buildResult: BuildResult = buildImageGalleryPatch(
+              { filePath: entryKey, imageKey: args.image_key, metadata },
               moduleSchema,
             );
 
@@ -1505,7 +2209,8 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
-                  filePath: sessionRes.filePath,
+                  // The entry's key, which is a ref in a remote gallery.
+                  filePath: entryKey,
                   message: "Image converted to patch successfully.",
                 },
               });
@@ -1782,10 +2487,13 @@ export function useAI(
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: {
-              patches: patches.slice(offset, offset + limit),
-              total: patches.length,
-            },
+            result: cappedToolResult(
+              {
+                patches: patches.slice(offset, offset + limit),
+                total: patches.length,
+              },
+              { narrow: "Ask for fewer with limit and page with offset." },
+            ),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "set_session_name") {
@@ -1824,30 +2532,236 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
-        } else if (isCodeTool(message.name)) {
+        } else if (message.name === "read_page") {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
-          const toolName = message.name;
-          void runCodeTool(toolName, message.arguments, {
-            proposal: currentProposalRef.current,
-            client: codeClients.proposals,
-            siteSource: () => codeClients.publish.projectSource(),
-            build: () => {
-              const build = proposalBuildRef.current;
-              return build === null
-                ? Promise.resolve({
-                    status: "failed",
-                    message: "Only a proposal is built here.",
-                  })
-                : build();
-            },
-            offerProposal: requestProposal,
+          const page = pageRef.current;
+          void runReadPage(message.arguments, {
+            readPage: page?.readPage() ?? null,
+            // What the message this turn answers was about first: a pick
+            // made since is for the NEXT message. Only a turn whose message
+            // carried none reads the one waiting by the composer.
+            pointedAt: lastPointedAtRef.current ?? page?.pointedAt ?? null,
+            noPage: NO_PREVIEW,
           }).then(({ result, isError }) => {
-            if (toolName === "write_files" && !isError) proposalCodeChanged();
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId,
               result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (message.name === READ_PAGE_LOG_TOOL.name) {
+          const { toolCallId, id: messageId } = message;
+          void runReadPageLog(message.arguments, {
+            readPageLog: pageRef.current?.readPageLog() ?? null,
+            noPage: NO_PREVIEW,
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (message.name === "screenshot_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runScreenshotPage(message.arguments, {
+            screenshotPage: pageRef.current?.screenshotPage() ?? null,
+            noPage: NO_PREVIEW,
+            uploadImage: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (upload === null) {
+                return Promise.reject(
+                  new Error("The chat cannot take images yet."),
+                );
+              }
+              return upload(file);
+            },
+          }).then(({ result, isError, images }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+              ...(images !== undefined ? { images } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (message.name === "quick_preview") {
+          // Shown in the shell's canvas, which registered it.
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runQuickPreviewTool(quickPreviewRunner()).then(
+            ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            },
+          );
+        } else if (isCodeTool(message.name)) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const toolName = message.name;
+          const proposalName = currentProposalRef.current?.name ?? null;
+          const stagedInputs = async () =>
+            proposalName === null
+              ? null
+              : ((await codeClients.proposals.get(proposalName)).staged
+                  ?.inputs ?? null);
+          const build = proposalBuildControl(proposalBuildRef.current);
+          void runCodeTool(toolName, message.arguments, {
+            proposal: currentProposalRef.current,
+            client: codeClients.proposals,
+            siteSource: codeClients.siteSource,
+            build:
+              proposalName === null
+                ? build
+                : {
+                    ...build,
+                    // A build is always typechecked: what it builds is
+                    // checked beside it, and a failure reaches the assistant
+                    // on its next tool call
+                    start: () => {
+                      void stagedInputs()
+                        .catch(() => null)
+                        .then((inputs) =>
+                          scheduleTypecheck(
+                            proposalName,
+                            codeClients.proposals,
+                            proposalCodeChanged,
+                            0,
+                            inputs,
+                          ),
+                        );
+                      return build.start();
+                    },
+                  },
+            typecheck: () =>
+              proposalName === null
+                ? Promise.resolve({ status: "nothing-staged" })
+                : typecheckProposal(
+                    proposalName,
+                    codeClients.proposals,
+                    proposalCodeChanged,
+                    stagedInputs,
+                  ),
+            typecheckStatus: async () => {
+              if (proposalName === null) return { status: "none" };
+              const status = typecheckStatusOf(proposalName);
+              if (status.status === "running") {
+                return {
+                  status: "running",
+                  step:
+                    status.step === null
+                      ? null
+                      : status.step.step === "checking"
+                        ? `checking the ${status.step.which}'s code`
+                        : status.step.step,
+                };
+              }
+              if (status.status !== "done") return status;
+              const now = await stagedInputs();
+              if (now === status.inputs) markTypeErrorsTold(status.inputs);
+              return {
+                status: "done",
+                errors: status.errors,
+                current: now === status.inputs,
+              };
+            },
+            offerProposal: requestProposal,
+            // After a staging, this tab evaluates `val.modules` and swaps the
+            // schema in, so a field just added can be edited before a build
+            ...(proposalName !== null && valSystemRef.current !== null
+              ? {
+                  evaluateStaged: () => {
+                    const system = valSystemRef.current?.system;
+                    if (system === undefined) {
+                      return Promise.resolve<StagedCodeOutcome>({
+                        status: "not-here",
+                      });
+                    }
+                    return runStagedCode(
+                      proposalName,
+                      studioStagedCodeDeps(
+                        proposalName,
+                        codeClients.proposals,
+                        system,
+                      ),
+                    );
+                  },
+                }
+              : {}),
+            ...(proposalName !== null
+              ? {
+                  codeMode: () =>
+                    readCodeMode(
+                      codeClients.proposals,
+                      proposalName,
+                      (id) => profilesRef.current[id]?.fullName ?? null,
+                    ),
+                }
+              : {}),
+          }).then(async ({ result, isError }) => {
+            if (
+              (toolName === "write_files" ||
+                toolName === "edit_file" ||
+                toolName === "create_patch" ||
+                toolName === "format_files" ||
+                toolName === "lint") &&
+              !isError
+            )
+              proposalCodeChanged();
+            // The background typecheck found errors in what is staged now,
+            // and the assistant has not heard: it hears on this answer
+            const untold =
+              proposalName === null ? null : untoldTypeErrors(proposalName);
+            // Told only of errors in what is staged now; the read that says
+            // so is given a few seconds, never the answer's whole wait
+            const notice =
+              untold !== null &&
+              (await Promise.race([
+                stagedInputs().catch(() => null),
+                new Promise<null>((resolve) =>
+                  setTimeout(() => resolve(null), 3_000),
+                ),
+              ])) === untold.inputs
+                ? untold
+                : null;
+            if (notice !== null) markTypeErrorsTold(notice.inputs);
+            // The tab's evaluation of the staged code finished after the
+            // write that started it answered: it is told on this answer
+            const staged =
+              proposalName === null ? null : untoldStagedCode(proposalName);
+            if (staged !== null) markStagedCodeTold(staged);
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result:
+                notice === null && staged === null
+                  ? result
+                  : {
+                      result,
+                      ...(notice !== null
+                        ? {
+                            typecheck_errors: {
+                              newErrors: notice.errors.length,
+                              errors: notice.errors.slice(0, 20),
+                              next: "The background typecheck found these in what is staged. Fix them before you build.",
+                            },
+                          }
+                        : {}),
+                      ...(staged !== null
+                        ? { valModules: stagedCodeNotice(staged) }
+                        : {}),
+                    },
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
@@ -2051,6 +2965,74 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
             }
           })();
+        } else if (message.name === CONVERT_SESSION_IMAGE_TOOL.name) {
+          const { id: messageId, toolCallId } = message;
+          void runConvertSessionImage(message.arguments, {
+            files: sessionFilesRef.current,
+            encode: (file, settings) => encodeImage(file, settings, undefined),
+            upload: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (!upload) {
+                return Promise.reject(new Error("Uploads are not ready."));
+              }
+              return upload(file);
+            },
+          })
+            .catch((error: unknown) => ({
+              isError: true,
+              result: {
+                error:
+                  error instanceof Error
+                    ? `The image could not be converted: ${error.message}`
+                    : "The image could not be converted.",
+              },
+            }))
+            .then(({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            });
+        } else if (isSketchpadToolName(message.name)) {
+          const { id: messageId, toolCallId, name } = message;
+          void runSketchpadTool(name, message.arguments, {
+            client: sketchpadClientRef.current,
+            state: sketchpadsStateRef.current,
+            // A box names an image the project has, or one in the chat.
+            mediaKnown: knownSketchMedia(
+              valReads.getAllSchemasSnapshot(),
+              valReads.getAllSourcesSnapshot(),
+            ),
+          })
+            .catch((error: unknown) => ({
+              isError: true,
+              result: {
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "The sketchpads could not be reached.",
+              },
+            }))
+            .then(({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            });
         } else if (message.name === "count_entries") {
           const args = message.arguments as {
             module_file_path?: string;
@@ -2301,6 +3283,7 @@ export function useAI(
         )) {
           if (questionMessageId === message.id) {
             pendingQuestionsRef.current.delete(toolCallId);
+            codeModeRequestsRef.current.delete(toolCallId);
           }
         }
         if (activeIdRef.current === message.id) {
@@ -2332,6 +3315,7 @@ export function useAI(
       }
     };
 
+    handleServerMessageRef.current = handler;
     return subscribeToWsMessages(handler);
   }, [
     subscribeToWsMessages,
@@ -2344,6 +3328,8 @@ export function useAI(
     currentProfile,
     currentSourcePath,
     profiles,
+    aiGetSessionMessages,
+    takeServerMessages,
   ]);
 
   const uploadAiImage = useCallback(
@@ -2377,6 +3363,10 @@ export function useAI(
       }
       const queryParams = new URLSearchParams();
       queryParams.set("sessionid", encodeURIComponent(sid));
+      // A chat that starts with an image is created by this upload.
+      if (sharedProposalNameRef.current !== null) {
+        queryParams.set("proposal", sharedProposalNameRef.current);
+      }
       queryParams.set("width", encodeURIComponent(readRes.width || 0));
       queryParams.set("height", encodeURIComponent(readRes.height || 0));
       queryParams.set(
@@ -2400,15 +3390,40 @@ export function useAI(
       if (wasUnborn) {
         onSessionBornRef.current?.(sid);
       }
+      sessionFilesRef.current.set(body.key, file);
+      // A Sketchpad's box can show it, and name it, from now on.
+      sketchpadsStateRef.current?.addSessionImage({
+        key: body.key,
+        url: URL.createObjectURL(file),
+        name: file.name,
+      });
       return body;
     },
     [getDirectFileUploadSettings],
+  );
+  uploadAiImageRef.current = uploadAiImage;
+  // A file put in a Sketchpad's box goes into this chat's session first.
+  useEffect(
+    () =>
+      sketchpadsState?.registerUploader((file) => {
+        const upload = uploadAiImageRef.current;
+        if (!upload) {
+          return Promise.reject(new Error("The assistant is not ready yet."));
+        }
+        return upload(file);
+      }),
+    [sketchpadsState],
   );
 
   const sendMessage = useCallback(
     (
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
+      /**
+       * Taken when the message was written, for one that waited in the
+       * queue: its picked element, rather than whatever is picked now.
+       */
+      context?: SendContext,
     ): boolean => {
       // No reachable provider means no key is configured for any of them. Refuse
       // here rather than send a prompt the server will refuse: this way the chat
@@ -2435,6 +3450,8 @@ export function useAI(
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
+      const model = sessionModelRef.current ?? chatModel;
+      if (sessionModelRef.current === null) lockModel(model);
       const baseText =
         typeof content === "string" ? content : chatDocumentToHtmlText(content);
       // Pull inline image nodes out of the rich document so their keys are
@@ -2471,6 +3488,11 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
+      const pointedAt = takePointedAt(context, pageRef.current);
+      lastPointedAtRef.current = pointedAt;
+      if (pointedAt !== null) {
+        augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
+      }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
         ...mergedAttachments.map((attachment) => ({
@@ -2478,12 +3500,39 @@ export function useAI(
           key: attachment.key,
         })),
       ];
+      // Only where the Studio can show one, and its server has them: the
+      // Studio's shell, once a list came back. Anywhere else the assistant
+      // would offer something that fails, or that nobody can open.
+      const sketchpadsOn =
+        sketchpadsStateRef.current?.getSnapshot().available === true;
+      // Code mode: the person changes the site's code with its content, and
+      // the prompt says so (`assistantPersona`), with the project's own
+      // instructions. Read again after this message is sent, so an edit to
+      // them reaches the next one.
+      const inCodeMode = isInCodeMode(
+        hostedRef.current,
+        currentProposalRef.current?.name ?? null,
+        codeModeState().proposal,
+      );
+      const readInstructions = projectInstructionsRef.current;
+      const projectInstructions =
+        readInstructions !== null &&
+        readInstructions.proposal === currentProposalRef.current?.name
+          ? readInstructions.text
+          : null;
+      if (inCodeMode && currentProposalRef.current !== null) {
+        refreshProjectInstructions(currentProposalRef.current.name);
+      }
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
         sessionId: sid,
         id: randomUUID(),
         reportUsage: true,
+        // Makes a new chat the proposal's; ignored for one that exists.
+        ...(sharedProposalNameRef.current !== null
+          ? { proposal: sharedProposalNameRef.current }
+          : {}),
         agents: [
           {
             id: "default",
@@ -2492,11 +3541,14 @@ export function useAI(
             // provider and not another, and asking for the wrong one is
             // refused. Null means AI is off, which is checked before we get
             // here.
-            model: chatModel,
-            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
-
-## Who you are talking to
-Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+            model,
+            // The project's setting; the server adds the provider's search
+            // tool. Sent only when on, so a server that does not know it is
+            // never asked.
+            ...(valReads.getAssistantSettings().webSearch
+              ? { webSearch: true }
+              : {}),
+            systemPrompt: `${assistantPersona(inCodeMode)}
 
 ## User message format (HTML-esque rich text)
 The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
@@ -2529,7 +3581,7 @@ Always call get_all_schema first unless the question clearly does not require it
 - set_session_name: give the current chat session a short, descriptive name once the topic is clear. Call this at least once per session, early in the conversation. Max 5 words, plain language (e.g. 'Update homepage hero text'). If there is a title or a topic use it directly.
 - get_source_path_from_route: given a URL path like '/blogs/blog-1', find which Next.js page module it belongs to and return the source path. Use this when the user mentions a specific page URL or route.
 - ask_user_question: ask the user 1-4 structured clarification questions at once, rendered together in one card. Each question is single-select by default; set multiSelect: true on a question to let the user pick multiple options (e.g. "Which sections should I update?"). You may set defaults (option indices to pre-select) to bias toward the most likely answer. Use ONLY when the user's request is ambiguous and a small set of concrete options would resolve it (e.g. "Which page should I update — Home, About, or Contact?"). When several clarifications are needed, group them into a SINGLE call rather than asking sequentially. Do NOT use for open-ended questions or yes/no checks — just ask in plain text instead. Never call this more than once in a row; if the user answered with custom "Other" text, proceed with that — do not re-ask. If the tool result is an error (user cancelled), drop the structured-question approach and ask once in plain text instead.
-
+${sketchpadsOn ? SKETCHPADS_PROMPT_SECTION : ""}
 ## navigate_to: how to build a source path
 A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
 Example: /content/authors.val.ts?p="jane" navigates to the "jane" entry in the authors module.
@@ -2577,8 +3629,42 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}${codeToolsPromptSection(currentProposal !== null)}`,
-            tools: [...ALL_TOOLS, ...CODE_TOOLS],
+            )}${webSearchRequestPromptSection(valReads.getWebSearchSetting())}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
+              hostedRef.current
+                ? codeToolsPromptSection(
+                    currentProposalRef.current !== null
+                      ? { kind: "proposal" }
+                      : { kind: "site" },
+                  )
+                : ""
+            }${
+              inCodeMode
+                ? projectInstructionsPromptSection(projectInstructions)
+                : ""
+            }`,
+            tools: withWebSearchRequest(
+              withWebSearchWaits(
+                [
+                  ...ALL_TOOLS,
+                  ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                  // In the Studio: the page in its preview. Without
+                  // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.
+                  ...(pageRef.current !== null
+                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL]
+                    : []),
+                  // Hosted only: see `hostedRef`.
+                  ...(hostedRef.current
+                    ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                    : []),
+                  // A quick preview is shown in a proposal's preview.
+                  ...(hostedRef.current && currentProposalRef.current !== null
+                    ? [QUICK_PREVIEW_TOOL]
+                    : []),
+                ],
+                valReads.getAssistantSettings().webSearch === true,
+              ),
+              valReads.getWebSearchSetting(),
+            ),
           },
         ],
       };
@@ -2594,7 +3680,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [chatModel, chatRef, sendWsMessage],
+    [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -2657,8 +3743,115 @@ Do not describe what you will do unless you do it for clarification — just do 
     return true;
   }, [sendWsMessage, chatRef]);
 
+  /**
+   * The person answered the Studio's question about a call after a web search
+   * (or closed it, `null`): run the call, or tell the model they said no.
+   */
+  const answerWebSearchConfirmation = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
+      const call = webGatedCallsRef.current.get(toolCallId);
+      if (call === undefined) return false;
+      webGatedCallsRef.current.delete(toolCallId);
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const confirmation = webSearchConfirmationOf(answers);
+      if (confirmation.allow) {
+        webAllowedCallsRef.current.add(toolCallId);
+        handleServerMessageRef.current?.(call);
+        return true;
+      }
+      if (messageId !== undefined) {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+      const sent = sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result: confirmation.result,
+        isError: true,
+      });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+      }
+      return true;
+    },
+    [sendWsMessage, failUndeliveredQuestion, chatRef],
+  );
+
+  /**
+   * The person answered `request_web_search`'s card (or closed it, `null`):
+   * write what they decided, as the Settings panel would, and tell the model.
+   */
+  const answerWebSearchRequest = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
+      const messageId = webSearchRequestsRef.current.get(toolCallId);
+      if (messageId === undefined) return false;
+      webSearchRequestsRef.current.delete(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const outcome = webSearchRequestOutcome(answers);
+      const send = (
+        toolResult: WebSearchRequestOutcome["result"],
+        saveFailed = false,
+      ) => {
+        const sent = sendWsMessage({
+          type: "ai_tool_result",
+          toolCallId,
+          result: toolResult,
+          ...(toolResult.success ? {} : { isError: true }),
+        });
+        // "Don't turn on" is an answer, not a failure: the row is only red
+        // when the person's choice could not be kept.
+        if (saveFailed) {
+          chatRef.current?.errorToolCall(messageId, toolCallId);
+        } else {
+          chatRef.current?.completeToolCall(messageId, toolCallId);
+        }
+        if (!sent) failUndeliveredQuestion(messageId);
+      };
+      if (outcome.write === null) {
+        send(outcome.result);
+        return true;
+      }
+      const system = valSystem?.system;
+      const moduleFilePath =
+        system === undefined
+          ? null
+          : settingsModuleFilePath(system.schemaStore.all());
+      if (system === undefined || moduleFilePath === null) {
+        send({
+          success: false,
+          error:
+            "This project has no settings module to keep the choice in. Answer without web search.",
+        });
+        return true;
+      }
+      const source = system.sourceStore.moduleSource(moduleFilePath);
+      void writeAIPatch(
+        moduleFilePath,
+        webSearchSettingOps(outcome.write, hasAssistantSection(source)),
+        sessionIdRef.current,
+        undefined,
+        undefined,
+        true,
+      ).then((res) =>
+        send(
+          res.status === "patch-synced"
+            ? outcome.result
+            : {
+                success: false,
+                error: `The setting could not be saved: ${res.message}. Answer without web search.`,
+              },
+          res.status !== "patch-synced",
+        ),
+      );
+      return true;
+    },
+    [sendWsMessage, failUndeliveredQuestion, chatRef, valSystem, writeAIPatch],
+  );
+
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
+      if (answerWebSearchRequest(toolCallId, answers)) return;
+      if (answerWebSearchConfirmation(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -2670,11 +3863,18 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion],
+    [
+      sendWsMessage,
+      failUndeliveredQuestion,
+      answerWebSearchConfirmation,
+      answerWebSearchRequest,
+    ],
   );
 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
+      if (answerWebSearchRequest(toolCallId, null)) return;
+      if (answerWebSearchConfirmation(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -2687,7 +3887,111 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion],
+    [
+      sendWsMessage,
+      failUndeliveredQuestion,
+      answerWebSearchConfirmation,
+      answerWebSearchRequest,
+    ],
+  );
+
+  /** Answer a `request_code_mode` card, and move it on. */
+  const answerCodeModeRequest = useCallback(
+    (
+      toolCallId: string,
+      next: CodeModeRequest["state"],
+      result: { success: boolean; note?: string; error?: string },
+    ) => {
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      const request = codeModeRequestsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      // Answered: nothing presses it again (it is no longer pending), so it
+      // is not kept -- the card shows `moved` from the chat's own state.
+      codeModeRequestsRef.current.delete(toolCallId);
+      if (messageId === undefined || request === undefined) return;
+      const moved: CodeModeRequest = { ...request, state: next };
+      chatRef.current?.setCodeModeRequest(messageId, toolCallId, moved);
+      const sent = sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result,
+        ...(result.success ? {} : { isError: true }),
+      });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+        return;
+      }
+      if (result.success) {
+        chatRef.current?.completeToolCall(messageId, toolCallId);
+      } else {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+    },
+    [chatRef, sendWsMessage, failUndeliveredQuestion],
+  );
+
+  /**
+   * The card's button. In a proposal it turns code mode on -- the same call
+   * as the `</>` -- and the turn goes on once it is. On the site it opens
+   * the `</>` menu, and the turn ends here: the change is made in the
+   * proposal chosen, whose Studio opens in code mode.
+   */
+  const enableCodeMode = useCallback(
+    (toolCallId: string) => {
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      const request = codeModeRequestsRef.current.get(toolCallId);
+      if (messageId === undefined || request === undefined) return;
+      if (
+        request.where.kind === "site" &&
+        request.where.siteCode &&
+        openSiteCodeMode()
+      ) {
+        answerCodeModeRequest(toolCallId, "asking", {
+          success: false,
+          note: "The Studio is opening code mode for the site: every change waiting to be published goes with it, and the page reloads there. Tell them to ask again once it has opened, and stop here.",
+        });
+        return;
+      }
+      if (request.where.kind === "site") {
+        requestCodeModeMenu();
+        answerCodeModeRequest(toolCallId, "asking", {
+          success: false,
+          note: "The person was shown the proposals to open in code mode. The change is made in the one they choose, whose Studio opens with code mode on. Tell them that, and stop here.",
+        });
+        return;
+      }
+      const turning: CodeModeRequest = { ...request, state: "turning-on" };
+      codeModeRequestsRef.current.set(toolCallId, turning);
+      chatRef.current?.setCodeModeRequest(messageId, toolCallId, turning);
+      void turnOnCodeMode().then((refused) => {
+        if (refused === null) {
+          answerCodeModeRequest(toolCallId, "on", {
+            success: true,
+            note: "Code mode is on: everything pending was saved, and you can change the proposal's code now.",
+          });
+          return;
+        }
+        // Not answered: the card asks again, and its button is the retry.
+        const back: CodeModeRequest = { ...request, state: "asking" };
+        codeModeRequestsRef.current.set(toolCallId, back);
+        chatRef.current?.setCodeModeRequest(messageId, toolCallId, back);
+        toast.error("Code mode could not be turned on", {
+          description: refused,
+        });
+      });
+    },
+    [chatRef, answerCodeModeRequest],
+  );
+
+  const declineCodeMode = useCallback(
+    (toolCallId: string) => {
+      answerCodeModeRequest(toolCallId, "declined", {
+        success: false,
+        error:
+          "The person chose not to turn on code mode now. Do not change code: say what the change would need, and do what content alone can.",
+      });
+    },
+    [answerCodeModeRequest],
   );
 
   // Reject any pending ask_user_question tool calls. ask_user_question sets
@@ -2706,6 +4010,9 @@ Do not describe what you will do unless you do it for clarification — just do 
         });
       }
       pendingQuestionsRef.current.clear();
+      codeModeRequestsRef.current.clear();
+      webGatedCallsRef.current.clear();
+      webSearchRequestsRef.current.clear();
     },
     [sendWsMessage],
   );
@@ -2714,20 +4021,29 @@ Do not describe what you will do unless you do it for clarification — just do 
     rejectPendingQuestions("User started a new session.");
     sessionIdRef.current = null;
     setCurrentSessionId(null);
+    lockModel(null);
+    serverMessagesRef.current = [];
+    setServerMessages([]);
+    setTurnBy(null);
     chatRef.current?.clearMessages();
     onSessionClearedRef.current?.();
-  }, [chatRef, rejectPendingQuestions]);
+  }, [chatRef, rejectPendingQuestions, lockModel]);
 
   const getSessions = useCallback(
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
     }): Promise<AISession[]> => {
-      const res = await aiGetSessions(opts);
+      const res = await aiGetSessions({
+        ...opts,
+        ...(sharedProposalName !== null
+          ? { proposal: sharedProposalName }
+          : {}),
+      });
       setSessions(res.sessions);
       return res.sessions;
     },
-    [aiGetSessions],
+    [aiGetSessions, sharedProposalName],
   );
 
   const setSessionName = useCallback(
@@ -2743,21 +4059,20 @@ Do not describe what you will do unless you do it for clarification — just do 
   const loadSession = useCallback(
     async (sessionId: string): Promise<void> => {
       rejectPendingQuestions("User switched to a different session.");
+      // Not the chat it is leaving's model: the effect above holds this one
+      // to the model it continues on. The same chat opened again keeps its
+      // own, since the effect would not run again to put it back.
+      if (sessionIdRef.current !== sessionId) lockModel(null);
       sessionIdRef.current = sessionId;
       setCurrentSessionId(sessionId);
       chatRef.current?.clearMessages();
       setIsLoadingSession(true);
       try {
         const res = await aiGetSessionMessages(sessionId);
-        const messages = res.messages
-          ?.filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m, i) => ({
-            id: `history-${sessionId}-${i}`,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            status: "complete" as const,
-          }));
-        chatRef.current?.loadMessages(messages);
+        chatRef.current?.loadMessages(
+          toChatMessages(sessionId, res.messages, participantOfRef.current),
+        );
+        takeServerMessages(sessionId, res.messages);
         onSessionBornRef.current?.(sessionId);
       } catch (err) {
         Internal.log.debug("Failed to load session messages, clearing:", err);
@@ -2769,8 +4084,124 @@ Do not describe what you will do unless you do it for clarification — just do 
         setIsLoadingSession(false);
       }
     },
-    [chatRef, aiGetSessionMessages, rejectPendingQuestions],
+    [
+      chatRef,
+      aiGetSessionMessages,
+      rejectPendingQuestions,
+      takeServerMessages,
+      lockModel,
+    ],
   );
+
+  /*
+   * A proposal's chat is shared, so others may be asking in it: ask the
+   * content server to send this socket every turn of the open chat as it is
+   * written. A socket that closes loses its watches, so a reconnect asks again.
+   */
+  useEffect(() => {
+    if (
+      sharedProposalName === null ||
+      currentSessionId === null ||
+      !isWsConnected
+    ) {
+      return;
+    }
+    const sessionId = currentSessionId;
+    sendWsMessage({ type: "ai_watch_session", sessionId });
+    return () => {
+      sendWsMessage({ type: "ai_unwatch_session", sessionId });
+      if (watchedSessionIdRef.current === sessionId) {
+        watchedSessionIdRef.current = null;
+        setWatchedSessionId(null);
+      }
+      watchedActiveIdRef.current = null;
+      watchedStartedRef.current.clear();
+    };
+  }, [sharedProposalName, currentSessionId, isWsConnected, sendWsMessage]);
+
+  /*
+   * The fallback, for a content server that does not relay chats (it never
+   * answers the watch): the open chat is read again every few seconds, and
+   * shown again when someone else has added to it. Never while this tab's own
+   * question runs (that one is on screen as it streams), and never just for
+   * this tab's own messages, which are on screen already with their tool
+   * activity, which a reload would drop.
+   */
+  useEffect(() => {
+    if (sharedProposalName === null || currentSessionId === null) return;
+    if (watchedSessionId === currentSessionId) return;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      const sid = sessionIdRef.current;
+      if (sid === null || inFlightPromptIdRef.current !== null) return;
+      // Not from a tab nobody is looking at: the on-page overlay mounts this
+      // hook on every page, and a background tab has nobody to show it to.
+      if (document.visibilityState !== "visible") return;
+      let res: AIMessagesResponse;
+      try {
+        res = await aiGetSessionMessages(sid);
+      } catch (err) {
+        // A missed read: the next one tries again.
+        Internal.log.debug("Could not read the shared chat again:", err);
+        return;
+      }
+      if (
+        stopped ||
+        sessionIdRef.current !== sid ||
+        inFlightPromptIdRef.current !== null
+      ) {
+        return;
+      }
+      if (
+        someoneElseAdded(
+          serverMessagesRef.current,
+          res.messages,
+          viewerIdRef.current,
+        )
+      ) {
+        chatRef.current?.loadMessages(
+          toChatMessages(sid, res.messages, participantOfRef.current),
+        );
+      }
+      takeServerMessages(sid, res.messages);
+    }, SHARED_CHAT_POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [
+    sharedProposalName,
+    currentSessionId,
+    watchedSessionId,
+    aiGetSessionMessages,
+    chatRef,
+    takeServerMessages,
+  ]);
+
+  /** Everyone in the open chat, and in each listed chat: Flow H's `together`. */
+  const shared = useMemo<SharedChat | null>(() => {
+    if (sharedProposalName === null || viewerId === null) return null;
+    const ids = new Set<string>([viewerId]);
+    const listed = sessions.find((s) => s.id === currentSessionId);
+    for (const id of listed?.authorIds ?? []) ids.add(id);
+    for (const m of serverMessages) if (m.authorId) ids.add(m.authorId);
+    return {
+      viewerId,
+      people: [...ids].map(participantOf),
+      turnBy,
+      sessionPeople: Object.fromEntries(
+        sessions.map((s) => [s.id, (s.authorIds ?? []).map(participantOf)]),
+      ),
+    };
+  }, [
+    sharedProposalName,
+    viewerId,
+    sessions,
+    currentSessionId,
+    serverMessages,
+    turnBy,
+    participantOf,
+  ]);
 
   // Once the assistant is reachable, populate the sessions dropdown and (if an
   // initial session id was passed in, e.g. from ?session= in the URL) load it.
@@ -2799,6 +4230,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    captureSendContext,
     uploadAiImage,
     isStreaming,
     /** Stop the running prompt. False when there is nothing running. */
@@ -2814,5 +4246,83 @@ Do not describe what you will do unless you do it for clarification — just do 
     loadSession,
     answerToolQuestions,
     cancelToolQuestion,
+    /** A `request_code_mode` card's buttons. See `CodeModeRequestCard`. */
+    enableCodeMode,
+    declineCodeMode,
+    /** In a proposal: who is in the chat, and whose turn runs. See Flow H. */
+    shared,
+    /**
+     * The model the open chat is held to, or null before it has started. Show
+     * it instead of the picker's selection while it is set, and do not offer
+     * to change it: see `sessionModel`.
+     */
+    sessionModel,
   };
+}
+
+// ---------------------------------------------------------------------------
+// A proposal's chat, shared (valbuild/home `docs/proposals.md`, Flow H)
+// ---------------------------------------------------------------------------
+
+type ServerMessage = AIMessagesResponse["messages"][number];
+
+/** What `useAI` gives a surface about a proposal's chat. */
+export type SharedChat = {
+  viewerId: string;
+  /** The viewer, and everyone who started or asked in the open chat. */
+  people: ProposalParticipant[];
+  /** Who asked the question that is running, when it is not the viewer. */
+  turnBy: ProposalParticipant | null;
+  /** Who is in each listed chat, by session id. */
+  sessionPeople: Record<string, ProposalParticipant[]>;
+};
+
+/** How often an open shared chat is read again. */
+const SHARED_CHAT_POLL_MS = 4000;
+
+/**
+ * How long an unanswered question from someone else counts as running.
+ *
+ * The chat is read, not watched, so "running" is a guess: the last message
+ * is someone else's question with no answer yet. A question whose asker left
+ * mid-turn is never answered, and without this the chat would say they are
+ * asking forever, holding back what this person queued. The server refuses a
+ * prompt while a turn really runs (`session_busy`), so guessing short costs a
+ * refused send, never two turns at once.
+ */
+const STALE_TURN_MS = 2 * 60 * 1000;
+
+function toChatMessages(
+  sessionId: string,
+  messages: ServerMessage[],
+  participantOf: (id: string) => ProposalParticipant,
+): ChatMessage[] {
+  const chat: ChatMessage[] = [];
+  /** The tools the last question's turn called: they go on its answer. */
+  let toolActivities: ToolActivity[] = [];
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    // Numbered among the messages shown, as they always were.
+    const id = `history-${sessionId}-${chat.length}`;
+    if (m.role === "user") {
+      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
+      chat.push({
+        id,
+        role: "user",
+        content: m.content,
+        status: "complete",
+        ...(m.authorId ? { author: participantOf(m.authorId) } : {}),
+      });
+      continue;
+    }
+    chat.push({
+      id,
+      role: "assistant",
+      content: m.content,
+      status: "complete",
+      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+    });
+    toolActivities = [];
+  }
+  return chat;
 }

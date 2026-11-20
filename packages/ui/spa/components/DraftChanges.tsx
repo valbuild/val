@@ -30,7 +30,6 @@ import {
   Bell,
   ChevronDown,
   Download,
-  Loader2,
   TriangleAlert,
   Undo2,
   X,
@@ -74,6 +73,7 @@ import {
 import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { ValPath } from "./ValPath";
 import { Avatar } from "./Avatar";
+import { Spinner } from "./designSystem/spinner";
 
 export function DraftChanges({ className }: { className?: string }) {
   const currentPatchIds = useCurrentPatchIds();
@@ -540,7 +540,7 @@ function Deployments({
     <div>
       <div className="flex justify-between items-center p-2 font-bold">
         <span>Deployments</span>
-        <Loader2 size={16} className="inline animate-spin" />
+        <Spinner size={16} />
       </div>
       <div>
         {[...inFlight]

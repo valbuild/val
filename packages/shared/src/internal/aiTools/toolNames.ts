@@ -6,6 +6,7 @@ export const toolNames = [
   "create_patch",
   "add_session_image_to_gallery",
   "remove_image_gallery_entry",
+  "convert_session_image",
   "navigate_to",
   "get_current_context",
   "get_patches",
@@ -17,5 +18,11 @@ export const toolNames = [
   "empty_at_path",
   "count_entries",
   "get_record_keys",
+  "list_sketchpads",
+  "create_sketchpad",
+  "read_sketchpad",
+  "write_sketchpad",
+  "highlight_sketchpad_blocks",
+  "clear_sketchpad_highlights",
 ] as const;
 export type ToolName = (typeof toolNames)[number];

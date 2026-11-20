@@ -3,15 +3,16 @@
  * reports what its modules are -- what the builder tab does, on Node.
  *
  * A separate process for the reason splitEnvMarkersProbe.ts gives: rolldown is
- * `@rolldown/browser`'s, which is ESM-only, and jest runs CommonJS here. The
+ * rolldown's, which is ESM-only, and jest runs CommonJS here. The
  * site's vendor chunk is a file under a temp directory standing in for the
  * origin, re-exporting this repository's `@valbuild/core`.
  */
+import "./nativeBundler";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { pathToFileURL } from "url";
-import { bundleValModules } from "../valModules";
+import { bundleValModules, valModulesEntry } from "../valModules";
 import type { BuildTarget } from "../contract";
 
 const CORE = path.resolve(__dirname, "../../../core/src/index.ts");
@@ -56,6 +57,29 @@ async function main() {
       workerOnly: [],
     },
   };
+  if (process.argv[3] === "dependencies") {
+    // What the build records per module: the project files it depends on.
+    const warnings: string[] = [];
+    const entry = await valModulesEntry({ files, target }, "h1", warnings);
+    console.log(JSON.stringify({ dependencies: entry.dependencies, warnings }));
+    return;
+  }
+  if (process.argv[3] === "entry") {
+    // What a build emits: named after the build, its vendor imports
+    // root-relative, and a warning rather than a failed build.
+    const warnings: string[] = [];
+    const entry = await valModulesEntry({ files, target }, "h1", warnings);
+    console.log(
+      JSON.stringify({
+        names: Object.keys(entry.files),
+        rootRelative: Object.values(entry.files).every((code) =>
+          code.includes(`"/_pvendor/r1/valbuild__core.js"`),
+        ),
+        warnings,
+      }),
+    );
+    return;
+  }
   let code: string;
   try {
     code = (

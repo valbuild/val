@@ -3,9 +3,10 @@
  * targets and reports the output, whether it still parses, or the error.
  *
  * A separate process for the reason removeDevtoolsProbe.ts gives: the parser
- * is `@rolldown/browser`'s, which is ESM-only, and jest runs CommonJS here. The
+ * is rolldown's, which is ESM-only, and jest runs CommonJS here. The
  * cases and the assertions stay in the test -- this only reports.
  */
+import "./nativeBundler";
 import { parse } from "../ast";
 import { transformServerFns } from "../serverFns";
 

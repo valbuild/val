@@ -4,8 +4,8 @@ import {
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
-import { useMemo, type ReactNode } from "react";
-import { isLocaleSchema } from "@valbuild/shared/internal";
+import { useMemo, useState, type ReactNode } from "react";
+import { hasLocaleRouteParam, isLocaleSchema } from "@valbuild/shared/internal";
 import {
   usePreviewAtPath,
   useSchemaAtPath,
@@ -18,6 +18,7 @@ import {
   VirtualizedRecordList,
 } from "./VirtualizedRecordList";
 import { useValSystem } from "../../stores/react/SystemContext";
+import type { EntryRowStates } from "../../stores/SourceStore";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
@@ -30,6 +31,7 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { RefPreview } from "../../components/RefPreview";
+import { CARD_MAX_FIELDS } from "../../components/SortableList";
 import type { ValidationError } from "@valbuild/core";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
@@ -39,6 +41,8 @@ import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
 import { LocaleFiltered } from "../LocaleFilterProvider";
 import { FieldNull } from "../../components/FieldNull";
+import { ContentViewsBadge } from "../../analytics/ContentViewsBadge";
+import { BlockList } from "../../components/BlockList";
 
 export function RecordFields({
   path,
@@ -59,6 +63,25 @@ export function RecordFields({
   const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
+  /**
+   * Which list this record draws: preview rows or cards, and the one it drew
+   * last while its preview is being recomputed.
+   *
+   * Read off the preview, which has no data while it is owed again -- and
+   * every batch of `.jsonValues()` entries that lands makes it owed. Drawing
+   * cards for that moment and preview rows after it is two different lists,
+   * so a new scroll viewport each time, back at the top: scrolling a record
+   * of 1,000 posts went back to the top every few screens. Held in state, not
+   * a ref (`architecture/quirks.md`, "A ref mutated during render").
+   */
+  const listKind = recordListKind(previewAtPath);
+  const [heldListKind, setHeldListKind] = useState<RecordListKind>(
+    listKind ?? "cards",
+  );
+  if (listKind !== null && listKind !== heldListKind) {
+    setHeldListKind(listKind);
+  }
+  const shownListKind = listKind ?? heldListKind;
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -117,8 +140,18 @@ export function RecordFields({
    * Norwegian. Every other record is untouched, because its keys say nothing
    * about language.
    */
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const router =
+    schema.router !== undefined ? { schema, moduleFilePath } : undefined;
   const visibleKeys = (keys: string[]): string[] =>
-    keys.filter((key) => matchesLocale({ key, keySchema: schema.key }));
+    keys.filter((key) =>
+      matchesLocale({
+        key,
+        keySchema: schema.key,
+        router,
+        path: sourcePathOfItem(path, key),
+      }),
+    );
 
   /**
    * Whether the KEY already answered the filter for every row.
@@ -129,26 +162,47 @@ export function RecordFields({
    * scope, and a scope may not contain another, so the entry has no locale of
    * its own to find.
    *
+   * A router whose routes name their language (`/nb/news/…`) is the same case:
+   * the key is the language, and a page of it may not have a locale field too.
+   *
    * Every other record's keys say nothing about language, so there the entry is
    * the only thing that can answer and `LocaleFiltered` does the work.
    */
   const keyDecidesLocale =
-    schema.key !== undefined && isLocaleSchema(schema.key);
+    (schema.key !== undefined && isLocaleSchema(schema.key)) ||
+    hasLocaleRouteParam(schema);
 
-  // Entries are rendered in place either because the caller asked for it
-  // (`inline` prop) or because the record itself declares
-  // `.render({ as: "inline" })` — the record counterpart of the inline rows in
-  // `SortableList`. Records are unordered, so there is nothing to sort; the key
-  // is the row's label.
-  if (inline || isInlineRender(schema)) {
+  // The record's own render picks the list, before the `inline` prop — the
+  // same order as `ArrayFields`, and for the same reason: an inline record and
+  // an inline array are the same block list, so they look the same. The key is
+  // the row's label where an array has its index.
+  if (isInlineRender(schema)) {
+    return (
+      <div className="relative w-full">
+        {previewAtPath?.status === "error" && (
+          <PreviewError error={previewAtPath.message} path={path} />
+        )}
+        <BlockList path={path} readonly={readonly} />
+      </div>
+    );
+  }
+  // Entries rendered in place because the CALLER asked for it (`inline`
+  // prop). Records are unordered, so there is nothing to sort; the key is the
+  // row's label.
+  if (inline) {
     return (
       <div id={path}>
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
             : Object.entries(source)
-                .filter(([key]) =>
-                  matchesLocale({ key, keySchema: schema.key }),
+                .filter(([key, itemPath]) =>
+                  matchesLocale({
+                    key,
+                    keySchema: schema.key,
+                    router,
+                    path: itemPath,
+                  }),
                 )
                 .map(([key, itemPath]) => (
                   <LocaleFilteredRow
@@ -180,19 +234,12 @@ export function RecordFields({
     );
   }
 
-  const previewAtPathData =
-    previewAtPath &&
-    "data" in previewAtPath &&
-    previewAtPath.data &&
-    previewAtPath.data.rows?.parent === "record"
-      ? previewAtPath.data
-      : undefined;
   return (
     <div id={path}>
       {previewAtPath?.status === "error" && (
         <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {previewAtPathData && (
+      {shownListKind === "preview" && (
         <RecordPreviewList
           path={path}
           // The KEYS come from the source, not from the preview's `items`: for a
@@ -205,7 +252,7 @@ export function RecordFields({
           keyDecidesLocale={keyDecidesLocale}
         />
       )}
-      {!previewAtPathData && (
+      {shownListKind === "cards" && (
         <RecordCardList
           path={path}
           keys={visibleKeys(Object.keys(source))}
@@ -216,6 +263,26 @@ export function RecordFields({
       )}
     </div>
   );
+}
+
+type RecordListKind = "preview" | "cards";
+
+/**
+ * Preview rows when the record's preview names its rows, cards when it has
+ * none -- or null while it is being computed, which says neither.
+ */
+function recordListKind(
+  preview: ReturnType<typeof usePreviewAtPath>,
+): RecordListKind | null {
+  if (preview?.status === "loading") {
+    return null;
+  }
+  return preview !== undefined &&
+    "data" in preview &&
+    preview.data &&
+    preview.data.rows?.parent === "record"
+    ? "preview"
+    : "cards";
 }
 
 /**
@@ -233,9 +300,11 @@ const UNTRANSLATED_LABEL = (keyDecidesLocale: boolean): string | undefined =>
 
 /**
  * Row height estimate for the default card layout: gap (16) + border (2) +
- * card padding (32) + key header (40) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ * card padding (24) + key header (28) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ * A card with no `.preview()` is at most {@link CARD_MAX_FIELDS} lines, so the
+ * estimate is never off by more than a line or so.
  */
-const CARD_ROW_HEIGHT = 146;
+const CARD_ROW_HEIGHT = 126;
 /**
  * Row height estimate for a `.preview(...)` row: gap (16) + border (2) +
  * {@link PREVIEW_ROW_CONTENT_HEIGHT}.
@@ -325,12 +394,23 @@ function RecordCardList({
               <div
                 onClick={() => navigate(sourcePathOfItem(path, key))}
                 className={classNames(
-                  "bg-bg-primary cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                  // `min-w-0`, and no fixed minimum: a minimum wider than a
+                  // narrow pane is the card sticking out of it.
+                  "bg-bg-primary cursor-pointer min-w-0 max-h-[170px] overflow-hidden rounded-md border border-border-primary p-3",
                   "hover:bg-bg-secondary-hover",
                 )}
               >
-                <div className="flex justify-between items-start">
-                  <div className="pb-4 font-semibold text-md">{key}</div>
+                <div className="flex justify-between items-start gap-2">
+                  <div
+                    className="min-w-0 pb-2 font-semibold truncate text-md"
+                    title={key}
+                  >
+                    {key}
+                  </div>
+                  <ContentViewsBadge
+                    path={sourcePathOfItem(path, key)}
+                    className="ml-auto"
+                  />
                   {isParentError(
                     sourcePathOfItem(path, key),
                     validationErrors,
@@ -349,6 +429,10 @@ function RecordCardList({
                     <RefPreview
                       path={sourcePathOfItem(path, key)}
                       nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                      // The card is padded already; the preview's own `p-2`
+                      // indented the fields against the key above them.
+                      className="p-0"
+                      maxFields={CARD_MAX_FIELDS}
                     />
                   )}
                 </div>
@@ -374,37 +458,18 @@ function RecordCardList({
 function useJsonEntryRowStates(
   moduleFilePath: ModuleFilePath,
   jsonValues: boolean,
-): {
-  unloadedKeys: ReadonlySet<string>;
-  errorByKey: ReadonlyMap<string, string>;
-} {
+): EntryRowStates {
   const val = useValSystem();
+  // What wakes this: the module's source moving. The answer itself is the
+  // store's, worked out once per view (`SourceStore.rowStates`): deriving it
+  // here asked `entryError` for every key of the record on every render.
   const moduleSource = useSourceAtPath(moduleFilePath);
   const data = "data" in moduleSource ? moduleSource.data : undefined;
   return useMemo(() => {
-    const unloadedKeys = new Set<string>();
-    const errorByKey = new Map<string, string>();
-    if (
-      !jsonValues ||
-      data === undefined ||
-      data === null ||
-      typeof data !== "object" ||
-      Array.isArray(data)
-    ) {
-      return { unloadedKeys, errorByKey };
+    if (!jsonValues || val === null) {
+      return NO_ROW_STATES;
     }
-    for (const [key, value] of Object.entries(data)) {
-      if (!Internal.isJson(value)) {
-        continue;
-      }
-      const error = val?.system.sourceStore.entryError(moduleFilePath, key);
-      if (error !== undefined) {
-        errorByKey.set(key, error);
-      } else {
-        unloadedKeys.add(key);
-      }
-    }
-    return { unloadedKeys, errorByKey };
+    return val.system.sourceStore.rowStates(moduleFilePath);
     // `SourceStore.loadEntry` records the failure before it settles, and a
     // failure leaves the marker in place — so the module source this memo
     // depends on has not changed, and the memo would not re-run on its own.
@@ -412,6 +477,11 @@ function useJsonEntryRowStates(
     // entry, which is what wakes the row, and this map is read on that render.
   }, [jsonValues, data, val, moduleFilePath]);
 }
+
+const NO_ROW_STATES: EntryRowStates = {
+  unloadedKeys: new Set(),
+  errorByKey: new Map(),
+};
 
 function RecordPreviewList({
   path,
@@ -470,17 +540,25 @@ function RecordPreviewList({
                   "border rounded-lg cursor-pointer border-border-primary",
                 )}
               >
-                {unloadedKeys.has(key) ? (
-                  <RecordRowSkeleton
+                <div className="flex items-start gap-1">
+                  <div className="flex-1 min-w-0">
+                    {unloadedKeys.has(key) ? (
+                      <RecordRowSkeleton
+                        path={sourcePathOfItem(path, key)}
+                        height={PREVIEW_ROW_CONTENT_HEIGHT}
+                      />
+                    ) : (
+                      <RefPreview
+                        path={sourcePathOfItem(path, key)}
+                        nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                      />
+                    )}
+                  </div>
+                  <ContentViewsBadge
                     path={sourcePathOfItem(path, key)}
-                    height={PREVIEW_ROW_CONTENT_HEIGHT}
+                    className="mt-2 mr-2"
                   />
-                ) : (
-                  <RefPreview
-                    path={sourcePathOfItem(path, key)}
-                    nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
-                  />
-                )}
+                </div>
               </button>
             </div>
           </LocaleFilteredRow>

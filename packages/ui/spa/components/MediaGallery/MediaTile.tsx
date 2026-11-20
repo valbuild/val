@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, Film, Loader2 } from "lucide-react";
+import { FileText, Film } from "lucide-react";
 import { Internal } from "@valbuild/core";
 import { cn } from "../designSystem/cn";
 import { MediaThumbnail } from "../MediaThumbnail";
@@ -7,6 +7,7 @@ import { FontSpecimen } from "../FontPreview";
 import { VideoPlayer } from "../fields/VideoPlayer";
 import { formatDuration, typeLabel } from "./format";
 import type { MediaItem, MediaKind, MediaUpload } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 /** How long a pointer rests on a video tile before it starts playing. */
 const HOVER_DELAY_MS = 350;
@@ -71,6 +72,11 @@ export function MediaTile({
         )}
       >
         <TilePicture kind={kind} item={item} playing={playing} />
+        {item.isNew && (
+          <div className="pointer-events-none absolute left-1.5 top-1.5">
+            <NewBadge />
+          </div>
+        )}
         {isVideo && (
           <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 flex items-end justify-between gap-1">
             {item.isHls ? <Badge>HLS</Badge> : <span />}
@@ -200,7 +206,7 @@ export function UploadTile({
         )}
       >
         <div className="flex flex-col items-center gap-1 text-fg-secondary">
-          <Loader2 size={18} className="animate-spin" />
+          <Spinner size={18} />
           <span className="text-[0.6875rem]">
             {label}
             {upload.progress !== null ? ` ${upload.progress}%` : ""}
@@ -224,6 +230,19 @@ function Badge({ children }: { children: string }) {
   return (
     <span className="rounded bg-black/70 px-1.5 py-0.5 text-[0.625rem] font-semibold tracking-wide text-white">
       {children}
+    </span>
+  );
+}
+
+/**
+ * Added since the last publish. The brand colour rather than the dark chip
+ * the other badges use: those describe the file, this describes its state,
+ * and it has to be found in a grid at a glance.
+ */
+export function NewBadge() {
+  return (
+    <span className="shrink-0 rounded bg-bg-brand-primary px-1.5 py-0.5 text-[0.625rem] font-semibold tracking-wide text-fg-brand-primary">
+      New
     </span>
   );
 }

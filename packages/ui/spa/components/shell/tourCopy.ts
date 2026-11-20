@@ -40,7 +40,8 @@ export type TourText = { title: string; body: string };
  * Everything else has to be true in BOTH modes, and on a phone — which is why
  * no step says "live", "publish" or "along the top" outside the pair above. In
  * `fs` mode nothing is live and the baseline Review compares against is the
- * working tree; on a phone Preview and Publish are in the bottom bar.
+ * working tree; on a phone Preview is in the bottom bar and Publish beside
+ * the account.
  */
 export type TourStepId =
   | "welcome"
@@ -94,7 +95,7 @@ export const TOUR_COPY: Record<TourStepId, TourText> = {
   },
   finish: {
     title: "That is everything",
-    body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next. Settings turns the offer off for the whole project.",
+    body: "Quick actions keeps the tour (on a phone, your account does), so you can run it again or hand it to whoever edits next. Settings turns the offer off for the whole project.",
   },
   /**
    * The same step for a project with no `s.settings()` module.
@@ -104,6 +105,6 @@ export const TOUR_COPY: Record<TourStepId, TourText> = {
    */
   finishWithoutSettings: {
     title: "That is everything",
-    body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next.",
+    body: "Quick actions keeps the tour (on a phone, your account does), so you can run it again or hand it to whoever edits next.",
   },
 };

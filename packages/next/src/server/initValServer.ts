@@ -31,6 +31,7 @@ const initValNextAppRouter = (
         versions: {
           next: nextVersion,
           core: coreVersion,
+          framework: "next",
         },
         ...config,
       },

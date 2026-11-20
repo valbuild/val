@@ -1,12 +1,14 @@
+import { CodeChangesConnected } from "../components/proposals/CodeChangesConnected";
+import type { CodeModeBuild } from "../components/proposals/CodeModeStatus";
 import { useCallback, useMemo } from "react";
 import type { SourcePath } from "@valbuild/core";
-import { Loader2 } from "lucide-react";
 import { CompareDialog } from "../compare/CompareDialog";
 import {
   CompareBeforeSourcesContext,
   CompareValue,
 } from "../compare/CompareValue";
 import { useCompareModel } from "../compare/useCompareModel";
+import type { ComparePageView } from "../compare/types";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +17,9 @@ import {
 } from "../components/designSystem/dialog";
 import { useCurrentAuthorId } from "../components/ValProvider";
 import type { SiteChanges } from "./useSiteChanges";
+import { Spinner } from "../components/designSystem/spinner";
+import { ProposalPage } from "./ProposalPageCompare";
+import { siteOrigin } from "./sitePageUrl";
 
 /**
  * Compare with the site, in a proposal: what Publish -- merging it -- would
@@ -23,19 +28,62 @@ import type { SiteChanges } from "./useSiteChanges";
  * The same dialog the review page opens, against another basis: the site on
  * the left, the proposal on the right. Read-only, because a saved change is
  * the proposal's and not a patch anyone here could drop.
+ *
+ * A page can be compared as a page, too: the site's render beside the
+ * proposal's, once the site's address is known. See `ProposalPage`.
  */
 export function ProposalSiteCompare({
   changes,
+  siteUrl,
   open,
   onOpenChange,
   portalContainer,
+  code,
+  initialView,
 }: {
   changes: SiteChanges;
+  /** Where the site is served; null until the proposals list has said. */
+  siteUrl: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   portalContainer?: HTMLElement | null;
+  /**
+   * The proposal's code changes, while code mode is on: in Review with the
+   * content changes, rather than a view of the Studio of their own.
+   */
+  code?: { name: string; build: CodeModeBuild; onReload: () => void };
+  /** Open on the code changes. */
+  initialView?: "code";
 }) {
   if (!open || changes.status === "off") return null;
+  /*
+   * Opened on the code changes while the site is still being read, or could
+   * not be: the code changes do not depend on it, so they are not held back
+   * behind it. The content side comes with the next open.
+   */
+  if (changes.status !== "ready" && code && initialView === "code") {
+    return (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent
+          container={portalContainer}
+          className="flex h-[min(90vh,56rem)] max-w-5xl flex-col gap-0 overflow-hidden border-border-float bg-bg-float p-0"
+        >
+          <DialogTitle className="sr-only">Code changes</DialogTitle>
+          <DialogDescription className="sr-only">
+            The proposal's code, beside the site's.
+          </DialogDescription>
+          <div className="min-h-0 flex-1">
+            <CodeChangesConnected
+              name={code.name}
+              build={code.build}
+              onReload={code.onReload}
+              onEditContent={() => onOpenChange(false)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
   if (changes.status !== "ready") {
     return (
       <Dialog open onOpenChange={onOpenChange}>
@@ -48,7 +96,7 @@ export function ProposalSiteCompare({
           </DialogTitle>
           {changes.status === "loading" ? (
             <DialogDescription className="flex items-center gap-2 text-xs text-fg-secondary">
-              <Loader2 size={14} className="animate-spin" /> Reading the site…
+              <Spinner size={14} /> Reading the site…
             </DialogDescription>
           ) : (
             <>
@@ -75,7 +123,13 @@ export function ProposalSiteCompare({
   }
   return (
     <CompareBeforeSourcesContext.Provider value={changes.siteSources}>
-      <MountedSiteCompare changes={changes} onOpenChange={onOpenChange} />
+      <MountedSiteCompare
+        changes={changes}
+        siteUrl={siteUrl}
+        onOpenChange={onOpenChange}
+        code={code}
+        initialView={initialView}
+      />
     </CompareBeforeSourcesContext.Provider>
   );
 }
@@ -84,10 +138,16 @@ const NO_PATCH_SETS: never[] = [];
 
 function MountedSiteCompare({
   changes,
+  siteUrl,
   onOpenChange,
+  code,
+  initialView,
 }: {
   changes: Extract<SiteChanges, { status: "ready" }>;
+  siteUrl: string | null;
   onOpenChange: (open: boolean) => void;
+  code?: { name: string; build: CodeModeBuild; onReload: () => void };
+  initialView?: "code";
 }) {
   const currentAuthorId = useCurrentAuthorId();
   const renderValue = useCallback(
@@ -97,6 +157,21 @@ function MountedSiteCompare({
     [],
   );
   const site = useMemo(() => ({ trees: changes.trees }), [changes.trees]);
+  /*
+   * Without the site's address there is no left page, and one side of a
+   * comparison is not one. Nor with an address that is not a whole URL: the
+   * side would resolve it against THIS origin, and show the proposal under a
+   * heading that says the site.
+   */
+  const renderPage = useMemo(
+    () =>
+      siteUrl === null || siteOrigin(siteUrl) === null
+        ? undefined
+        : (page: ComparePageView) => (
+            <ProposalPage siteUrl={siteUrl} page={page} />
+          ),
+    [siteUrl],
+  );
   const { model } = useCompareModel({
     patchSets: NO_PATCH_SETS,
     mode: "http",
@@ -110,6 +185,25 @@ function MountedSiteCompare({
       model={model}
       mode="http"
       currentAuthorId={currentAuthorId}
+      renderPage={renderPage}
+      code={
+        code === undefined
+          ? undefined
+          : {
+              label: "Code changes",
+              render: () => (
+                <CodeChangesConnected
+                  name={code.name}
+                  build={code.build}
+                  onReload={code.onReload}
+                  // Back to the content: Review closes, and the Studio is
+                  // where it was.
+                  onEditContent={() => onOpenChange(false)}
+                />
+              ),
+            }
+      }
+      initialView={initialView}
     />
   );
 }

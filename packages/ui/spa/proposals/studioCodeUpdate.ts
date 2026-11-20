@@ -1,5 +1,5 @@
 import { loadBuilder } from "../publish/loadBuilder";
-import { createStudioPublishClient } from "../publish/publishClient";
+import { createStudioPublishClient } from "@valbuild/shared/publish";
 import { evaluateTree } from "./evaluateTree";
 import type { ProposalsClient } from "./proposalsClient";
 import type { CodeUpdateDeps, CodeUpdatePhase } from "./updateWithCode";

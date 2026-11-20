@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
+import { ActivitySheet } from "./ActivitySheet";
 import { TopBar } from "./TopBar";
 import { ShellBreakpoint } from "./types";
 
@@ -16,6 +17,10 @@ import { ShellBreakpoint } from "./types";
  * So the breakpoints are pinned rather than the layout. The page it opens is
  * already responsive, and `HistorySplit` turns the two panes into "Now" / the
  * commit as tabs below desktop.
+ *
+ * On a phone the way in is not the top bar: the bell, History and Validate are
+ * one button there, the bottom bar's, and History is a tab of the activity
+ * sheet behind it. That is pinned as hard as the top bar is above a phone.
  */
 /*
  * jsdom has no `matchMedia`, and the non-desktop top bar reaches it through
@@ -63,11 +68,44 @@ function topBar(
 }
 
 const BREAKPOINTS: ShellBreakpoint[] = ["mobile", "tablet", "desktop"];
+const ABOVE_A_PHONE: ShellBreakpoint[] = ["tablet", "desktop"];
+
+function activitySheet(onOpenHistory?: () => void) {
+  return (
+    <ActivitySheet
+      breakpoint="mobile"
+      onSelectNotification={() => undefined}
+      onMarkAllRead={() => undefined}
+      validationErrors={[]}
+      onSelectValidationError={() => undefined}
+      activity={[]}
+      onSelectActivity={() => undefined}
+      onOpenHistory={onOpenHistory}
+      onClose={() => undefined}
+    />
+  );
+}
 
 describe("the History button", () => {
-  test.each(BREAKPOINTS)("is offered on %s", (breakpoint) => {
+  test.each(ABOVE_A_PHONE)("is offered on %s", (breakpoint) => {
     render(topBar(breakpoint, true));
     expect(screen.getByRole("button", { name: "History" })).not.toBeNull();
+  });
+
+  test("is in the activity sheet on a phone, and only there", () => {
+    render(topBar("mobile", true));
+    expect(screen.queryByRole("button", { name: "History" })).toBeNull();
+    const opened: string[] = [];
+    render(activitySheet(() => opened.push("history")));
+    fireEvent.click(screen.getByRole("button", { name: /Published versions/ }));
+    expect(opened).toEqual(["history"]);
+  });
+
+  test("is not in the activity sheet when there is no published history", () => {
+    render(activitySheet(undefined));
+    expect(
+      screen.queryByRole("button", { name: /Published versions/ }),
+    ).toBeNull();
   });
 
   /*

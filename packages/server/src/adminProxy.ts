@@ -17,6 +17,8 @@
  * for the Studio and nothing else on Val Build.
  */
 
+import { VAL_CLIENT_HEADERS } from "./valClient";
+
 export const STUDIO_API_PREFIX = "/v1/studio/";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -70,6 +72,7 @@ export async function forwardToStudioApi({
     response = await fetchImpl(url, {
       method,
       headers: {
+        ...VAL_CLIENT_HEADERS,
         // `x-val-pat` is the header the rest of Val Build reads a PAT from.
         ...("pat" in credential
           ? { "x-val-pat": credential.pat }

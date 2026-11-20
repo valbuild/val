@@ -478,6 +478,11 @@ export function galleryEntryOf(
  * - **The defaults** — description, focal point, a video's poster, start, end
  *   and captions ({@link GALLERY_DEFAULT_GROUPS}). An editor sets them once
  *   on the gallery entry; a field that sets its own wins, KEY BY KEY.
+ * - **Where an unpublished file is** — the `patch_id` Val's server stamps on
+ *   a gallery entry whose file was uploaded in a pending change. The field
+ *   names the same file by its path, so it is served by the same patch; with
+ *   no `patch_id` the field's url was the published one, for a file that is
+ *   not published yet. A field's own `patch_id` (its own upload) wins.
  *
  * The single implementation of that merge: core, stega/RSC and the Studio all
  * call it rather than each rolling their own, so a page and the Studio's
@@ -502,6 +507,9 @@ export function fillFromGallery<S extends { readonly path: string }>(
     if (entry[key] !== undefined) {
       filled[key] = entry[key];
     }
+  }
+  if (own.patch_id === undefined && typeof entry.patch_id === "string") {
+    filled.patch_id = entry.patch_id;
   }
   for (const group of GALLERY_DEFAULT_GROUPS) {
     if (group.some((key) => own[key] !== undefined)) {

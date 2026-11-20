@@ -15,7 +15,8 @@ import { openStudio, test } from "./studio";
  * painted shadow and the two boxes rather than the class list - a class name
  * assertion would pass just as happily with the ring on the wrong element.
  */
-const POST = "/val/~/app/blogs/[blog]/page.val.ts?p=%22%2Fblogs%2Fblog1%22";
+const POST =
+  "/val/~/src/routes/_site.blogs.$blog.val.ts?p=%22%2Fblogs%2Fblog1%22";
 
 test.describe("the combobox search field's focus ring", () => {
   test("is drawn on the row, edge to edge, and not on the input inside it", async ({

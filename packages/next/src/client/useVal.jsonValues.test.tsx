@@ -4,13 +4,14 @@
 import "./__suspense-test-setup__"; // must come first — polyfills TextEncoder for @valbuild/shared
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import { initVal, ModuleFilePath } from "@valbuild/core";
+import { Internal, initVal, ModuleFilePath } from "@valbuild/core";
 import { raw } from "@valbuild/react/stega";
 import { initValClient } from "./initValClient";
 import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";
 
 const { s, c } = initVal();
-const { useValStega, useValKeyStega } = initValClient({});
+const { useValStega, useValKeyStega, useValRouteStega, useValRouteUrl } =
+  initValClient({});
 
 /**
  * A `.jsonValues()` record whose entries count their imports. A path per test:
@@ -133,6 +134,68 @@ describe("useValKey on a .jsonValues() record", () => {
     });
     expect(screen.getByTestId("one").textContent).toBe("Note A");
     expect(imports.a).toHaveBeenCalledTimes(1);
+    expect(imports.b).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * A `.jsonValues()` router read by its route: the entry the params name, and
+ * no other. `useValRoute` read the whole record first (it called `useVal` on
+ * it to keep its hooks in order), which imported every entry; and
+ * `useValRouteUrl`, which needs none of them, imported all of them too.
+ */
+describe("useValRoute on a .jsonValues() router", () => {
+  function routes() {
+    const imports = { a: jest.fn(), b: jest.fn() };
+    const module = c.define(
+      "/app/route-notes/[note]/page.val.ts" as ModuleFilePath,
+      s
+        .record(s.object({ title: s.string() }))
+        .router(Internal.nextAppRouter)
+        .jsonValues(),
+      {
+        "/route-notes/a": c.json(() => {
+          imports.a();
+          return Promise.resolve({ default: { title: "Note A" } });
+        }),
+        "/route-notes/b": c.json(() => {
+          imports.b();
+          return Promise.resolve({ default: { title: "Note B" } });
+        }),
+      },
+    );
+    return { module, imports };
+  }
+
+  it("imports only the entry the params name", async () => {
+    const { module, imports } = routes();
+    function Route() {
+      const note = useValRouteStega(module, { note: "a" });
+      return React.createElement(
+        "span",
+        { "data-testid": "note" },
+        note ? raw(note.title) : "none",
+      );
+    }
+    await act(async () => {
+      render(tree(React.createElement(Route)));
+    });
+    expect(screen.getByTestId("note").textContent).toBe("Note A");
+    expect(imports.a).toHaveBeenCalledTimes(1);
+    expect(imports.b).not.toHaveBeenCalled();
+  });
+
+  it("builds a url without importing any entry", async () => {
+    const { module, imports } = routes();
+    function Url() {
+      const url = useValRouteUrl(module, { note: "b" });
+      return React.createElement("span", { "data-testid": "url" }, url);
+    }
+    await act(async () => {
+      render(tree(React.createElement(Url)));
+    });
+    expect(screen.getByTestId("url").textContent).toBe("/route-notes/b");
+    expect(imports.a).not.toHaveBeenCalled();
     expect(imports.b).not.toHaveBeenCalled();
   });
 });

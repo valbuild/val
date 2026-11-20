@@ -1,4 +1,5 @@
-import { connectUrl, getGitHubOwnerAndRepo } from "./connect";
+import path from "path";
+import { connectUrl, getGitHubOwnerAndRepo, repoFolder } from "./connect";
 
 describe("val connect", () => {
   test("opens /new on your own hosting, with the repository and the project filled in", () => {
@@ -15,6 +16,36 @@ describe("val connect", () => {
       org: "acme",
       project: "website",
     });
+  });
+
+  test("in a monorepo, the app's folder goes with the repository", () => {
+    const url = new URL(
+      connectUrl("https://admin.val.build", {
+        project: null,
+        repo: { owner: "acme", repo: "monorepo" },
+        folder: "apps/web",
+      }),
+    );
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      hosting: "own",
+      repo: "acme/monorepo",
+      folder: "apps/web",
+    });
+    // At the top of the repository there is no folder to send.
+    expect(
+      connectUrl("https://admin.val.build", {
+        project: null,
+        repo: { owner: "acme", repo: "site" },
+        folder: "",
+      }),
+    ).toBe("https://admin.val.build/new?hosting=own&repo=acme%2Fsite");
+  });
+
+  test("the folder is the app's place in its repository, with forward slashes", () => {
+    const top = path.resolve("/work/monorepo");
+    expect(repoFolder(top, path.join(top, "apps", "web"))).toBe("apps/web");
+    expect(repoFolder(top, top)).toBe("");
+    expect(repoFolder(top, path.resolve("/elsewhere"))).toBe(null);
   });
 
   test("with nothing found, it is /new on your own hosting alone", () => {

@@ -36,3 +36,4 @@ export {
 export { cssModuleLoader } from "./cssModules";
 export { routeSplitter } from "./routeSplitter";
 export { generateRouteTree, isFileBased } from "./routes";
+export { nativeRolldown } from "./rolldown";

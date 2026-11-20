@@ -45,7 +45,7 @@ describe("getPatternFromModuleFilePath for tanstack routes", () => {
     ["/src/routes/about.val.ts", "/src/routes", "/about"],
     ["/src/routes/posts.$postId.val.ts", "/src/routes", "/posts/[postId]"],
     ["/src/routes/posts/$postId.val.ts", "/src/routes", "/posts/[postId]"],
-    ["/routes/files.$.val.ts", "/routes", "/files/[..._splat]"],
+    ["/routes/files.$.val.ts", "/routes", "/files/[[..._splat]]"],
     ["/src/routes/(marketing)/about.val.ts", "/src/routes", "/about"],
     ["/src/routes/_layout.dashboard.val.ts", "/src/routes", "/dashboard"],
   ])("%s -> %s", (moduleFilePath, srcFolder, expected) => {
@@ -72,7 +72,7 @@ describe("getPatternFromModuleFilePath for tanstack routes", () => {
       ),
     ).toEqual([
       { type: "literal", name: "files" },
-      { type: "array-param", paramName: "_splat", optional: false },
+      { type: "array-param", paramName: "_splat", optional: true },
     ]);
   });
 

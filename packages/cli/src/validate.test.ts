@@ -221,7 +221,7 @@ describe("validate handlers", () => {
   });
 
   describe("handleRemoteFileUpload", () => {
-    test("should return error when fix is false", () => {
+    test("should return a warning when fix is false", () => {
       const ctx: FixHandlerContext = {
         ...baseContext,
         fix: false,
@@ -232,8 +232,8 @@ describe("validate handlers", () => {
       };
 
       // Expected behavior:
-      // When fix=false, handler should return error telling user to use --fix
-      // Should return success: false with message about using --fix
+      // When fix=false and the file exists, handler should return a warning
+      // naming the file (see validate.warnings.test.ts), not an error
 
       expect(ctx.fix).toBe(false);
     });
@@ -320,7 +320,7 @@ describe("validate handlers", () => {
       expect(ctx.fix).toBe(true);
     });
 
-    test("should return error when fix is false", () => {
+    test("should return a warning when fix is false", () => {
       const ctx: FixHandlerContext = {
         ...baseContext,
         fix: false,

@@ -215,3 +215,64 @@ describe("ValOpsMemory getStat, parked", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 });
+
+/**
+ * A Studio of the release after the one content model echoes the `version`
+ * the last `/stat` answered rather than `sourcesSha` and `schemaSha`, which
+ * go from the wire a release later. The long poll then tells a new build by
+ * the build the chain is relative to -- the NEWEST build's, the one every
+ * instance answers with -- so a Studio parked on the previous build's
+ * instance hears of the new build once, and is not told "changed" again on
+ * every poll after it (the trap `chainBaseSha` was written for).
+ */
+describe("ValOpsMemory getStat, echoing the version", () => {
+  const build = (title: string, patchStore: ValPatchStore) =>
+    new ValOpsMemory(
+      {
+        config,
+        modules: [
+          {
+            def: () =>
+              Promise.resolve({
+                default: c.define("/content/test.val.ts", s.string(), title),
+              }),
+          },
+        ],
+      },
+      {
+        config,
+        statPollingInterval: 20,
+        patchStore,
+        sourceFiles: {
+          "/content/test.val.ts": `import { s, c } from "../val.config";\nexport default c.define("/content/test.val.ts", s.string(), ${JSON.stringify(title)});\n`,
+        },
+      },
+    );
+  /** What the Studio echoes after an answer: its base, patches and version. */
+  const echoOf = async (
+    ops: ValOpsMemory,
+    answer: Awaited<ReturnType<ValOpsMemory["getStat"]>>,
+  ) => ({
+    baseSha: answer.baseSha,
+    patches: answer.patches,
+    version: { build: await ops.chainBuild(), seq: answer.seq },
+  });
+
+  test("a new build is a change once, and the poll parks after it", async () => {
+    const store = new InMemoryPatchStore();
+    const old = build("hello", store);
+    const first = await old.getStat(null);
+    const echo = await echoOf(old, first);
+    expect((await old.getStat(echo)).type).toBe("no-change");
+
+    // A newer build of the project, in this process: what HMR makes.
+    const next = build("hello, again", store);
+    await next.getStat(null);
+    const told = await old.getStat(echo);
+    expect(told.type).toBe("did-change");
+    expect(await old.chainBuild()).toBe(await next.chainBuild());
+
+    // Parked on the old instance, echoing what it was told: nothing new.
+    expect((await old.getStat(await echoOf(old, told))).type).toBe("no-change");
+  });
+});

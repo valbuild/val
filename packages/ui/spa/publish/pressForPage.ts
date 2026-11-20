@@ -1,15 +1,20 @@
 import type {
-  DependencyChange,
   PublishRequestStatus,
   PublishTabJob,
 } from "@valbuild/shared/internal";
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import { forgetHandoffIntent, type HandoffIntent } from "./handoff";
-import type { StudioJobClient } from "./jobClient";
+import {
+  forgetHandoffIntent,
+  type HandoffIntent,
+  type RefusedAnswer,
+} from "./handoff";
+import {
+  type StudioJobClient,
+  isTransientPublishError,
+  StudioPublishError,
+} from "@valbuild/shared/publish";
 import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
-import { isTransientPublishError, StudioPublishError } from "./publishClient";
-import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { isSettled } from "./publishJobs";
 import { withinDeadline } from "./withinDeadline";
 
@@ -47,10 +52,10 @@ export const CHANGE_TIMEOUT_MS = 5 * 60_000;
  */
 export const PRESS_RETRY_MS: readonly number[] = [1_000, 3_000, 9_000];
 
-/** The intents a tab presses for: everything but an update. */
+/** The intents a tab presses for: everything but a proposal's build. */
 export type PressIntent = Exclude<
   HandoffIntent,
-  { kind: "update" } | { kind: "build-proposal" }
+  { kind: "build-proposal" } | { kind: "quick-preview" }
 >;
 /** How often a queued press asks for its job. */
 export const QUEUED_EVERY_MS = 3_000;
@@ -86,6 +91,8 @@ export type PressForPageOutcome =
       durable: boolean;
       /** The gate found nothing pending. */
       nothingToPublish?: true;
+      /** Content refused the merge: its answer, for the page to read. */
+      refused?: RefusedAnswer;
     };
 
 /** The message for a project that never finished loading in the tab. */
@@ -273,9 +280,18 @@ export async function pressForPage(options: {
      */
     const patchIds = () => (merge !== undefined ? [] : options.chain());
     const merging = merge !== undefined ? { merge } : {};
+    // The message typed before the tap: see `HandoffIntent`.
+    const commitMessage =
+      intent.kind === "press" ? intent.commitMessage : undefined;
     const pressDirectly = () =>
       merge !== undefined
-        ? options.client.pressMerge(merge, intent.requestId, intent.tab)
+        ? options.client.pressMerge(
+            merge,
+            intent.requestId,
+            intent.tab,
+            undefined,
+            commitMessage,
+          )
         : options.client.tryAgain(intent.requestId, intent.tab);
     try {
       let attempt = 0;
@@ -334,7 +350,20 @@ export async function pressForPage(options: {
        * check said no, or the proposal was saved since. Said as it is.
        */
       if (merge !== undefined && !isTransientPublishError(error)) {
-        return { kind: "not-pressed", message: details, durable: true };
+        return {
+          kind: "not-pressed",
+          message: details,
+          durable: true,
+          ...(error instanceof StudioPublishError
+            ? {
+                refused: {
+                  status: error.statusCode,
+                  message: error.message,
+                  body: error.body,
+                },
+              }
+            : {}),
+        };
       }
       return {
         kind: "not-pressed",
@@ -590,8 +619,8 @@ export function settledMessage(
 
 /**
  * What a tab remembers of its own ending, by hand-off id, where content has
- * nothing to ask: a press the gate refused (nothing was requested), and an
- * update (which is not a request). Opened again -- reloaded, gone back to,
+ * nothing to ask: a press the gate refused (nothing was requested), or a
+ * press another publish made unnecessary. Opened again -- reloaded, gone back to,
  * the URL reopened -- the tab shows this rather than doing it again.
  *
  * In `localStorage`, so it reaches a reopened URL in another tab too, and
@@ -600,7 +629,6 @@ export function settledMessage(
  */
 export type RememberedEnding =
   | { kind: "not-pressed"; message: string; details?: string }
-  | { kind: "update"; outcome: SiteUpdateOutcome }
   /**
    * Another publish took the editor's change before this tab could press,
    * and there was nothing left to: Live, with no request of this tab's for
@@ -626,60 +654,7 @@ function isEnding(value: unknown): value is RememberedEnding {
         typeof value.details === "string")
     );
   }
-  if (value.kind === "shipped-elsewhere") return true;
-  return (
-    value.kind === "update" &&
-    "outcome" in value &&
-    isUpdateOutcome(value.outcome)
-  );
-}
-
-/* Every arm, in full: storage is the origin's, and anything may be there. */
-function isUpdateOutcome(value: unknown): value is SiteUpdateOutcome {
-  if (typeof value !== "object" || value === null || !("status" in value)) {
-    return false;
-  }
-  const text = (key: string) =>
-    key in value && typeof Reflect.get(value, key) === "string";
-  switch (value.status) {
-    case "updated":
-      return (
-        "changes" in value &&
-        Array.isArray(value.changes) &&
-        value.changes.every(isDependencyChange)
-      );
-    case "current":
-      return true;
-    case "unavailable":
-      return text("message");
-    case "failed":
-      // Remembered without the deploy's record: see `rememberEnding`.
-      return (
-        text("message") &&
-        text("details") &&
-        "deploy" in value &&
-        value.deploy === null
-      );
-    default:
-      return false;
-  }
-}
-
-function isDependencyChange(value: unknown): value is DependencyChange {
-  if (typeof value !== "object" || value === null) return false;
-  const field = (key: string): unknown =>
-    key in value ? Reflect.get(value, key) : undefined;
-  const version = (key: string) => {
-    const at = field(key);
-    return at === null || typeof at === "string";
-  };
-  const section = field("section");
-  return (
-    typeof field("name") === "string" &&
-    (section === "dependencies" || section === "devDependencies") &&
-    version("from") &&
-    version("to")
-  );
+  return value.kind === "shipped-elsewhere";
 }
 
 export function rememberEnding(
@@ -689,20 +664,15 @@ export function rememberEnding(
   now: number = Date.now(),
 ): void {
   if (storage === null) return;
-  // The deploy's own record stays out: it is large, and the page shows words.
-  const stored: RememberedEnding =
-    ending.kind === "update" && ending.outcome.status === "failed"
-      ? { kind: "update", outcome: { ...ending.outcome, deploy: null } }
-      : ending;
-  const written = writeKeyed(storage, ENDING_PREFIX, id, stored, {
+  const written = writeKeyed(storage, ENDING_PREFIX, id, ending, {
     now,
     keepMs: ENDING_KEEP_MS,
   });
   /*
    * Storage refused the ending (full, most likely): then the intent goes
    * instead. Left behind, a tab opened again within the hour would find no
-   * ending and no request -- an update, or a press another publish made
-   * unnecessary, has none -- and run it a second time. Removing asks storage
+   * ending and no request -- a press another publish made unnecessary has
+   * none -- and run it a second time. Removing asks storage
    * for nothing new, so it works where writing did not.
    */
   if (!written) forgetHandoffIntent(id, storage);

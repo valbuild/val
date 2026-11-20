@@ -8,17 +8,20 @@ const host = process.env.VAL_BUILD_URL || "https://admin.val.build";
 
 /**
  * `val connect`: opens admin's `/new` on "your own hosting", with what it can
- * tell from here filled in -- the project `val.config.ts` names and the
- * GitHub repository `origin` points at -- so the person only confirms. The
- * link is printed too, for when no browser opens (over SSH, in a container).
+ * tell from here filled in -- the project `val.config.ts` names, the GitHub
+ * repository `origin` points at, and which folder of it this app is in (a
+ * monorepo has several) -- so the person only confirms. The link is printed
+ * too, for when no browser opens (over SSH, in a container).
  */
 export async function connect(options: { root?: string }) {
   const { root } = options;
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
   const project = await tryGetProject(projectRoot);
-  const gitRemote = await tryGetGitRemote(projectRoot);
+  const git = findGitDir(projectRoot);
+  const gitRemote = git ? await tryGetGitRemote(git.config) : null;
   const repo = gitRemote !== null ? getGitHubOwnerAndRepo(gitRemote) : null;
+  const folder = git ? repoFolder(git.top, projectRoot) : null;
 
   console.log("");
   if (project) {
@@ -28,7 +31,7 @@ export async function connect(options: { root?: string }) {
   }
   if (repo) {
     console.log(
-      `Found ${pc.bold(`${repo.owner}/${repo.repo}`)} on GitHub (git remote "origin")`,
+      `Found ${pc.bold(`${repo.owner}/${repo.repo}`)} on GitHub (git remote "origin")${folder ? `, this app in ${pc.bold(folder)}` : ""}`,
     );
   } else {
     console.log(
@@ -38,7 +41,7 @@ export async function connect(options: { root?: string }) {
     );
   }
 
-  const url = connectUrl(host, { project, repo });
+  const url = connectUrl(host, { project, repo, folder });
   const opened = openInBrowser(url);
   console.log(
     `\n${opened ? "Finish in your browser. If it did not open, go to:" : "Finish in your browser:"}\n${pc.cyan(url)}\n`,
@@ -55,11 +58,14 @@ export function connectUrl(
   found: {
     project: { orgName: string; projectName: string } | null;
     repo: { owner: string; repo: string } | null;
+    /** The app's folder in the repository, `apps/web`; "" or null at the top. */
+    folder?: string | null;
   },
 ): string {
   const params = new URLSearchParams({ hosting: "own" });
   if (found.repo) {
     params.set("repo", `${found.repo.owner}/${found.repo.repo}`);
+    if (found.folder) params.set("folder", found.folder);
   }
   if (found.project) {
     params.set("org", found.project.orgName);
@@ -141,12 +147,19 @@ export function getGitHubOwnerAndRepo(
   return match ? { owner: match[1], repo: match[2] } : null;
 }
 
-async function tryGetGitRemote(root: string): Promise<string | null> {
+/**
+ * Where the app is in its repository, with forward slashes: `apps/web`, or ""
+ * when it is at the top. Null when it is not inside the repository at all.
+ */
+export function repoFolder(top: string, projectRoot: string): string | null {
+  const relative = path.relative(top, projectRoot);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  return relative.split(path.sep).join("/");
+}
+
+async function tryGetGitRemote(gitConfigPath: string): Promise<string | null> {
   try {
-    const gitConfig = tryGetGitConfig(root);
-    if (!gitConfig) {
-      return null;
-    }
+    const gitConfig = fs.readFileSync(gitConfigPath, "utf-8");
     const remoteMatch = gitConfig.match(
       /\[remote "origin"\][\s\S]*?url = (.+)/,
     );
@@ -160,13 +173,14 @@ async function tryGetGitRemote(root: string): Promise<string | null> {
   }
 }
 
-function tryGetGitConfig(root: string): string | null {
+/** The repository `root` is in: its top folder and its `.git/config`. */
+function findGitDir(root: string): { top: string; config: string } | null {
   let currentDir = root;
   let lastDir = null;
   while (currentDir !== lastDir) {
     const gitConfigPath = path.join(currentDir, ".git", "config");
     if (fs.existsSync(gitConfigPath)) {
-      return fs.readFileSync(gitConfigPath, "utf-8");
+      return { top: currentDir, config: gitConfigPath };
     }
     lastDir = currentDir;
     currentDir = path.dirname(currentDir);

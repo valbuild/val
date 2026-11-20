@@ -1,12 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type {
-  PatchId,
-  SelectorSource,
-  ValModule,
-  ValModules,
-} from "@valbuild/core";
+import type { PatchId, ValModules } from "@valbuild/core";
 import type { System } from "../createSystem";
 import { ValSystemProvider } from "./SystemContext";
+import { statSnapshotOf } from "./statSnapshotOf";
 
 /**
  * Put the store system in context, take the project in, and feed it `/stat`.
@@ -65,8 +61,6 @@ export function ValStoreProvider({
     headVersion?: number;
     /** See {@link StatSnapshot.sourcesSha}. Which build answered. */
     sourcesSha?: string;
-    /** See {@link StatSnapshot.schemaSha}. Which schema that build runs. */
-    schemaSha?: string;
   } | null;
   children: ReactNode;
 }) {
@@ -78,38 +72,32 @@ export function ValStoreProvider({
     }
     let cancelled = false;
     void (async () => {
-      // The defs are async thunks (`() => import("./x.val")`), so intake has to
-      // await them. One failed module must not lose the rest, so each is
-      // settled separately — and `HostStore.receive` records the ones that fail
-      // to serialize rather than throwing, for the same reason.
-      const settled = await Promise.allSettled(
-        valModules.modules.map((entry) => entry.def()),
-      );
+      /**
+       * The first registry and every one HMR brings (`val-modules-updated`)
+       * go through the same door, `reloadCode`, as staged code does.
+       *
+       * It completes intake even when NOTHING is adopted. The guard here used
+       * to be `modules.length > 0`, which reads as caution and is a hang: if
+       * every import rejects -- or the registry is momentarily empty --
+       * `receivedAt` stays null, so every readiness gate reads "not ready",
+       * `/stat` is never fed in, and anything waiting on intake waits forever.
+       * An empty intake is honest: no modules, and the project is known to
+       * have none rather than not yet known.
+       *
+       * The failures are not lost: `HostStore.receive` records the ones that
+       * could not be read and the dev banner names them; a registry that
+       * cannot be read at all leaves the code the Studio had, and says so.
+       */
+      const reload = await system.host.reloadCode(valModules);
       if (cancelled) {
         return;
       }
-      const modules: ValModule<SelectorSource>[] = [];
-      for (const result of settled) {
-        if (result.status === "fulfilled") {
-          modules.push(result.value.default);
-        }
+      if (reload.status === "kept" && reload.reason === "does-not-load") {
+        system.status.reportError(
+          "The new code could not be loaded, so the Studio shows the code it had.",
+          reload.details,
+        );
       }
-      /**
-       * Unconditionally, even when NOTHING was adopted.
-       *
-       * The guard here used to be `modules.length > 0`, which reads as caution
-       * and is a hang: if every import rejects — or the registry is momentarily
-       * empty — `receivedAt` stays null, so every readiness gate reads "not
-       * ready", `/stat` is never fed in, and anything waiting on intake waits
-       * forever. `receive([])` completes intake honestly: no modules, and the
-       * project is known to have none rather than not yet known.
-       *
-       * The failures are not lost: `HostStore.receive` records the ones that
-       * could not serialize and the dev banner names them.
-       */
-      // With the base the page serves, where it is not the bundle's: see
-      // `HostStore.receive`.
-      system.host.receive(modules, window.__VAL_BASE__);
       setReceived(true);
     })();
     return () => {
@@ -125,34 +113,16 @@ export function ValStoreProvider({
    * modules exist is not wrong — the chain is kept and replayed by `receive` — but
    * doing it in the natural order means the common case does not depend on that.
    *
-   * `baseSha` is the part that unblocks writing, and `sourcesSha` says which
-   * build answered, so its chain goes on that build's base (`BaseAlignment`).
-   * `schemaSha` says which schema that build runs, so a page running another
-   * is told to reload (`SchemaFreshnessWatch`). `jsonEntriesSha` is an input to
-   * a refetch this system does not do yet.
+   * `baseSha` is the part that unblocks writing, and `seq` says whether the
+   * project moved, so the manifest is read again (`ManifestSource`) -- and
+   * with it, a new build's code (`BuildCode`). `jsonEntriesSha` is an input
+   * to a refetch this system does not do yet.
    */
   useEffect(() => {
     if (stat === null || !received) {
       return;
     }
-    system.stat.receiveStat({
-      patches: stat.patches,
-      baseSha: stat.baseSha,
-      removed: stat.removed,
-      // Which of them have shipped, so a record this client already holds
-      // learns that somebody else's publish committed it. See
-      // `PatchStore.receiveApplied`.
-      appliedPatches: stat.appliedPatches,
-      headCommitSha: stat.headCommitSha,
-      // What the next write names as its parent. See `PatchSync`.
-      headPatchId: stat.headPatchId,
-      headVersion: stat.headVersion,
-      // Which build answered, so a chain from a build other than the bundle's
-      // is put on that build's base. See `BaseAlignment`.
-      sourcesSha: stat.sourcesSha,
-      // Which schema that build runs. See `SchemaFreshnessWatch`.
-      schemaSha: stat.schemaSha,
-    });
+    system.stat.receiveStat(statSnapshotOf(stat));
   }, [system, stat, received]);
 
   /*

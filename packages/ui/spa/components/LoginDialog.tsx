@@ -20,6 +20,7 @@ export function LoginDialog() {
         <DialogContent
           container={portalContainer}
           aria-label="Login required"
+          hideClose
           className="bg-bg-secondary text-fg-secondary"
         >
           <DialogHeader>
@@ -33,7 +34,7 @@ export function LoginDialog() {
           <Button asChild>
             <a
               href={urlOf("/api/val/authorize", {
-                redirect_to: window.origin + urlOf("/val"),
+                redirect_to: window.location.href,
               })}
             >
               Log in

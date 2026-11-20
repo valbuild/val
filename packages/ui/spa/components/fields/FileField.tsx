@@ -1,13 +1,12 @@
 import {
   FileMetadata,
-  ImageMetadata,
   Internal,
   ModuleFilePath,
   SourcePath,
-  SerializedImageSchema,
-  SerializedFileSchema,
 } from "@valbuild/core";
-import { JSONValue, Patch } from "@valbuild/core/patch";
+import { mediaPickPatch } from "./mediaPickPatch";
+import { createFilePatch } from "./createFilePatch";
+import { JSONValue } from "@valbuild/core/patch";
 import { FieldLoading } from "../FieldLoading";
 import { FieldNotFound } from "../FieldNotFound";
 import { FieldSchemaError } from "../FieldSchemaError";
@@ -29,7 +28,6 @@ import { File, SquareArrowOutUpRight, Upload, X } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
 import { useMemo, useRef, useState } from "react";
-import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
@@ -42,81 +40,6 @@ import { useIsListedField } from "../ListedField";
 import { RenameFileButton } from "./RenameFileButton";
 import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
-
-const textEncoder = new TextEncoder();
-export async function createFilePatch(
-  path: string[],
-  data: string | null,
-  filename: string | null,
-  fileHash: string,
-  metadata: FileMetadata | ImageMetadata | undefined,
-  subType: "image" | "file",
-  remote: {
-    publicProjectId: string;
-    coreVersion: string;
-    bucket: string;
-    schema: SerializedImageSchema | SerializedFileSchema;
-    remoteHost: string;
-  } | null,
-  dir: string | undefined = "/public/val",
-  /**
-   * True when the field is backed by a gallery. The dimensions and mime type
-   * then live in the gallery module, so the field carries only the path.
-   */
-  galleryBacked: boolean = false,
-): Promise<{ patch: Patch; filePath: string }> {
-  const newFilePath = Internal.createFilename(
-    data,
-    filename,
-    metadata,
-    fileHash,
-  );
-  if (!newFilePath || !metadata) {
-    return { patch: [], filePath: "" };
-  }
-
-  const filePath = `${dir}/${newFilePath}`;
-  const remoteFileHash = Internal.remote.hashToRemoteFileHash(fileHash);
-  const ref = remote
-    ? Internal.remote.createRemoteRef(remote.remoteHost, {
-        publicProjectId: remote.publicProjectId,
-        coreVersion: remote.coreVersion,
-        bucket: remote.bucket,
-        validationHash: Internal.remote.getValidationHash(
-          remote.coreVersion,
-          remote.schema,
-          getFileExt(newFilePath),
-          metadata,
-          remoteFileHash,
-          textEncoder,
-        ),
-        fileHash: remoteFileHash,
-        filePath:
-          `${(dir ?? "/public/val").slice(1)}/${newFilePath}` as `public/${string}`,
-      })
-    : filePath;
-  return {
-    patch: [
-      {
-        value: {
-          path: ref,
-          ...(galleryBacked ? {} : metadata),
-        },
-        op: "replace",
-        path,
-      },
-      {
-        value: data,
-        metadata,
-        op: "file",
-        path,
-        filePath: ref,
-        remote: remote !== null,
-      },
-    ],
-    filePath,
-  };
-}
 
 export function FileField({
   path,
@@ -481,16 +404,7 @@ export function FileField({
                   onSelect={(entry: GalleryEntry) => {
                     // Only the path: the mime type stays in the gallery, which
                     // is the one place that has it.
-                    addPatch(
-                      [
-                        {
-                          op: "replace",
-                          path: patchPath,
-                          value: { path: entry.filePath },
-                        },
-                      ],
-                      "file",
-                    );
+                    addPatch(mediaPickPatch(patchPath, entry.filePath), "file");
                   }}
                   isImage={false}
                   disabled={disabled}
@@ -533,10 +447,7 @@ export function FileField({
             disabled={disabled}
             onSelect={(ref) => {
               // Only the path, as from the picker: the set has the rest.
-              addPatch(
-                [{ op: "replace", path: patchPath, value: { path: ref } }],
-                "file",
-              );
+              addPatch(mediaPickPatch(patchPath, ref), "file");
             }}
           />
         )}

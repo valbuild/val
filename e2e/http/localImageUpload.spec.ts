@@ -76,7 +76,7 @@ test("uploads a local image, and the editor can see it before publishing", async
 
   /*
    * Unpublished, so the bytes can ONLY come out of the patch. The committed
-   * path has no file behind it yet and `next dev` answers that path with the
+   * path has no file behind it yet and the dev server answers that path with the
    * app's HTML, so a src check alone would pass against a 404-shaped failure.
    */
   await expect(tile).toHaveAttribute("src", /\/api\/val\/files\/.*patch_id=/);

@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
-import { StudioTour, TourLauncher, placeCard } from "./StudioTour";
+import { StudioTour, TourLauncher, placeCard, pointArrow } from "./StudioTour";
 import { EmptyEditorState } from "./EditorCanvas";
 import { TopBar } from "./TopBar";
 import { AccountPanel } from "./AccountPanel";
@@ -501,5 +501,59 @@ describe("the tour in quick actions", () => {
   test("says nothing about it where there is no tour to run", () => {
     render(panel());
     expect(screen.queryByText("Take a tour")).toBeNull();
+  });
+});
+
+/**
+ * The card's arrow, worked out from where the card ended up -- after
+ * clamping, and after stepping aside for a panel -- not from which rule put it
+ * there.
+ */
+describe("pointArrow", () => {
+  const shell = { width: 1000, height: 800 };
+  const size = { width: 296, height: 160 };
+  const arrowFor = (target: Parameters<typeof placeCard>[0]) =>
+    pointArrow(target, { ...placeCard(target, shell, size), ...size });
+
+  test("points up at a target above the card, at its middle", () => {
+    const target = { top: 100, left: 60, width: 32, height: 32 };
+    // The card is aligned to the target's left, so its middle is 16px in --
+    // exactly where the arrow is held off the rounded corner anyway.
+    expect(arrowFor(target)).toEqual({ side: "top", offset: 16 });
+    const wide = { top: 100, left: 60, width: 200, height: 32 };
+    expect(arrowFor(wide)).toEqual({ side: "top", offset: 100 });
+  });
+
+  test("points down at a target below the card", () => {
+    expect(arrowFor({ top: 700, left: 60, width: 200, height: 32 })).toEqual({
+      side: "bottom",
+      offset: 100,
+    });
+  });
+
+  test("points sideways at a target the card is beside", () => {
+    const page = { top: 12, left: 450, width: 530, height: 776 };
+    expect(arrowFor(page)).toEqual({ side: "right", offset: 80 });
+  });
+
+  test("stays clear of the card's corners when the target is at the edge", () => {
+    // Clamped against the right edge of the shell: the target's middle is
+    // past the card's last few pixels.
+    const arrow = arrowFor({ top: 100, left: 960, width: 32, height: 32 });
+    expect(arrow?.side).toBe("top");
+    expect(arrow?.offset).toBe(size.width - 16);
+  });
+
+  test("points at nothing when there is nothing to point at", () => {
+    expect(arrowFor(null)).toBeNull();
+  });
+
+  // Moved beside a panel, the card no longer shares an edge with its target:
+  // an arrow would point past it.
+  test("points at nothing when the card has moved away from the target", () => {
+    const target = { top: 100, left: 12, width: 32, height: 32 };
+    const panel = { top: 64, left: 76, width: 300, height: 600 };
+    const at = placeCard(target, shell, size, panel);
+    expect(pointArrow(target, { ...at, ...size })).toBeNull();
   });
 });

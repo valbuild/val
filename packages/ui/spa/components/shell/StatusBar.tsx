@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
+import {
+  CircleDot,
+  Cloud,
+  GitBranch,
+  Info,
+  RotateCw,
+  Terminal,
+} from "lucide-react";
 import {
   isInFlight,
   type PublishIndicator,
@@ -19,6 +26,15 @@ export type SaveState = "saved" | "saving" | "error";
 export type StatusBarProps = {
   breakpoint: ShellBreakpoint;
   saveState: SaveState;
+  /**
+   * Send the failed save again: Try again, beside "Could not save".
+   *
+   * Absent unless retrying can help -- a save the content service failed to
+   * take. "Could not save" for other reasons (a patch error, a service that is
+   * down for everything) has no button, because one that leads straight back
+   * to the same error is worse than none.
+   */
+  onRetrySave?: () => void;
   /**
    * How Val is running: against the working copy on disk, or against a
    * project.
@@ -56,6 +72,12 @@ export type StatusBarProps = {
    * environment: it is the one item here that asks for something.
    */
   notice?: ReactNode;
+  /**
+   * In a proposal: changes kept on the content service but not saved to the
+   * proposal yet. "All changes saved" beside a Save button counting them
+   * said two opposite things, so with any the label counts them instead.
+   */
+  unsavedInProposal?: number;
 };
 
 /**
@@ -74,6 +96,7 @@ export type StatusBarProps = {
 export function StatusBar({
   breakpoint,
   saveState,
+  onRetrySave,
   mode,
   autoSave,
   onAutoSaveChange,
@@ -84,6 +107,7 @@ export function StatusBar({
   deploymentsOpen = false,
   onDeploymentsOpenChange,
   notice,
+  unsavedInProposal = 0,
 }: StatusBarProps) {
   return (
     <footer
@@ -165,7 +189,26 @@ export function StatusBar({
             <Divider />
           </>
         )}
-        <SaveIndicator saveState={saveState} breakpoint={breakpoint} />
+        <SaveIndicator
+          saveState={saveState}
+          breakpoint={breakpoint}
+          unsavedInProposal={unsavedInProposal}
+        />
+        {saveState === "error" && onRetrySave && (
+          /*
+           * Outside the indicator's fixed-width grid: a button in there would
+           * be laid out invisibly in every other state, widening "All changes
+           * saved" by a button that is not on screen.
+           */
+          <button
+            type="button"
+            onClick={onRetrySave}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-fg-primary hover:bg-bg-float-raised"
+          >
+            <RotateCw size={12} />
+            Try again
+          </button>
+        )}
       </div>
     </footer>
   );
@@ -178,9 +221,12 @@ function Divider() {
 export function SaveIndicator({
   saveState,
   breakpoint,
+  unsavedInProposal = 0,
 }: {
   saveState: SaveState;
   breakpoint?: ShellBreakpoint;
+  /** See `StatusBarProps.unsavedInProposal`. */
+  unsavedInProposal?: number;
 }) {
   /*
    * One width for every state.
@@ -203,7 +249,11 @@ export function SaveIndicator({
             state !== saveState && "invisible",
           )}
         >
-          <SaveLabel saveState={state} breakpoint={breakpoint} />
+          <SaveLabel
+            saveState={state}
+            breakpoint={breakpoint}
+            unsavedInProposal={unsavedInProposal}
+          />
         </span>
       ))}
     </span>
@@ -215,9 +265,11 @@ const SAVE_STATES: SaveState[] = ["saved", "saving", "error"];
 function SaveLabel({
   saveState,
   breakpoint,
+  unsavedInProposal,
 }: {
   saveState: SaveState;
   breakpoint?: ShellBreakpoint;
+  unsavedInProposal: number;
 }) {
   if (saveState === "saving") {
     return (
@@ -236,6 +288,18 @@ function SaveLabel({
           <CircleDot size={13} />
         </SaveIcon>
         Could not save
+      </span>
+    );
+  }
+  if (unsavedInProposal > 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <SaveIcon>
+          <span className="w-1.5 h-1.5 rounded-full border border-fg-proposal" />
+        </SaveIcon>
+        {breakpoint === "tablet"
+          ? `${unsavedInProposal} unsaved`
+          : `${unsavedInProposal} not saved to the proposal`}
       </span>
     );
   }

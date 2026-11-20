@@ -2,9 +2,11 @@ import { initVal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import { ValOpsHttp } from "./ValOpsHttp";
 import type { AuthorId, PreparedCommit } from "./ValOps";
 import {
+  proposalAsBuilt,
   proposalFromEnv,
   proposalSnapshot,
   proposalSnapshotForReaders,
+  stagedAfterBuild,
   type ValProposal,
 } from "./proposal";
 
@@ -412,12 +414,18 @@ describe("the proposals API, for the Studio", () => {
     );
     await o.proposalsApi(`/${NAME}/close`, { method: "POST" }, "profile-1");
     await o.proposalsApi(`/${NAME}/setup/retry`, { method: "POST" }, "p");
+    // Its build rendered as a canary, before Publish is offered for it.
+    await o.proposalsApi(`/${NAME}/verify`, { method: "POST" }, "p");
+    // Where an upgrade's preparation is, beneath Preparing….
+    await o.proposalsApi(`/${NAME}/preparation`, { method: "GET" }, "p");
     expect(sent.map((r) => `${r.method} ${r.url}`)).toEqual([
       "GET https://content.example/v1/org/project/proposals",
       "POST https://content.example/v1/org/project/proposals",
       `PATCH https://content.example/v1/org/project/proposals/${NAME}`,
       `POST https://content.example/v1/org/project/proposals/${NAME}/close`,
       `POST https://content.example/v1/org/project/proposals/${NAME}/setup/retry`,
+      `POST https://content.example/v1/org/project/proposals/${NAME}/verify`,
+      `GET https://content.example/v1/org/project/proposals/${NAME}/preparation`,
     ]);
     expect(sent[0]!.headers).not.toHaveProperty("x-val-profile-id");
     expect(sent[1]!.headers).toMatchObject({
@@ -497,7 +505,7 @@ describe("the proposals API, for the Studio", () => {
     ]);
   });
 
-  test("staged files are read anywhere, and written and built only by the proposal's own server", async () => {
+  test("staged files are read anywhere, and written and built by the proposal's own server or the site's", async () => {
     const own = ops(proposal("save-2"));
     await own.proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
     await own.proposalsApi(
@@ -517,25 +525,51 @@ describe("the proposals API, for the Studio", () => {
     ]);
     sent.length = 0;
 
+    // A proposal's address writes no other proposal's files.
     const OTHER = "f".repeat(20);
-    for (const [o, path] of [
-      [own, `/${OTHER}/files`],
-      [own, `/${OTHER}/build`],
-      [ops(undefined), `/${NAME}/files`],
-      [ops(undefined), `/${NAME}/build`],
-    ] as const) {
-      const answer = await o.proposalsApi(
+    for (const path of [`/${OTHER}/files`, `/${OTHER}/build`]) {
+      const answer = await own.proposalsApi(
         path,
         { method: "POST", body: "{}" },
         "p",
       );
       expect([path, answer.status]).toEqual([path, 403]);
-      expect(JSON.parse(answer.body).message).toMatch(/in (a|the) proposal/);
+      expect(JSON.parse(answer.body).message).toMatch(/in the proposal/);
+    }
+    expect(sent).toEqual([]);
+
+    // Nor does the site's server write or build any of them: code is changed
+    // in the proposal's own Studio, in code mode.
+    const site = ops(undefined);
+    for (const path of [`/${NAME}/files`, `/${NAME}/build`]) {
+      const answer = await site.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+      expect(JSON.parse(answer.body).message).toMatch(/open the proposal/);
     }
     expect(sent).toEqual([]);
     // Reading another proposal's files is reading it, as GET of it is.
     await ops(undefined).proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
     expect(sent).toHaveLength(1);
+  });
+
+  test("what a proposal's build targets is read through the proposals API, and only read", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(`/${NAME}/build-target`, { method: "GET" }, "p");
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/build-target`,
+    ]);
+    sent.length = 0;
+    const written = await own.proposalsApi(
+      `/${NAME}/build-target`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(written.status).toBe(403);
+    expect(sent).toEqual([]);
   });
 
   test("Update from the site is asked by the proposal's own server, and nobody else's", async () => {
@@ -584,6 +618,57 @@ describe("the proposals API, for the Studio", () => {
       const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
       expect([path, answer.status]).toEqual([path, 403]);
     }
+    expect(sent).toEqual([]);
+  });
+
+  test("computing a proposal's lockfile is asked by its own server, and nobody else's", async () => {
+    // valbuild/home docs/adept.md, step 6: it stages the lockfile, a write to
+    // the proposal's files.
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(
+      `/${NAME}/lockfile`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/lockfile`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/lockfile`],
+      [ops(undefined), `/${NAME}/lockfile`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  test("reporting a proposal's typecheck is its own server's, and no other's", async () => {
+    // valbuild/home docs/adept.md, step 7, decision 20: what blocks Publish.
+    const own = ops(proposal("save-2"));
+    const body = JSON.stringify({ inputs: "i", newErrors: [] });
+    await own.proposalsApi(`/${NAME}/typecheck`, { method: "POST", body }, "p");
+    const fromSite = await ops(undefined).proposalsApi(
+      `/${NAME}/typecheck`,
+      { method: "POST", body },
+      "p",
+    );
+    expect(fromSite.status).toBe(403);
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/typecheck`,
+    ]);
+    sent.length = 0;
+    const answer = await own.proposalsApi(
+      `/${"f".repeat(20)}/typecheck`,
+      { method: "POST", body },
+      "p",
+    );
+    expect(answer.status).toBe(403);
     expect(sent).toEqual([]);
   });
 
@@ -963,6 +1048,8 @@ describe("proposalFromEnv", () => {
       commit: null,
       modules: {},
       files: {},
+      staged: {},
+      buildInputs: null,
     });
   });
 
@@ -997,6 +1084,185 @@ describe("proposalFromEnv", () => {
         VAL_OVERLAY: JSON.stringify({ commit: 7 }),
       }),
     ).toThrow(/commit must be a string or null/);
+  });
+
+  /*
+   * Which modules' code is staged, and which staging the build was made of
+   * (valbuild/home: the overlay's `staged`, and `VAL_BUILD_INPUTS` beside
+   * the build's hash). A module whose staging is the build's is the build's;
+   * any other staged module was staged after it.
+   */
+  const INPUTS = "a".repeat(64);
+  const LATER = "b".repeat(64);
+  const withStaged = (inputs?: string) =>
+    proposalFromEnv({
+      VAL_PROPOSAL: NAME,
+      VAL_BRANCH: `val/p/${NAME}`,
+      VAL_OVERLAY: JSON.stringify({
+        commit: "save-2",
+        modules: {},
+        files: {},
+        staged: { [PAGE]: `staged:${LATER}` },
+      }),
+      ...(inputs !== undefined ? { VAL_BUILD_INPUTS: inputs } : {}),
+    });
+
+  test("reads which modules are staged, and which staging the build was made of", () => {
+    const p = withStaged(INPUTS);
+    expect(p?.staged).toEqual({ [PAGE]: `staged:${LATER}` });
+    expect(p?.buildInputs).toBe(INPUTS);
+  });
+
+  test("a module staged after the build is one its build did not evaluate; one it was built from is not", () => {
+    const later = withStaged(INPUTS);
+    expect(later && stagedAfterBuild(later)).toEqual({
+      [PAGE]: `staged:${LATER}`,
+    });
+    const built = withStaged(LATER);
+    expect(built && stagedAfterBuild(built)).toEqual({});
+    // The base serving the address was made of no staging at all.
+    const base = withStaged();
+    expect(base?.buildInputs).toBeNull();
+    expect(base && stagedAfterBuild(base)).toEqual({
+      [PAGE]: `staged:${LATER}`,
+    });
+  });
+
+  /**
+   * A module whose own file is not staged can still be staged after the
+   * build, through a file it imports: its schema moved with code the build
+   * was not made of. The overlay names only staged MODULE files, so the rule
+   * takes what the build was made of (its own source, `projectSource`) and
+   * what each module of it depends on (`moduleDependencies`, recorded by the
+   * build): a module that reaches a file whose text the proposal changed
+   * since is staged after the build too.
+   */
+  describe("through what a module imports", () => {
+    const BUTTON = "src/schemas/button.ts";
+    const HOME = "/content/home.val.ts";
+    const OTHER = "/content/other.val.ts";
+    const build = {
+      source: {
+        [BUTTON]: "export const button = 1;",
+        "content/home.val.ts": "home",
+        "content/other.val.ts": "other",
+      },
+      moduleDependencies: {
+        "content/home.val.ts": [BUTTON],
+        "content/other.val.ts": [],
+      },
+    };
+    const proposal = (
+      files: Record<string, string>,
+      staged: Record<string, string> = {},
+      buildInputs: string | null = null,
+    ) => ({ files, staged, buildInputs });
+
+    test("a module that imports a file staged after the build is staged after it", () => {
+      const after = stagedAfterBuild(
+        proposal({ [BUTTON]: "export const button = 2;" }),
+        build,
+      );
+      expect(Object.keys(after)).toEqual([HOME]);
+      expect(after[HOME as ModuleFilePath]).toMatch(/^staged:[0-9a-f]{64}$/);
+    });
+
+    test("is named after the staging when the overlay names one", () => {
+      const after = stagedAfterBuild(
+        proposal(
+          { [BUTTON]: "export const button = 2;" },
+          { [OTHER]: `staged:${LATER}` },
+          INPUTS,
+        ),
+        build,
+      );
+      expect(after).toEqual({
+        [HOME]: `staged:${LATER}`,
+        [OTHER]: `staged:${LATER}`,
+      });
+    });
+
+    test("a file the build was made of, unchanged, moves nothing", () => {
+      expect(
+        stagedAfterBuild(
+          proposal({ [BUTTON]: "export const button = 1;" }),
+          build,
+        ),
+      ).toEqual({});
+    });
+
+    test("a module that imports a module staged after the build is staged after it", () => {
+      const after = stagedAfterBuild(
+        proposal({}, { [OTHER]: `staged:${LATER}` }, INPUTS),
+        {
+          ...build,
+          moduleDependencies: {
+            "content/home.val.ts": ["content/other.val.ts"],
+            "content/other.val.ts": [],
+          },
+        },
+      );
+      expect(after).toEqual({
+        [HOME]: `staged:${LATER}`,
+        [OTHER]: `staged:${LATER}`,
+      });
+    });
+
+    test("a saved .val.ts is content, not code: it moves nothing", () => {
+      expect(
+        stagedAfterBuild(proposal({ "content/other.val.ts": "saved" }), build),
+      ).toEqual({});
+    });
+
+    test("without what the build depends on, only staged module files count", () => {
+      expect(
+        stagedAfterBuild(proposal({ [BUTTON]: "export const button = 2;" })),
+      ).toEqual({});
+    });
+
+    test("the readers leave its saved Source out too", () => {
+      const read = proposalAsBuilt(
+        {
+          ...proposal({ [BUTTON]: "export const button = 2;" }),
+          modules: { [HOME]: { title: "Saved" }, [OTHER]: { title: "Kept" } },
+        },
+        build,
+      );
+      expect(read.modules).toEqual({ [OTHER]: { title: "Kept" } });
+    });
+  });
+
+  test("the readers leave out the Source of a module staged after the build", () => {
+    const p = proposalFromEnv({
+      VAL_PROPOSAL: NAME,
+      VAL_BRANCH: `val/p/${NAME}`,
+      VAL_OVERLAY: JSON.stringify({
+        modules: {
+          [PAGE]: { title: "Staged" },
+          "/b.val.ts": { title: "Kept" },
+        },
+        staged: { [PAGE]: `staged:${LATER}` },
+      }),
+    });
+    expect(p && proposalSnapshotForReaders(proposalAsBuilt(p))).toEqual({
+      "/b.val.ts": { title: "Kept" },
+    });
+    // The server keeps it: it saves it, from its staged text.
+    expect(p && proposalSnapshot(p)).toEqual({
+      [PAGE]: { title: "Staged" },
+      "/b.val.ts": { title: "Kept" },
+    });
+  });
+
+  test("refuses a staged map or build inputs it cannot read, rather than guess which modules a build has", () => {
+    expect(() =>
+      proposalFromEnv({
+        VAL_PROPOSAL: NAME,
+        VAL_BRANCH: `val/p/${NAME}`,
+        VAL_OVERLAY: JSON.stringify({ staged: { [PAGE]: "schema-sha" } }),
+      }),
+    ).toThrow(/staged must name module files with staged:<inputs> versions/);
+    expect(() => withStaged("not-hex")).toThrow(/VAL_BUILD_INPUTS/);
   });
 });
 

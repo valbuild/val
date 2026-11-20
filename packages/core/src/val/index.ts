@@ -112,3 +112,19 @@ export function getValPath(
 ): SourcePath | undefined {
   return valOrSelector[Path];
 }
+
+/**
+ * Gives an object Val read the path it was read from, where `getValPath`
+ * finds it: the readers' (`stegaEncode`'s) half of `getValPath`, for objects,
+ * which have no text to carry a path in.
+ *
+ * Not enumerable, and a symbol: `Object.keys`, `JSON.stringify` and every walk
+ * that reads content as data still see only the content.
+ */
+export function setValPath(target: object, path: SourcePath): void {
+  Object.defineProperty(target, Path, {
+    value: path,
+    enumerable: false,
+    configurable: true,
+  });
+}

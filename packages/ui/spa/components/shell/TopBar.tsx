@@ -1,4 +1,5 @@
 import {
+  ArrowUpCircle,
   AlertTriangle,
   Bell,
   ChevronDown,
@@ -7,11 +8,12 @@ import {
   GitCompare,
   History,
   Link2,
-  Loader2,
   LucideIcon,
   Menu,
   PanelRight,
+  PencilRuler,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -32,16 +34,26 @@ import { StudioMark } from "./ValLogo";
 import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
-import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
 import {
-  ProposalMenu,
-  ProposalPublishButton,
-  ProposalBuildButton,
-  ProposalSaveButton,
+  ProposalLocationChip,
+  ProposalSwitcher,
+} from "../proposals/ProposalSwitcher";
+import {
+  ProposalActionButton,
+  ProposalProgress,
+  type ProposalCommit,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import {
+  CodeModeButton,
+  codeModeOnLine,
+  type TopBarCodeMode,
+} from "../proposals/CodeModeButton";
+import type { PreviewProblem } from "../proposals/PreviewProblemCard";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Proposals, when this project has them: the switcher, and in a proposal the
@@ -49,6 +61,16 @@ import type { ProposalSummary, StudioLocation } from "../proposals/types";
  */
 export type TopBarProposals = {
   location: StudioLocation;
+  /**
+   * Still finding out where this Studio is (before `/stat` answers, at an
+   * address it has not been at before), or which proposal it is in (before
+   * the proposal's own read). The switcher says it is loading, and on the
+   * site Publish waits: at a proposal's address the site's Publish would be
+   * taken back a moment later.
+   */
+  loading?: boolean;
+  /** On the way to another address: "Opening “Spring campaign”…". */
+  leaving?: string | null;
   /** Open proposals, for the switcher. */
   open: ProposalSummary[];
   onOpenSite: () => void;
@@ -64,6 +86,29 @@ export type TopBarProposals = {
   saveBlockedBy?: { errors: number; onShow: () => void };
   /** Build the proposal's staged files, so its address shows them. */
   onBuild?: () => void;
+  /**
+   * Save, and build too: given, Save is enabled while there is a build to
+   * make even with nothing unsaved, and pressing it saves what there is and
+   * then builds. Build is no longer a step of its own. Absent leaves Save and
+   * Build as two steps. See `ProposalActionButton`.
+   */
+  onSaveAndBuild?: () => void;
+  /**
+   * The preview could not be updated with the latest code: a dot on the
+   * switcher, and what happened -- whose change it followed, and what to do
+   * -- at the top of its menu. Never on Save. See `PreviewProblem`.
+   */
+  previewProblem?: PreviewProblem | null;
+  /**
+   * The `</>` right of the switcher. Absent outside a hosted Studio, where
+   * code is changed in an editor. See `CodeModeButton`.
+   */
+  codeMode?: TopBarCodeMode;
+  /**
+   * Commit, beside Publish in Save's menu: only in a project connected to
+   * git. See `ProposalCommit`.
+   */
+  commit?: ProposalCommit;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
   /**
@@ -76,7 +121,16 @@ export type TopBarProposals = {
   onClose: () => void;
   /** For stories. */
   defaultSwitcherOpen?: boolean;
+  /** The Save/Publish button's caret menu, the proposal's acts with it. */
   defaultMenuOpen?: boolean;
+};
+
+export type TopBarSketchpad = {
+  /** True while the Sketchpad is what is on screen. */
+  open: boolean;
+  /** Changed since the person last had it open: by the assistant, or Kari. */
+  changed: boolean;
+  onToggle: () => void;
 };
 
 export type TopBarProps = {
@@ -96,6 +150,28 @@ export type TopBarProps = {
   /** See `ShellData.studioMode`. */
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
+  /**
+   * Content | Preview | Sketch | Assistant (`PaneSwitches`), in the Preview
+   * button's place from a tablet up. Given, it is also the Sketchpad's and the
+   * assistant's switch, and their own buttons are not shown.
+   */
+  paneSwitches?: ReactNode;
+  /**
+   * On a phone, beside the account: Save or Publish and what else there is
+   * to do with the changes. The bottom bar is the workspace's panes and
+   * nothing else (`PhonePaneBar`).
+   */
+  phoneActions?: ReactNode;
+  /**
+   * Something waits in the activity behind the account's sheet, where a
+   * phone's notifications are.
+   */
+  accountDot?: boolean;
+  /**
+   * Whether the assistant is open, where it is a pane of the workspace
+   * rather than one of the panels (above a phone). Absent: `openPanel`.
+   */
+  aiOpen?: boolean;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
   onOpenMenu: () => void;
@@ -122,6 +198,13 @@ export type TopBarProps = {
    * validate. Absent in stories and embeds that do not route.
    */
   onOpenValidate?: () => void;
+  /**
+   * The Updates notice (valbuild/home `docs/plans/upgrades-v2.md`, piece E):
+   * there only while there is something to upgrade, marked when that fixes a
+   * vulnerability, and opening the project's Updates in Val Build, where
+   * upgrades are made. On a phone it is a row in the account sheet.
+   */
+  upgrade?: UpgradeButton;
   /** Whether the Validate page is the one being shown. */
   validateActive?: boolean;
   /**
@@ -209,6 +292,12 @@ export type TopBarProps = {
    * not here at all — the bottom bar carries it.
    */
   aiEnabled?: boolean;
+  /**
+   * The AI session's Sketchpad, once it has one. Absent -- the usual case --
+   * and there is no button: a Sketchpad is something the assistant or the
+   * person started, never something the bar asks anyone to start.
+   */
+  sketchpad?: TopBarSketchpad;
   /** Absent for a project without proposals: nothing here changes. */
   proposals?: TopBarProposals;
   /**
@@ -238,6 +327,10 @@ export function TopBar({
   webComponentsUrl,
   studioMode,
   openPanel,
+  aiOpen,
+  paneSwitches,
+  phoneActions,
+  accountDot,
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
@@ -245,6 +338,7 @@ export function TopBar({
   historyActive = false,
   onOpenHistory,
   onOpenValidate,
+  upgrade,
   validateActive = false,
   validateCount = 0,
   user,
@@ -265,6 +359,7 @@ export function TopBar({
   logo,
   isLoading,
   aiEnabled = false,
+  sketchpad,
   previewHref,
   proposals,
   planStatus,
@@ -272,11 +367,13 @@ export function TopBar({
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
   /*
-   * Above a phone, where you are is the middle of the bar: the switcher, and
-   * in a proposal Publish beside it -- publishing a proposal is merging it,
-   * an act about the proposal -- while Save takes Publish's place on the
-   * right. On a phone the bottom bar has room for one action, which is Save,
-   * and Publish is first in the proposal's menu.
+   * Above a phone, where you are is the middle of the bar: the switcher --
+   * which in a proposal also holds what is done with the proposal itself, as
+   * the phone's sheet does -- and what its address is doing after a save.
+   * Save, Build and Publish are one split button where Publish is on the site
+   * (`ProposalActionButton`). On a phone where you are is a chip of a fixed
+   * width (see `ProposalLocationChip`), and everything about the proposal is
+   * in the sheet behind it.
    */
   const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
@@ -289,47 +386,36 @@ export function TopBar({
       onOpenProposal={proposals.onOpenProposal}
       onNewProposal={proposals.onNewProposal}
       onShowAllProposals={proposals.onShowAllProposals}
+      onRename={proposals.onRename}
+      onCompare={proposals.onCompare}
+      onCopyLink={proposals.onCopyLink}
+      onClose={proposals.onClose}
+      loading={proposals.loading}
+      leaving={proposals.leaving ?? null}
+      problem={proposals.previewProblem ?? null}
+      codeModeLine={
+        proposals.codeMode?.on === true
+          ? codeModeOnLine(proposals.codeMode.turnedOn ?? null)
+          : null
+      }
       defaultOpen={proposals.defaultSwitcherOpen}
     />
   );
   const inProposal =
     proposals !== undefined && proposalLocation !== null
       ? {
-          menu: (
-            <ProposalMenu
-              onCompare={proposals.onCompare}
-              onRename={proposals.onRename}
-              onCopyLink={proposals.onCopyLink}
-              onClose={proposals.onClose}
-              defaultOpen={proposals.defaultMenuOpen}
-              // On a phone the bottom bar has room for Save alone, so
-              // Publish is the first thing in the menu.
-              {...(layout === "phone"
-                ? {
-                    onPublish: proposals.onPublish,
-                    publishBlockedBy: proposalLocation.publishBlockedBy,
-                  }
-                : {})}
-            />
-          ),
-          save: (
-            <ProposalSaveButton
+          progress: <ProposalProgress location={proposalLocation} />,
+          action: (
+            <ProposalActionButton
               location={proposalLocation}
               onSave={proposals.onSave}
-              blockedBy={proposals.saveBlockedBy}
-            />
-          ),
-          build:
-            proposals.onBuild !== undefined ? (
-              <ProposalBuildButton
-                location={proposalLocation}
-                onBuild={proposals.onBuild}
-              />
-            ) : null,
-          publish: (
-            <ProposalPublishButton
-              location={proposalLocation}
+              onBuild={proposals.onBuild}
+              onSaveAndBuild={proposals.onSaveAndBuild}
               onPublish={proposals.onPublish}
+              saveBlockedBy={proposals.saveBlockedBy}
+              codeMode={proposals.codeMode?.on === true}
+              commit={proposals.commit}
+              defaultMenuOpen={proposals.defaultMenuOpen}
             />
           ),
         }
@@ -353,13 +439,23 @@ export function TopBar({
     <header
       className={cn(
         "absolute z-full top-3 h-11 flex items-center gap-1.5 px-2 rounded-lg",
+        /*
+         * While one of the bar's own menus is open, the bar goes above the
+         * panels. They are `z-full` too and come later in the shell, so a
+         * menu dropping out of the bar was drawn underneath an open panel.
+         */
+        "has-[[role=menu]]:z-overlay",
         "bg-bg-float border shadow-sm",
         /*
          * In a proposal the bar wears the proposal colour: where you are must
          * never be in doubt, and a screenshot should say where it was taken.
+         *
+         * The tint is LAYERED over `bg-bg-float` as an image, never swapped
+         * in for it: `--bg-proposal-soft` is translucent in dark mode, so as
+         * the background colour it let the editor show through the bar.
          */
         proposalLocation !== null
-          ? "border-border-proposal ring-1 ring-border-proposal bg-bg-proposal-soft"
+          ? "border-border-proposal ring-1 ring-border-proposal bg-[linear-gradient(var(--bg-proposal-soft),var(--bg-proposal-soft))]"
           : "border-border-float",
         // Leaves room for the rail on desktop; full-bleed below that.
         isDesktop ? "left-[4.75rem] right-3" : "left-3 right-3",
@@ -370,6 +466,10 @@ export function TopBar({
           type="button"
           aria-label="Open navigation"
           onClick={onOpenMenu}
+          // Where Pages, Media, Data and Settings are below the desktop: a
+          // tour step about one of them points here when the rail is not
+          // drawn. See `measureTarget`.
+          data-val-tour="pages media data settings"
           className="grid place-items-center w-8 h-8 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary shrink-0"
         >
           <Menu size={17} />
@@ -381,11 +481,11 @@ export function TopBar({
         </div>
       )}
       {/*
-       * On a phone in a proposal, the proposal's name rather than the
-       * project's: where you are matters more than which project it is, and
-       * there is room for one name.
+       * Not on a phone, where there is room for no name at all: the project's
+       * is at the top of the navigation sheet, behind the menu button, and the
+       * proposal's is in the sheet behind the location chip.
        */}
-      {!(layout === "phone" && proposalLocation !== null) && (
+      {layout !== "phone" && (
         <>
           {projectHref !== undefined && webComponentsUrl !== undefined ? (
             <ProjectSwitcher
@@ -400,32 +500,40 @@ export function TopBar({
           )}
         </>
       )}
-      {layout === "phone" && (
-        <>
-          {switcher}
-          {inProposal?.menu}
-        </>
+      {layout === "phone" && proposals !== undefined && (
+        <ProposalLocationChip
+          location={proposals.location}
+          problem={(proposals.previewProblem ?? null) !== null}
+          open={openPanel === "proposals"}
+          onClick={() => onTogglePanel("proposals")}
+          busy={
+            proposals.loading === true || (proposals.leaving ?? null) !== null
+          }
+        />
       )}
+      {/* On a phone Search sits on the right, beside the account. */}
+      {layout === "phone" && <div className="flex-1" />}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       {/* Where you are, in the middle of the bar. */}
       {layout === "centered" && (
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
           {planStatus}
           {switcher}
-          {inProposal !== null && (
-            <>
-              {inProposal.publish}
-              {inProposal.menu}
-            </>
+          {proposals?.codeMode !== undefined && (
+            <CodeModeButton
+              location={proposals.location}
+              proposals={proposals.open}
+              codeMode={proposals.codeMode}
+              disabled={
+                proposals.loading === true ||
+                (proposals.leaving ?? null) !== null
+              }
+            />
           )}
+          {inProposal?.progress}
         </div>
       )}
-      <div
-        className={cn(
-          "flex items-center gap-1.5 shrink-0",
-          layout === "phone" && "ml-auto",
-        )}
-      >
+      <div className="flex items-center gap-1.5 shrink-0">
         {/*
          * Who else is here, and a way to bring more people in. Above mobile it
          * leads the cluster, to the left of the locale: it is about the
@@ -461,32 +569,83 @@ export function TopBar({
              * than `contents`: a box with no layout of its own measures zero,
              * and a spotlight on a zero-sized box is a dot.
              */}
-            <span data-val-tour="preview" className="inline-flex">
-              <PreviewButton
-                onPreview={onPreview}
-                previewHref={previewHref}
-                onToggleCanvas={onToggleCanvas}
-                isCanvasOpen={isCanvasOpen}
-              />
-            </span>
-            {inProposal?.build}
+            {paneSwitches ?? (
+              <span data-val-tour="preview" className="inline-flex">
+                <PreviewButton
+                  onPreview={onPreview}
+                  previewHref={previewHref}
+                  onToggleCanvas={onToggleCanvas}
+                  isCanvasOpen={isCanvasOpen}
+                />
+              </span>
+            )}
             <span data-val-tour="publish" className="inline-flex">
-              {inProposal !== null
-                ? // In a proposal, Save is where Publish is on the site.
-                  inProposal.save
-                : (publishSlot ?? (
-                    <PublishButton
-                      pendingChanges={pendingChanges}
-                      onPublish={onPublish}
-                      publishState={publishState}
-                    />
-                  ))}
+              {inProposal !== null ? (
+                // In a proposal, Save -- then Publish -- is where Publish is
+                // on the site.
+                inProposal.action
+              ) : proposals?.loading ? (
+                <PublishPlaceholder />
+              ) : (
+                (publishSlot ?? (
+                  <PublishButton
+                    pendingChanges={pendingChanges}
+                    onPublish={onPublish}
+                    publishState={publishState}
+                  />
+                ))
+              )}
             </span>
             <BarDivider />
           </>
         )}
-        {isMobile && members}
-        {onOpenValidate && (
+        {/*
+         * Validate, History and the bell are one button on a phone - the
+         * bottom bar's bell, with the activity sheet behind it.
+         */}
+        {/*
+         * Labelled on a desktop: an icon alone said "something about
+         * upgrades" and kept what in its tooltip. Below that, an icon.
+         */}
+        {upgrade !== undefined && isDesktop && (
+          <button
+            type="button"
+            aria-label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium hover:bg-bg-float-raised",
+              upgrade.vulnerable
+                ? "text-fg-error-on-surface"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={15} className="shrink-0" />
+            ) : (
+              <ArrowUpCircle size={15} className="shrink-0" />
+            )}
+            {upgrade.label}
+          </button>
+        )}
+        {upgrade !== undefined && !isMobile && !isDesktop && (
+          <IconButton
+            label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={16} className="text-fg-error-on-surface" />
+            ) : (
+              <ArrowUpCircle size={16} />
+            )}
+            {upgrade.vulnerable && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-bg-error-primary"
+              />
+            )}
+          </IconButton>
+        )}
+        {onOpenValidate && !isMobile && (
           <IconButton
             label={
               validateCount > 0
@@ -507,7 +666,7 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {historyEnabled && (
+        {historyEnabled && !isMobile && (
           <IconButton
             label="History"
             active={historyActive}
@@ -517,15 +676,36 @@ export function TopBar({
           </IconButton>
         )}
         {/*
-         * Above mobile only: on a phone the assistant is in the bottom bar,
-         * where the thumb is - see `MobileBottomBar`. Two Sparkles buttons on
-         * one screen would be two places to look for the same panel, and the
+         * Above mobile only: on a phone the Sketchpad is a pane in the bottom
+         * bar, where the thumb is - see `PhonePaneBar`. Two ways to the same
+         * pane on one screen would be two places to look for it, and the
          * top right corner of a phone is the furthest point from a thumb.
          */}
-        {aiEnabled && !isMobile && (
+        {sketchpad && !isMobile && paneSwitches === undefined && (
+          <IconButton
+            label={
+              sketchpad.open
+                ? "Close the Sketchpad"
+                : sketchpad.changed
+                  ? "Sketchpad (changed since you looked)"
+                  : "Sketchpad"
+            }
+            active={sketchpad.open}
+            onClick={sketchpad.onToggle}
+          >
+            <PencilRuler size={16} />
+            {sketchpad.changed && !sketchpad.open && (
+              <span
+                aria-hidden
+                className="absolute right-1 top-1 h-2 w-2 rounded-full bg-bg-brand-primary ring-2 ring-bg-float"
+              />
+            )}
+          </IconButton>
+        )}
+        {aiEnabled && !isMobile && paneSwitches === undefined && (
           <IconButton
             label="AI assistant"
-            active={openPanel === "ai"}
+            active={aiOpen ?? openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
             tourTarget="ai"
           >
@@ -542,7 +722,7 @@ export function TopBar({
             <PanelRight size={16} />
           </IconButton>
         )}
-        {unreadNotifications !== undefined && (
+        {unreadNotifications !== undefined && !isMobile && (
           <IconButton
             label={
               unreadNotifications > 0
@@ -560,15 +740,24 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {(user || accountError) && (
+        {/*
+         * Always there on a phone, even with nobody signed in: the theme, auto
+         * save and the deploy feed are behind it, and nothing else on a phone
+         * leads to them.
+         */}
+        {isMobile && phoneActions}
+        {(user || accountError || isMobile) && (
           <>
-            <BarDivider />
+            {/* On a phone there is nothing before it to divide it from. */}
+            {!isMobile && <BarDivider />}
             <button
               type="button"
               aria-label={
                 accountError
                   ? `Account: ${accountError.message}`
-                  : `Account: ${user?.name}`
+                  : user
+                    ? `Account: ${user.name}`
+                    : "Account and settings"
               }
               title={accountError?.message}
               onClick={() => onTogglePanel("account")}
@@ -581,7 +770,16 @@ export function TopBar({
                   <UserRound size={15} />
                 </span>
               )}
-              {accountError && <AccountErrorDot />}
+              {accountError ? (
+                <AccountErrorDot />
+              ) : (
+                accountDot && (
+                  <span
+                    aria-hidden
+                    className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-fg-primary ring-2 ring-bg-float"
+                  />
+                )
+              )}
             </button>
           </>
         )}
@@ -822,7 +1020,7 @@ export function PreviewButton({
   );
 }
 
-function PreviewMenuItem({
+export function PreviewMenuItem({
   icon: Icon,
   label,
   detail,
@@ -893,6 +1091,22 @@ function PreviewMenuItem({
     <button type="button" role="menuitem" onClick={onClick} className={shared}>
       {inner}
     </button>
+  );
+}
+
+/**
+ * Where Publish goes, while it is not known yet whether this is the site or a
+ * proposal: the same size, so nothing moves when the real one arrives.
+ */
+export function PublishPlaceholder({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block h-8 w-[5.5rem] animate-pulse rounded-md bg-bg-float-raised",
+        className,
+      )}
+    />
   );
 }
 
@@ -1041,7 +1255,7 @@ export function PublishButton({
       )}
     >
       {publishState === "publishing" ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : publishState === "error" ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (
@@ -1080,7 +1294,7 @@ export function PublishButton({
  * that is not connected has no page, so the name stays a plain label rather
  * than becoming a link that goes nowhere.
  */
-function ProjectName({
+export function ProjectName({
   projectName,
   projectHref,
 }: {

@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
-import { render, screen } from "@testing-library/react";
-import { SaveIndicator } from "./StatusBar";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { SaveIndicator, StatusBar, type StatusBarProps } from "./StatusBar";
+import { TooltipProvider } from "../designSystem/tooltip";
 
 /**
  * What the status bar says about saving.
@@ -77,5 +78,41 @@ describe("the save indicator's stacked labels", () => {
         expect(wrapper.classList.contains("invisible")).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * "Could not save" with the one thing to do about it beside it -- and only
+ * when doing it can help. A button that leads back to the same error is worse
+ * than none, so a "Could not save" with nothing to retry has no button.
+ */
+describe("Try again in the status bar", () => {
+  const bar = (props: Partial<StatusBarProps>) => (
+    <TooltipProvider>
+      <StatusBar
+        breakpoint="desktop"
+        saveState="error"
+        autoSave={false}
+        mode="http"
+        {...props}
+      />
+    </TooltipProvider>
+  );
+
+  test("re-sends the save when it is pressed", () => {
+    const onRetrySave = jest.fn();
+    render(bar({ onRetrySave }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetrySave).toHaveBeenCalledTimes(1);
+  });
+
+  test("is not offered when nothing can be retried", () => {
+    render(bar({}));
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  test("is not offered once the save went through", () => {
+    render(bar({ saveState: "saved", onRetrySave: () => undefined }));
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

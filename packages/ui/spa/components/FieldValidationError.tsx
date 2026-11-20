@@ -1,6 +1,6 @@
 import { SourcePath, ValidationError } from "@valbuild/core";
 import classNames from "classnames";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { FieldErrorList } from "./FieldErrorList";
 import {
   Tooltip,
@@ -10,6 +10,7 @@ import {
 import { useGetNavPath, useIsInitialized } from "./ValFieldProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
+import { Spinner } from "./designSystem/spinner";
 
 /**
  * Inline error display rendered below a field in the editor.
@@ -71,11 +72,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
           )}
           aria-label="Go to validation error"
         >
-          {isLoading ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <AlertTriangle size={16} />
-          )}
+          {isLoading ? <Spinner size={16} /> : <AlertTriangle size={16} />}
         </button>
       </TooltipTrigger>
       <TooltipContent

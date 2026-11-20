@@ -5,6 +5,7 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import { ValOpsMemory } from "./ValOpsMemory";
+import { loadTypeScriptKit } from "./patch/ts/loadTypeScriptKit";
 
 const { s, c, config } = initVal();
 
@@ -85,6 +86,8 @@ describe("ValOpsMemory save", () => {
      */
     const ops = new ValOpsMemory(valModules, {
       config,
+      // As `createValOps` builds it on Node: a save rewrites the `.val.ts`.
+      typescript: loadTypeScriptKit,
       sourceFiles: { [PATH]: SOURCE },
     });
 
@@ -103,6 +106,8 @@ describe("ValOpsMemory save", () => {
   test("the same field edited twice keeps the later value", async () => {
     const ops = new ValOpsMemory(valModules, {
       config,
+      // As `createValOps` builds it on Node: a save rewrites the `.val.ts`.
+      typescript: loadTypeScriptKit,
       sourceFiles: { [PATH]: SOURCE },
     });
 
@@ -121,6 +126,8 @@ describe("ValOpsMemory save", () => {
     // the stale answer -- which is the same lost edit by another route.
     const ops = new ValOpsMemory(valModules, {
       config,
+      // As `createValOps` builds it on Node: a save rewrites the `.val.ts`.
+      typescript: loadTypeScriptKit,
       sourceFiles: { "content/test.val.ts": SOURCE },
     });
 
@@ -131,5 +138,20 @@ describe("ValOpsMemory save", () => {
 
     expect(two.patchedSourceFiles[PATH]).toContain("FIRST");
     expect(two.patchedSourceFiles[PATH]).toContain("SECOND");
+  });
+
+  test("without the TypeScript compiler, a save refuses and says why", async () => {
+    // The browser's platform builds it this way (`browserPlatform.ts`): a
+    // server in a tab does not publish, and the compiler is 10.8 MB it would
+    // otherwise carry. Refused, not a no-op, so a host that forgot to pass it
+    // learns what to pass rather than losing the edits it thought it saved.
+    const ops = new ValOpsMemory(valModules, {
+      config,
+      sourceFiles: { [PATH]: SOURCE },
+    });
+    await edit(ops, "title", "FIRST");
+    await expect(save(ops)).rejects.toThrow(/typescript: loadTypeScriptKit/);
+    const pending = await ops.fetchPatches({ excludePatchOps: false });
+    expect(pending.patches).toHaveLength(1);
   });
 });

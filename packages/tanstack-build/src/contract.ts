@@ -125,6 +125,21 @@ export interface BuildTarget {
       worker: Record<string, Array<string>>;
       browser: Record<string, Array<string>>;
     };
+    /**
+     * Whether this platform serves BUILD ASSETS: files a build names by
+     * content hash ({@link BuildAssets}), uploaded once and served by the
+     * platform itself rather than by the site's server.
+     *
+     * What a layer build reads it for is the Studio. `@valbuild/ui/server`
+     * carries every Studio file base64-embedded, which costs a server that
+     * loads it some 80-100 MB of heap -- inside a 128 MB isolate, too much.
+     * Where this is true the layer is built without that copy and carries the
+     * Studio's files as assets instead.
+     *
+     * Absent from a platform that predates it, and a layer is then built as
+     * it always was: a Studio without its files is worse than a heavy one.
+     */
+    buildAssets?: boolean;
     /** Where the chunks live, as seen from each kind of importer. */
     paths: {
       /** The base layer, from a project-layer chunk. */
@@ -173,4 +188,35 @@ export interface BuildTarget {
  */
 export interface BuildTargetRev {
   project: { rev: string | null };
+}
+
+/**
+ * One file a build names, by content: the platform stores it once, under its
+ * sha256, and serves it at every path a build maps to it.
+ */
+export interface BuildAsset {
+  /** Lower-case hex sha256 of the bytes. Also the file's name in the store. */
+  sha256: string;
+  contentType: string;
+  cacheControl: string;
+}
+
+/**
+ * Files a build has the platform serve for it, by request path, before the
+ * request reaches the site's server.
+ *
+ * GENERIC on purpose. The Studio is the first thing served this way (see
+ * {@link BuildTarget}'s `base.buildAssets`), and the platform knows nothing
+ * of it: it follows this map. Anything else a build would rather not carry in
+ * its server -- a dependency's fonts, a site's own large files -- can be
+ * served the same way without the platform learning anything new.
+ */
+export interface BuildAssets {
+  /** Request path (`/api/val/static/0.150.8/app`) -> the file served there. */
+  paths: Record<string, BuildAsset>;
+  /**
+   * What a path under `prefix` that is not in {@link paths} is answered with:
+   * a single-page app's index page. The longest matching prefix wins.
+   */
+  fallbacks: Array<BuildAsset & { prefix: string }>;
 }

@@ -223,7 +223,9 @@ export function computeValModuleShas(
   let baseSha = configSha;
   // NOTE: schemaSha is deliberately NOT seeded with configSha. It is compared
   // across bundles (the server extracts from the Node bundle, the editor SPA
-  // from the browser bundle) to detect that a new version has been deployed.
+  // from the browser bundle) to detect that a new version has been deployed --
+  // by a Studio of the release before phase 9's; today's compares each
+  // module's schema version on the manifest, which has the same constraint.
   // The config contains values that are not part of the schema and that differ
   // between those two bundles - most notably the documented
   // `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` / `gitBranch`, which are

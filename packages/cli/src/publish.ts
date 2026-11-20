@@ -22,6 +22,8 @@ export async function publish(options: {
   linksOwnCss?: boolean;
   dryRun?: boolean;
   skipValidation?: boolean;
+  /** Let a validation warning stop the publish too, as `val validate --strict`. */
+  strict?: boolean;
 }): Promise<void> {
   // Content that does not validate is not published. This is the check that
   // lets the Studio trust a connected project's published content without
@@ -32,7 +34,8 @@ export async function publish(options: {
   // the Studio leaves to the server to repair (a local image in a remote
   // project, metadata to fill in) is printed and published, as it would be
   // from the Studio. Every site made on /new starts with its template's
-  // images local, so counting those would refuse its first publish.
+  // images local, so counting those would refuse its first publish: they are
+  // warnings, and refuse a publish only under --strict.
   if (!options.skipValidation) {
     const projectRoot = options.root
       ? path.resolve(options.root)
@@ -41,6 +44,7 @@ export async function publish(options: {
       projectRoot,
       fix: false,
       blockingOnly: true,
+      ...(options.strict ? { strict: true } : {}),
     });
     if (errorCount > 0) {
       error(

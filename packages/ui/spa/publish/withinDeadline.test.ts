@@ -1,4 +1,4 @@
-import { isTransientPublishError } from "./publishClient";
+import { isTransientPublishError } from "@valbuild/shared/publish";
 import { withinDeadline } from "./withinDeadline";
 
 test("an answer in time is the answer", async () => {

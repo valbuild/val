@@ -134,7 +134,7 @@ export function PathHeading({
    * fixed lines, so it cannot change the heading's height.
    */
   below?: ReactNode;
-  /** The scope trail, on the line under the heading. */
+  /** The line under the heading: in the editor, the link back to the parent. */
   scope?: ReactNode;
   className?: string;
 }) {

@@ -97,6 +97,26 @@ describe("getValRouteUrlFromVal with the TanStack router", () => {
     ).toBe("/docs/a/b");
   });
 
+  /*
+   * `/docs` on a `docs.$` route: TanStack matches it, with nothing in the
+   * splat. It is the page `/docs`, not `/docs/`, which is a key no one wrote.
+   */
+  test("an empty splat is the directory's own page", () => {
+    const val = routerVal("/src/routes/docs.$.val.ts", {
+      "/docs": { title: "Index" },
+    });
+    const { path, schema, source } = argsOf(val);
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    // Both shapes TanStack might hand over for an empty splat.
+    for (const params of [{ _splat: "", "*": "" }, { _splat: undefined }, {}]) {
+      expect(
+        getValRouteUrlFromVal(params, "useValRoute", path, schema, source),
+      ).toBe("/docs");
+    }
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   test("an optional segment the URL left out adds nothing to the key", () => {
     const val = routerVal("/src/routes/{-$locale}.blog.$slug.val.ts", {
       "/blog/hello": { title: "Hello" },

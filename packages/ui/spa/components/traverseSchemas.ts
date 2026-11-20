@@ -36,6 +36,29 @@ export function traverseSchemas(
   sources: Record<ModuleFilePath, Source>,
   visit: LeafVisitor,
 ): void {
+  for (const moduleFilePathS in schemas) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    traverseSchemaAt(
+      moduleFilePathS as SourcePath,
+      schemas[moduleFilePath],
+      sources[moduleFilePath],
+      visit,
+    );
+  }
+}
+
+/**
+ * The same walk, from one value at its path: an entry of a record, for a
+ * caller that keeps what it found per entry.
+ */
+export function traverseSchemaAt(
+  at: SourcePath,
+  atSchema: SerializedSchema | undefined,
+  atSource: Source,
+  visit: LeafVisitor,
+  /** `at` is an entry of a media directory: see `go`. */
+  atMediaEntry = false,
+): void {
   const go = (
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
@@ -121,14 +144,7 @@ export function traverseSchemas(
       visit(sourcePath, schema as LeafSerializedSchema, source);
     }
   };
-  for (const moduleFilePathS in schemas) {
-    const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    go(
-      moduleFilePathS as SourcePath,
-      schemas[moduleFilePath],
-      sources[moduleFilePath],
-    );
-  }
+  go(at, atSchema, atSource, atMediaEntry);
 }
 
 function isObjectOrRecordSource(

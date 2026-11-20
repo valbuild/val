@@ -17,17 +17,27 @@
       "module": "./browser/dist/valbuild-server-browser.esm.js",
       "default": "./browser/dist/valbuild-server-browser.cjs.js"
     },
+    "./internal": {
+      "module": "./internal/dist/valbuild-server-internal.esm.js",
+      "default": "./internal/dist/valbuild-server-internal.cjs.js"
+    },
+    "./internal/browser": {
+      "module": "./internal/browser/dist/valbuild-server-internal-browser.esm.js",
+      "default": "./internal/browser/dist/valbuild-server-internal-browser.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
   "preconstruct": {
     "entrypoints": [
       "./index.ts",
-      "./browser/index.ts"
+      "./browser/index.ts",
+      "./internal/index.ts",
+      "./internal/browser/index.ts"
     ],
     "exports": true
   },
-  "version": "0.148.3",
+  "version": "0.153.6",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -43,11 +53,11 @@
     "@valbuild/shared": "workspace:*",
     "@valbuild/ui": "workspace:*",
     "chokidar": "^5.0.0",
-    "image-size": "^2.0.2",
+    "image-size": "^2.0.3",
     "minimatch": "^10.2.6",
     "sucrase": "^3.35.1",
     "typescript": "^6.0.3",
-    "zod": "^4.4.3",
+    "zod": "^4.6.6",
     "zod-validation-error": "^5.0.0"
   },
   "engines": {
@@ -56,6 +66,7 @@
   "files": [
     "CHANGELOG.md",
     "dist",
-    "browser"
+    "browser",
+    "internal"
   ]
 }

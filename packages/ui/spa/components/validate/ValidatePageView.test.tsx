@@ -11,12 +11,16 @@ import {
 
 const noop = () => {};
 
-function view(groups: ValidateGroup[], fullCheck: FullCheckState) {
+function view(
+  groups: ValidateGroup[],
+  fullCheck: FullCheckState,
+  onCheckEverything: (() => void) | null = noop,
+) {
   return render(
     <ValidatePageView
       groups={groups}
       fullCheck={fullCheck}
-      onCheckEverything={noop}
+      onCheckEverything={onCheckEverything}
       onStop={noop}
       onFixEverything={noop}
       onFixGroup={noop}
@@ -76,5 +80,39 @@ describe("what a failure offers", () => {
     });
     expect(screen.getByRole("link", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+});
+
+/*
+ * The check walks the modules the Studio's schemas name, so before they have
+ * loaded a press would check nothing -- and it used to, without a word, which
+ * on a slow dev server read as a button that does not work.
+ */
+describe("before the Studio has the project's schemas", () => {
+  test("Check everything cannot be pressed", () => {
+    view([], { status: "not-run" }, null);
+    const button = screen.getByRole("button", { name: "Check everything" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
+
+  test("and can be once they are there", () => {
+    view([], { status: "not-run" });
+    const button = screen.getByRole("button", { name: "Check everything" });
+    expect(button.hasAttribute("disabled")).toBe(false);
+  });
+});
+
+/*
+ * The demo's server runs in the tab and has no full check: every press of
+ * "Check everything" there stopped at the first file with a 501.
+ */
+describe("where the full check is not available", () => {
+  test("nothing offers it, and the page says why", () => {
+    view([], { status: "unavailable", reason: "Not in the demo." });
+    expect(
+      screen.queryByRole("button", { name: "Check everything" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByText("Not in the demo.")).toBeTruthy();
   });
 });

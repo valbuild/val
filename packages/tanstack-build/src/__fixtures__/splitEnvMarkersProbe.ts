@@ -2,10 +2,11 @@
  * Builds the same project twice — with a splitter and without — and reports
  * whether a `<ClientOnly>` child survived into the server bundle.
  *
- * A separate process because `@rolldown/browser` is ESM-only and jest runs
+ * A separate process because rolldown is ESM-only and jest runs
  * CommonJS here; `require(esm)` needs Node 24.9+. `tsx` runs this as real ESM.
  * The assertions stay in the test — this only reports.
  */
+import "./nativeBundler";
 import { buildUserApp } from "../build";
 import type { BuildTarget } from "../contract";
 import type { RouteSplitter } from "../routeSplit";

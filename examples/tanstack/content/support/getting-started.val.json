@@ -1,0 +1,5 @@
+{
+  "title": "Getting started",
+  "body": "Welcome to Val support. This page is stored as a separate JSON file and loaded lazily via .jsonValues().",
+  "order": 1
+}

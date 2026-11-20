@@ -1,5 +1,1049 @@
 # @valbuild/ui
 
+## 0.153.6
+
+### Patch Changes
+
+- [#1046](https://github.com/valbuild/val/pull/1046) [`a561665`](https://github.com/valbuild/val/commit/a5616659c202eaa5ad61e1a035c9b9ca2a007e9a) Thanks [@freekh](https://github.com/freekh)! - The Studio's assistant changes code more carefully and reads less to do it:
+
+  - **Small code changes stay small.** A new `edit_file` tool replaces one exact piece of a file instead of rewriting the whole file, so a one-line change no longer risks a truncated or accidentally rewritten file. It asks before running after a web search, like every tool that changes code.
+  - **Long files are read in parts.** `read_file` takes `offset` and `limit` (in lines) and says where the part is in the file; a file too long for one answer says where to read on.
+  - **In code mode, the assistant talks to you as someone working on the code.** It names files, components and schemas by their real names instead of avoiding technical words. Outside code mode, nothing changes for content editors.
+  - **Your project's instructions are followed.** In code mode the assistant reads `AGENTS.md`, `CLAUDE.md` and `.claude/CLAUDE.md` at the root of your repository, when they are there, and follows them when it changes your code.
+  - **Large content no longer overwhelms the assistant.** Answers from reading schemas, content, search results, validation errors and pending changes are capped; when something is left out the assistant is told what and how to ask for it. `get_all_schema` can ask for named modules, and `get_source` for one path in a module.
+
+- [#1047](https://github.com/valbuild/val/pull/1047) [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf) Thanks [@freekh](https://github.com/freekh)! - The assistant can now see what went wrong on the page in the preview. A new `read_page_log` tool reads the page's console errors and warnings, uncaught exceptions, unhandled promise rejections, images, scripts and stylesheets that did not load, and `fetch` requests that failed or answered 400 or more, so a section that is blank because its component threw no longer looks like a section with nothing in it. Every `read_page` answer also counts them, and names the Val modules the page read. The log is kept only in the Studio's preview, never on a visitor's page, and leaves Val's own requests and log lines out.
+
+  The preview now says which requests it answers. When the site runs an older `@valbuild/next` or `@valbuild/tanstack` than the Studio, a page tool it cannot answer fails at once with which package to update, and to which version, instead of waiting for an answer that never comes. Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `read_page_log`.
+
+- [#1057](https://github.com/valbuild/val/pull/1057) [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4) Thanks [@freekh](https://github.com/freekh)! - Security fixes. Update if you run Val's dev server, or have deployed a site without `VAL_API_KEY` and `VAL_SECRET`.
+
+  - **`/api/val/files` serves media only.** It answered any path in the project, without a sign-in: `/api/val/files/.env` returned the file. It now serves files under `/public`, and their drafts, and nothing else.
+  - **An upload cannot be written outside Val's patch store.** A file's path and a patch's id are checked before anything is written or read, so a path with `..` in it is refused.
+  - **In local filesystem mode, the API answers only your own Studio.** A request from another site's page is refused, and so is one addressed to a host name that is not `localhost` or an IP address. If you develop on another name (`my-app.test`, a tunnel that passes its own `Host`), list it in the `VAL_ALLOWED_HOSTS` environment variable, comma separated.
+  - **A deployed site without credentials no longer serves the API.** Without `VAL_API_KEY` and `VAL_SECRET` an app runs in local filesystem mode, which has no sign-in. With `NODE_ENV=production` it now refuses, and says what to set.
+  - **`redirect_to` stays on your site.** `/api/val/logout`, `/enable`, `/disable` and `/authorize` redirected to any URL they were given. They now accept a path, or a URL on the same site.
+  - **Draft mode is turned on after sign-in**, not when the sign-in starts, so a visitor who is not signed in can no longer switch it on.
+  - `image-size`, `simple-git` and `zod` are updated past their published advisories.
+
+- [#1058](https://github.com/valbuild/val/pull/1058) [`3944e3e`](https://github.com/valbuild/val/commit/3944e3e3c33678bca2a0aa46fcc0f4adbf8c2ba5) Thanks [@freekh](https://github.com/freekh)! - The menu Val draws over your site has been simplified and can now be moved anywhere:
+
+  - **Drag it to any edge, on desktop or on a phone.** Let go and it snaps to the nearest edge of the screen, staying as far along that edge as you left it. It snaps to the exact middle when you drop it near the middle. Where you put it is remembered, and existing positions carry over.
+  - **Fewer buttons.** The bar now has the Val circle, **Studio** (with the count of pending changes or errors), **⋯** and **✕**. **⋯** holds the position (eight presets, if you would rather pick than drag), light or dark mode, and **Exit preview mode**. **✕** turns Val off on the site. Outside preview mode the bar also has **Enable preview mode**.
+  - **Editing moves to the Studio.** The overlay no longer has its own select mode, edit window or assistant chat. Use **Studio** to edit the page you are on.
+  - **Smoother animation.** It opens and closes as a single pill growing from its circle. It no longer pauses and then snaps shut, the circle stays round, and it no longer jumps between two bars when preview mode changes.
+
+- [#1054](https://github.com/valbuild/val/pull/1054) [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f) Thanks [@freekh](https://github.com/freekh)! - In code mode:
+
+  - **Build progress.** While Val Build builds the preview, the Studio shows how far it is: waiting in the queue, then the builder's steps ("Building the site"), then checking the page and serving it. The refresh button beside the preview fills as a ring as the build goes, and its tooltip says the step and the percent.
+  - **The preview's refresh button is just the icon.** The words that sat beside it ("Up to date", "Save to update", "Updating 42%") are gone. The state shows on the icon itself: it turns while updating, fills as a ring while building, shows a dot when Save would update the preview, and turns red when the preview could not be updated. The tooltip and screen readers still say it in words.
+  - **The `</>` button on the site** is the same size as the other buttons in the top bar.
+
+- [#1050](https://github.com/valbuild/val/pull/1050) [`2c98fcc`](https://github.com/valbuild/val/commit/2c98fcc776f15c979dae74a1a86ca91cad70e7de) Thanks [@freekh](https://github.com/freekh)! - The Studio's assistant no longer offers `screenshot_page` for now: its picture was not always of the page as it is after the latest change. `read_page` still gives it the page's text, order, sizes and computed styles.
+
+- [#1059](https://github.com/valbuild/val/pull/1059) [`0dd664f`](https://github.com/valbuild/val/commit/0dd664f7bde9bfb552ecd643b2345998c69d5914) Thanks [@freekh](https://github.com/freekh)! - Compare: adding a clause after a word no longer strikes out the word. The highlighted difference between two texts treated `code` and `code,` as different words, so "…with your code" against "…with the code, and stays editable" showed "code" as replaced. Punctuation that ends a word is now compared on its own.
+
+## 0.153.5
+
+### Patch Changes
+
+- [#1037](https://github.com/valbuild/val/pull/1037) [`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d) Thanks [@freekh](https://github.com/freekh)! - The assistant's default model is now chosen by Val Build, not built into the Studio, so it can change for every project without a Val upgrade. It starts on the newest Claude Sonnet the project's Anthropic key can reach, or, with only an OpenAI key, the newest GPT of OpenAI's balanced tier (such as `gpt-6.1-sol`). A model an editor has picked themselves is still remembered and still wins. The built-in fallback catalog, used only when the models cannot be listed, now offers the Claude 5.5 models.
+
+- [#1042](https://github.com/valbuild/val/pull/1042) [`aa26301`](https://github.com/valbuild/val/commit/aa26301afae68d31f37341b84ee3fd23ee532b45) Thanks [@freekh](https://github.com/freekh)! - **Code mode on the site.** On a project Val Build hosts, `</>` on the site no longer asks you to choose or start a proposal: one press turns code mode on for the site, and the assistant can change the site's code there. Everything waiting to be published goes with it, so a schema change and the content it affects stay together, and the site changes when you publish, after a build and a check that the site still renders.
+
+  It is on by default. A project's owners and developers can turn it off in Val Build (the project's page, Publishing, "Code mode on the site"). With it off, `</>` lists proposals as before.
+
+  The assistant's "Turn on code mode?" card on the site does the same.
+
+- [#1045](https://github.com/valbuild/val/pull/1045) [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f) Thanks [@freekh](https://github.com/freekh)! - The assistant can ask you to turn on web search, when it needs it.
+
+  If **Search the web** (Settings → Assistant) has not been decided yet and a question needs something from outside your project, the assistant now asks you to turn it on. The question comes from Val, with the assistant's reason quoted.
+
+  - **Turn on web search** turns it on for the project. Searching works from your next message.
+  - **Don't turn on** turns it off, and the assistant will not ask again.
+  - Closing the card decides nothing.
+
+  If web search is off, the assistant never asks. The assistant cannot change this setting itself: only you can, from that card or in Settings.
+
+- [#1043](https://github.com/valbuild/val/pull/1043) [`f488c90`](https://github.com/valbuild/val/commit/f488c907fc3f22a33d64ea7ac36f513c405389a2) Thanks [@freekh](https://github.com/freekh)! - Sketch can no longer be dragged narrower than 380 px, so the words in its boxes stop breaking in the middle.
+
+## 0.153.4
+
+### Patch Changes
+
+- [#1040](https://github.com/valbuild/val/pull/1040) [`9ab3038`](https://github.com/valbuild/val/commit/9ab30383bcc137cb69b17256fe23eb81bfec225f) Thanks [@freekh](https://github.com/freekh)! - The workspace's columns can be resized: drag the edge of Content, the Sketchpad or the Assistant, and the preview takes the rest. A drag stops before the preview gets too narrow to read a page in, so nothing folds away while you drag. The arrow keys move a focused edge too, and double-clicking an edge puts the column back to its usual width. The widths are remembered in your browser.
+
+## 0.153.3
+
+### Patch Changes
+
+- [#1039](https://github.com/valbuild/val/pull/1039) [`c957eb5`](https://github.com/valbuild/val/commit/c957eb5c5b010938b57fa475febdeae169b8831a) Thanks [@freekh](https://github.com/freekh)! - On a phone:
+
+  - **Full screen**: the last button on the pane bar hides the top bar and shrinks the pane bar to a row of icons, so the pane in front has the whole screen. Every pane is still one tap away, and the same button leaves full screen.
+  - The preview's controls sit along the bottom of the preview, as the Sketchpad's do along the bottom of the sketch.
+  - Content is in a card, like the other panes, and the assistant's bottom corners are rounded again.
+
+  Everywhere:
+
+  - The Sketchpad has a **?** button that explains how it works.
+  - Settings → Updates shows each kind of upgrade on its own row, with what it fixes or moves and a badge for how urgent or how big it is.
+  - The preview's "Fit page width" button has its own icon (↔), so it is not mistaken for full screen.
+
+## 0.153.2
+
+### Patch Changes
+
+- [#1034](https://github.com/valbuild/val/pull/1034) [`75877d7`](https://github.com/valbuild/val/commit/75877d704582abdc1bfb14902b311a857066261a) Thanks [@freekh](https://github.com/freekh)! - On a phone:
+
+  - The panes are in the order **Content, Preview, Assistant, Sketch**, and moving between any of them slides, as moving between Content and the Preview already did.
+  - The assistant is a pane like the others: it has no close button, and Escape doesn't close it.
+  - The Sketchpad's drag handles are finger-sized and sit inside the page's margin. Dragging a block by its handle now works with a finger: a line shows where it will land.
+
+## 0.153.1
+
+### Patch Changes
+
+- [#1031](https://github.com/valbuild/val/pull/1031) [`6ec1a5d`](https://github.com/valbuild/val/commit/6ec1a5d244f0d6e064eca4135f167dfa79744f9a) Thanks [@freekh](https://github.com/freekh)! - A page no longer shows content made for code it does not have yet. When the Studio is ahead of the page (it picked up a code change first, or the browser is still running the previous build), the page keeps showing its own content for the modules whose schema changed, and says "The code changed" with a **Reload** button — in the overlay on your site, and above the page in the Studio. In local development the page usually catches up a moment later by itself, and the notice goes away without a reload.
+
+- [#1032](https://github.com/valbuild/val/pull/1032) [`f1048d9`](https://github.com/valbuild/val/commit/f1048d93a76138d031b30d059c444a8f754b484d) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad's **Build** on a phone now shows the assistant, where the request to build is, instead of leaving you on the preview. When Build starts a new chat and there is more than one model, the request waits above the composer with the model picker until you send it, since a chat keeps the model it starts with.
+
+- [#1027](https://github.com/valbuild/val/pull/1027) [`b14870b`](https://github.com/valbuild/val/commit/b14870bebdc128234bb16e4ea06a0151d18c4771) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad's linked text is gone, and so are its "needs code" badges.
+
+  - **Linked text is removed.** A heading or paragraph can no longer be linked to a content field (`{field: …}`), and typing in a sketchpad never changes the site's content: the sketch is a plan, and **Build** is what changes the pages. A sketch that still has a `{field: …}` from 0.152.0 shows it as plain text, and can be deleted.
+  - **No "needs code" badges.** A box of a kind the site does not have, and a new route the site has no page type for, are no longer marked. A box's kind still suggests the site's own kinds.
+  - **Narrow columns keep their shape.** In a row of several columns, a box's header stays on one line (a long kind is cut short, and shown in full on hover), and a box naming an image the project does not have says so in a few lines, with the file's name on one, instead of breaking the path over many.
+
+## 0.153.0
+
+### Minor Changes
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **One workspace.** Content, the preview, the Sketchpad and the assistant are now panes of one layout instead of separate screens:
+
+  - On a wide screen each gets its own column. On a laptop the Sketchpad and the assistant share one column as tabs; when only one column fits beside the preview, the other folds to a strip at the edge, one click from coming back. On a tablet the side pane you are using slides over the preview.
+  - The Sketchpad sits beside the content editor and the preview instead of replacing them, and the page it is about is shown in the Studio's preview. Going somewhere else in the Studio no longer closes it.
+  - The assistant stays open while you open Pages or Media.
+  - History shows the past where the preview is, with the editor beside it as "now".
+  - In code mode, the code changes are in Review, beside the content changes; "Code changes" in the code menu opens them there. The preview stays open while code mode is on.
+
+  On a phone the bar along the bottom is the same panes, one on screen at a time: Content, Preview, Sketch and Assistant. Save and Publish are in the top bar beside your account, and notifications are in the account menu.
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Editing content in a proposal whose code changed, before the proposal is built again:
+
+  - **A module the proposal adds** can be edited and saved right away. Its content is read from the new file and saved. Before, those edits were dropped. If the module's content is made by code (not written out in the file), the save waits and says to build the proposal first.
+  - **A module whose schema moved because a file it imports changed** (for example a shared `src/schemas/*.ts`) is no longer read with the old schema. Pages keep showing the content as built until the proposal is built again.
+  - **Edits that no longer fit the schema** can be handed to the assistant. The banner that lists them has a **Have the assistant move it** button for each one. You still discard the held edit yourself afterwards.
+
+  For this, `@valbuild/tanstack-build` records which files each Val module imports, and the `val.server.ts` it generates passes that to Val as the new optional `moduleDependencies` option of `initValServer` and `initValContent`. You do not need to set it yourself. A site built before this has no `moduleDependencies` and works as before.
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Removed what 0.151.0 kept only so that a Studio, a page and a server from the release before could still talk to each other during a deploy:
+
+  - **`PUT /api/val/sources/~`** is gone. Nothing in 0.151.0 asked it: the Studio reads modules through `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and `fetchVal`, `useVal` and the MCP tools read the server's content in-process. If a script or test of yours read content through it, read one module with `GET /api/val/modules/~<path>` instead. Its answer has the module's `source` and `version`, and an `entries` map holding the `.jsonValues()` entries pending changes touched.
+  - **`ValDraft.base`** is gone from the type. It has not been sent or read since 0.151.0, so a `draft` you pass to `ValProvider` is not affected.
+  - **A page no longer accepts edits relayed by a Studio from before 0.151.0.** Such a Studio sent each module as a bare `source`. After the upgrade, the Studio and your pages come from the same deploy, so this only matters while an older Studio is still open in a tab during a rollout. Reloading that tab fixes it.
+  - **`/api/val/stat`** no longer needs `sourcesSha` and `schemaSha`. The Studio now tells your local server which version it last saw, and the server still sends both fields for a Studio of 0.151.0. They stop being sent in the next release.
+
+### Patch Changes
+
+- [#1023](https://github.com/valbuild/val/pull/1023) [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41) Thanks [@freekh](https://github.com/freekh)! - The assistant's replies no longer load images from the web, and every link in them shows where it goes.
+
+  An image in a reply (`![…](https://…)`) used to load as soon as the reply appeared. The assistant reads content and pages it did not write, and text in them can steer it, so a reply could make your browser send data to someone else's site without you clicking anything. Images in replies now show as `[image: …]`, the way they already did in the message box. Images the assistant made in the session are shown as before.
+
+  A link in a reply now shows its site next to the text, for example "the docs (example.com)", unless the text already is the address. Links open in a new tab without telling the site where you came from.
+
+- [#1023](https://github.com/valbuild/val/pull/1023) [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41) Thanks [@freekh](https://github.com/freekh)! - The assistant can search the web, if you turn it on.
+
+  Settings → Assistant has a new switch, **Search the web**. It is off unless someone turns it on (`assistant.webSearch: true` in `settings.val.ts`). When it is on, the assistant can look things up online with your AI provider's own search, and each search is billed to your project's AI key. You can see each search in the chat.
+
+  Web pages can contain instructions written for AI assistants, so after the assistant has searched the web, it asks you before it changes the site's code or builds it. The question comes from Val, not from the assistant. Content edits are not affected: they stay drafts you can review and revert, as before.
+
+  Needs a Val Build version with web search. With an older one, nothing changes.
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **The canvas turns preview mode on by itself.** When the page in the canvas
+  says preview mode is off, or does not answer, the Studio now turns preview
+  mode on for you, every five seconds for up to thirty seconds, instead of
+  asking you to press a button.
+
+  - For the first ten seconds you only see a small spinner above the page.
+  - After that, the pill says what is happening: "Loading the preview…" or
+    "Turning on preview mode…".
+  - If the page still is not in preview mode after thirty seconds, you get the
+    message you had before, with **Turn on preview mode** and **Details**.
+    Pressing the button, or reloading, starts the thirty seconds over.
+
+  The canvas never reloads the page while it is still loading, or while you are
+  using it (for example signing in to your site inside the canvas).
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **Code mode uses the Studio's own preview.** Code mode used to replace the
+  editor and the preview with a separate view of the proposal's site, where
+  nothing could be selected and content edits did not show. Now the preview is
+  the same in every mode:
+
+  - In code mode the column beside the preview shows the code changes, with
+    **Edit content** to go back to the content editor. Selecting a field on the
+    page does the same.
+  - The preview has the same device sizes, zoom, reload and selection as
+    everywhere else, and shows content edits as you type.
+  - The assistant sits beside the preview in code mode instead of over it.
+  - The preview loads the page again whenever the proposal serves a new build,
+    whoever built it.
+
+- [#1028](https://github.com/valbuild/val/pull/1028) [`27e51ba`](https://github.com/valbuild/val/commit/27e51baadce61b2cbee2d5ef227aae045ccb2e21) Thanks [@freekh](https://github.com/freekh)! - Another editor's keystroke costs the Studio less. Locally (`pnpm dev`, and
+  anywhere `/stat` long-polls), the Studio no longer asks for the manifest or
+  the changed module after someone else types: `/stat` now carries what
+  `GET /manifest` would have answered, and the module's new version is computed
+  from the patch the Studio already fetched. Where neither can be used (an
+  older server, a version that does not match), the Studio asks for them as
+  before.
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - A record's **Add** form now refuses a key the record already has. It used to accept one, and the new entry replaced the old one; and it refused a new key spelled like a number ("0", "12") on a record with that many entries.
+
+  Scrolling a long `.jsonValues()` record is also smoother: the list no longer works out every key of the record each time a set of entries arrives.
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - A long `.jsonValues()` record's list no longer jumps back to the top while you scroll it, and a library entry's "used by" on a large record is about twice as fast.
+
+  - **Scrolling a record.** As you scrolled, each set of entries that arrived made the list draw itself again from scratch, which put it back at the top. On a record of 1,000 posts that happened every few screens. The list now stays where you are while entries load.
+  - **"Used by" and validation errors.** Every part of the Studio that shows a count or a list of validation errors (the Publish button, the menu's error badges, the gallery and others) worked out the whole project's errors on its own, each time any module was checked. They now share one answer, and only the module that changed is looked at again. A record whose entries all pick an image from a library is also no longer checked again for each set of entries that arrives, when it has no error to show. On a built Studio with 10,000 posts, "used by" went from 3.5 s with pauses of up to 180 ms to 1.7 s with pauses of up to 90 ms.
+  - **The gallery's entry panel** opens before it starts looking for where the file is used. Delete and Rename stay unavailable until that look has finished, as before.
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **The design tab is gone.** Code is changed in a proposal's own Studio, in
+  code mode, where the preview is the same canvas as everywhere else: content
+  edits show on it as you type, and it loads the page again when a new build is
+  served. "Open design tab" is no longer in the proposal's menu.
+
+- [#1023](https://github.com/valbuild/val/pull/1023) [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41) Thanks [@freekh](https://github.com/freekh)! - The review now lists every web link a change adds.
+
+  When a change puts a new web address into your content (in a text field, in rich text, or as a link), the review shows a notice under it with the link's site and full address, so you can check where it goes before publishing. A link that was already there is not listed. The addresses are shown as text, not as links, so checking them doesn't open them.
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad now uses the Studio's preview instead of a preview of its own. Pressing a page in the Sketchpad shows it in the preview beside it, with the same address bar, device widths, zoom, Select and quick preview as everywhere else, and closing the Sketchpad leaves the preview where it was rather than loading the page again. Review's "Compare with the site" shows both sides in the same preview too. Opening a Sketchpad opens the Sketchpad alone; the assistant opens when you send it something.
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **Point the assistant at something on the page.** With the preview open, the assistant has a **Select** in its header: press it, click a field on the page, and what you picked shows above the message box and goes with your next message, so "make this shorter" means that field. In code mode it can pick any element, outlined in the proposal's colour. Press the × on it to take it off.
+
+  - Selecting a field to edit has moved from the preview's toolbar to the top of the editor column, beside **Structure | On page**. Esc turns it off, from the Studio or from the page.
+  - On a desktop the assistant now sits beside the preview instead of over it, so it never covers what you point it at.
+  - The assistant can read the page in the preview, and take a picture of it, to see what you see.
+
+- [#1029](https://github.com/valbuild/val/pull/1029) [`56ab7d5`](https://github.com/valbuild/val/commit/56ab7d5818772a9e310a561ebdb798b27ee704c9) Thanks [@freekh](https://github.com/freekh)! - A long `.jsonValues()` record is no longer checked again from scratch each time a set of its entries arrives. While you scroll a record of thousands of posts, the Studio checks only the entries that have just loaded (or that you changed), and the record's own rules (its keys) once. What it reports is the same as before. A schema with no `.validate(...)` anywhere is also no longer searched for one on every check.
+
+## 0.152.2
+
+### Patch Changes
+
+- [#1022](https://github.com/valbuild/val/pull/1022) [`077ab3e`](https://github.com/valbuild/val/commit/077ab3eeccc2ab75b1b6fd4a5cf14b71c9ee8344) Thanks [@freekh](https://github.com/freekh)! - **Code mode builds on Val Build, and shows a change in seconds before it is
+  built.**
+
+  - **Builds:** a proposal is now built by Val Build, whether Save, the
+    preview's Try again or the assistant starts it. No bundler is loaded in the
+    Studio and no builder tab is opened, on an iPhone as everywhere else. The
+    Studio builds in the tab only for a project Val Build does not build.
+  - **Quick preview:** a second after code is staged in a proposal, the
+    Studio's preview shows the change as a quick preview: its components,
+    layout, styles and text, in seconds, without a build. What runs on the
+    server stays the last build's until the proposal is built. Code mode's
+    status says "Quick preview" while it is shown, and the preview goes back to
+    the served build when a new one is ready.
+  - **The assistant** shows a change now with `quick_preview`, and builds
+    only when a quick preview cannot show the change (server code, routes, a
+    schema, a dependency) or when the change is complete.
+  - **Everyone in the proposal sees it.** When someone's assistant stages code,
+    every Studio open on the proposal shows the change as a quick preview too,
+    and code mode's status follows, with no reload. A Studio hears of it the
+    way it hears of a save.
+  - **Never under your hands.** A new build or quick preview waits while you
+    are using the page in the preview (typing in it, say), and comes in when
+    you leave it, at the same page and scroll.
+
+## 0.152.1
+
+### Patch Changes
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **The canvas turns preview mode on by itself.** When the page in the canvas
+  says preview mode is off, or does not answer, the Studio now turns preview
+  mode on for you, every five seconds for up to thirty seconds, instead of
+  asking you to press a button.
+
+  - For the first ten seconds you only see a small spinner above the page.
+  - After that, the pill says what is happening: "Loading the preview…" or
+    "Turning on preview mode…".
+  - If the page still is not in preview mode after thirty seconds, you get the
+    message you had before, with **Turn on preview mode** and **Details**.
+    Pressing the button, or reloading, starts the thirty seconds over.
+
+  The canvas never reloads the page while it is still loading, or while you are
+  using it (for example signing in to your site inside the canvas).
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **Code mode uses the Studio's own preview.** Code mode used to replace the
+  editor and the preview with a separate view of the proposal's site, where
+  nothing could be selected and content edits did not show. Now the preview is
+  the same in every mode:
+
+  - In code mode the column beside the preview shows the code changes, with
+    **Edit content** to go back to the content editor. Selecting a field on the
+    page does the same.
+  - The preview has the same device sizes, zoom, reload and selection as
+    everywhere else, and shows content edits as you type.
+  - The assistant sits beside the preview in code mode instead of over it.
+  - The preview loads the page again whenever the proposal serves a new build,
+    whoever built it.
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **What the design tab needed is removed with it.** The page's canvas bridge
+  now answers `read_page`, `screenshot_page` and a quick preview only to the
+  Studio at the page's own origin, and no longer asks the server whether another
+  origin is the site's design tab. The site's server no longer writes a
+  proposal's files or offers the `patch-file` route: code and content are
+  changed in the proposal's own Studio. The assistant's `build_proposal` no
+  longer takes a `reason`.
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **The design tab is gone.** Code is changed in a proposal's own Studio, in
+  code mode, where the preview is the same canvas as everywhere else: content
+  edits show on it as you type, and it loads the page again when a new build is
+  served. "Open design tab" is no longer in the proposal's menu.
+
+## 0.152.0
+
+### Minor Changes
+
+- [#1015](https://github.com/valbuild/val/pull/1015) [`08a3977`](https://github.com/valbuild/val/commit/08a39779dbe43702a72ae57cbf8cf29b14e64672) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad covers several pages, builds what it shows, and can be linked to the content.
+
+  - **Route dividers.** A sketchpad is no longer about one page. A `--- /about` line starts the part about a page, so one sketch can cover a page and the pages it links to. Press a route to see that page beside the sketch, in the Studio's own live preview, which follows edits as they are made. A divider's menu changes its page, or adds a new one from a page type the site has (`/blog/[slug]`). A route the site has no page type for is allowed too, and is marked as needing code.
+  - **Start from a page.** An empty sketchpad offers to start from a page. The assistant writes that page into it, images and all, and changes nothing.
+  - **Build.** The button that sent the sketchpad to the assistant is now **Build**. It sends the sketchpad as a card in the chat (press it to open the sketchpad), with a request to change the pages to match the sketch. It is disabled while the sketch is empty.
+  - **Images that exist.** A box shows an image from a gallery, from the site's content, or one uploaded to the chat, and the picker offers exactly those, with search and Upload (which puts the file in the chat first). A box naming any other image says so. When the assistant writes a sketch with an image that is not in the project, the write is refused. Images are named by their content path (`/public/val/hero.webp`) and shown where the site serves them, including uploads that are not published yet.
+  - **Block types.** A box's kind is a combobox of the kinds of section the site's pages have, read from the schema. Any other word is allowed, and is marked as a new type that needs code.
+  - **Drag.** Blocks, rows, columns and images can be dragged to a new place. Columns share a row equally, so the width controls are gone.
+  - **Highlights.** The assistant can point at blocks, in a colour and with a note (for example, the ones that need code), with `highlight_sketchpad_blocks`. The highlights can be cleared, by the person or by the assistant.
+  - **Linked text (a try-out).** A heading or paragraph can be linked to a plain text field with `{field: <source path>}`. Typing in it then changes that field, as typing in the field would. The block shows what it is linked to and has an **Unlink** button. When the field was changed elsewhere, the block says so and offers the field's text. A sketchpad the assistant starts from a page links its text this way.
+  - **Converting images.** The assistant can convert an image in the chat to WebP, or scale it down, with `convert_session_image`, using the same encoder as the Studio's uploads.
+
+### Patch Changes
+
+- [#1017](https://github.com/valbuild/val/pull/1017) [`f4e0660`](https://github.com/valbuild/val/commit/f4e06601495dbee680a4b9000344f84cd3af717f) Thanks [@freekh](https://github.com/freekh)! - The third kind of site update in the Studio's Updates is now called **Full update** (it was "Full upgrade"), the same word Val Build uses when it runs updates in a project's Updates.
+
+- [#1013](https://github.com/valbuild/val/pull/1013) [`3bb76d7`](https://github.com/valbuild/val/commit/3bb76d74d82b499aa15023838d63018a70fd7ce7) Thanks [@freekh](https://github.com/freekh)! - A save that the content service fails to take no longer looks like a successful one.
+
+  Before, when the content service answered a save with a server error (or could not be reached), the Studio treated the edit as invalid and dropped it: the field went back to its old value, and the status bar kept saying "All changes saved". Now:
+
+  - **Your edit is kept.** The field keeps what you typed.
+  - **The Studio says the save failed.** The status bar shows "Could not save" (never "All changes saved" while a save has failed or is still pending), and a notice says which service failed, with the service's own message under **Details**.
+  - **Try again** sends the same save again. The Studio also retries by itself in the background, so if you leave the tab open your changes are saved once the service is back.
+
+  Pressing Publish while a save has failed now says what failed, in the service's words, with a **Save again** button, instead of "Check the connection and try again".
+
+  Saves that the service refuses because of your plan, and saves that conflict with someone else's change, work as before.
+
+  Error messages from the content service also stop blaming your network. "Could not get your changes. It is most likely due to a network issue. Check your network connection" was shown even when the service had answered with a 500. These messages now say what actually happened (the service answered with an error, refused the request, or could not be reached from your site's server) and name the service. The status code and the service's response are kept as details for whoever needs to look into it. Publish failures now also show the service's own message, where they used to say "Unknown error".
+
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`33c8b80`](https://github.com/valbuild/val/commit/33c8b80f877f1c3bec3cb61ef41dea9d2efcf908) Thanks [@freekh](https://github.com/freekh)! - **Build on their push.** When a developer pushes to a proposal's git branch
+  (`val/p/<name>`), Commit and Publish no longer leave you stuck. Instead of
+  committing over a push it has not seen, the Studio says who pushed and when,
+  links to their commit, and offers **Build on their push**:
+
+  - Their changes come into the proposal. Where you both changed the same file,
+    the proposal's version is kept, and the Studio lists those files. Anything
+    a proposal cannot hold (for example a change outside the project) is listed
+    too, since the next Commit leaves it as the site has it.
+  - Anything waiting to be saved is saved first, so "the proposal's version" is
+    what you see.
+  - The proposal's preview is rebuilt with their code. Commit goes through
+    right away, on top of their commit; Publish waits for the rebuild and says
+    so.
+  - If they push again in the meantime, the notice moves to their newer commit.
+    If GitHub cannot be reached, the session ran out, or the project's plan
+    does not allow changes, it offers Try again, Sign in or Billing. When
+    nothing can help from here (their push is too large to bring in, say), it
+    says so and offers only their commit.
+
+  Publish refused the same way now shows the same notice inside the Publish
+  dialog, rather than a Try again that would fail again. When GitHub refuses
+  Publish's commit for good (a protected branch), the dialog links the branch
+  instead of offering Try again. On a phone, where Publish is finished in a new
+  tab, the commit message you typed now goes with it, and a refusal there
+  comes back to the dialog with the same offer.
+
+  Publish pressed from the design tab, on the site, is refused the same way
+  when someone has pushed to the proposal's branch. Build on their push can
+  only be done in the proposal's own Studio, so the dialog says who pushed and
+  when, links their commit, and offers **Open the proposal**, where Publish
+  offers Build on their push. It no longer offers a Try again that would fail
+  again, and a branch GitHub refuses for good links the branch there too.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`213d635`](https://github.com/valbuild/val/commit/213d6359a1ec09cba1596ef03f415d3b5c0f2710) Thanks [@freekh](https://github.com/freekh)! - An edit is no longer lost when the code of the content it belongs to changes.
+
+  - **A field just added in code can be edited straight away.** In local
+    development the page and the server pick up a changed `.val.ts` in either
+    order. When the Studio had the new field first, an edit to it was made
+    against content that did not have the field yet, and was discarded with
+    "An edit could not be applied". The Studio now keeps reading the content its
+    own code wrote until the server has the new code too, so the edit is kept.
+  - **An edit to a field the code renamed or removed is kept, not deleted.** It
+    is shown above the Studio ("An edit does not fit the new schema"), with the
+    field it was made to and a button to discard it. Publishing waits until it
+    is settled, rather than throwing it away. An edit that could never be
+    applied is still removed, as before.
+  - **In a proposal in code mode, the Studio reads the code the assistant
+    writes.** After each change it evaluates the project's `val.modules` in the
+    browser (where the Studio can run its builder) and takes the new schema in,
+    so a field the assistant adds can be filled in before the proposal is
+    built. The assistant is told which modules' schema changed, which content
+    does not fit its new schema, or why the code does not run, and a `.val.ts`
+    that throws leaves the Studio on the schema it had.
+  - **A `val.modules` that cannot be read at all** (it throws) no longer leaves
+    the Studio half updated: it keeps the code it had and says why.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`59faf33`](https://github.com/valbuild/val/commit/59faf332418af836617e09150fb89007e468394e) Thanks [@freekh](https://github.com/freekh)! - Code mode now works in a hosted Studio. In a proposal, the `</>` beside the
+  proposal's name turns code mode on for everyone in it, and the assistant can
+  then change the proposal's code. On the site, the `</>` lists the open
+  proposals and opens the one you choose with code mode on.
+
+  - **Nothing you typed is lost when code changes.** Turning code mode on saves
+    every pending change first, and so does each of the assistant's code
+    changes, so a field the assistant adds can be filled in and stays filled
+    in. Turning code mode off discards nothing.
+  - **Each person chooses what they see.** While code mode is on you can stay
+    in the content editor, or see the proposal's preview and its code changes.
+    The proposal's menu says who turned code mode on, and when.
+  - **The assistant asks.** With code mode off, its code tools refuse and say
+    who turned it off; it asks for code mode with a button in the chat instead.
+  - **Save is the one main button** in a proposal, and also updates the
+    preview when the code changed. Its menu holds **Commit**, in a project
+    connected to git, which puts the proposal on its git branch as one commit,
+    and **Publish**, which commits and then merges into the site. Both use the
+    project's commit message setting. In code mode, Save saves even when
+    content has validation errors; Publish is still refused until they are
+    fixed. If someone else pushed to the proposal's branch, Commit says who and
+    when, and links to their commit, instead of committing over it.
+  - The "schema changed, reload" dialog is not shown in code mode, where the
+    schema changes with every build.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`abf6148`](https://github.com/valbuild/val/commit/abf6148a255abe795620fede66006462bccb8322) Thanks [@freekh](https://github.com/freekh)! - The assistant's code tools now see a publish of the site made while the Studio
+  is open. They read the site's code once and kept that copy for as long as the
+  page was open, so a file published in the meantime was shown as it was before.
+  They now ask on every call, and the content service answers "unchanged" without
+  sending the code again unless it did change.
+
+- [#1014](https://github.com/valbuild/val/pull/1014) [`04ed1f1`](https://github.com/valbuild/val/commit/04ed1f10b597a52822d32017597692f0e1062b7b) Thanks [@freekh](https://github.com/freekh)! - Inline lists are easier to work with, and inline records now work the same way as inline arrays.
+
+  **Inline records** (`s.record(...).render({ as: "inline" })`) are drawn as the same rows as inline arrays, named by their key instead of numbered. Click the key for **Rename**, **Duplicate** and **Delete**. **Add** asks for the new key. A record has no order, so its rows have no drag handle.
+
+  **Every row of an inline array:**
+
+  - **Row menu:** click the row's number for **Add above**, **Add below**, **Duplicate**, **Move** and **Delete**.
+  - **Move:** the submenu has **Move up**, **Move down**, **Move to start**, **Move to end** and **Move to position…**. That last one takes a number. A number outside the list is first changed to the nearest valid position, with a note saying so. Press Move again to move.
+  - **Drag:** drag the handle to the left of a row to move it.
+  - **Insert between rows:** hover the gap between two rows and click the **+** that appears.
+  - **Collapse:** click a row's header to collapse it. Its title stays visible, and a union row also shows which variant it is.
+
+  **Keyboard and screen reader:** everything above works without a mouse.
+
+  - Press Enter on a row's number to open its menu. Use the arrow keys to move through it, Right to open the Move submenu and Escape to close.
+  - From a row's handle, press Space or Enter to pick the row up, then the arrow keys to move it.
+  - Press Tab from a handle to reach the insert point above that row.
+  - After an insert or a move, focus goes to the new or moved item.
+
+  **The same look as the rest of the Studio:**
+
+  - Labels, descriptions and text sizes inside a row now match the normal field view.
+  - A field's `.describe(...)` text is now shown under its label.
+  - A nested list's label row is laid out like any field's header, with its **+** and collapse button on the right.
+  - An inline `keyOf` shows the entry it points to in the same layout as the row around it.
+  - A read-only list shows no drag handles and no **+** buttons.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`01772a5`](https://github.com/valbuild/val/commit/01772a5b36549d71f6b438ff17803dfcb64ce645) Thanks [@freekh](https://github.com/freekh)! - In local development, saving one `.val.ts` file no longer makes the Studio
+  validate and preview every module again. Each reload of the project's
+  modules used to count every module as changed; now only the modules whose
+  code actually changed are, and the ones that refer to them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`1f08b65`](https://github.com/valbuild/val/commit/1f08b6517adeac27fd9e43c7bf726976daefee3b) Thanks [@freekh](https://github.com/freekh)! - Search and a library entry's "used by" no longer freeze the Studio on a large `.jsonValues()` record.
+
+  Both have to see every entry of the records they look in. The Studio used to ask for those entries one request at a time and rebuild the record after each one, which grew with the square of the record's size: about a second for 1,000 entries, and most of a minute for 10,000. Now:
+
+  - entries are requested many to a request (`GET /json` with a list of keys), with at most three such requests at a time, so what you open meanwhile is not queued behind them;
+  - what arrives is applied a batch at a time, with the browser free to handle clicks and typing between batches;
+  - search and "used by" show a progress bar with how many entries are loaded, show what they have found so far, and offer **Try again** if some entries could not be loaded;
+  - closing search or leaving the entry stops the requests that have not been sent;
+  - the search index adds only the entries that arrived, rather than re-reading the whole record each time.
+
+  A record's rows on screen are now also fetched in one request rather than one per row.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563) Thanks [@freekh](https://github.com/freekh)! - **A draft page shows the right `.jsonValues()` entries, whichever reader reads them.**
+
+  - **Pending edits to an entry.** In draft mode, `fetchVal` of a whole
+    `.jsonValues()` record now shows the unpublished edits to its entries. It
+    used to show the published content of every entry, even one an editor had
+    just changed, while `fetchValKey` and `fetchValRoute` of the same entry
+    showed the edit. The entries a pending change touches are read from Val's
+    server; the others are loaded from your build, as before.
+  - **Entries published without a rebuild.** On a host that does not rebuild
+    the site after a publish, a draft page now shows the published entries
+    straight away -- in `fetchVal`, and in `useVal`, `useValKey` and
+    `useValRoute` alike. They used to show those entries as they were before
+    the publish, from the site's build, until it was rebuilt (and on TanStack
+    Start the server render showed the new content, then the page switched
+    back to the old). Val's server marks each entry a publish wrote, and the
+    readers and the Studio load a marked entry from the server.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b682509`](https://github.com/valbuild/val/commit/b682509b91dcd6e6aa2e1dfcedab0f259634c73e) Thanks [@freekh](https://github.com/freekh)! - Edits inside a `.jsonValues()` entry now show up in the Studio and on the page
+  in every case:
+
+  - An edit made to an entry this tab had not opened yet (by another editor, the
+    assistant, or before the entry loaded) is applied when the entry loads. It
+    used to stay unapplied, so the field and the page's preview showed the
+    published entry while Val's server had the edit.
+  - Renaming an entry keeps its content in the preview, instead of showing it
+    empty until the next reload.
+  - When another tab publishes or discards an edit to an entry, it is read again,
+    instead of going back to what it said before the publish.
+
+  The browser console no longer reports "a patch could not be applied … Keeping
+  it" as an error; it is expected while an entry loads, and is logged only with
+  debug logging on.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a806f7d`](https://github.com/valbuild/val/commit/a806f7de0c605145163c7f0babf389a5b5bf3ef3) Thanks [@freekh](https://github.com/freekh)! - When a module's code throws while you are editing it, the Studio now keeps
+  showing that module as it was before, and tells you which module it is, with
+  the error under Details. It used to drop the module without a word. The message
+  goes away once the code loads again.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c) Thanks [@freekh](https://github.com/freekh)! - **No more "A new version has been deployed" dialog.** A Studio that is open
+  while the site is deployed no longer stops you with a dialog you can only
+  answer by reloading. Instead:
+
+  - **On Val's hosting**, the Studio takes the new build's fields in where you
+    are, without reloading: a field the deploy added can be filled in at once,
+    and the assistant's chat, the page you were on and your unsaved edits stay
+    as they were. Each build now carries its content schemas as a small file of
+    its own beside its scripts, which the Studio loads.
+  - **Anywhere else** (a Next.js site, or a TanStack Start site hosted
+    somewhere else), the Studio reloads itself a few seconds after the deploy,
+    once everything you typed has been saved. Nothing is lost: where you were is
+    in the address, and every edit is on the server.
+  - **In local development** nothing changes: your dev server's hot reload
+    brings the new fields, as before.
+
+  When a deploy upgrades Val itself, the Studio reloads itself the same way,
+  since its own code changed too.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf) Thanks [@freekh](https://github.com/freekh)! - A draft page now catches up with an edit as soon as the server has it, instead
+  of on a timer.
+
+  - **The page settles faster, and without the 10 second fallback.** Content your
+    page reads on the server (a TanStack Start loader, a Next.js server component)
+    is refreshed when the editor's change has been saved, once per saved change.
+    It used to be refreshed the moment you typed — before the change was saved,
+    so the refresh often came back without it — and then again every 10 seconds
+    for half a minute in case it had. That safety refresh is gone, and so are the
+    extra requests it made while you edited. Another editor's change refreshes
+    the page too, once the server has it. While a deploy rolls out, a Studio of
+    the previous release (which never says it has saved) still refreshes the
+    page as each change arrives, as before.
+  - **Next.js: `ValProvider` takes an optional `draft` prop**, as
+    `@valbuild/tanstack`'s does: the editor's draft, read on the server for the
+    request. With it, the server renders the draft and the browser hydrates the
+    same thing, so a draft page no longer shows the published text first, and a
+    page that exists only as an unpublished change is found on the first render
+    instead of answering 404. Without it, nothing changes. See "The `draft` prop"
+    in the `@valbuild/next` README.
+  - **Next.js: `initValRsc` returns `fetchValDraft`**, which reads that draft:
+    pass `draft={await fetchValDraft()}` to `ValProvider` in your root layout. It
+    returns `null` unless the request is in draft mode, after one `draftMode()`
+    lookup and no other work, so visitors pay nothing and a static page stays
+    static. It reads the draft the way `@valbuild/tanstack/server`'s
+    `fetchValDraft` does and returns the same type, `ValDraft | null`, which
+    is now exported from `@valbuild/next` and `@valbuild/next/rsc` too.
+  - **`suspend` waits for the editor's changes properly.** With `suspend` on
+    `ValProvider`, a page could be told it had everything before the editor had
+    sent the pending change it needed, and render the published content first —
+    for a page that exists only as an unpublished change, a 404. It now waits
+    until the change is there.
+  - A draft page whose draft was discarded or published before the editor's
+    overlay or canvas connected now shows what the editor has, instead of keeping
+    the draft it was rendered with -- an edit inside a `.jsonValues()` entry
+    included.
+  - Turning draft mode on or off refreshes the page once. In development (React's
+    `StrictMode`) it could refresh twice, and Next.js could log "Cannot call
+    startTransition while rendering" while the page refreshed.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56) Thanks [@freekh](https://github.com/freekh)! - Every content reader in `@valbuild/next` and `@valbuild/tanstack` — `fetchVal`,
+  `useVal`, the key and route readers, on the server and in the browser — now
+  loads content the same way, so they can no longer disagree about which content
+  wins. Nothing you call changes. What you may notice:
+
+  - `useValRoute` on a `.jsonValues()` router loads only the entry for the
+    current route. It used to load every entry of the record first.
+    `useValRouteUrl` and `fetchValRouteUrl` load none at all: a URL does not need
+    them.
+  - In development, an edited `*.val.json` entry shows its new content after a
+    hot reload. The hooks kept the entry they had loaded before it.
+  - Next.js: `useValKey` no longer shows the published entry of a nullable
+    `.jsonValues()` record that a draft has set to `null`, nor anything for an
+    entry named like a built-in object property (such as `toString`) that the
+    draft does not have.
+  - With `suspend` on `ValProvider`, `useValKey` now waits for draft mode and the
+    editor's changes too, as `useVal` and `useValRoute` already did.
+  - When one entry of a `.jsonValues()` record cannot be loaded, `useVal` logs
+    the error and renders the others, as `fetchVal` already did, instead of
+    failing the whole component.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b41da31`](https://github.com/valbuild/val/commit/b41da31a26b3236ccd55c02108c56422d8d91f5e) Thanks [@freekh](https://github.com/freekh)! - A module removed from `val.modules` now disappears from the Studio straight
+  away, with its content, validation errors and previews. It used to stay until
+  the page was reloaded. Unpublished changes to it are kept and listed as changes
+  to a module the project no longer has, so they can still be discarded.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`e30da7d`](https://github.com/valbuild/val/commit/e30da7d9bca5d5773aa287e8b4c16a01e757ff9a) Thanks [@freekh](https://github.com/freekh)! - The Studio stays responsive next to large media libraries and records.
+
+  - **Typing no longer freezes on a page that picks from big libraries.** A field on a page whose images, files or videos come from libraries of 10,000 entries froze for about a second per keystroke (14 s at 100,000). Every keystroke recounted every `.jsonValues()` entry in the project, scanned every library for references, and re-sorted every library's file list. Each of those now happens only when what it reads changes, so a keystroke costs the same however big the libraries are.
+  - **The image, file and video gallery shows only the tiles on screen.** A library of 10,000 images used to load 10,000 thumbnails at once, and a library of 100,000 crashed the tab. The grid and the list now render the rows you can see, fetching only those pictures, and scrolling stays smooth. Search, selecting, uploading and drag and drop work as before. An entry opened from a link is scrolled into view.
+  - **Reference dropdowns open instantly however many entries they list.** A `keyOf` field, or a route field, pointing at 10,000 entries froze for over two seconds when opened, and at 100,000 did not open. The list now renders only the options on screen. Search filters across all of them, and the arrow keys, Home and End reach any option. The list opens on the current value, and the search box has the focus as soon as it opens.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`66d487f`](https://github.com/valbuild/val/commit/66d487f3662164a9a167ec660afc6d12b441aa22) Thanks [@freekh](https://github.com/freekh)! - Typing in the Studio no longer slows down with the size of the module.
+
+  - **A keystroke in a large module is about five times faster.** The Studio
+    used to copy the whole module for every change it applied; it now applies
+    changes the way Val's server does, copying only what the change touches.
+    In a module of 5 MB a keystroke went from about 100 ms to about 20 ms, and
+    a module of 1 MB from about 17 ms to about 3 ms.
+  - **The Studio and the server show a change the same way.** Where an uploaded
+    file's draft address goes, what an edit inside a `.jsonValues()` entry
+    does, and what a new entry is, are decided by the same code in both, so
+    the editor's fields, the page behind the Studio and a draft page's server
+    render cannot disagree about them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows each module as your server has it, by version, with only your own unsaved edits on top.
+
+  - **Publishing is faster.** After a publish, or when your site serves content published without a build, the Studio used to download every module's content before it showed anything new. It now reads only the modules that changed, one at a time: in our measurements with a 1,000-entry `.jsonValues()` record, the Studio was ready again after a publish in about 35 ms instead of 300–800 ms.
+  - **No flicker of old content on a draft page.** For up to a minute after a deploy, a request can still reach the build before it; that build now says it has been replaced (when Val's content service can tell it), and the Studio asks again rather than taking its content for the current one. In local development the same holds after you change a `.val.ts`: an answer from the code before the change is no longer taken for the new code's, so a page in draft mode no longer shows the new text, then the old, then the new again.
+  - **Another editor's change appears as your server has it.** The Studio no longer replays other people's changes on top of the content it loaded with, so a change made against a newer deployment can no longer show up twice or out of order.
+  - **Less sent with every draft page.** A page in draft mode no longer embeds the whole published content of a site served without a rebuild for the Studio to start from; `ValDraft.base` is deprecated and no longer filled in.
+  - **When the editor opens on a page that already shows your changes,** the Studio no longer sends them to the page again.
+
+## 0.150.23
+
+### Patch Changes
+
+- [#1010](https://github.com/valbuild/val/pull/1010) [`41b73af`](https://github.com/valbuild/val/commit/41b73af5db02ec2fef3f8b3884be453712d9ada3) Thanks [@freekh](https://github.com/freekh)! - The assistant's code steps are named in plain words in the chat: "Changing
+  the code", "Checking the code", "Updating the preview" and so on, instead of
+  the tools' own names (`write_files`, `typecheck`, `build_proposal`).
+
+- [#1009](https://github.com/valbuild/val/pull/1009) [`e46c34a`](https://github.com/valbuild/val/commit/e46c34a7eb6080e2286a85cc70f1e98d3989b8a9) Thanks [@freekh](https://github.com/freekh)! - The assistant, docked beside the Sketchpad on a desktop, is now the same
+  height as the panes next to it. It used to start 16px higher, under the top
+  bar, which made it look misaligned.
+
+- [#1007](https://github.com/valbuild/val/pull/1007) [`1970507`](https://github.com/valbuild/val/commit/19705071884f8dddabd0a1319a8a4bdb4b9cdfed) Thanks [@freekh](https://github.com/freekh)! - Cards in an array or record list stay inside the editor and stay short.
+
+  - A long value — a paragraph, a URL, a long key — is cut off with "…"
+    instead of widening the card, so the menu on the right of each row is no
+    longer pushed out of view.
+  - An item without a `.preview()` shows at most four lines, the last saying
+    how many fields were left out, instead of every one of its fields.
+  - A field that is itself an object reads on one line —
+    `Author  Name Fredrik · Email fredrik@example.com · Role Developer` —
+    instead of a field list nested inside the card.
+
+  A `.preview()` on the item is still the way to choose exactly what a row shows.
+
+## 0.150.22
+
+### Patch Changes
+
+- [#1002](https://github.com/valbuild/val/pull/1002) [`14a9864`](https://github.com/valbuild/val/commit/14a986486ca921b5aa4992caf1b452671b5eb97f) Thanks [@freekh](https://github.com/freekh)! - **Entries the design tab adds to a `.jsonValues()` record no longer revert.** When the design tab added an entry to a record that keeps its entries in `.val.json` files, the proposal's stored content didn't list the new entry, so edits to it went back. A staged `.val.ts` now sends the record's entries with it, as the stored content lists them.
+
+  **The design tab's `create_patch` can edit inside a `.jsonValues()` entry.** A patch into an entry is written into that entry's own `.val.json`, formatted the way a save writes it, so the assistant no longer rewrites the whole file to change one field. Adding, replacing or removing a whole entry still goes through `write_files`.
+
+## 0.150.21
+
+### Patch Changes
+
+- [#1000](https://github.com/valbuild/val/pull/1000) [`0d516bf`](https://github.com/valbuild/val/commit/0d516bf5347950071444eaa07baf48d1d7fe418c) Thanks [@freekh](https://github.com/freekh)! - **A Studio open while its proposal is built is told to reload.** Once a build is served, the page in the preview is the new build straight away, while the Studio was still running the old one's modules. Picking a field the new code added then failed. The Studio now asks its server which schema it runs whenever the preview's page loads, so a newer build says "reload" before you pick anything.
+
+  **The design tab's assistant builds only when it has to.** `build_proposal` now takes a reason: a route added, removed or renamed; code that runs on the server; a `.val.ts` schema; dependencies; or the whole request being finished. In the design tab it won't start without one. The quick preview shows changes to components, layout, styles, text and content without a build, and the assistant is no longer told to build after each step.
+
+  **No more flicker on a draft page after a publish.** Reloading a page in draft mode right after publishing showed the new content, then the old, then the new again. The Studio started from the content in its own bundle, which can be the build from before the publish, and handed that to the page before it had caught up with the server. It now waits until its content is the server's before it sends anything to the page.
+
+## 0.150.20
+
+### Patch Changes
+
+- [#998](https://github.com/valbuild/val/pull/998) [`c597b3b`](https://github.com/valbuild/val/commit/c597b3bcb9f3bbda285ab6f4977d65ed7f5f161d) Thanks [@freekh](https://github.com/freekh)! - **A quick preview now shows layout changes, not only text.** A quick preview loads the proposal's new code into a page the last build rendered on the server. React kept that page's markup wherever only attributes differed, so a change to classes (a layout made horizontal, a gap, a colour already in the site's styles) showed nothing, while a change to text did. The page is now rendered from the new code instead.
+
+  The design tab's assistant no longer offers `screenshot_page`, whose picture never came back from the page. `read_page` gives it the computed styles, sizes and positions it was for.
+
+  The assistant builds a proposal far less often. A quick preview shows components, layout, styles, text and content. It builds only for what a quick preview can't show, such as an added or renamed route, code that runs on the server, a schema or dependencies, and otherwise once, when a request is finished.
+
+## 0.150.19
+
+### Patch Changes
+
+- [#996](https://github.com/valbuild/val/pull/996) [`17fa9ab`](https://github.com/valbuild/val/commit/17fa9ab7d86d3dc304109b8f5222f46f22bd5770) Thanks [@freekh](https://github.com/freekh)! - **The design tab's quick preview is made by Val Build, and shows itself after each change.** Where Val Build builds your project's proposals, a quick preview is bundled there rather than in your browser. It is the same build a Build of the same files makes, so pressing Build afterwards is quicker too. The design tab no longer needs a cross-origin isolated page or a builder tab for it, and it shows each change on its own about a second after the files stop changing.
+
+  The proposal is also typechecked in the background after each change, and whenever it is built. The assistant hears about type errors on its next step, can ask where the typecheck is with `typecheck_status`, and is told to call `typecheck` only once its edits are done.
+
+  Projects Val Build does not build yet make quick previews in the browser as before, and don't start them on their own.
+
+  Not yet: a change that uses a Tailwind class the site doesn't use yet shows without that class's styles, in a quick preview and in a build alike. Studio builds still ship the live site's stylesheet, and compiling stylesheets on Val Build comes next.
+
+## 0.150.18
+
+### Patch Changes
+
+- [#994](https://github.com/valbuild/val/pull/994) [`43f72c8`](https://github.com/valbuild/val/commit/43f72c85c2114fe9a0ce536204858d2d3c05f962) Thanks [@freekh](https://github.com/freekh)! - **Proposals can be built by Val Build instead of in your browser.** When Val Build builds your project's proposals, the design tab's **Build** and the assistant's `build_proposal` in the design tab ask it to build the proposal, and the Studio waits until the build is served at the proposal's address. A small code change is built, checked and on the proposal's page in a few seconds, against around twenty for the build alone in the browser. Nothing is downloaded first, no builder tab opens on an iPhone or in Safari, and closing the tab does not stop the build.
+
+  Val Build is turning this on project by project, in the design tab first. Until it is on for yours, Build works as before, in the browser, and so does Build in the proposals bar.
+
+## 0.150.16
+
+### Patch Changes
+
+- [#988](https://github.com/valbuild/val/pull/988) [`c0abcde`](https://github.com/valbuild/val/commit/c0abcde887fa61edb2dd542b9cfd707237a74daf) Thanks [@freekh](https://github.com/freekh)! - A file uploaded to a gallery no longer jumps to the bottom of the grid once it has gone up. Files added since the last publish are listed first, newest first, with a "New" badge, and the file you just uploaded is opened, so its description is one click from being written. A published file you renamed is not marked new.
+
+- [#940](https://github.com/valbuild/val/pull/940) [`3ac24d4`](https://github.com/valbuild/val/commit/3ac24d46691c646dd5d2789cf2e1d6e2734195d3) Thanks [@freekh](https://github.com/freekh)! - Picking a language in the Studio now scopes the whole Studio to it.
+
+  - The Pages tree, the Data list, lists inside a field and search show only content in that language, plus content in no language (settings, authors, images), which every language shares. A page is in a language when its route names it (`s.router(router, { locale: … }, item)`) or its content has an `s.locale()` field.
+  - Picking a language while you are on something in another one moves you: to the same entry in the new language where Val knows it (a record keyed by `s.locale()`, or a route that differs only in its language segment), otherwise to the nearest parent that is not in another language, otherwise to the Studio's start screen with nothing selected.
+  - A link or a reference to something in another language still opens it, and that one item is listed while you are on it.
+  - Publish, Discard all and the error count are not filtered: they act on every language.
+
+- [#969](https://github.com/valbuild/val/pull/969) [`7db39ef`](https://github.com/valbuild/val/commit/7db39ef722b4f743e6974effd5fedfadc76e6544) Thanks [@freekh](https://github.com/freekh)! - **Sketchpad**: work out a page's content and rough layout with the assistant before anyone builds it.
+
+  A sketchpad is a document of headings, text, boxes and columns, where you edit the text in place. A box can show an image or a video from a link: paste one, or drag an image in from a web page. The assistant sees the same sketch as text in one strict format, so what it reads is what is on screen. It has tools to list, create, read and write sketchpads, and **Send to AI** asks it to read the one you are on.
+
+  - Sketchpads live on the server, apart from any chat or page. They outlast the chat they started in, and the page a sketchpad is about can be changed. A sketchpad can be archived and reopened.
+  - Open one from a page's menu (**Sketch changes**), from the top bar, or when the assistant offers one.
+  - On a desktop the page, the sketchpad and the chat sit side by side, the chat docked beside them. On a phone a sketchpad can go full screen, with the page one tap away and the buttons at the bottom.
+  - In local development sketchpads are stored in `.val/sketchpads/`. A hosted project needs the content host's sketchpad API; without it the Studio does not offer sketchpads.
+
+## 0.150.14
+
+### Patch Changes
+
+- [#987](https://github.com/valbuild/val/pull/987) [`e8d2fd3`](https://github.com/valbuild/val/commit/e8d2fd371d8732e4bb140760aeb1ac5227c0a51c) Thanks [@freekh](https://github.com/freekh)! - The demo no longer offers "Check everything" on the Validate page, which always stopped at the first file there ("Checking everything needs the project's files and Val's file hosts, and this Studio runs without them"). The demo's server runs in the browser tab without the project's files, so the page shows the Studio's own errors and says why the full check is not there, and the top bar shows Validate only while there are errors to show.
+
+## 0.150.13
+
+### Patch Changes
+
+- [#982](https://github.com/valbuild/val/pull/982) [`295a925`](https://github.com/valbuild/val/commit/295a92513fe0356fafc78978bd0a6d32866f1dbe) Thanks [@freekh](https://github.com/freekh)! - The compare dialog -- "Review changes" on the review page, and "Compare with the site" in a proposal -- can be scrolled again. Every modal dialog in the Studio cancelled the mouse wheel over its own content, because its scroll lock could not tell from outside the Studio's shadow root that the wheel was inside the dialog.
+
+  Dialogs that did not set their own background are no longer see-through: the compare dialog showed its text straight over the blurred Studio behind it.
+
+  An image added to or removed from a gallery is shown in the compare dialog as the image, with its file name, size and alt text, instead of as its width, height and mime type.
+
+- [#985](https://github.com/valbuild/val/pull/985) [`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1) Thanks [@freekh](https://github.com/freekh)! - The design tab's assistant can check its work two more ways.
+
+  - **`lint`** runs Val's own eslint rules -- the ones `@valbuild/eslint-plugin` runs in an editor -- over the proposal's files: a `c.define` path that is not the file's own, a module missing from `val.modules.ts`, `c.define` content that is a variable (which validates, then fails at publish), an import a `.val` file may not make. With `fix: true` it stages the fixes the rules can make themselves.
+  - **`screenshot_page`** shows the assistant a picture of the page in the preview, at desktop, tablet or phone width, on screen or the whole page. The page draws itself, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for it. The picture is drawn from the page's HTML and CSS: images from other sites, videos, canvases and embeds may come out blank.
+
+  `@valbuild/eslint-plugin` has a new entry, `@valbuild/eslint-plugin/rules`, with the same rules over a project that is not on a disk (`createRules(host)`). The plugin itself behaves as before.
+
+- [#983](https://github.com/valbuild/val/pull/983) [`0e490a9`](https://github.com/valbuild/val/commit/0e490a9b6e44b1e3d70e914d2b16009335124c4b) Thanks [@freekh](https://github.com/freekh)! - The Media panel no longer shows a remote image's whole URL as a folder heading, or an "In this folder" heading above the rest of the gallery. A remote file is listed with the other files in the folder it was uploaded into, and only a real subfolder of a gallery gets a heading of its own.
+
+## 0.150.12
+
+### Patch Changes
+
+- [#978](https://github.com/valbuild/val/pull/978) [`e39a373`](https://github.com/valbuild/val/commit/e39a3730624cbf3a5434d4fb0d13be26f44280db) Thanks [@freekh](https://github.com/freekh)! - A chat with the assistant now keeps the model it started with, in the Studio and in the design tab. Once the first message is sent (or an image attached), the model is shown beside the composer with a lock rather than offered as a choice; start a new chat to use another model. Picking a model for a new chat in one place no longer changes the model of a chat already running in another.
+
+  The attach button and the model picker beside the composer are also spaced apart.
+
+- [#981](https://github.com/valbuild/val/pull/981) [`d47537a`](https://github.com/valbuild/val/commit/d47537a40ca7ca0c6a5e7b80f1dfb18791fc5bc1) Thanks [@freekh](https://github.com/freekh)! - **Open design tab** is now on a phone too. On a phone, what you can do with a proposal is in the sheet behind the proposal chip in the top bar, and the design tab was missing from it, so a phone had no way into it. It is there now, as it is in the proposal menu on a wider screen.
+
+- [#977](https://github.com/valbuild/val/pull/977) [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows which versions of Val it runs. Open the Account panel (the button at the foot of the left rail) and click the grey line at the bottom, for example `TanStack · Val 0.150.8`, to see:
+
+  - what your app's server runs: `@valbuild/next` or `@valbuild/tanstack`, `@valbuild/core` and `@valbuild/server`
+  - what the Studio in your browser loaded: `@valbuild/ui`, and the `@valbuild/core` bundled into it
+
+  **Copy all** puts the list on the clipboard, ready to paste into a bug report. The server's half comes from a new `GET /api/val/versions` route, which needs the same sign-in as the rest of the Studio. If your server's Val is older than the Studio, the list says so and still shows the Studio's half.
+
+## 0.150.11
+
+### Patch Changes
+
+- [#976](https://github.com/valbuild/val/pull/976) [`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38) Thanks [@freekh](https://github.com/freekh)! - Images the assistant adds now show up in remote storage, which is where every image in a hosted project lives: in a remote gallery (`s.imagedir(...).remote()`), in a remote image field (`s.image().remote()`) and inline in rich text whose images are remote. They used to be saved under a plain `/public/...` path while their bytes were stored as a remote file, so the Studio looked for a local file that did not exist and showed a broken image, and a published site would have named a file nothing serves. They are now saved under a remote ref, the same as an image uploaded with the Studio's own Upload button.
+
+  The image is still moved from the chat to the change rather than copied: the content service points the change at the image it already holds, and nothing is downloaded or uploaded again. The content service now says what the image's bytes hash to, which is what a remote ref is named by; against one that does not yet, the Studio downloads the image once to hash it.
+
+  The assistant can also now put an image into an empty rich text by writing the whole value; that used to be refused.
+
+- [#974](https://github.com/valbuild/val/pull/974) [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78) Thanks [@freekh](https://github.com/freekh)! - The design tab no longer makes you wait.
+
+  - **Quick preview.** A change to components, layout or styles is shown in seconds, without a build: the proposal's browser code is bundled in the tab and the page in the preview runs it. What runs on the server (loaders, server functions, the page's first render) stays the last build's, and the tab says so, with a button to build. The assistant has it too (`quick_preview`).
+  - **Cancel and Try again.** A build can be cancelled from the tab, and a build that stops making progress for three minutes is stopped, saying at which step, so it never spins until a reload. The assistant waits for a build with `wait` instead of holding its turn, and has `build_status` and `cancel_build`.
+  - **Each step of a build is timed**, and the Build check lists where the time went.
+  - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
+  - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+  - **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
+  - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
+
+  The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
+
+## 0.150.10
+
+### Patch Changes
+
+- [#970](https://github.com/valbuild/val/pull/970) [`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94) Thanks [@freekh](https://github.com/freekh)! - A proposal's shared AI chat now shows other people's turns live: their question appears as they send it, each tool the turn runs shows as a step, and the answer streams in as it is written, instead of turning up a few seconds later. Who is asking is what the content server says rather than a guess. Against a content server that does not relay chats yet, the Studio falls back to reading the chat again every few seconds, as before.
+
+  An answer's tool steps are now also shown when a chat is opened again or the page is reloaded, for every chat on a content server that keeps them.
+
+## 0.150.9
+
+### Patch Changes
+
+- [#971](https://github.com/valbuild/val/pull/971) [`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279) Thanks [@freekh](https://github.com/freekh)! - The Studio's files now also ship as plain files, so a host can serve them itself instead of from your app's server.
+
+  - `@valbuild/ui` includes `static/`: every Studio file, plus a `manifest.json` that says which request path under `/api/val/static` serves which file. Binary files are copied byte for byte. `@valbuild/ui/server` is unchanged, and so is every host that uses it.
+  - `@valbuild/tanstack-build` uses it on Val Build's hosting. When the platform says it serves build assets, the site's dependency layer leaves out the Studio copy embedded in `@valbuild/ui/server` and carries the Studio's files as build assets instead. The site's server then loads about 18 MB less JavaScript and uses roughly 80-100 MB less memory. That margin is what kept a Studio from loading on a hosted site: its server ran out of memory and was restarted on almost every request.
+
+## 0.150.8
+
+### Patch Changes
+
+- [#960](https://github.com/valbuild/val/pull/960) [`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028) Thanks [@freekh](https://github.com/freekh)! - The design tab can point the assistant at anything on the page. Hold ⌥ (Alt) and click any element in the preview, or press **Select** first: the element under the pointer is outlined and named, and the one picked is shown above the assistant and sent with the next message. A **Pages** menu shows any of the site's pages in the preview, and **Publish** publishes the proposal from the tab, the same way its own Studio does. The checks are now a single quiet status beside the proposal's name, the history is behind a button, and the changed files are listed in the Changes view instead of a panel of their own.
+
+  The picking runs in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for picking to work in its design tab.
+
+- [#968](https://github.com/valbuild/val/pull/968) [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2) Thanks [@freekh](https://github.com/freekh)! - The assistant can search, format and typecheck a proposal's code, and change content in the design tab.
+
+  - **`search_code`** finds every line of the project that matches some text or a regular expression, with its file and line number, so the assistant finds where something is rendered before reading whole files.
+  - **`format_files`** formats the proposal's files with Prettier and the project's own config (`.prettierrc`, `.prettierrc.json` or `package.json`'s `prettier`), and stages the ones that change. It runs in the browser, loaded the first time it is used, because the platform's server cannot run Prettier. A config it cannot read — JavaScript, YAML, plugins or per-file overrides — is reported rather than guessed at.
+  - **`typecheck`** checks the proposal's code with TypeScript and answers the type errors the proposal adds — not the ones the site already has. The assistant runs it after changing code and before building. In the design tab its result is the Types check.
+  - **`create_patch` in the design tab** writes content into the module's file in the proposal and stages it with the code, so a field the assistant adds to a schema is filled in the same change and built with it.
+
+- [#963](https://github.com/valbuild/val/pull/963) [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a) Thanks [@freekh](https://github.com/freekh)! - The assistant's chats in a proposal are shared with everyone on the project. A chat started while you are in a proposal belongs to it: anyone on the project who opens the proposal sees it in the chat list, with who is in it, and can read it and keep asking. Messages are named once more than one person has written, and the chat header has a link to the chat. One question runs at a time: if someone else's question is running, what you write is sent when its answer is done. Chats started on the site stay your own.
+
+  It needs the content server that knows about proposal chats; with an older one, chats work as before.
+
+## 0.150.5
+
+### Patch Changes
+
+- [#956](https://github.com/valbuild/val/pull/956) [`47a31cc`](https://github.com/valbuild/val/commit/47a31cc3574841acf4f3207d5053f8bc728d25cd) Thanks [@freekh](https://github.com/freekh)! - The design tab: a proposal's code, changed with the assistant, in a tab of its own. Open it from a proposal's menu in the switcher ("Open design tab"). It opens at `/val/design/<proposal>` on the site's address, beside the proposal's, and shows the files the proposal changes against the site, each one's diff, the proposal's history, Build, and the proposal's address in a frame at desktop, tablet and phone widths. The assistant there changes the proposal's code (and only reads content).
+
+  The tab is served by the site's build, not the proposal's. So a change the assistant breaks the proposal with takes away the preview, never the tab or the tools that fix it. For that, the site's Val server now stages files in, and builds, a proposal it names; a proposal's address still writes only its own.
+
+## 0.150.3
+
+### Patch Changes
+
+- [#954](https://github.com/valbuild/val/pull/954) [`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c) Thanks [@freekh](https://github.com/freekh)! - Proposals in the Studio, reworked:
+
+  - **Save becomes Publish.** In a proposal, one split button stands where Publish is on the site. Its main half is the next step (Save, then Build, then Publish), and its caret offers every step, so you can publish straight away: Publish saves first. The separate Publish button beside the switcher is gone.
+  - **The switcher is where the proposal is managed**, as on a phone: its name and changes, Compare with the site, Rename, Copy link and Close, then where else to go.
+  - **Upgrade proposals** have one Publish (the bar's), say what they upgrade in the Publish dialog, cannot be published while Val Build is still working them out, are discarded rather than closed, and have their own icon.
+  - **A published proposal** shows a dialog with the ways out (the site, a new proposal, all proposals), since nothing more can be done in it.
+  - **Notices about where you are** (an upgrade, an upgrade under way, a restore) pop up from the bottom right and stay until dismissed; a dismissed one folds into the status bar and comes back from there.
+  - **No more flash of the site's chrome** at a proposal's address: the bar says "Loading…" until it knows, a return visit starts in the proposal at once, and opening a proposal says "Opening …" while the browser gets there.
+  - **After a save**, "Updating the preview…" and a failed render check are shown beside the switcher, and the status bar counts what is not saved to the proposal instead of saying "All changes saved".
+  - **Dialogs** dim the Studio instead of hiding it.
+  - **`theme.proposal`** in `s.settings()` sets the colour the Studio wears in a proposal (Val's violet when unset), under Settings → Studio. Like the accent, its shades are generated so text on them stays legible.
+
+## 0.150.2
+
+### Patch Changes
+
+- [#951](https://github.com/valbuild/val/pull/951) [`c674aae`](https://github.com/valbuild/val/commit/c674aae361be3c75b5232acb41ea6d8da973c678) Thanks [@freekh](https://github.com/freekh)! - Studio: the line under an editor's heading is now one link back to the parent, by name — `‹ Product 1` — instead of a breadcrumb of path segments. The parent is where the level above is shown, so from a section of a page it is the page, not its `sections` field.
+
+- [#947](https://github.com/valbuild/val/pull/947) [`c044e55`](https://github.com/valbuild/val/commit/c044e55452ba34ec5b7b38c935c9c25491d980be) Thanks [@freekh](https://github.com/freekh)! - In a proposal, **Compare with the site** can now show a changed page as a page: pick a page and switch from **Fields** to **Page** to see the page as the site serves it beside the page as the proposal does, unsaved changes included, at desktop or phone width. Each side has an **Open** link to see it in a tab of its own. A page the proposal adds or removes says so on the side it is not on, rather than loading a 404.
+
+  The changes list no longer marks a page (or a content module) as **new** or **removed** because something inside it was added or removed — an item appended to a list on a page now shows as an edit of that page.
+
+- [#949](https://github.com/valbuild/val/pull/949) [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595) Thanks [@freekh](https://github.com/freekh)! - Val Studio now shows content analytics beside the content being edited, for a hosted project with content analytics switched on. Each field and list row shows how many page views it was seen in (hover for how many it was on the page in, and the share). The heading of what is open says the same for all of it, and lists what in it was seen most, by the names the Studio gives them everywhere else. Nothing is shown, and nothing is asked of Val Build, for a project with analytics off or a Studio not signed in to Val Build.
+
+- [#953](https://github.com/valbuild/val/pull/953) [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7) Thanks [@freekh](https://github.com/freekh)! - A proposal's typecheck no longer downloads TypeScript again for its second check. The compiler (about 13 MB) is kept by the typecheck's worker once fetched, for every check that asks for the same version after it.
+
+- [#952](https://github.com/valbuild/val/pull/952) [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795) Thanks [@freekh](https://github.com/freekh)! - A proposal's typecheck (an upgrade, or a proposal with dependencies of its own) now checks the proposal first, and checks the site as it is only when the proposal has type errors, to tell the errors the site already had from the ones the proposal adds. A proposal that typechecks cleanly is done in one check instead of two, which is most of them. A site with no lockfile on record no longer has one worked out for it unless the second check needs it.
+
+- [#950](https://github.com/valbuild/val/pull/950) [`520d22c`](https://github.com/valbuild/val/commit/520d22cc721ff23b83e4bae0b4ba7f52a6a0fa0c) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page can no longer be pressed before the Studio has loaded the project. A press in that moment used to do nothing at all, without saying so; the button is now disabled until a check can run.
+
+## 0.150.1
+
+### Patch Changes
+
+- [#894](https://github.com/valbuild/val/pull/894) [`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02) Thanks [@freekh](https://github.com/freekh)! - `val validate` no longer fails a project just because some of its files are
+  local while the project stores files remotely (`files: { remote: true }` or
+  `.remote()`). Every project made from a template starts like that, and the
+  site serves those files from `public/` until they are uploaded. They are now
+  reported as **warnings**, grouped into one block per file with the command
+  that uploads them:
+
+  ```
+  content/images.val.ts  ⚠ 7 warnings  (12ms)
+  │
+  │  ⚠  Local files in a project with remote files. Your site serves them from public/ for now; they move to remote storage when uploaded.
+  │
+  │     content/images.val.ts:7:5  /public/val/images/image-0_00000.png
+  │     content/images.val.ts:8:5  /public/val/images/image-1_00001.png
+  │     content/images.val.ts:9:5  /public/val/images/image-2_00002.png
+  │     content/images.val.ts:10:5  /public/val/images/image-3_00003.png
+  │     content/images.val.ts:11:5  /public/val/images/image-4_00004.png
+  │     … 2 more
+  │
+  │     → val validate --fix uploads them (needs val login)
+  │
+
+  ✔ No validation errors · 7 warnings in 1 file
+  ```
+
+  - `--strict` on `val validate` and `val publish` makes warnings fail too.
+  - `val validate --fix` still fails when it cannot upload them, for example
+    when you are not logged in.
+  - A local file that does not exist is still an error.
+  - The language server shows these as warnings.
+  - In the Studio, **Check everything** on the Validate page lists them with a
+    **Fix** button that uploads them, so a hosted project, which
+    has no command line, can move its template's images and files to remote
+    storage. That covers images, files and videos (a video's poster, captions
+    and HLS stream go up with it), images inside rich text included, and the
+    fields that picked a gallery image or a video from a set are updated with
+    it.
+  - On a hosted project, **Check everything** no longer reports the template's
+    images and videos as "The file is gone", and no longer offers a Fix that
+    would remove them from their gallery or video set.
+
+  Fixable errors are now printed with `✘`, like every other error, instead of
+  the `⚠` warnings use. They were always errors and still make `val validate`
+  fail.
+
+- [#942](https://github.com/valbuild/val/pull/942) [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11) Thanks [@freekh](https://github.com/freekh)! - `val publish` builds with native `rolldown` instead of rolldown's WebAssembly build. A site whose lockfile resolved `@napi-rs/wasm-runtime` 1.2.6 (released 2026-10-25) could no longer publish: `@rolldown/browser` 1.2.15 accepts that version but does not load with it, and `val publish` failed with "@valbuild/tanstack-build and rolldown … could not be loaded: Cannot set properties of undefined (setting 'initWorker')". Native `rolldown` does not use `@napi-rs/wasm-runtime` at all, so the site's version of it no longer matters. The Studio still builds in the browser with `@rolldown/browser`, from Val's own pinned versions.
+
+  New: `val check-build-tools` loads what `val publish` builds with and builds a one-line module with it, without asking content anything, and fails when it could not. Val Build runs it on an upgrade's install before a project whose CI publishes it can publish the upgrade.
+
+## 0.150.0
+
+### Minor Changes
+
+- [#935](https://github.com/valbuild/val/pull/935) [`baf2f56`](https://github.com/valbuild/val/commit/baf2f56498ca2ae5ec1f5bef356faf09a382b768) Thanks [@freekh](https://github.com/freekh)! - Upgrades are now made in Val Build. The Studio no longer has an Upgrade dialog or an upgrade tab of its own. Instead, it says when there is something to upgrade ("Val 0.150.0 is out", or that security fixes or updates are out), and that opens the project's **Updates** in Val Build in a new tab. There, the upgrade is typechecked, built, checked by the new Val against the site's content, its pages are rendered, and then it is published.
+
+  Settings → Updates lists what there is to upgrade, with **Open in Val Build**. An upgrade already under way is shown above the editor, with a link to its page in Val Build.
+
+### Patch Changes
+
+- [#937](https://github.com/valbuild/val/pull/937) [`f638188`](https://github.com/valbuild/val/commit/f638188c27fc338ace3d8282f59e83084adcb002) Thanks [@freekh](https://github.com/freekh)! - In an upgrade proposal, the Studio now says what the proposal upgrades — for example "This proposal upgrades Val 0.149.4 → 0.149.7", or that it fixes security issues — that it holds no content changes, and that publishing it updates the site. The notice has a **Publish to update your site** button, the packages it changes (majors marked), and a link to the upgrade's checks in Val Build.
+
+## 0.149.7
+
+### Patch Changes
+
+- [#934](https://github.com/valbuild/val/pull/934) [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3) Thanks [@freekh](https://github.com/freekh)! - The Studio's deploy, the publish job a tab runs, a proposal's build and a proposal's typecheck are now `@valbuild/shared/publish` and `@valbuild/shared/typecheck`, so home's upgrade page can build, check and publish an upgrade with the same code, pinned at a version of its own. The clients reach content through the Studio's proxy as before, or directly (`publishApi`, `proposalsApi`) with a `fetch` that adds the credential. Nothing changes in the Studio.
+
+- [#933](https://github.com/valbuild/val/pull/933) [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865) Thanks [@freekh](https://github.com/freekh)! - The typecheck the Studio runs on an upgrade, which reports the type errors a project would have after `pnpm install`, is now `@valbuild/shared/typecheck`, so the platform's upgrade page can run the same check. The Studio's typecheck works as before. Type bundles and compilers can now also be fetched with a credential of the caller's own (`adeptSources({ base, headers, credentials })`).
+
+- [#930](https://github.com/valbuild/val/pull/930) [`8366c57`](https://github.com/valbuild/val/commit/8366c575df66ee19c3400b7fdbc14a8fd517afd6) Thanks [@freekh](https://github.com/freekh)! - Every loading spinner in the Studio is now drawn the same way, at even sizes. Odd-sized spinners, of which the Studio had several, are known to wobble in Safari.
+
+## 0.149.6
+
+### Patch Changes
+
+- [#928](https://github.com/valbuild/val/pull/928) [`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965) Thanks [@freekh](https://github.com/freekh)! - **Create proposal** prepares an upgrade before its page opens. It creates the upgrade's proposal, works out the upgrade, and builds its dependencies, while the button says **Preparing…** with a line beneath saying where it is: for example "Building the dependencies · Installing the packages (1 of 2) · 212 of 412 packages", or how many upgrades are ahead of it while it waits for a builder. When the dependencies are built, the same tab goes to the upgrade's page, which starts at the build.
+
+  An upgrade that cannot be prepared says why, and its proposal is closed again. So is one that turns out to move nothing. Nothing on the site changes either way.
+
+## 0.149.5
+
+### Patch Changes
+
+- [#925](https://github.com/valbuild/val/pull/925) [`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f) Thanks [@freekh](https://github.com/freekh)! - An upgrade renders its new build on the platform before it can be published. Once the typecheck finds no new errors and the build is done, the upgrade tab asks Val Build to render that build, as a publish does before it goes live. Publish is offered only when it renders. An upgrade can move the framework and React a site runs on, which a typecheck cannot judge and a render can.
+
+- [#924](https://github.com/valbuild/val/pull/924) [`9e44644`](https://github.com/valbuild/val/commit/9e44644933103d0db38bf72463478d80a1a9b0dd) Thanks [@freekh](https://github.com/freekh)! - Upgrade offers three options, and only the ones that move something: **Security fixes** (with how many vulnerabilities it fixes), **Minor versions** (recommended, and saying which Val it moves to) and **Full**. Which packages each one moves is folded away under "Which".
+
+## 0.149.4
+
+### Patch Changes
+
+- [#921](https://github.com/valbuild/val/pull/921) [`1a426f4`](https://github.com/valbuild/val/commit/1a426f41759c5f70492be5f1795bdc260ac3572b) Thanks [@freekh](https://github.com/freekh)! - An upgrade of a site's dependencies now runs in a tab of its own, on every device, from the moment **Upgrade** is pressed until **Go to site**.
+
+  - The tab computes the upgrade, builds its dependencies, typechecks, builds and publishes it. It is served cross-origin isolated on every browser, so an iPhone builds and publishes there too, instead of opening a second tab for the build.
+  - When the upgrade is ready, **Review** opens its proposal in the Studio to see the preview and check the merge, and **Publish** publishes it directly. A step that fails says why, with **Try again** where **Publish** is. **Discard upgrade** closes the proposal.
+  - The Studio you started from says the upgrade is running, with **Open upgrade** to get back to its tab, and says when it is published. At the upgrade proposal's own address, **Open upgrade** goes back to the tab.
+  - An upgrade proposal is labelled "Upgrade" in lists, rather than "0 changes".
+
+## 0.149.3
+
+### Patch Changes
+
+- [#919](https://github.com/valbuild/val/pull/919) [`ce7d5f4`](https://github.com/valbuild/val/commit/ce7d5f4f0732acb49068ae79a90aeff6fdc9e574) Thanks [@freekh](https://github.com/freekh)! - Upgrading a site's dependencies now happens in one dialog, from the moment the upgrade proposal opens until **Go to site**.
+
+  - The dialog opens straight away at the proposal's address and says it is loading, instead of appearing only once everything has loaded.
+  - The build starts by itself once the upgrade's dependencies are built, and the dialog shows how far it has got: reading, building, uploading N of M, serving at the proposal's address. On an iPhone, where the build runs in a new tab, it asks for one tap to open that tab.
+  - A step that fails says why, with **Try again** where **Publish** is. Publish runs inside the same dialog, which ends with **Go to site**, so there is no second Publish dialog.
+  - A gateway timeout (such as Cloudflare's 524) while the build is put up at the proposal's address no longer fails the build. The Studio waits until Val Build says the proposal is built.
+  - A proposal's build now leaves lockfiles out, as a publish does. Publishing an upgrade can then go live on the build the proposal already has, instead of building the whole site again.
+
+## 0.149.1
+
+### Patch Changes
+
+- [#913](https://github.com/valbuild/val/pull/913) [`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243) Thanks [@freekh](https://github.com/freekh)! - The "Log in required" dialog no longer shows a close button that did nothing: there is nothing behind it to go back to, so logging in is the only way forward. Logging in now also brings you back to the page you were on, rather than to the start of the Studio.
+
+- [#915](https://github.com/valbuild/val/pull/915) [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185) Thanks [@freekh](https://github.com/freekh)! - **Settings is always in the Studio's rail.** The cog used to show only in projects with an `s.settings()` module, so a hosted project made from a template had no way to reach Settings → Updates, and with it no way to upgrade. It now shows in every project. Without a settings module, the panel says how to add one, except where it holds Updates.
+
+## 0.149.0
+
+### Minor Changes
+
+- [#911](https://github.com/valbuild/val/pull/911) [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03) Thanks [@freekh](https://github.com/freekh)! - **Upgrade your site's dependencies from the Studio.** When newer versions of your site's packages are available, an **Upgrade** button appears in the Studio's top bar (on a phone, in the account sheet). It is marked when the upgrade fixes a vulnerability.
+
+  - **Pick a kind:** fix vulnerabilities, move to the latest version within each major, or move to new major versions. For majors, you can untick any package to leave it out.
+  - **Upgrade in a proposal:** this opens a proposal with the upgrade in it, and the Studio follows it there:
+    - computing the upgrade;
+    - building the new dependencies;
+    - typechecking your code against them;
+    - building the proposal.
+  - **Publish:** offered once the upgrade adds no type errors and the proposal is built. If it adds type errors, they are listed by file and the proposal stays open, so you can fix them there.
+  - **Settings → Updates** offers the same choice. "Update site", which published the template's dependencies straight to the live site, is gone.
+
+  A proposal whose dependencies change is typechecked automatically, and it can't be published until the typecheck finds no new errors. The **Typecheck** check in the Publish dialog runs it on request.
+
+### Patch Changes
+
+- [#910](https://github.com/valbuild/val/pull/910) [`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4) Thanks [@freekh](https://github.com/freekh)! - When a proposal changes its dependencies without a lockfile to match, its Build button now reads **Compute lockfile** and computes it. Afterwards, the button shows the proposal's dependencies being built, or says why they could not be built.
+
+## 0.148.8
+
+### Patch Changes
+
+- [#909](https://github.com/valbuild/val/pull/909) [`213c6fc`](https://github.com/valbuild/val/commit/213c6fca9636f9b4bb54f15336a21d2ac4846a9b) Thanks [@freekh](https://github.com/freekh)! - A proposal that changed its dependencies now goes live on those dependencies when the Studio builds its merge. Before this, a merge built in the tab used the site's existing dependencies.
+
+- [#905](https://github.com/valbuild/val/pull/905) [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87) Thanks [@freekh](https://github.com/freekh)! - The Studio on a phone has one way into each thing, and its bars no longer overflow.
+
+  - **Top bar:** the menu, where you are, Search and your account. In a proposal the bar is in the proposal's colour and shows an icon instead of the name; tap it to see the full name, the proposal's actions (compare, rename, copy link, close) and the way to the site or another proposal.
+  - **Bottom bar:** the assistant, the activity bell, Preview and one primary action. In a proposal that action is Save, then Build, then Publish, whichever comes next, and it reads "Fix N" while errors would stop a save. The caret beside it holds the rest: Save, Review, Build, Publish and Discard.
+  - **The bell** combines notifications, validation errors and history, with one count.
+  - **Your account** holds the theme, Members, the project's settings, the branch, deployments and the tour.
+  - **The project name** is at the top of the navigation menu, and the language filter sits beside the page heading.
+
+- [#905](https://github.com/valbuild/val/pull/905) [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87) Thanks [@freekh](https://github.com/freekh)! - The top bar in a proposal is no longer see-through in dark mode, and its menus open above an open panel instead of underneath it.
+
+## 0.148.7
+
+### Patch Changes
+
+- [#906](https://github.com/valbuild/val/pull/906) [`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a) Thanks [@freekh](https://github.com/freekh)! - `val.attrs(post, "author")` tags an element with one field of what it shows. Use it for a value Val never encodes, like an `s.keyOf` key, a date or a colour. A byline that shows the author a post points at can carry the post's `author` field, so clicking it in the Studio opens the choice of author.
+
+  On a phone, a tour step about Pages, Media, Data or Settings points at the menu button, which is where they are when the rail is not drawn.
+
+- [#904](https://github.com/valbuild/val/pull/904) [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c) Thanks [@freekh](https://github.com/freekh)! - A proposal that changes the project's dependencies is built against a layer of its own. When a proposal stages a new `package.json` and lockfile, the platform builds a dependency layer for them, and Build in that proposal now uses it instead of the site's. While the layer is being built, or when it could not be, Build says so instead of building against dependencies the proposal no longer has. Proposals that change no dependencies build exactly as before.
+
+## 0.148.6
+
+### Patch Changes
+
+- [#902](https://github.com/valbuild/val/pull/902) [`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7) Thanks [@freekh](https://github.com/freekh)! - The demo has a script: `<ValApp demo={{ tours, audiences }}>`. Instead of a tour that opens by itself, the demo card asks "What brings you here?" and lists short tours for the answer, each ticked off once done. `/val?tour=<id>` starts one from a link.
+
+  A tour can start on a page of its own (`start`). A step can ask for a new page (`moveOn: { newPage }`), write any value or add one (`moveOn: { edit, value, add }`), and show the code behind what it is about (`code`).
+
+## 0.148.5
+
+### Patch Changes
+
+- [#898](https://github.com/valbuild/val/pull/898) [`e1e41e2`](https://github.com/valbuild/val/commit/e1e41e2f2c3a2c511299f57ac36fcae50cc35bf6) Thanks [@freekh](https://github.com/freekh)! - The tour's card has a small arrow on the edge that faces what it is about: the page, a field, or a control in the top bar. A card that has moved aside, for a panel that just opened, or that has nothing to point at, has none.
+
+## 0.148.4
+
+### Patch Changes
+
+- [#897](https://github.com/valbuild/val/pull/897) [`7c432b3`](https://github.com/valbuild/val/commit/7c432b3f05af414bd6cbc37cd58a71a783056caa) Thanks [@freekh](https://github.com/freekh)! - Studio on a phone: when a field has been changed, "just now" and the avatar of whoever changed it now go on their own line under the field's label, instead of taking a column at the right of the row. Labels, especially a checkbox's, no longer get squeezed onto two or three lines the moment you change them. On wider screens it stays at the right of the row.
+
 ## 0.148.3
 
 ### Patch Changes

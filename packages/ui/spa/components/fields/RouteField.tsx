@@ -24,13 +24,9 @@ import {
   PopoverTrigger,
 } from "../designSystem/popover";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../designSystem/command";
+  WindowedOptionList,
+  type WindowedOptionAction,
+} from "../WindowedOptionList";
 import { Button, insetFocusRing } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
@@ -45,7 +41,6 @@ import {
 } from "../useCreateRouteEntry";
 import { NewPageForm, AvailableRoute } from "../NavMenu/NewPageForm";
 import { NewExternalPageForm } from "../NewExternalPageForm";
-import { CommandSeparator } from "../designSystem/command";
 import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export interface RouteSelectorRoute {
@@ -109,17 +104,21 @@ export function RouteSelector({
   const canCreateExternal = allowCreate && !readonly && externalRouter !== null;
 
   // Filter routes based on include/exclude patterns
-  const filteredRoutes = routes.filter((routeInfo) => {
-    // If include pattern exists, route must match it
-    if (includePattern && !includePattern.test(routeInfo.route)) {
-      return false;
-    }
-    // If exclude pattern exists, route must NOT match it
-    if (excludePattern && excludePattern.test(routeInfo.route)) {
-      return false;
-    }
-    return true;
-  });
+  const filteredRoutes = React.useMemo(
+    () =>
+      routes.filter((routeInfo) => {
+        // If include pattern exists, route must match it
+        if (includePattern && !includePattern.test(routeInfo.route)) {
+          return false;
+        }
+        // If exclude pattern exists, route must NOT match it
+        if (excludePattern && excludePattern.test(routeInfo.route)) {
+          return false;
+        }
+        return true;
+      }),
+    [routes, includePattern, excludePattern],
+  );
 
   const selectedRoute = value
     ? filteredRoutes.find((r) => r.route === value)
@@ -194,84 +193,109 @@ export function RouteSelector({
           />
         )}
         {creating === null && (
-          <Command>
-            <CommandInput placeholder={placeholder} />
-            <CommandList>
-              {isLoading ? (
-                <div className="py-6 text-center text-sm">Loading...</div>
-              ) : filteredRoutes.length === 0 ? (
-                <CommandEmpty>No routes found.</CommandEmpty>
-              ) : (
-                <CommandGroup>
-                  {filteredRoutes.map((routeInfo) => {
-                    const preview = routeInfo.preview;
-                    const filterValue = preview
-                      ? `${routeInfo.route} ${preview.title}`
-                      : routeInfo.route;
-                    return (
-                      <CommandItem
-                        key={routeInfo.route}
-                        value={filterValue}
-                        onSelect={() => {
-                          onChange(routeInfo.route);
-                          setOpen(false);
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <Check
-                          className={cn(
-                            "h-4 w-4 shrink-0",
-                            value === routeInfo.route
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                        {preview ? (
-                          <DropdownPreviewRow
-                            title={preview.title}
-                            subtitle={preview.subtitle ?? null}
-                            image={preview.image ?? null}
-                          />
-                        ) : (
-                          <span className="truncate">{routeInfo.route}</span>
-                        )}
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
-              {(canCreatePage || canCreateExternal) && (
-                <>
-                  <CommandSeparator />
-                  <CommandGroup>
-                    {canCreatePage && (
-                      <CommandItem
-                        value="__val_new_page__"
-                        onSelect={() => setCreating("page")}
-                        className="flex items-center gap-2"
-                      >
-                        <Plus className="h-4 w-4 shrink-0" />
-                        <span>New page</span>
-                      </CommandItem>
-                    )}
-                    {canCreateExternal && (
-                      <CommandItem
-                        value="__val_new_external_page__"
-                        onSelect={() => setCreating("external")}
-                        className="flex items-center gap-2"
-                      >
-                        <Earth className="h-4 w-4 shrink-0" />
-                        <span>New external page</span>
-                      </CommandItem>
-                    )}
-                  </CommandGroup>
-                </>
-              )}
-            </CommandList>
-          </Command>
+          <RouteOptions
+            routes={filteredRoutes}
+            value={value}
+            placeholder={placeholder}
+            isLoading={isLoading}
+            onChoose={(route) => {
+              onChange(route);
+              setOpen(false);
+            }}
+            actions={[
+              ...(canCreatePage
+                ? [
+                    {
+                      id: "__val_new_page__",
+                      label: "New page",
+                      icon: <Plus className="h-4 w-4 shrink-0" />,
+                      onSelect: () => setCreating("page"),
+                    },
+                  ]
+                : []),
+              ...(canCreateExternal
+                ? [
+                    {
+                      id: "__val_new_external_page__",
+                      label: "New external page",
+                      icon: <Earth className="h-4 w-4 shrink-0" />,
+                      onSelect: () => setCreating("external"),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * The routes as options, rendered only while the list is open and only the
+ * ones on screen (`WindowedOptionList`): a site of 10,000 pages is 10,000
+ * options.
+ */
+function RouteOptions({
+  routes,
+  value,
+  placeholder,
+  isLoading,
+  onChoose,
+  actions,
+}: {
+  routes: RouteSelectorRoute[];
+  value: string | null;
+  placeholder: string;
+  isLoading: boolean;
+  onChoose: (route: string) => void;
+  actions: WindowedOptionAction[];
+}) {
+  // Its own, so it starts empty each time the list opens.
+  const [search, setSearch] = React.useState("");
+  const options = React.useMemo(
+    () =>
+      routes.map((routeInfo) => ({
+        key: routeInfo.route,
+        filterText: routeInfo.preview
+          ? `${routeInfo.route} ${routeInfo.preview.title}`
+          : routeInfo.route,
+        routeInfo,
+      })),
+    [routes],
+  );
+  return (
+    <WindowedOptionList
+      label="Routes"
+      options={options}
+      selectedKey={value}
+      search={search}
+      onSearchChange={setSearch}
+      placeholder={placeholder}
+      emptyText="No routes found."
+      isLoading={isLoading}
+      onSelect={(option) => onChoose(option.key)}
+      renderOption={({ routeInfo }, { selected }) => (
+        <>
+          <Check
+            className={cn(
+              "h-4 w-4 shrink-0",
+              selected ? "opacity-100" : "opacity-0",
+            )}
+          />
+          {routeInfo.preview ? (
+            <DropdownPreviewRow
+              title={routeInfo.preview.title}
+              subtitle={routeInfo.preview.subtitle ?? null}
+              image={routeInfo.preview.image ?? null}
+            />
+          ) : (
+            <span className="truncate">{routeInfo.route}</span>
+          )}
+        </>
+      )}
+      actions={actions}
+    />
   );
 }
 

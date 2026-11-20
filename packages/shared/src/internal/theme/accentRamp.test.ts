@@ -3,6 +3,7 @@ import {
   accentRamp,
   BRAND_CONTRAST_PAIRS,
   contrastRatio,
+  proposalCustomProperties,
   RAMP_STEPS,
   relativeLuminance,
   resolvePairGround,
@@ -269,3 +270,53 @@ describe("themeCustomProperties", () => {
     expect(both["--colors-brand-green-500"]).toBeDefined();
   });
 });
+
+describe("proposalCustomProperties", () => {
+  test("a usable hex fills every proposal token, for both modes", () => {
+    const properties = proposalCustomProperties("#0891b2");
+    for (const mode of ["light", "dark"]) {
+      for (const token of [
+        "bg",
+        "bg-hover",
+        "bg-soft",
+        "fg",
+        "fg-on",
+        "border",
+      ]) {
+        expect(properties[`--theme-proposal-${mode}-${token}`]).toBeTruthy();
+      }
+    }
+  });
+
+  test("anything else leaves Val's violet", () => {
+    expect(proposalCustomProperties("cornflower")).toEqual({});
+    expect(themeCustomProperties({ proposal: "nope" })).toEqual({});
+  });
+
+  test("the text on a proposal's filled colour reads, whatever the hue", () => {
+    for (let hue = 0; hue < 360; hue += 15) {
+      const hex = hslToHex(hue, 0.7, 0.5);
+      const properties = proposalCustomProperties(hex);
+      for (const mode of ["light", "dark"]) {
+        const fill = properties[`--theme-proposal-${mode}-bg`]!;
+        const text = properties[`--theme-proposal-${mode}-fg-on`]!;
+        expect(contrastRatio(text, fill)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});
+
+/** A hex from HSL, for walking the hue circle in the test above. */
+function hslToHex(h: number, s: number, l: number): string {
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return `#${[f(0), f(8), f(4)]
+    .map((x) =>
+      Math.round(x * 255)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}

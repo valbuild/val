@@ -3,10 +3,12 @@ import {
   Json,
   ModuleFilePath,
   SerializedSchema,
+  Source,
   SourcePath,
 } from "@valbuild/core";
 import FlexSearch from "flexsearch";
 import { traverseSchemaSource, flattenRichText } from "./traverseSchemaSource";
+import { sourcePathOfChild } from "./sourcePath";
 import { getRefParts } from "./getFilenameFromRef";
 
 /**
@@ -66,6 +68,25 @@ export type SearchIndex = {
    * re-indexing one module exists to avoid.
    */
   docsByModule: Map<ModuleFilePath, Set<string>>;
+  /**
+   * For a module whose root is a record: each entry's documents, and the
+   * value they were made from, by key -- so indexing it again walks only the
+   * entries whose value is a different object (see {@link indexModule}).
+   */
+  /**
+   * What each module was last indexed from, whole: the same source object
+   * under a schema that says the same is not walked again. Removing a
+   * document from a big index is slow (FlexSearch looks for it everywhere),
+   * so indexing an unchanged module again was the cost of a pass.
+   */
+  walkedByModule: Map<ModuleFilePath, { source: Json; schema: string }>;
+  entriesByModule: Map<
+    ModuleFilePath,
+    {
+      schema: SerializedSchema;
+      entries: Map<string, { source: Json; docs: string[] }>;
+    }
+  >;
 };
 
 /** An index with nothing in it. Fill it with {@link indexModule}. */
@@ -74,6 +95,8 @@ export function createSearchIndex(): SearchIndex {
     index: new FlexSearch.Index({ tokenize: "forward" }),
     pathToLabel: new Map(),
     docsByModule: new Map(),
+    walkedByModule: new Map(),
+    entriesByModule: new Map(),
   };
 }
 
@@ -87,93 +110,253 @@ export function createSearchIndex(): SearchIndex {
  * `.jsonValues()` entries are indexed only once their content is loaded — an
  * un-loaded entry is an opaque marker that {@link traverseSchemaSource} skips, so
  * the index is naturally PARTIAL and grows as batches land. That is why the search
- * UI loads the entries on the first query and re-indexes (debounced) as they
- * arrive, rather than pretending an empty result set is an answer.
+ * UI loads the entries on the first query and re-indexes as they arrive, rather
+ * than pretending an empty result set is an answer -- and why a module whose
+ * root is a record is re-indexed by entry ({@link indexRecordModule}): a pass
+ * per batch walks the batch, not the record.
  */
 export function indexModule(
   searchIndex: SearchIndex,
   moduleFilePath: ModuleFilePath,
   source: Json,
   schema: SerializedSchema,
-): void {
-  const { index, pathToLabel, docsByModule } = searchIndex;
+  /**
+   * Stop by this time (`performance.now()`), for a caller that must not hold
+   * the thread: answers `false` when it stopped with entries of a record
+   * module still to walk, and the same call again goes on from there. A
+   * module that is not a record is walked whole, whatever the time.
+   */
+  until?: number,
+): boolean {
+  const walked = searchIndex.walkedByModule.get(moduleFilePath);
+  if (
+    walked !== undefined &&
+    walked.source === source &&
+    walked.schema === schemaKeyOf(schema)
+  ) {
+    return true;
+  }
+  if (schema.type === "record" && isJsonRecord(source)) {
+    const done = indexRecordModule(
+      searchIndex,
+      moduleFilePath,
+      source,
+      schema,
+      until,
+    );
+    if (done) {
+      searchIndex.walkedByModule.set(moduleFilePath, {
+        source,
+        schema: schemaKeyOf(schema),
+      });
+    }
+    return done;
+  }
   removeModule(searchIndex, moduleFilePath);
   const docs = new Set<string>();
-  docsByModule.set(moduleFilePath, docs);
+  searchIndex.docsByModule.set(moduleFilePath, docs);
   const path = (moduleFilePath + "?p=") as SourcePath;
-
-  traverseSchemaSource(source, schema, path, ({ source, schema, path }) => {
-    if (source === null) {
-      return;
-    }
-
-    let searchText = "";
-    let label = "";
-
-    // Handle primitives
-    if (
-      schema.type === "string" ||
-      schema.type === "number" ||
-      schema.type === "boolean" ||
-      schema.type === "date" ||
-      schema.type === "dateTime" ||
-      schema.type === "color" ||
-      schema.type === "code" ||
-      schema.type === "keyOf" ||
-      schema.type === "route" ||
-      // An enum's value is a string the editor chose; it is as searchable as
-      // any other string leaf. The old string union was never indexed at all,
-      // which is the gap this closes.
-      schema.type === "enum" ||
-      // A locale tag, for the same reason: it is what the editor picked and
-      // what they see in the field, so searching "nb-NO" has to find the
-      // Norwegian rows. `traverseSchemaSource` visits these, and visiting a
-      // leaf only to index it as the empty string is worse than not visiting
-      // it — it looks like content that does not exist.
-      schema.type === "locale"
-    ) {
-      searchText = source?.toString() ?? "";
-      label = source?.toString() ?? "";
-    } else if (schema.type === "literal") {
-      searchText = schema.value.toString();
-      label = schema.value.toString();
-    }
-    // Handle richtext - flatten to get text content
-    else if (schema.type === "richtext") {
-      searchText = flattenRichText(source);
-      // Use first 50 chars as label
-      label = searchText.substring(0, 50) || "richtext";
-    }
-    // Handle file/image/video
-    else if (
-      schema.type === "file" ||
-      schema.type === "image" ||
-      schema.type === "video"
-    ) {
-      if (
-        source !== null &&
-        typeof source === "object" &&
-        "path" in source &&
-        typeof source.path === "string"
-      ) {
-        // The label is the bare filename - the folder is shown separately in
-        // the UI - but both are searchable.
-        const { filename, folder } = getRefParts(source.path);
-        const alt = "alt" in source ? source.alt : "";
-        searchText = filename + " " + folder + " " + alt;
-        label = filename;
-      }
-    }
-
-    // Add to index if we have search text
-    if (searchText) {
-      const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
-      const cleanPath = fastRemoveNonWordChars(modulePath) + " ";
-      index.add(path, cleanPath + " " + path + " " + searchText);
-      pathToLabel.set(path, label);
-      docs.add(path);
-    }
+  traverseSchemaSource(source, schema, path, (leaf) => {
+    const id = indexLeaf(searchIndex, leaf);
+    if (id !== null) docs.add(id);
   });
+  searchIndex.walkedByModule.set(moduleFilePath, {
+    source,
+    schema: schemaKeyOf(schema),
+  });
+  return true;
+}
+
+/** How many entries are walked between two looks at the clock. */
+const ENTRIES_PER_CLOCK_CHECK = 32;
+
+/**
+ * A module whose root is a record, indexed entry by entry: an entry whose
+ * value is the SAME OBJECT it was indexed from keeps its documents, and only
+ * the others are walked.
+ *
+ * What makes loading a `.jsonValues()` record of 10,000 entries searchable
+ * while it loads. The Studio asks again as each batch lands, and the record's
+ * value is copy-on-write -- an entry nothing touched is the object it was --
+ * so each pass indexes the batch that arrived, not the record. Walked whole,
+ * that was the whole record per batch: quadratic, and a long task each time.
+ *
+ * Identity is only ever a shortcut: a value that is equal but a new object
+ * (a structured clone across a worker, a module read again) is walked again,
+ * never skipped. A different schema starts the module over.
+ */
+function indexRecordModule(
+  searchIndex: SearchIndex,
+  moduleFilePath: ModuleFilePath,
+  source: { readonly [key: string]: Json },
+  schema: Extract<SerializedSchema, { type: "record" }>,
+  until: number | undefined,
+): boolean {
+  const { index, pathToLabel, docsByModule, entriesByModule } = searchIndex;
+  let indexed = entriesByModule.get(moduleFilePath);
+  let docs = docsByModule.get(moduleFilePath);
+  if (
+    indexed === undefined ||
+    docs === undefined ||
+    (indexed.schema !== schema &&
+      schemaKeyOf(indexed.schema) !== schemaKeyOf(schema))
+  ) {
+    removeModule(searchIndex, moduleFilePath);
+    indexed = { schema, entries: new Map() };
+    docs = new Set();
+    entriesByModule.set(moduleFilePath, indexed);
+    docsByModule.set(moduleFilePath, docs);
+  }
+  const { entries } = indexed;
+  for (const [key, was] of entries) {
+    if (
+      Object.prototype.hasOwnProperty.call(source, key) &&
+      source[key] === was.source
+    ) {
+      continue;
+    }
+    for (const id of was.docs) {
+      index.remove(id);
+      pathToLabel.delete(id);
+      docs.delete(id);
+    }
+    entries.delete(key);
+  }
+  const path = (moduleFilePath + "?p=") as SourcePath;
+  let walked = 0;
+  for (const key in source) {
+    if (entries.has(key)) continue;
+    if (
+      until !== undefined &&
+      ++walked % ENTRIES_PER_CLOCK_CHECK === 0 &&
+      performance.now() > until
+    ) {
+      return false;
+    }
+    const value = source[key];
+    const entryDocs: string[] = [];
+    traverseSchemaSource(
+      value,
+      schema.item,
+      sourcePathOfChild(path, key),
+      (leaf) => {
+        const id = indexLeaf(searchIndex, leaf);
+        if (id === null) return;
+        entryDocs.push(id);
+        docs.add(id);
+      },
+    );
+    entries.set(key, { source: value, docs: entryDocs });
+  }
+  return true;
+}
+
+function isJsonRecord(
+  source: Json,
+): source is { readonly [key: string]: Json } {
+  return (
+    typeof source === "object" && source !== null && !Array.isArray(source)
+  );
+}
+
+/**
+ * A schema by its content, kept per schema object. Its object is not enough:
+ * the Studio receives a module's schema again (new code, a re-read of the
+ * project) as a new object that says the same, and starting a record of
+ * 10,000 entries over for that was seconds of removing and adding
+ * documents in one go.
+ */
+const schemaKeys = new WeakMap<SerializedSchema, string>();
+function schemaKeyOf(schema: SerializedSchema): string {
+  let key = schemaKeys.get(schema);
+  if (key === undefined) {
+    key = JSON.stringify(schema);
+    schemaKeys.set(schema, key);
+  }
+  return key;
+}
+
+/** One leaf as a document, if it has anything to find. Its id, or `null`. */
+function indexLeaf(
+  searchIndex: SearchIndex,
+  {
+    source,
+    schema,
+    path,
+  }: { source: Source; schema: SerializedSchema; path: SourcePath },
+): string | null {
+  if (source === null) {
+    return null;
+  }
+  const { index, pathToLabel } = searchIndex;
+
+  let searchText = "";
+  let label = "";
+
+  // Handle primitives
+  if (
+    schema.type === "string" ||
+    schema.type === "number" ||
+    schema.type === "boolean" ||
+    schema.type === "date" ||
+    schema.type === "dateTime" ||
+    schema.type === "color" ||
+    schema.type === "code" ||
+    schema.type === "keyOf" ||
+    schema.type === "route" ||
+    // An enum's value is a string the editor chose; it is as searchable as
+    // any other string leaf. The old string union was never indexed at all,
+    // which is the gap this closes.
+    schema.type === "enum" ||
+    // A locale tag, for the same reason: it is what the editor picked and
+    // what they see in the field, so searching "nb-NO" has to find the
+    // Norwegian rows. `traverseSchemaSource` visits these, and visiting a
+    // leaf only to index it as the empty string is worse than not visiting
+    // it — it looks like content that does not exist.
+    schema.type === "locale"
+  ) {
+    searchText = source?.toString() ?? "";
+    label = source?.toString() ?? "";
+  } else if (schema.type === "literal") {
+    searchText = schema.value.toString();
+    label = schema.value.toString();
+  }
+  // Handle richtext - flatten to get text content
+  else if (schema.type === "richtext") {
+    searchText = flattenRichText(source);
+    // Use first 50 chars as label
+    label = searchText.substring(0, 50) || "richtext";
+  }
+  // Handle file/image/video
+  else if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
+    if (
+      source !== null &&
+      typeof source === "object" &&
+      "path" in source &&
+      typeof source.path === "string"
+    ) {
+      // The label is the bare filename - the folder is shown separately in
+      // the UI - but both are searchable.
+      const { filename, folder } = getRefParts(source.path);
+      const alt = "alt" in source ? source.alt : "";
+      searchText = filename + " " + folder + " " + alt;
+      label = filename;
+    }
+  }
+
+  // Add to index if we have search text
+  if (!searchText) {
+    return null;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const cleanPath = fastRemoveNonWordChars(modulePath) + " ";
+  index.add(path, cleanPath + " " + path + " " + searchText);
+  pathToLabel.set(path, label);
+  return path;
 }
 
 /**
@@ -186,7 +369,9 @@ export function removeModule(
   searchIndex: SearchIndex,
   moduleFilePath: ModuleFilePath,
 ): void {
-  const { index, pathToLabel, docsByModule } = searchIndex;
+  const { index, pathToLabel, docsByModule, entriesByModule } = searchIndex;
+  entriesByModule.delete(moduleFilePath);
+  searchIndex.walkedByModule.delete(moduleFilePath);
   const existing = docsByModule.get(moduleFilePath);
   if (existing === undefined) return;
   for (const id of existing) {

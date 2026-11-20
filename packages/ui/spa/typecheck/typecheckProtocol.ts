@@ -1,4 +1,7 @@
-import type { TypecheckProgress, TypecheckResult } from "./typecheckProject";
+import type {
+  TypecheckProgress,
+  TypecheckResult,
+} from "@valbuild/shared/typecheck";
 
 /**
  * The messages between the Studio and the typecheck worker

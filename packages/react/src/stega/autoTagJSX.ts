@@ -12,7 +12,86 @@ const isIntrinsicElement = (type: any) => {
   return typeof type === "string";
 };
 
-const addValPathIfFound = (type: any, props: any) => {
+const FRAGMENT = Symbol.for("react.fragment");
+
+/**
+ * The paths a fragment's text named, by the fragment element. A fragment has
+ * no DOM element to carry `data-val-path`, so its text is cleaned and its
+ * paths go to the element it is a child of: `<li>{a} <>— {b}</></li>` tags
+ * the `<li>` with both. Without this its text kept its edit tag, on the page.
+ */
+const fragmentPaths = new WeakMap<object, string[]>();
+
+/** The paths of the fragments among `children`, when it holds any. */
+function pathsOfFragmentChildren(children: unknown): string[] {
+  const found: string[] = [];
+  // `.flat`: a list of keyed fragments from `.map()` is an array among them.
+  for (const child of [children].flat(Infinity)) {
+    if (typeof child === "object" && child !== null) {
+      const paths = fragmentPaths.get(child);
+      if (paths) {
+        found.push(...paths);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * `props.children` as an array that can be written to, or null when it is
+ * an array that cannot and `props` cannot take another.
+ *
+ * React's development build freezes an element's static children
+ * (`{label} →` is `[label, " →"]`), so a component that hands its
+ * `children` on to an intrinsic element -- `<a>{children}</a>` -- hands on a
+ * frozen array: the element got its `data-val-path`, and its text kept the
+ * edit tag, in development only. Its props are the component's own, fresh
+ * object, so the cleaned copy goes there.
+ */
+function writableChildren(props: any): unknown[] | null {
+  if (!Object.isFrozen(props.children)) {
+    return props.children;
+  }
+  if (Object.isFrozen(props)) {
+    return null;
+  }
+  props.children = [...props.children];
+  return props.children;
+}
+
+/**
+ * Takes the edit tags out of a fragment's text, and returns the paths they
+ * named -- its own and its fragment children's -- for its parent to carry.
+ */
+function cleanFragment(props: any): string[] {
+  if (!props || typeof props !== "object") {
+    return [];
+  }
+  const paths = pathsOfFragmentChildren(props.children);
+  const clean = (value: unknown): unknown => {
+    if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
+      const found = stegaDecodeStrings(value);
+      if (found) {
+        paths.push(...found);
+        return vercelStegaSplit(value).cleaned;
+      }
+    }
+    return value;
+  };
+  if (Array.isArray(props.children)) {
+    const children = writableChildren(props);
+    if (children) {
+      children.forEach((child: unknown, index: number) => {
+        children[index] = clean(child);
+      });
+    }
+  } else if (!Object.isFrozen(props)) {
+    props.children = clean(props.children);
+  }
+  return paths;
+}
+
+const addValPathIfFound = (type: any, props: any): string[] | undefined => {
   // TODO: increases performance. Unsure about the implications right now - seems to work. Remember to look at RSC and client (and pages/?).
   if (!IS_AUTO_TAG_JSX_ENABLED()) {
     return;
@@ -20,9 +99,9 @@ const addValPathIfFound = (type: any, props: any) => {
 
   const valSources = new Set<string>();
 
-  // skip auto-tagging fragments since we can't add attributes to them
-  if (type === Symbol.for("react.fragment")) {
-    return;
+  // A fragment cannot carry attributes: what it held goes to its parent.
+  if (type === FRAGMENT) {
+    return cleanFragment(props);
   }
   function updateValSources(
     key: string | number,
@@ -81,6 +160,11 @@ const addValPathIfFound = (type: any, props: any) => {
     }
   }
   if (props && typeof props === "object") {
+    if (isIntrinsicElement(type)) {
+      for (const path of pathsOfFragmentChildren(props.children)) {
+        valSources.add(path);
+      }
+    }
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
         updateValSources(key, value, props, props);
@@ -100,9 +184,13 @@ const addValPathIfFound = (type: any, props: any) => {
             }
           }
         } else if (value instanceof Array) {
-          for (const [index, item] of Object.entries(value)) {
+          const container =
+            key === "children" && isIntrinsicElement(type)
+              ? (writableChildren(props) ?? value)
+              : value;
+          for (const [index, item] of Object.entries(container)) {
             if (typeof item === "string" && item.match(VERCEL_STEGA_REGEX)) {
-              updateValSources(index, item, props, value);
+              updateValSources(index, item, props, container);
             }
           }
         }
@@ -121,8 +209,63 @@ function WrapJsx<T>(jsx: T): T {
   if (typeof jsx !== "function") return jsx;
 
   return function (type: any, props: any, ...rest: any[]) {
-    addValPathIfFound(type, props);
-    return jsx.call(jsx, type, props, ...rest);
+    const fragmentPathsFound = addValPathIfFound(type, props);
+    const element = jsx.call(jsx, type, props, ...rest);
+    if (
+      fragmentPathsFound &&
+      fragmentPathsFound.length > 0 &&
+      typeof element === "object" &&
+      element !== null
+    ) {
+      fragmentPaths.set(element, fragmentPathsFound);
+    }
+    return element;
+  } as any as T;
+}
+
+/**
+ * `React.createElement(type, props, ...children)` takes its children as
+ * arguments, not in `props`, so the wrapper `jsx` gets never sees them: a
+ * library that renders content with it -- TanStack Router's `<Link>` does --
+ * put the text on the page with its edit tag still in it. Its string
+ * children are cleaned here, and an intrinsic element carries their paths.
+ */
+function WrapCreateElement<T>(createElement: T): T {
+  if (typeof createElement !== "function") return createElement;
+
+  return function (type: any, props: any, ...children: any[]) {
+    if (!IS_AUTO_TAG_JSX_ENABLED() || children.length === 0) {
+      addValPathIfFound(type, props);
+      return createElement.call(createElement, type, props, ...children);
+    }
+    const paths: string[] = [];
+    const clean = (child: unknown): unknown => {
+      if (typeof child === "string" && child.match(VERCEL_STEGA_REGEX)) {
+        const found = stegaDecodeStrings(child);
+        if (found) {
+          paths.push(...found);
+          return vercelStegaSplit(child).cleaned;
+        }
+      }
+      return child;
+    };
+    const cleaned = isIntrinsicElement(type)
+      ? children.map((child) =>
+          Array.isArray(child) ? child.map(clean) : clean(child),
+        )
+      : children;
+    let ownProps = props;
+    if (isIntrinsicElement(type)) {
+      paths.push(...pathsOfFragmentChildren(cleaned));
+      if (paths.length > 0) {
+        ownProps = { ...(props ?? {}) };
+        if (!ownProps["data-val-path"]) {
+          ownProps["data-val-path"] = Array.from(new Set(paths)).join(",");
+        }
+      }
+    }
+    addValPathIfFound(type, ownProps);
+    return createElement.call(createElement, type, ownProps, ...cleaned);
   } as any as T;
 }
 
@@ -132,18 +275,25 @@ interface JsxRuntimeModule {
   jsxDEV?(type: any, ...rest: any[]): unknown;
 }
 
+/** Whether the runtimes are wrapped already: wrapping twice cleans twice. */
+let installed = false;
+
 export function autoTagJSX() {
+  if (installed) {
+    return;
+  }
+  installed = true;
   const JsxPro: JsxRuntimeModule = jsxRuntime;
   const JsxDev: JsxRuntimeModule = jsxRuntimeDev;
 
   /**
    * createElement _may_ be called by jsx runtime as a fallback in certain cases,
-   * so we need to wrap it regardless.
+   * and libraries call it directly, so we need to wrap it regardless.
    *
    * The jsx exports depend on the `NODE_ENV` var to ensure the users' bundler doesn't
    * include both, so one of them will be set with `undefined` values.
    */
-  React.createElement = WrapJsx(React.createElement);
+  React.createElement = WrapCreateElement(React.createElement);
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxDev.jsx && /*   */ (JsxDev.jsx = WrapJsx(JsxDev.jsx));
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions

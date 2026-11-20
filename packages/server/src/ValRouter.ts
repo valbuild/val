@@ -4,12 +4,20 @@ import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks } from "./ValServer";
 import { initHandlerOptions } from "./valServerConfig";
 import { nodePlatform } from "./nodePlatform";
+import { valRuntime, type ValRuntime } from "./valRuntime";
 import { createValRequestHandler } from "./ValRouterCore";
+import { parseAllowedHosts, setRequestGuard } from "./requestGuard";
 
 type Versions = {
   versions?: {
     core?: string;
+    /**
+     * The framework binding's version, whichever binding it is: the field is
+     * named for the first one, and admin.val.build reads it by that name.
+     */
     next?: string;
+    /** Which binding `next` is the version of. */
+    framework?: "next" | "tanstack";
   };
 };
 import type { ValPatchStore } from "./ValOpsMemory";
@@ -149,6 +157,16 @@ type ValServerOverrides = Partial<{
    */
   projectSource?: Record<string, string>;
   /**
+   * For each of this build's module files, every project file it depends on
+   * as the build resolved its imports (by path with no leading slash,
+   * transitive): what tells a proposal's address that a module whose own
+   * file is not staged is of code the build was not made of, through a file
+   * it imports. A host that builds the project itself hands it over, beside
+   * {@link projectSource}; the build platform does, as
+   * `platform:val-module-dependencies`. Nothing else should set it.
+   */
+  moduleDependencies?: Record<string, string[]>;
+  /**
    * The publish job the RUNNING build was made for, when a Studio built it in
    * a tab. Such a build has no commit to name its place in the content
    * service's chain with, so it names its job, and the service places it by
@@ -198,6 +216,18 @@ type ValServerOverrides = Partial<{
    * @example "https://content.val.build"
    */
   valContentUrl: string;
+  /**
+   * Where content analytics beacons are forwarded to be counted, on a
+   * self-hosted site in proxy mode. A site Val hosts never uses it: the
+   * platform answers `/api/val/analytics` itself.
+   *
+   * Typically this should not be set.
+   *
+   * Can also be overridden using the VAL_ANALYTICS_INGEST_URL env var.
+   *
+   * @example "https://platform.valstart.dev/__ingest/analytics"
+   */
+  valAnalyticsIngestUrl: string;
   /**
    * The full project name of the Val project.
    *
@@ -251,17 +281,60 @@ export async function createValServer(
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
-  return ValServer(
+  const server = ValServer(
     valModules,
     {
       formatter,
       commitPrepared,
       publishOverride,
+      ...(opts.versions?.framework && opts.versions.next
+        ? {
+            framework: {
+              name: opts.versions.framework,
+              version: opts.versions.next,
+            },
+          }
+        : {}),
       ...valServerConfig,
     },
     callbacks,
     nodePlatform,
   );
+  // fs mode has no sign-in, so which requests it answers is decided here.
+  setRequestGuard(server, {
+    mode: valServerConfig.mode,
+    production: process.env.NODE_ENV === "production",
+    allowedHosts: parseAllowedHosts(process.env.VAL_ALLOWED_HOSTS),
+  });
+  return server;
+}
+
+/**
+ * The runtime the draft readers read through (`initValContent`,
+ * `initValRsc`): the same one `createValServer` builds its server on, for the
+ * same `valModules` and options (`valRuntime`), so a save through the API
+ * moves what the readers read. The readers read its head directly, with the
+ * request's session (`ValRuntime.authorize`): no private server, and no
+ * request to it.
+ */
+export async function createValRuntime(
+  valModules: ValModules,
+  route: string,
+  opts: ValApiOptions,
+  config: ValConfig,
+): Promise<ValRuntime> {
+  const valServerConfig = await initHandlerOptions(route, opts, config);
+  return valRuntime(valModules, {
+    ...(opts.versions?.framework && opts.versions.next
+      ? {
+          framework: {
+            name: opts.versions.framework,
+            version: opts.versions.next,
+          },
+        }
+      : {}),
+    ...valServerConfig,
+  });
 }
 
 // TODO: remove

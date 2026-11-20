@@ -101,7 +101,8 @@ export async function navigateStudio(page: Page, route: string): Promise<void> {
 /**
  * Throw away every patch on the server, so a run starts where the last one did.
  *
- * `examples/next/.val` is a fixture directory, gitignored and owned by whoever is
+ * `examples/tanstack/.val` (and `examples/next/.val`, for the specs pinned to
+ * Next) is a fixture directory, gitignored and owned by whoever is
  * running the example app — which, for the length of a suite, is the suite.
  * Without this the chain grows on every run, `/stat` gets slower, and eventually
  * a test fails for a reason that has nothing to do with the code under test.
@@ -146,7 +147,7 @@ export async function clearPatchChain(
  * assertion — has no reason to call `clearPatchChain` itself, and that is
  * exactly how one gets skipped: nothing about a spec that never writes a
  * patch suggests it needs to clear one. But every fs-mode spec shares the
- * same `examples/next/.val` directory and runs in the same serial worker
+ * same `.val` directory and runs in the same serial worker
  * (`playwright.config.ts`), so a patch left behind by whichever spec ran
  * before it is still there — an invalid title can make a field's own text
  * assertion fail, a stray media upload can appear in a gallery a test

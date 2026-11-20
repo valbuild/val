@@ -1,0 +1,533 @@
+import { c, tanstackRouter, s } from "../../val.config";
+import authorsVal from "../../content/authors.val";
+import { linkSchema } from "../../content/link.val";
+
+const blogSchema = s.object({
+  title: s.string(),
+  content: s.richtext({
+    bold: true,
+    a: s.route(),
+  }),
+  author: s.keyOf(authorsVal),
+  link: linkSchema,
+});
+
+export default c.define(
+  "/src/routes/_site.blogs.$blog.val.ts",
+  s.router(
+    tanstackRouter,
+    s.string().describe("The URL of the blog post"),
+    // The preview lives on the BLOG POST (the value being previewed): the
+    // router's rows, search and references all read it from there.
+    blogSchema.preview(({ val }) => ({
+      title: val.title,
+      subtitle: val.author,
+    })),
+  ),
+  {
+    "/blogs/blog2": {
+      title: "Blog 2",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 2 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "Read more",
+        href: "/blogs/blog1",
+      },
+    },
+    "/blogs/blog1": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-2": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-3": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-4": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-5": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-6": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-7": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-8": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-9": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-10": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-11": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-12": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-13": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-14": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-15": {
+      title: "Blog dette er jo sinnsyjt! men hvorfor har vi to feil?",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-16": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-17": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-18": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-19": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-20": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-21": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-22": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-23": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-24": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-25": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-26": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-27": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-28": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-29": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-30": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-31": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-32": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-33": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-34": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+    "/blogs/blog-35": {
+      title: "Blog 1",
+      content: [
+        {
+          tag: "p",
+          children: ["Blog 1 content"],
+        },
+      ],
+      author: "freekh",
+      link: {
+        label: "See more",
+        href: "/generic/test/foo",
+      },
+    },
+  },
+);

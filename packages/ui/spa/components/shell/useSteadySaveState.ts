@@ -1,5 +1,43 @@
 import { useEffect, useState } from "react";
 import type { SaveState } from "./StatusBar";
+import { isSaveStuck, type SyncState } from "../../stores/PatchSync";
+
+/**
+ * What the status bar says about saving, from everything that decides it.
+ *
+ * Patches are applied locally first, so the editor never waits on a round
+ * trip to show a change; the question this answers is whether the change has
+ * reached the server. Two inputs used to answer it -- "are there unsaved
+ * patches" and "is the service unavailable" -- and neither was the write
+ * queue itself. So when a save failed and the patch was dropped, nothing was
+ * unsaved any more and the bar said "All changes saved" over an edit that had
+ * just been lost.
+ *
+ * The queue is read first because it is the one input that knows a save
+ * FAILED rather than merely did not happen yet:
+ *
+ * - `failed` (the content service would not take it) and a retry that has
+ *   gone on long enough to be reported (`isSaveStuck`) are "error". Never
+ *   "saving", which reads as "wait", and never "saved".
+ * - Anything else that is not `in-sync` is "saving": queued, in flight, or
+ *   retrying a blip. A plan refusal is here too -- the edit is kept and the
+ *   shell says why beside the fix, so the bar does not say it twice.
+ * - `in-sync` with nothing unsaved is the only "saved".
+ */
+export function saveStateOf(inputs: {
+  sync: SyncState | null;
+  /** Patches made here that the server has not acknowledged. */
+  unsavedCount: number;
+  hasPatchErrors: boolean;
+  serviceUnavailable: boolean;
+}): SaveState {
+  const { sync } = inputs;
+  if (sync !== null && isSaveStuck(sync)) return "error";
+  if (inputs.hasPatchErrors || inputs.serviceUnavailable) return "error";
+  if (inputs.unsavedCount > 0) return "saving";
+  if (sync !== null && sync.status !== "in-sync") return "saving";
+  return "saved";
+}
 
 /**
  * How long "Saving…" stays up after the last write lands.

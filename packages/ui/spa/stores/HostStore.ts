@@ -1,6 +1,4 @@
 import {
-  computeSchemaSha,
-  computeSourcesSha,
   Internal,
   previewScope,
   type Json,
@@ -10,6 +8,7 @@ import {
   type SerializedSchema,
   type SourcePath,
   type ValModule,
+  type ValModules,
   type ValidationErrors,
 } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
@@ -22,6 +21,11 @@ import type {
 import type { SchemaStore } from "./SchemaStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
+import { loadValModules } from "./react/loadValModules";
+import {
+  STAGED_SCHEMA_PREFIX,
+  schemaVersionOf,
+} from "@valbuild/shared/internal";
 
 /**
  * REALM: host. Cannot ever move to a worker.
@@ -43,6 +47,87 @@ import { noopActivity, type ActivitySink } from "./activity";
  *    validation stores can have the two things done that only an instance can
  *    do, without ever holding one.
  */
+/**
+ * One entry of a `val.modules` registry, as intake gets it: the module, or
+ * what its code threw (`loadValModules`).
+ */
+export type IntakeModule =
+  | ValModule<SelectorSource>
+  | { readonly threw: string };
+
+/**
+ * What {@link HostStore.reloadCode} did with a registry.
+ *
+ * `reloaded`: it is the Studio's code now. `changed` are the modules whose
+ * schema moved (or that are new), `removed` the ones no longer in it, and
+ * `failures` what could not be read -- a module whose code throws is kept as
+ * it was (S12), and named there.
+ *
+ * `kept`: nothing was touched, and the Studio runs the code it had, because
+ *
+ * - `does-not-load`: the registry itself could not be read (or imported);
+ * - `other-val-version`: it is a build's, and that build runs another Val
+ *   than this Studio -- its code cannot be swapped in under stores of
+ *   another release, so the Studio reloads the page instead (`BuildCode`);
+ * - `not-the-manifest's`: it is a build's, and its schemas are not the ones
+ *   the manifest it was named by says -- a registry from another build than
+ *   the manifest the Studio is moving to. Not adopted; the next manifest
+ *   decides.
+ */
+export type CodeReload =
+  | {
+      status: "reloaded";
+      changed: ModuleFilePath[];
+      removed: ModuleFilePath[];
+      failures: readonly ModuleFailure[];
+    }
+  | {
+      status: "kept";
+      reason: "does-not-load" | "other-val-version" | "not-the-manifest's";
+      details: string;
+    }
+  /** A later registry arrived while this one was read: that one decides. */
+  | { status: "kept"; reason: "superseded" };
+
+/**
+ * The build a registry is expected to be: what the manifest that named it
+ * says (`registry` and `modules` on `GET /manifest`). See
+ * {@link HostStore.reloadCode}.
+ */
+export type ExpectedBuild = {
+  /** The `@valbuild/core` the build runs. */
+  core: string;
+  /** Every module's schema version, as the manifest names it. */
+  modules: Readonly<Record<ModuleFilePath, { schema: string }>>;
+};
+
+/** A module intake could not read, and why. See {@link HostStore.failures}. */
+export type ModuleFailure = {
+  moduleFilePath: string | null;
+  message: string;
+  /**
+   * The Studio still shows this module, as the last intake that could read
+   * it had it: its code threw this time, and a module whose code is mid-edit
+   * is not a module that was removed.
+   */
+  kept?: true;
+};
+
+/** What intake adopted at one place in the registry, to keep if it throws. */
+type Adopted = {
+  moduleFilePath: ModuleFilePath;
+  serializedSchema: SerializedSchema;
+  source: Json;
+  instance: Schema<SelectorSource>;
+  /** The module itself, to read what its code wrote when it is asked. */
+  module: ValModule<SelectorSource>;
+  /**
+   * The source the module's own code wrote, as JSON: kept when it is the
+   * source (nothing served), or once it has been compared.
+   */
+  written?: Json;
+};
+
 export class HostStore implements HostBridge {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -87,33 +172,292 @@ export class HostStore implements HostBridge {
    * must stop being reported. Read by the dev banner — see
    * `LocalModulesErrorBanner`.
    */
-  private moduleFailures: { moduleFilePath: string | null; message: string }[] =
-    [];
+  private moduleFailures: ModuleFailure[] = [];
 
-  failures(): readonly { moduleFilePath: string | null; message: string }[] {
+  failures(): readonly ModuleFailure[] {
     return this.moduleFailures;
   }
 
+  /**
+   * What the last intake adopted, by place in the registry: what a module
+   * whose code throws next time is kept as. Its place is the only thing that
+   * names it -- a registry entry is an `import()` and nothing else.
+   */
+  private adoptedAt: (Adopted | undefined)[] = [];
+
+  /**
+   * Put a `val.modules` registry in place: THE way new code reaches the
+   * Studio, whatever brought it -- the first registry, HMR
+   * (`val-modules-updated`), the code the tab evaluated after a staging
+   * (`evaluateStagedCode`), or a new build's own registry, named by the
+   * manifest (`BuildCode`). One path, so all four are the same intake, and
+   * every scenario that changes code drives it.
+   *
+   * The registry is read BEFORE anything is touched: a registry that cannot
+   * be read leaves the Studio on the code it had and says why (`kept`), and
+   * one whose modules throw keeps those modules as they were. Only the
+   * modules whose schema moved are touched downstream: `SchemaStore` and
+   * `SourceStore` compare by identity, and an unchanged module hands over the
+   * very objects it did last time.
+   *
+   * Replaced, not merged: a module no longer in the registry goes (S13).
+   */
+  /** How many registries {@link reloadCode} has been handed. */
+  private reloads = 0;
+  /**
+   * The newest of those that was ADOPTED, by its place in that count. A
+   * registry adopts only when none handed over after it has: read in
+   * parallel, adopted in order. One that was refused -- another Val, not the
+   * manifest's, did not load -- moves nothing, so it does not supersede an
+   * earlier one still loading.
+   */
+  private adoptedReload = 0;
+
+  async reloadCode(
+    /** The registry, or how to import it: a build's entry (`BuildCode`). */
+    registry: ValModules | (() => Promise<ValModules>),
+    options: {
+      /** See {@link receive}'s `options`. */
+      byContent?: boolean;
+      /**
+       * The build this registry has to be, for a build's own registry: the
+       * manifest that named it. Another Val is not imported at all
+       * (`other-val-version`), and a registry whose schemas are not the
+       * manifest's is not adopted (`not-the-manifest's`).
+       */
+      expected?: ExpectedBuild;
+    } = {},
+  ): Promise<CodeReload> {
+    const generation = ++this.reloads;
+    const expected = options.expected;
+    if (expected !== undefined && expected.core !== Internal.VERSION.core) {
+      return {
+        status: "kept",
+        reason: "other-val-version",
+        details: `The new build runs @valbuild/core ${expected.core}, and this Studio runs ${Internal.VERSION.core ?? "an unknown version"}.`,
+      };
+    }
+    let modules: IntakeModule[];
+    try {
+      modules = await loadValModules(
+        typeof registry === "function" ? await registry() : registry,
+      );
+    } catch (error) {
+      if (generation < this.adoptedReload) {
+        return { status: "kept", reason: "superseded" };
+      }
+      const details = error instanceof Error ? error.message : String(error);
+      // The first intake still has to complete, or every readiness gate waits
+      // for it forever: with nothing, honestly (see `ValStoreProvider`).
+      if (this.receivedAt === null) this.receive([]);
+      return { status: "kept", reason: "does-not-load", details };
+    }
+    // Read in parallel, adopted in order: an older registry whose imports
+    // took longer must not land over a newer one (two HMR rounds in a row).
+    if (generation < this.adoptedReload) {
+      return { status: "kept", reason: "superseded" };
+    }
+    if (expected !== undefined) {
+      const mismatch = this.notTheManifests(modules, expected);
+      if (mismatch !== null) {
+        return {
+          status: "kept",
+          reason: "not-the-manifest's",
+          details: mismatch,
+        };
+      }
+    }
+    this.adoptedReload = generation;
+    const before = this.schemaStore.all();
+    this.receive(modules, options);
+    const after = this.schemaStore.all();
+    const changed: ModuleFilePath[] = [];
+    for (const moduleFilePath of Object.keys(after)) {
+      if (!isModuleFilePath(moduleFilePath)) continue;
+      if (before[moduleFilePath] !== after[moduleFilePath]) {
+        changed.push(moduleFilePath);
+      }
+    }
+    const removed: ModuleFilePath[] = [];
+    for (const moduleFilePath of Object.keys(before)) {
+      if (!isModuleFilePath(moduleFilePath)) continue;
+      if (after[moduleFilePath] === undefined) removed.push(moduleFilePath);
+    }
+    return {
+      status: "reloaded",
+      changed,
+      removed,
+      failures: this.moduleFailures,
+    };
+  }
+
+  /**
+   * Why `modules` are not the build `expected` names, or `null` when they
+   * are: every module's schema version equal to the manifest's, and no
+   * module in one that is not in the other. A module the manifest versions
+   * `staged:` (code staged after the build serving a proposal) is not
+   * compared: no build's registry has that code. Nor is one whose code
+   * throws here: it is kept as it was (S12), and named as a failure.
+   */
+  private notTheManifests(
+    modules: IntakeModule[],
+    expected: ExpectedBuild,
+  ): string | null {
+    const seen = new Set<string>();
+    const differ: string[] = [];
+    for (const module of modules) {
+      if ("threw" in module) continue;
+      const path = Internal.getValPath(module) as string | undefined;
+      const schema = Internal.getSchema(module);
+      if (path === undefined || schema === undefined) continue;
+      seen.add(path);
+      const named = expected.modules[path as ModuleFilePath]?.schema;
+      if (named !== undefined && named.startsWith(STAGED_SCHEMA_PREFIX))
+        continue;
+      const version = schemaVersionOf(
+        this.serialize(path as ModuleFilePath, schema),
+      );
+      if (named !== version) differ.push(path);
+    }
+    for (const [path, version] of Object.entries(expected.modules)) {
+      if (seen.has(path) || version.schema.startsWith(STAGED_SCHEMA_PREFIX))
+        continue;
+      differ.push(path);
+    }
+    if (differ.length === 0) return null;
+    return `The new build's code does not have the schemas its server named for ${differ.join(", ")}.`;
+  }
+
+  /**
+   * A schema instance, serialized once: a build's registry is compared with
+   * its manifest before it is taken in, and taken in right after.
+   */
+  private serialize(
+    moduleFilePath: ModuleFilePath,
+    schema: Schema<SelectorSource>,
+  ): SerializedSchema {
+    const known = this.serialized.get(schema);
+    if (known !== undefined) return known;
+    this.activity.work("host:serialize-schema", moduleFilePath);
+    const serialized = schema["executeSerialize"]();
+    this.serialized.set(schema, serialized);
+    return serialized;
+  }
+
+  private serialized = new WeakMap<object, SerializedSchema>();
+
+  /**
+   * Which module each entry whose code threw is, from what the last intake
+   * adopted: an entry is an `import()` and nothing else, so nothing in it
+   * says.
+   *
+   * By place only where the registry kept its shape -- as long as it was,
+   * every module that loaded where it was last time -- because a place is a
+   * name only while nothing moved: an entry added, removed or moved above a
+   * module that throws made it the module that used to be there, kept under
+   * the wrong name, and the one that threw dropped. Otherwise only when it
+   * is unambiguous: one entry threw, and one module of the last intake is
+   * missing from this one. Anything else is named by its place in the list,
+   * and keeps nothing.
+   */
+  private namesOfThrowers(modules: IntakeModule[]): Map<number, Adopted> {
+    const named = new Map<number, Adopted>();
+    const threw: number[] = [];
+    const loaded = new Set<string>();
+    let samePlaces = modules.length === this.adoptedAt.length;
+    for (const [index, module] of modules.entries()) {
+      if ("threw" in module) {
+        threw.push(index);
+        continue;
+      }
+      const path: string | undefined = Internal.getValPath(module);
+      if (path !== undefined) loaded.add(path);
+      if (path === undefined || this.adoptedAt[index]?.moduleFilePath !== path)
+        samePlaces = false;
+    }
+    if (threw.length === 0) return named;
+    if (samePlaces) {
+      for (const index of threw) {
+        const kept = this.adoptedAt[index];
+        if (kept !== undefined) named.set(index, kept);
+      }
+      return named;
+    }
+    const missing = this.adoptedAt.filter(
+      (previous): previous is Adopted =>
+        previous !== undefined && !loaded.has(previous.moduleFilePath),
+    );
+    if (threw.length === 1 && missing.length === 1) {
+      named.set(threw[0], missing[0]);
+    }
+    return named;
+  }
+
+  /**
+   * Take a registry's modules in: their schemas, and the source their code
+   * wrote as each module's base. Where the server is on another base -- a
+   * content version, content published without a build, a proposal's saves
+   * -- the manifest names it and it is read by version
+   * (`ManifestSource`); the page no longer hands its base over.
+   */
   receive(
-    modules: ValModule<SelectorSource>[],
-    /**
-     * The Source the page serves where it is not the bundle's, by module: a
-     * content version -- content published without a build -- and a
-     * proposal's saves over it (`ValDraft.base`, `window.__VAL_BASE__`). It IS
-     * the base, and the bundle is not: after a content-only publish the bundle
-     * still holds what it was built with. Taken as given, so the base's sha is
-     * the fold the server reports for the same Source and no base is fetched
-     * for it; without it, the pre-publish text was the Studio's base until a
-     * fetch replaced it, and reached a draft page whenever it got there first.
-     */
-    served?: Record<ModuleFilePath, Json>,
+    modules: IntakeModule[],
+    options: {
+      /**
+       * Compare a new instance with what was adopted for its path by its
+       * serialized schema and source, not by identity: for a registry whose
+       * instances are all new (`reloadCode`'s staged code).
+       */
+      byContent?: boolean;
+    } = {},
   ): void {
+    const previousByPath = new Map<ModuleFilePath, Adopted>();
+    if (options.byContent === true) {
+      for (const previous of this.adoptedAt) {
+        if (previous !== undefined) {
+          previousByPath.set(previous.moduleFilePath, previous);
+        }
+      }
+    }
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     const sources: Record<ModuleFilePath, Json> = {};
     const adopted: ModuleFilePath[] = [];
-    const failures: { moduleFilePath: string | null; message: string }[] = [];
+    const failures: ModuleFailure[] = [];
+    const adoptedAt: (Adopted | undefined)[] = [];
+    const throwers = this.namesOfThrowers(modules);
 
-    for (const module of modules) {
+    for (const [index, module] of modules.entries()) {
+      /**
+       * Code that throws -- a module mid-edit -- keeps the module it was.
+       *
+       * Dropped, as it used to be, the module silently left the Studio, and
+       * came back only when the code was fixed. Kept, the editor goes on
+       * seeing it on the schema it last had, and is told why it did not move.
+       */
+      if ("threw" in module) {
+        const kept = throwers.get(index);
+        if (
+          kept === undefined ||
+          serializedSchemas[kept.moduleFilePath] !== undefined
+        ) {
+          failures.push({
+            moduleFilePath: null,
+            message: `Module number ${index + 1} in val.modules could not be loaded: ${module.threw}`,
+          });
+          continue;
+        }
+        serializedSchemas[kept.moduleFilePath] = kept.serializedSchema;
+        sources[kept.moduleFilePath] = kept.source;
+        this.instances[kept.moduleFilePath] = kept.instance;
+        adopted.push(kept.moduleFilePath);
+        adoptedAt[index] = kept;
+        failures.push({
+          moduleFilePath: kept.moduleFilePath,
+          message: module.threw,
+          kept: true,
+        });
+        continue;
+      }
       /**
        * One bad module must not take the rest of the project down.
        *
@@ -141,20 +485,78 @@ export class HostStore implements HostBridge {
           });
           continue;
         }
+        /**
+         * The same module as last time -- the very instance, which is what an
+         * HMR round leaves every file it did not re-evaluate -- hands over the
+         * very objects it handed over last time. That is how the stores
+         * downstream tell a module that changed from one that came along with
+         * it: `SchemaStore.receive` and `SourceStore.receive` compare what
+         * they are given with what they were given, and only a changed module
+         * invalidates anything. It is the instance and not a comparison of the
+         * serialized form because an instance carries closures (`validate`,
+         * `preview`) that the serialized form does not: a module whose only
+         * change is its `validate` must still be validated again.
+         */
+        const previous = this.adoptedAt[index];
+        const same =
+          previous !== undefined &&
+          previous.moduleFilePath === moduleFilePath &&
+          previous.instance === schema
+            ? previous
+            : undefined;
         // Bracket access, never `instanceof Schema`: this object came from the
         // HOST's copy of @valbuild/core, so the class identity differs from ours.
         // See the bundle-seam note in `bridges.ts`.
-        this.activity.work("host:serialize-schema", moduleFilePath);
-        serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
+        if (same !== undefined) {
+          serializedSchemas[moduleFilePath] = same.serializedSchema;
+        } else {
+          serializedSchemas[moduleFilePath] = this.serialize(
+            moduleFilePath,
+            schema,
+          );
+        }
         // JSON round-trip so what crosses is provably clone-safe — no instance
         // can leak downstream by being reachable from a source value.
-        const servedSource = served?.[moduleFilePath];
-        sources[moduleFilePath] =
-          servedSource !== undefined
-            ? servedSource
-            : (JSON.parse(JSON.stringify(Internal.getSource(module))) as Json);
+        let written = same?.written ?? writtenBy(module);
+        let source = written;
+        /*
+         * A registry that is all new instances -- staged code, a bundle
+         * imported again -- says nothing by identity: every module would
+         * count as changed, and every module's validation, previews and view
+         * be done again for a write that touched one. There, a module whose
+         * serialized schema and written source are the ones it had hands over
+         * the very objects it handed over before -- the base it had included
+         * -- as an unchanged instance does, and only the
+         * instance (its closures) is replaced. A change to a custom
+         * `validate` alone is not seen this way; HMR, which keeps the
+         * instances of what it did not re-evaluate, compares by identity.
+         */
+        const before =
+          same === undefined && options.byContent === true
+            ? previousByPath.get(moduleFilePath)
+            : undefined;
+        if (
+          before !== undefined &&
+          JSON.stringify(before.serializedSchema) ===
+            JSON.stringify(serializedSchemas[moduleFilePath]) &&
+          JSON.stringify(before.written ?? writtenBy(before.module)) ===
+            JSON.stringify(written)
+        ) {
+          serializedSchemas[moduleFilePath] = before.serializedSchema;
+          written = before.written ?? written;
+          source = before.source;
+        }
+        sources[moduleFilePath] = source;
         this.instances[moduleFilePath] = schema;
         adopted.push(moduleFilePath);
+        adoptedAt[index] = {
+          moduleFilePath,
+          serializedSchema: serializedSchemas[moduleFilePath],
+          source,
+          instance: schema,
+          module,
+          ...(written !== undefined ? { written } : {}),
+        };
       } catch (error) {
         failures.push({
           moduleFilePath: (Internal.getValPath(module) as string) ?? null,
@@ -162,7 +564,29 @@ export class HostStore implements HostBridge {
         });
       }
     }
+    /*
+     * And a module that could not be SERIALIZED this time keeps what it was,
+     * for the same reason a module whose code throws does: it is mid-edit, not
+     * removed. Before intake replaced the schemas, the merge kept it.
+     */
+    for (const failure of failures) {
+      if (failure.moduleFilePath === null || failure.kept) continue;
+      const index = this.adoptedAt.findIndex(
+        (previous) => previous?.moduleFilePath === failure.moduleFilePath,
+      );
+      const kept = this.adoptedAt[index];
+      if (kept === undefined) continue;
+      const moduleFilePath = kept.moduleFilePath;
+      if (serializedSchemas[moduleFilePath] !== undefined) continue;
+      serializedSchemas[moduleFilePath] = kept.serializedSchema;
+      sources[moduleFilePath] = kept.source;
+      this.instances[moduleFilePath] = kept.instance;
+      adopted.push(moduleFilePath);
+      adoptedAt[index] ??= kept;
+      failure.kept = true;
+    }
     this.moduleFailures = failures;
+    this.adoptedAt = adoptedAt;
 
     // BEFORE the announcement. Dispatch is synchronous, so a consumer woken by
     // `host:receive` reads this in the same turn — and it has to see the intake it
@@ -174,65 +598,34 @@ export class HostStore implements HostBridge {
     // Schemas before source: `SourceStore.get` refuses to answer `absent` for a
     // module whose schema is unknown, so the other order would make the first
     // read after intake say `module-loading`.
-    this.schemaStore.receive(serializedSchemas);
-    this.sourceStore.receive(sources);
-    this.bundle = {
-      sourcesSha: computeSourcesSha(
-        adopted.map((path) => ({ path, source: sources[path] })),
-      ),
-      sources,
-    };
-    // Recomputed on every intake, an HMR re-run included: it is the schema
-    // this page is RUNNING, which is what `SchemaFreshnessWatch` compares.
-    this.runningSchemaSha = computeSchemaSha(
-      adopted.map((path) => ({
-        path,
-        serializedSchema: serializedSchemas[path],
-      })),
+    // A module the last intake had and this one does not was removed from
+    // `val.modules`: it goes, with its source (and, through `schema:init`,
+    // its validation and previews). It used to stay until a reload.
+    const removed = (Object.keys(this.instances) as ModuleFilePath[]).filter(
+      (moduleFilePath) => serializedSchemas[moduleFilePath] === undefined,
     );
+    for (const moduleFilePath of removed) {
+      delete this.instances[moduleFilePath];
+    }
+    this.schemaStore.receive(serializedSchemas);
+    this.sourceStore.forget(removed);
+    this.sourceStore.receive(sources);
+    this.bundle = sources;
     // After the source store has the bundle's source, so a listener that puts
-    // another build's base back on top (`BaseAlignment`) has the last word.
-    this.events.emit({
-      type: "host:base-received",
-      sourcesSha: this.bundle.sourcesSha,
-    });
+    // the server's base back under a module the server is on another base
+    // for (`ManifestSource`) has the last word.
+    this.events.emit({ type: "host:base-received" });
   }
 
   /**
-   * The source this intake brought, and its `sourcesSha`.
-   *
-   * The same fold the server runs over ITS build's modules, so the two can be
-   * compared: a `/stat` answer is relative to the build that answered it, and
-   * this is how the Studio knows whether that build is the one whose source it
-   * holds. Hashed over the JSON round-tripped source, which stringifies the same
-   * as the module's own.
+   * The source this intake brought, by module: what the bundle's code wrote.
+   * `null` before intake.
    */
-  bundleBase(): {
-    sourcesSha: string;
-    sources: Record<ModuleFilePath, Json>;
-  } | null {
+  bundleSources(): Readonly<Record<ModuleFilePath, Json>> | null {
     return this.bundle;
   }
 
-  private bundle: {
-    sourcesSha: string;
-    sources: Record<ModuleFilePath, Json>;
-  } | null = null;
-
-  /**
-   * The `schemaSha` of the schemas this page is running, or `null` before
-   * intake.
-   *
-   * The same fold the server runs over its build's modules (`computeSchemaSha`),
-   * over the same modules in the same order — the ones that serialized, in
-   * `val.modules` order — so a `/stat` from a build with another schema says so
-   * by not being equal to this.
-   */
-  schemaSha(): string | null {
-    return this.runningSchemaSha;
-  }
-
-  private runningSchemaSha: string | null = null;
+  private bundle: Record<ModuleFilePath, Json> | null = null;
 
   async preview(
     moduleFilePath: ModuleFilePath,
@@ -358,4 +751,18 @@ export class HostStore implements HostBridge {
   loadedModules(): ModuleFilePath[] {
     return Object.keys(this.instances) as ModuleFilePath[];
   }
+}
+
+/** A schema store's key: the module's path, which is absolute. */
+function isModuleFilePath(path: string): path is ModuleFilePath {
+  return path.startsWith("/");
+}
+
+/**
+ * What a module's own code wrote, as JSON. A round trip, so what crosses is
+ * provably clone-safe: no instance can leak downstream by being reachable
+ * from a source value.
+ */
+function writtenBy(module: ValModule<SelectorSource>): Json {
+  return JSON.parse(JSON.stringify(Internal.getSource(module))) as Json;
 }

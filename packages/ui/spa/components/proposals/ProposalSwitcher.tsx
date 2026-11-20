@@ -1,8 +1,27 @@
-import { Check, ChevronDown, GitBranch, Globe, List, Plus } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  CircleArrowUp,
+  CodeXml,
+  GitBranch,
+  GitCompare,
+  Globe,
+  Link2,
+  List,
+  Pencil,
+  Plus,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
+import { Spinner } from "../designSystem/spinner";
 import type { ProposalSummary, StudioLocation } from "./types";
+import {
+  PreviewProblemCard,
+  PreviewProblemDot,
+  type PreviewProblem,
+} from "./PreviewProblemCard";
 
 /**
  * Where you are -- the site, or one proposal -- and the way to go somewhere
@@ -15,6 +34,12 @@ import type { ProposalSummary, StudioLocation } from "./types";
  *
  * Lists the OPEN proposals and nothing else; merged and closed ones are in
  * All proposals, which is one click further.
+ *
+ * In a proposal it is also everything about the proposal itself, as the
+ * phone's sheet behind the location chip is (`ProposalSheet`): its name and
+ * who made it, then compare, rename, copy its link and close, then where else
+ * to go. The Save/Publish menu keeps only what is done with its CHANGES. One
+ * layout on both, so nobody learns two.
  */
 export function ProposalSwitcher({
   location,
@@ -23,6 +48,14 @@ export function ProposalSwitcher({
   onOpenProposal,
   onNewProposal,
   onShowAllProposals,
+  onRename,
+  onCompare,
+  onCopyLink,
+  onClose,
+  loading = false,
+  leaving = null,
+  problem = null,
+  codeModeLine = null,
   defaultOpen = false,
 }: {
   location: StudioLocation;
@@ -32,13 +65,42 @@ export function ProposalSwitcher({
   onOpenProposal: (name: string) => void;
   onNewProposal: () => void;
   onShowAllProposals: () => void;
+  /**
+   * Rename the proposal you are in. Not offered on the site, nor for an
+   * upgrade, which Val Build names after its kind.
+   */
+  onRename?: () => void;
+  /** The proposal against the site. Absent: not offered. */
+  onCompare?: () => void;
+  /** Copy the proposal's address. */
+  onCopyLink?: () => void;
+  /** Close it -- discard it, for an upgrade. */
+  onClose?: () => void;
+  /** See `TopBarProposals.loading`. */
+  loading?: boolean;
+  /** See `TopBarProposals.leaving`: said here, and nothing more to choose. */
+  leaving?: string | null;
+  /**
+   * The preview could not be updated: a dot on the button, and the card at
+   * the top of the menu. See `PreviewProblem`.
+   */
+  problem?: PreviewProblem | null;
+  /**
+   * While the proposal is in code mode: "Code mode on: turned on by Kari,
+   * 10 minutes ago", under its name. Everyone in it sees it.
+   */
+  codeModeLine?: string | null;
   /** For stories: show the menu open. */
   defaultOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const showProblem = problem !== null && location.kind === "proposal";
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setIsOpen(false), []);
   useDismissOnOutsidePointer(containerRef, isOpen, close);
+  // Not yet known whether this is the site or a proposal.
+  const unknown = loading && location.kind === "site";
+  const busy = loading || leaving !== null;
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -59,63 +121,170 @@ export function ProposalSwitcher({
         type="button"
         aria-haspopup="menu"
         aria-expanded={isOpen}
+        aria-busy={busy || undefined}
         aria-label={
-          location.kind === "proposal"
-            ? `In the proposal ${location.proposal.displayName}. Switch`
-            : "On the site. Switch to a proposal"
+          leaving !== null
+            ? leaving
+            : unknown
+              ? "Finding out where this Studio is"
+              : location.kind === "proposal"
+                ? `In the proposal ${location.proposal.displayName}.${showProblem ? " Its preview couldn't be updated." : ""} Switch`
+                : "On the site. Switch to a proposal"
         }
+        disabled={leaving !== null || unknown}
         onClick={() => setIsOpen((open) => !open)}
         className={cn(
-          "inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+          "relative inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+          "disabled:cursor-progress",
           location.kind === "proposal"
             ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
             : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
         )}
       >
-        {location.kind === "proposal" ? (
-          <GitBranch size={14} className="shrink-0" />
+        {busy ? (
+          <Spinner size={14} />
+        ) : location.kind === "proposal" ? (
+          <ProposalIcon
+            proposal={location.proposal}
+            size={14}
+            className="shrink-0"
+          />
         ) : (
           <Globe size={14} className="shrink-0" />
         )}
         <span className="truncate">
-          {location.kind === "proposal"
-            ? location.proposal.displayName
-            : "The site"}
+          {leaving !== null
+            ? leaving
+            : unknown
+              ? "Loading…"
+              : location.kind === "proposal"
+                ? location.proposal.displayName
+                : "The site"}
         </span>
-        <ChevronDown size={13} className="shrink-0 opacity-70" />
+        {leaving === null && !unknown && (
+          <ChevronDown size={13} className="shrink-0 opacity-70" />
+        )}
+        {showProblem && !busy && <PreviewProblemDot />}
       </button>
       {isOpen && (
         <div
           role="menu"
-          className="absolute left-0 top-full z-full mt-1 w-72 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+          className="absolute left-0 top-full z-full mt-1 w-80 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
         >
-          <MenuRow
-            icon={<Globe size={14} />}
-            label="The site"
-            detail="What visitors see"
-            current={here === null}
-            onClick={choose(onOpenSite)}
-          />
-          <div className="my-1 border-t border-border-float" />
-          <div className="px-3 pb-1 pt-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-fg-secondary-alt">
-            Proposals
-          </div>
-          {proposals.length === 0 ? (
-            <div className="px-3 py-1.5 text-xs text-fg-secondary-alt">
-              None open. A proposal is a copy of the site you can change, save
-              and share before it goes live.
-            </div>
-          ) : (
-            proposals.map((proposal) => (
+          {location.kind === "proposal" ? (
+            <>
+              {/* The proposal itself, as the phone's sheet heads it. */}
+              <div className="mx-1 mb-1 rounded-md bg-bg-proposal-soft px-2.5 py-2">
+                <div className="flex items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-fg-proposal">
+                  <ProposalIcon proposal={location.proposal} size={12} />
+                  {location.proposal.upgrade ? "Upgrade" : "Proposal"}
+                </div>
+                <div className="mt-0.5 truncate text-sm font-medium text-fg-primary">
+                  {location.proposal.displayName}
+                </div>
+                <div className="truncate text-[0.6875rem] text-fg-secondary">
+                  {[
+                    location.proposal.ownedByViewer
+                      ? "You"
+                      : (location.proposal.owner?.name ?? null),
+                    proposalChangesLabel(location.proposal),
+                    location.unsaved > 0 ? `${location.unsaved} unsaved` : null,
+                  ]
+                    .filter((part) => part !== null)
+                    .join(" · ")}
+                </div>
+                {codeModeLine !== null && (
+                  <div className="mt-1 flex items-center gap-1 text-[0.6875rem] text-fg-proposal">
+                    <CodeXml size={12} className="shrink-0" />
+                    <span className="truncate">{codeModeLine}</span>
+                  </div>
+                )}
+              </div>
+              {showProblem && problem !== null && (
+                <PreviewProblemCard
+                  problem={problem}
+                  onAct={() => setIsOpen(false)}
+                  className="mx-1 mb-1"
+                />
+              )}
+              {onCompare !== undefined && (
+                <MenuRow
+                  icon={<GitCompare size={14} />}
+                  label="Compare with the site"
+                  onClick={choose(onCompare)}
+                />
+              )}
+              {/* An upgrade is named by Val Build, after its kind. */}
+              {!location.proposal.upgrade &&
+                !location.proposal.siteCode &&
+                onRename !== undefined && (
+                  <MenuRow
+                    icon={<Pencil size={14} />}
+                    label="Rename…"
+                    onClick={choose(onRename)}
+                  />
+                )}
+              {onCopyLink !== undefined && (
+                <MenuRow
+                  icon={<Link2 size={14} />}
+                  label="Copy link"
+                  onClick={choose(onCopyLink)}
+                />
+              )}
+              {onClose !== undefined && (
+                <MenuRow
+                  icon={<X size={14} />}
+                  label={
+                    location.proposal.upgrade ? "Discard upgrade…" : "Close…"
+                  }
+                  destructive
+                  onClick={choose(onClose)}
+                />
+              )}
+              <div className="my-1 border-t border-border-float" />
+              <SectionLabel>Switch to</SectionLabel>
               <MenuRow
-                key={proposal.name}
-                icon={<GitBranch size={14} className="text-fg-proposal" />}
-                label={proposal.displayName}
-                detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${changesLabel(proposal.changes)}`}
-                current={here === proposal.name}
-                onClick={choose(() => onOpenProposal(proposal.name))}
+                icon={<Globe size={14} />}
+                label="The site"
+                detail="What visitors see"
+                onClick={choose(onOpenSite)}
               />
-            ))
+              {proposals
+                .filter((proposal) => proposal.name !== here)
+                .map((proposal) => (
+                  <ProposalRow
+                    key={proposal.name}
+                    proposal={proposal}
+                    onClick={choose(() => onOpenProposal(proposal.name))}
+                  />
+                ))}
+            </>
+          ) : (
+            <>
+              <MenuRow
+                icon={<Globe size={14} />}
+                label="The site"
+                detail="What visitors see"
+                current
+                onClick={choose(onOpenSite)}
+              />
+              <div className="my-1 border-t border-border-float" />
+              <SectionLabel>Proposals</SectionLabel>
+              {proposals.length === 0 ? (
+                <div className="px-3 py-1.5 text-xs text-fg-secondary-alt">
+                  None open. A proposal is a copy of the site you can change,
+                  save and share before it goes live.
+                </div>
+              ) : (
+                proposals.map((proposal) => (
+                  <ProposalRow
+                    key={proposal.name}
+                    proposal={proposal}
+                    onClick={choose(() => onOpenProposal(proposal.name))}
+                  />
+                ))
+              )}
+            </>
           )}
           <div className="my-1 border-t border-border-float" />
           <MenuRow
@@ -134,8 +303,140 @@ export function ProposalSwitcher({
   );
 }
 
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 pb-1 pt-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-fg-secondary-alt">
+      {children}
+    </div>
+  );
+}
+
+/** An open proposal to go to: who made it, and how much it changes. */
+function ProposalRow({
+  proposal,
+  onClick,
+}: {
+  proposal: ProposalSummary;
+  onClick: () => void;
+}) {
+  return (
+    <MenuRow
+      icon={
+        <ProposalIcon
+          proposal={proposal}
+          size={14}
+          className="text-fg-proposal"
+        />
+      }
+      label={proposal.displayName}
+      detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${proposalChangesLabel(proposal)}`}
+      onClick={onClick}
+    />
+  );
+}
+
+/**
+ * Where you are, on a phone: the switcher reduced to its icon.
+ *
+ * A proposal's name is whatever its author wrote, and a phone's top bar has no
+ * width for it - squeezed in, it crushed the switcher to an icon anyway and
+ * pushed the buttons beside it on top of each other. So the chip never names
+ * the place. The colour does (the bar wears the proposal's in one), the icon
+ * says which kind of place it is, and the chip is the same width in both, so
+ * nothing beside it moves when you switch. The name is read in full in the
+ * sheet it opens - see `ProposalSheet`.
+ */
+export function ProposalLocationChip({
+  location,
+  open,
+  onClick,
+  busy = false,
+  problem = false,
+}: {
+  location: StudioLocation;
+  /** The preview could not be updated: a dot, and the card in the sheet. */
+  problem?: boolean;
+  /** Whether its sheet is the one open. */
+  open: boolean;
+  onClick: () => void;
+  /** Loading, or on the way to another address: a spinner for the icon. */
+  busy?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-label={
+        location.kind === "proposal"
+          ? `In the proposal ${location.proposal.displayName}. Switch`
+          : "On the site. Switch to a proposal"
+      }
+      onClick={onClick}
+      className={cn(
+        "relative inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2",
+        location.kind === "proposal"
+          ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
+          : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+      )}
+    >
+      {busy ? (
+        <Spinner size={16} />
+      ) : location.kind === "proposal" ? (
+        <ProposalIcon
+          proposal={location.proposal}
+          size={15}
+          className="shrink-0"
+        />
+      ) : (
+        <Globe size={15} className="shrink-0" />
+      )}
+      <ChevronDown size={13} className="shrink-0 opacity-70" />
+      {problem && location.kind === "proposal" && !busy && (
+        <PreviewProblemDot />
+      )}
+    </button>
+  );
+}
+
+/**
+ * A proposal's icon: a branch, or for an upgrade the upgrade arrow, so an
+ * upgrade -- which Val Build made and which holds no content -- is told apart
+ * from the proposals people write, wherever proposals are listed.
+ */
+export function ProposalIcon({
+  proposal,
+  size,
+  className,
+}: {
+  proposal: Pick<ProposalSummary, "upgrade" | "siteCode">;
+  size: number;
+  className?: string;
+}) {
+  // The site's own code mode is the site, changed: the code it is for, not
+  // a branch someone named.
+  return proposal.upgrade ? (
+    <CircleArrowUp size={size} className={className} />
+  ) : proposal.siteCode ? (
+    <CodeXml size={size} className={className} />
+  ) : (
+    <GitBranch size={size} className={className} />
+  );
+}
+
 export function changesLabel(count: number): string {
   return count === 1 ? "1 change" : `${count} changes`;
+}
+
+/**
+ * What a proposal holds, for a list or a heading: its changes -- or, for an
+ * upgrade, that it is one. An upgrade stages dependencies rather than
+ * content, so its count of changes is always 0 and says nothing.
+ */
+export function proposalChangesLabel(
+  proposal: Pick<ProposalSummary, "changes" | "upgrade">,
+): string {
+  return proposal.upgrade ? "Upgrade" : changesLabel(proposal.changes);
 }
 
 function MenuRow({
@@ -143,12 +444,14 @@ function MenuRow({
   label,
   detail,
   current = false,
+  destructive = false,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   detail?: string;
   current?: boolean;
+  destructive?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -159,11 +462,21 @@ function MenuRow({
       onClick={onClick}
       className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-bg-float-raised"
     >
-      <span className="grid w-4 shrink-0 place-items-center pt-0.5 text-fg-secondary">
+      <span
+        className={cn(
+          "grid w-4 shrink-0 place-items-center pt-0.5",
+          destructive ? "text-fg-error-on-surface" : "text-fg-secondary",
+        )}
+      >
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-fg-primary">
+        <span
+          className={cn(
+            "block truncate text-xs font-medium",
+            destructive ? "text-fg-error-on-surface" : "text-fg-primary",
+          )}
+        >
           {label}
         </span>
         {detail !== undefined && (

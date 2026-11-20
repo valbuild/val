@@ -187,6 +187,10 @@ function errorsOf(events: ValidationEvent[]) {
   );
 }
 
+function warningsOf(events: ValidationEvent[]) {
+  return events.filter((e) => e.type === "validation-warning");
+}
+
 describe("val validate with remote image and file collections", () => {
   let root: string;
 
@@ -214,22 +218,22 @@ describe("val validate with remote image and file collections", () => {
   });
 
   // What `val publish` refuses on (`validateOnce({ blockingOnly })`): a
-  // local file still to upload is the Studio's to repair, and is published;
-  // a gallery keyed by a ref it does not know is a person's to fix.
-  test("an error the Studio repairs on save is marked as such, and a person's is not", async () => {
-    const events = errorsOf(
-      await run(
-        root,
-        ["content/images.val.ts", "content/local-images.val.ts"],
-        false,
-      ),
+  // local file still to upload is a warning, and is published; a gallery
+  // keyed by a ref it does not know is a person's to fix.
+  test("a local file still to upload is a warning, and a person's error is not repaired on save", async () => {
+    const events = await run(
+      root,
+      ["content/images.val.ts", "content/local-images.val.ts"],
+      false,
     );
-    const repaired = (sourcePath: string) =>
-      events
-        .filter((e) => e.sourcePath === sourcePath)
-        .map((e) => e.repairedOnSave === true);
-    expect(repaired(`/content/images.val.ts?p="${LOGO}"`)).toEqual([true]);
-    const local = events.filter((e) =>
+    expect(warningsOf(events).map((e) => [e.sourcePath, e.files])).toEqual([
+      [`/content/images.val.ts?p="${LOGO}"`, [LOGO]],
+    ]);
+    const errors = errorsOf(events);
+    expect(
+      errors.filter((e) => e.sourcePath.startsWith("/content/images.val.ts")),
+    ).toEqual([]);
+    const local = errors.filter((e) =>
       e.sourcePath.startsWith("/content/local-images.val.ts"),
     );
     expect(local.length).toBeGreaterThan(0);
@@ -264,10 +268,10 @@ describe("val validate with remote image and file collections", () => {
       "content/page.val.ts",
     ];
     // Before: the page is valid against both collections, and the two
-    // entries are fixable.
-    expect(
-      errorsOf(await run(root, modules, false)).map((e) => e.sourcePath),
-    ).toEqual([
+    // entries are warnings: local files still to upload.
+    const before = await run(root, modules, false);
+    expect(errorsOf(before)).toEqual([]);
+    expect(warningsOf(before).map((e) => e.sourcePath)).toEqual([
       `/content/files.val.ts?p="${DOC}"`,
       `/content/images.val.ts?p="${LOGO}"`,
     ]);

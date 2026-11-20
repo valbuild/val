@@ -1,4 +1,6 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { formatRelativeTime } from "../../utils/formatRelativeTime";
+export { formatRelativeTime };
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
@@ -43,7 +45,16 @@ import {
 export function toShellPages(
   root: SitemapItem,
   modulesWithDrafts: ReadonlySet<string>,
+  /**
+   * The language a page is in, or null for none. See `useShellData`, which
+   * asks `localeAt`; absent where nobody asked, which is every page in none.
+   */
+  localeOf: (sourcePath: SourcePath) => string | null = () => null,
 ): ShellPage[] {
+  const localeOfItem = (item: SitemapItem) => {
+    const locale = item.sourcePath ? localeOf(item.sourcePath) : null;
+    return locale !== null ? { locale } : {};
+  };
   const toPage = (item: SitemapItem): ShellPage => ({
     // The row's id is the content it opens. That makes the id and the
     // navigation target the same string, so the app can resolve the route it
@@ -61,6 +72,7 @@ export function toShellPages(
     hasDraft: item.moduleFilePath
       ? modulesWithDrafts.has(item.moduleFilePath)
       : undefined,
+    ...localeOfItem(item),
     // A row with a source path is a route Val resolves, which is exactly the
     // condition for the canvas: it can ask the running site what is on it.
     // A row without one is a path segment that only exists to hold children.
@@ -159,8 +171,14 @@ function entryPathOf(sourcePath: SourcePath): SourcePath {
 export function toDataModules(
   root: ExplorerItem,
   modulesWithDrafts: ReadonlySet<string>,
+  /** The language a whole module is in, or null — see `localeOfModuleRoot`. */
+  localeOfModule: (moduleFilePath: string) => string | null = () => null,
 ): ShellDataModule[] {
   const modules: ShellDataModule[] = [];
+  const localeOfModuleItem = (moduleFilePath: string) => {
+    const locale = localeOfModule(moduleFilePath);
+    return locale !== null ? { locale } : {};
+  };
   const walk = (item: ExplorerItem) => {
     if (item.isDirectory) {
       item.children.forEach(walk);
@@ -174,6 +192,7 @@ export function toDataModules(
       moduleFilePath: item.fullPath,
       errorCount: item.errors?.ownCount,
       hasDraft: modulesWithDrafts.has(item.fullPath),
+      ...localeOfModuleItem(item.fullPath),
     });
   };
   walk(root);
@@ -439,42 +458,6 @@ export function withStudioPublish(
   );
 }
 
-const MINUTE = 60;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/**
- * An ISO timestamp as the relative string the shell's lists render.
- *
- * `now` is a parameter rather than a call to `Date.now()` so the result is a
- * function of its inputs and can be tested.
- */
-export function formatRelativeTime(iso: string, now: number): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) {
-    // Better to show the raw value than to claim a time we could not read.
-    return iso;
-  }
-  const seconds = Math.round((now - then) / 1000);
-  if (seconds < 0) {
-    return "just now";
-  }
-  if (seconds < 45) {
-    return "just now";
-  }
-  if (seconds < HOUR) {
-    return plural(Math.round(seconds / MINUTE), "minute");
-  }
-  if (seconds < DAY) {
-    return plural(Math.round(seconds / HOUR), "hour");
-  }
-  return plural(Math.round(seconds / DAY), "day");
-}
-
-function plural(count: number, unit: string): string {
-  return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
-}
-
 /**
  * A gallery's record, as the files in it.
  *
@@ -597,12 +580,11 @@ export function toWebComponentsUrl(
  * Pages hangs off `hasRouters` rather than off `pages` being non-empty, because
  * a router with no entries yet is a site map to add the first page to.
  *
- * Media, Data and Settings hang off their own data, which is already exactly
- * the right question. `media` is the `s.imagedir()`/`s.filedir()` modules, and an
- * empty gallery still lists as a gallery — so an empty `media` means no gallery
- * module exists. `settings` is the project's `s.settings()` module, and an empty
- * settings module (`{}`, which is the normal starting point) still resolves —
- * so its absence means the project has no settings module, or none it can use.
+ * Media and Data hang off their own data, which is already exactly the right
+ * question. `media` is the `s.imagedir()`/`s.filedir()` modules, and an empty
+ * gallery still lists as a gallery — so an empty `media` means no gallery
+ * module exists. Settings is always there once loaded: it holds more than the
+ * project's `s.settings()` module, and says how to add one where there is none.
  * `data` is what is left after the routers, the galleries and settings have been
  * taken out of the module tree, so "every module is a router, a gallery or
  * settings" and "`data` is empty" are the same statement.
@@ -612,19 +594,22 @@ export function toWebComponentsUrl(
  * worse than one that starts full.
  */
 export function availableDestinations(
-  data: Pick<ShellData, "hasRouters" | "media" | "settings" | "data">,
+  data: Pick<ShellData, "hasRouters" | "media" | "data">,
   isLoading: boolean,
 ): ShellDestination[] {
   // Settings is NOT offered while loading, unlike the other three: it is the
   // only one whose icon sits on its own at the foot of the rail, so a cog that
   // appears and then goes reads as something that broke rather than as data
-  // arriving. A project without `s.settings()` never shows it at all.
+  // arriving.
   if (isLoading) return ["pages", "media", "data"];
   const available: ShellDestination[] = [];
   if (data.hasRouters) available.push("pages");
   if (data.media.length > 0) available.push("media");
   if (data.data.length > 0) available.push("data");
-  if (data.settings) available.push("settings");
+  // Always, with or without `s.settings()`: the panel has more in it than the
+  // settings module (Updates, for a project whose code the Studio builds), and
+  // without a module it says how to add one.
+  available.push("settings");
   return available;
 }
 

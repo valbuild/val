@@ -2,8 +2,11 @@
 import { ErrorBoundary } from "react-error-boundary";
 import {
   createValClient,
+  ModuleVersionSchema,
+  isCodeChangedDetail,
   VAL_CONFIG_SESSION_STORAGE_KEY,
   VAL_THEME_SESSION_STORAGE_KEY,
+  type ModuleVersion,
 } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
@@ -14,7 +17,11 @@ import { useEffect, useState } from "react";
 import { ValProvider } from "./components/ValProvider";
 import { Themes } from "./components/ValThemeProvider";
 import { Fonts } from "./Fonts";
-import { DEFAULT_CONTENT_HOST, Internal } from "@valbuild/core";
+import {
+  DEFAULT_CONTENT_HOST,
+  Internal,
+  type ModuleFilePath,
+} from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
 import { useValModules } from "./hooks/useValModules";
 import { VERSION } from "../src";
@@ -50,6 +57,11 @@ function Overlay() {
 
   const [draftMode, setDraftMode] = useState(false);
   const [draftModeLoading, setDraftModeLoading] = useState(false);
+  const [codeChanged, setCodeChanged] = useState<ModuleFilePath[]>([]);
+  const [pageHolds, setPageHolds] = useState<ModuleFilePath[]>([]);
+  const [pageHoldsVersions, setPageHoldsVersions] = useState<
+    Partial<Record<ModuleFilePath, ModuleVersion>>
+  >({});
   useEffect(() => {
     const listener = (event: Event) => {
       if (event instanceof CustomEvent) {
@@ -58,11 +70,22 @@ function Overlay() {
           typeof event?.detail.value === "boolean"
         ) {
           setDraftMode(event.detail.value);
+          // What the page holds a draft of, as it reports it: the relay
+          // sends those modules in its catch-up (`sendPendingSources`).
+          const holds: unknown = event.detail.holds;
+          if (isModuleFilePaths(holds)) setPageHolds(holds);
+          // And the version it holds each at, where it says: a module held
+          // at the version the Studio would send is not sent again.
+          setPageHoldsVersions(heldVersionsOf(event.detail.holdsVersions));
         } else if (
           event.detail.type === "draftModeLoading" &&
           typeof event.detail.value === "boolean"
         ) {
           setDraftModeLoading(event.detail.value);
+        } else if (isCodeChangedDetail(event.detail)) {
+          // What the page could not read for its schema: said, with a
+          // reload. An empty list is the page's code having caught up.
+          setCodeChanged(event.detail.modules);
         } else {
           Internal.log.error(
             "invalid event detail (val-overlay-spa)",
@@ -102,6 +125,8 @@ function Overlay() {
           <ValProvider
             client={client}
             dispatchValEvents={draftMode}
+            pageHolds={pageHolds}
+            pageHoldsVersions={pageHoldsVersions}
             config={config}
             valModules={valModules}
             theme={theme}
@@ -113,6 +138,7 @@ function Overlay() {
                 <ValOverlay
                   draftMode={draftMode}
                   draftModeLoading={draftModeLoading}
+                  codeChanged={codeChanged}
                   setDraftMode={(value: boolean) => {
                     const event = new CustomEvent("val-overlay-provider", {
                       detail: {
@@ -140,3 +166,31 @@ function Overlay() {
 }
 
 export default Overlay;
+
+/**
+ * `holdsVersions` on the page's `draftMode` event: a version per module, as
+ * `draftHoldsVersions` reports them. Anything else is left out: a page of
+ * the release before sends none, and a module without one is sent anyway.
+ */
+function heldVersionsOf(
+  value: unknown,
+): Partial<Record<ModuleFilePath, ModuleVersion>> {
+  const held: Partial<Record<ModuleFilePath, ModuleVersion>> = {};
+  if (typeof value !== "object" || value === null) return held;
+  for (const [path, version] of Object.entries(value)) {
+    const parsed = ModuleVersionSchema.safeParse(version);
+    if (parsed.success && isModuleFilePath(path)) held[path] = parsed.data;
+  }
+  return held;
+}
+
+function isModuleFilePath(path: string): path is ModuleFilePath {
+  return path.startsWith("/");
+}
+
+/** `holds` on the page's `draftMode` event: module paths, as the page names them. */
+function isModuleFilePaths(value: unknown): value is ModuleFilePath[] {
+  return (
+    Array.isArray(value) && value.every((path) => typeof path === "string")
+  );
+}

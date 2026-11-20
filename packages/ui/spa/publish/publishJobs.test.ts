@@ -2,7 +2,10 @@ import type {
   PublishRequestStatus,
   PublishTabJob,
 } from "@valbuild/shared/internal";
-import type { StudioJobClient } from "./jobClient";
+import type {
+  StudioJobClient,
+  StudioJobResult,
+} from "@valbuild/shared/publish";
 import {
   createPublishJobs,
   publishingPatchIds,
@@ -11,7 +14,6 @@ import {
   type PublishJobsState,
   type TrackedPublish,
 } from "./publishJobs";
-import type { StudioJobResult } from "./runStudioJob";
 
 const job = (id: string): PublishTabJob => ({
   id,

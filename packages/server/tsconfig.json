@@ -8,6 +8,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "esModuleInterop": true,
+    // `src/version.ts` reads this package's own `package.json`.
+    "resolveJsonModule": true,
     "module": "esnext",
     // `bundler`, not `node`: TypeScript 6 deprecates the node10 resolver and
     // TypeScript 7 removes it. `bundler` reads `exports` maps and, unlike

@@ -15,7 +15,7 @@ import { SitemapSection } from "../SitemapSection";
 import { ExplorerSection } from "../ExplorerSection";
 import { ExternalButton } from "../ExternalButton";
 import { Accordion } from "../../designSystem/accordion";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "../../designSystem/spinner";
 
 // Mock NavMenu that renders the actual components without needing providers
 function MockedNavMenu({
@@ -63,7 +63,7 @@ function MockedNavMenu({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
-              <Loader2 size={20} className="animate-spin text-fg-secondary" />
+              <Spinner size={20} className="text-fg-secondary" />
             </div>
           ) : (
             <Accordion

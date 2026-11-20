@@ -183,6 +183,23 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/val/")({ component: () => null }); // and "/val/$"
 ```
 
+### `src/router.tsx` — import `@valbuild/tanstack/autotag` first
+
+```ts
+// src/router.tsx
+import "@valbuild/tanstack/autotag";
+import { createRouter } from "@tanstack/react-router";
+import { routeTree } from "./routeTree.gen";
+```
+
+The first import, before the router and the route tree. It makes Val's edit
+tags into `data-val-path` attributes, which is what makes content
+click-to-edit -- and keeps them out of a visitor's text when content analytics
+is on. `@valbuild/tanstack` does it too, but under `vite dev` a module that
+ran before it keeps React's own functions, so in development some components
+would not be editable and the leak warning would name their text. A
+production build is not affected.
+
 ### The site's layout — `ValProvider`
 
 Put the site's own chrome and `ValProvider` in a **pathless layout route**, not
@@ -383,14 +400,26 @@ does not 404 either.
 
 ## Content analytics
 
-Val can count which content your visitors see, on a site Val hosts. It is
+Val can count which content your visitors see. On a site Val hosts it is
 **off by default**, and a setting of the hosted project rather than of the
 code: the owner turns it on in the project's settings, and Val's hosting hands
 it to the site as the `VAL_ANALYTICS` variable, along with the id of the
-content version each page is rendered from. The `val.server.ts` the platform
-writes for a hosted project exports `fetchValAnalytics()`, which reads both
-into a `ValAnalytics`; pass that to the provider from the same loader as the
-draft:
+content version each page is rendered from.
+
+**A site needs no code for it.** With no `analytics` prop, `<ValProvider>`
+reads the setting itself: the server render reads what the platform handed it
+and writes it into the page as a few bytes of JSON, and the browser reads it
+back. So switching it on or off in the project's settings is all it takes --
+no rebuild, and nothing in the layout. While it is off, nothing is written.
+
+It is never read in the browser from the environment, and needs no `VITE_`
+prefix: a variable the browser could read is baked into the bundle when it is
+built, which would make it a second switch, in the code, that keeps counting
+after the owner has turned it off.
+
+To decide in the code instead, pass it: the `val.server.ts` the platform
+writes for a hosted project exports `fetchValAnalytics()`, which reads the
+same two values into a `ValAnalytics`, and what is passed wins.
 
 ```tsx
 // src/routes/_site.tsx
@@ -418,20 +447,41 @@ function SiteLayout() {
 ```
 
 With it on, content read with the hooks is tagged for every visitor after
-hydration, so each element showing content carries a `data-val-path` to count.
-The HTML the server sends is the same with it on or off. A small script,
-loaded after hydration, then counts what each page rendered and what was on
-screen, and sends it to `/api/val/analytics` with the content version, so a
-page can be compared before and after a publish. No cookies, no storage and no
-visitor IDs, and nothing is sent in draft mode, in the Studio or from an
-automated browser.
+hydration, so each element showing content carries a `data-val-path` to count
+(look for it in the browser's element inspector: it is not in the HTML the
+server sends). A small script, loaded after hydration, then counts what each
+page rendered and what was on screen, and sends it to `/api/val/analytics` with
+the content version, so a page can be compared before and after a publish. No
+cookies, no storage and no visitor IDs, and nothing is sent in draft mode, in
+the Studio or from an automated browser.
 
-`fetchValAnalytics` is not part of `initValContent`: it exists in the file the
-platform writes, and nowhere else. A site Val does not host has nowhere to send
-counts yet, so it leaves `analytics` out. To see the mode working in local
-development, write your own -- `examples/tanstack/src/val/server.ts` reads
-`VAL_ANALYTICS` from `process.env`, which TanStack Start fills from
-`.env.development`.
+To see the mode working in local development, set `VAL_ANALYTICS=true` in
+`.env.development`: the development server reads it, and nothing else does.
+
+### On your own hosting
+
+A site Val does not host is counted too, on the Custom hosting plan. Its own
+Val server answers `/api/val/analytics` and forwards each beacon to Val, with
+the `VAL_API_KEY` and `VAL_PROJECT` it already has for publishing. It needs
+two things:
+
+1. Content analytics switched on in the project's settings on val.build,
+   under Analytics. Switched off there, Val answers the forwarded beacons
+   with a 410 and the script stops sending them.
+2. The layout passing `analytics`, since no hosting hands it the setting. Read
+   it on the server, so it is never baked into the browser bundle:
+
+```tsx
+// src/routes/_site.tsx
+const getValPage = createServerFn().handler(async () => ({
+  draft: await fetchValDraft(),
+  analytics: { enabled: process.env.VAL_ANALYTICS === "true" },
+}));
+```
+
+and set `VAL_ANALYTICS=true` where the site is deployed. The visitor's country
+is read from the host's own header when there is one (`x-vercel-ip-country`,
+`cf-ipcountry` or `cloudfront-viewer-country`); the IP address never is.
 
 ## Images
 
@@ -459,17 +509,17 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 
 ## Differences from `@valbuild/next`
 
-| Next                                | TanStack Start                                     |
-| ----------------------------------- | -------------------------------------------------- |
-| `nextAppRouter`                     | `tanstackRouter`                                   |
-| `app/blogs/[blog]/page.val.ts`      | `src/routes/blogs.$blog.val.ts`                    |
-| `initValRsc` (`@valbuild/next/rsc`) | `initValContent` (`@valbuild/tanstack/server`)     |
-| `draftMode()` from `next/headers`   | `valDraftMode()` (a cookie this package owns)      |
-| `valNextAppRouter`                  | `valApiHandler` — a `Request` in, a `Response` out |
-| `ValImage` wraps `next/image`       | `ValImage` is an `<img>`                           |
-| `fetchVal` in a Server Component    | hooks in components; `createServerFn` for loaders  |
-| client hooks render published SSR   | `ValProvider draft` renders the draft during SSR   |
-| no content analytics yet            | `ValProvider analytics` (hosted projects only)     |
+| Next                                                           | TanStack Start                                                  |
+| -------------------------------------------------------------- | --------------------------------------------------------------- |
+| `nextAppRouter`                                                | `tanstackRouter`                                                |
+| `app/blogs/[blog]/page.val.ts`                                 | `src/routes/blogs.$blog.val.ts`                                 |
+| `initValRsc` (`@valbuild/next/rsc`)                            | `initValContent` (`@valbuild/tanstack/server`)                  |
+| `draftMode()` from `next/headers`                              | `valDraftMode()` (a cookie this package owns)                   |
+| `valNextAppRouter`                                             | `valApiHandler` — a `Request` in, a `Response` out              |
+| `ValImage` wraps `next/image`                                  | `ValImage` is an `<img>`                                        |
+| `fetchVal` in a Server Component                               | hooks in components; `createServerFn` for loaders               |
+| `ValProvider draft={await fetchValDraft()}` in the root layout | `fetchValDraft` in a `createServerFn` the layout's loader calls |
+| no content analytics yet                                       | `ValProvider analytics`                                         |
 
 ## Schema reference
 

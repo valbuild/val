@@ -28,7 +28,10 @@ describe("the Studio's full check", () => {
   const { s, c, config } = initVal();
   let root: string;
 
-  const setup = (page: Record<string, unknown>) => {
+  const setup = (
+    page: Record<string, unknown>,
+    Ops: typeof ValOpsFS = ValOpsFS,
+  ) => {
     const valModules: ValModules = {
       config,
       modules: [
@@ -55,7 +58,7 @@ describe("the Studio's full check", () => {
         },
       ],
     };
-    const ops = new ValOpsFS("http://localhost:4000", root, valModules, {
+    const ops = new Ops("http://localhost:4000", root, valModules, {
       config,
     });
     return ops;
@@ -123,6 +126,43 @@ describe("the Studio's full check", () => {
       ...(await sourcesOf(ops)),
     });
     expect(res).toEqual({ status: "ok", errors: {}, remoteHosts: [] });
+  });
+
+  test("in a hosted project, a published file it cannot read is not judged", async () => {
+    // No repository: a template's files are in the built site, so the check
+    // has nothing to read them from (`ValOps.canReadPublishedFiles`).
+    class HostedOps extends ValOpsFS {
+      override canReadPublishedFiles(): boolean {
+        return false;
+      }
+    }
+    fs.rmSync(path.join(root, "public/val/hero.png"));
+    const page = {
+      title: "Hello",
+      hero: {
+        path: "/public/val/hero.png",
+        width: 1,
+        height: 1,
+        mimeType: "image/png",
+      },
+      doc: null,
+    };
+    const fsOps = setup(page);
+    const local = await checkModuleForStudio(fsOps, {
+      moduleFilePath: PAGE,
+      ...(await sourcesOf(fsOps)),
+    });
+    // Where the file can be read, a missing one is still found.
+    expect(local.status).toBe("ok");
+    if (local.status !== "ok") return;
+    expect(Object.keys(local.errors)).not.toEqual([]);
+    const hostedOps = setup(page, HostedOps);
+    expect(
+      await checkModuleForStudio(hostedOps, {
+        moduleFilePath: PAGE,
+        ...(await sourcesOf(hostedOps)),
+      }),
+    ).toEqual({ status: "ok", errors: {}, remoteHosts: [] });
   });
 
   test("only the module asked about is checked", async () => {

@@ -156,7 +156,11 @@ describe("a step that moves on by itself", () => {
     // On "Change a word" now, with the count still at 2: not done yet.
     expect(screen.queryByText("Change a word")).not.toBeNull();
     fireEvent.click(screen.getByText("Do it for me"));
-    expect(write).toHaveBeenCalledWith(HEADING, "Coffee, roasted this weekend");
+    expect(write).toHaveBeenCalledWith(
+      HEADING,
+      "Coffee, roasted this weekend",
+      false,
+    );
     rerender(
       ringTour({ observed: { ...before, reviewCount: 3 }, act: { write } }),
     );
@@ -285,5 +289,110 @@ describe("the site's tour", () => {
       { id: "type", title: "Type", body: "Anything.", moveOn: { edit: true } },
     ]);
     expect(step?.moveOn).toEqual({ type: "edit" });
+  });
+});
+
+describe("the demo script's tours", () => {
+  test("a tour whose last step is done says it finished, before it closes", () => {
+    const calls: string[] = [];
+    render(
+      <StudioTour
+        steps={[steps[2]]}
+        onClose={() => calls.push("close")}
+        onFinish={() => calls.push("finish")}
+        onOpenPanel={() => undefined}
+        look="ring"
+        observed={observed()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Done"));
+    expect(calls).toEqual(["finish", "close"]);
+  });
+
+  test("closing it part way is not finishing it", () => {
+    const onFinish = jest.fn();
+    render(ringTour({ onFinish }));
+    fireEvent.click(screen.getByLabelText("Close the tour"));
+    expect(onFinish).not.toHaveBeenCalled();
+  });
+
+  test("shows the code a step names, with its file", () => {
+    render(
+      <StudioTour
+        steps={[
+          {
+            ...steps[2],
+            code: {
+              file: "src/routes/index.val.ts",
+              text: "title: s.string().maxLength(60),",
+            },
+          },
+        ]}
+        onClose={() => undefined}
+        onOpenPanel={() => undefined}
+        look="ring"
+        observed={observed()}
+      />,
+    );
+    expect(screen.getByText("src/routes/index.val.ts")).toBeTruthy();
+    expect(screen.getByText("title: s.string().maxLength(60),")).toBeTruthy();
+  });
+
+  test("a new page: Do it for me adds it, and a new change moves it on", () => {
+    const addPage = jest.fn();
+    const page = sourcePath('/src/routes/journal.val.ts?p="/journal/new"');
+    const newPage: TourStep[] = [
+      {
+        id: "page",
+        title: "Add a page",
+        body: "Any address.",
+        moveOn: { type: "newPage", path: page },
+      },
+      steps[2],
+    ];
+    const tour = (o: TourObserved) => (
+      <StudioTour
+        steps={newPage}
+        onClose={() => undefined}
+        onOpenPanel={() => undefined}
+        look="ring"
+        observed={o}
+        act={{ addPage }}
+      />
+    );
+    const { rerender } = render(tour(observed()));
+    fireEvent.click(screen.getByText("Do it for me"));
+    expect(addPage).toHaveBeenCalledWith(page);
+    rerender(tour(observed({ reviewCount: 1 })));
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.queryByText("That's a draft")).not.toBeNull();
+  });
+
+  test("an edit can add, and write any value", () => {
+    const write = jest.fn();
+    const blocks = sourcePath('/src/routes/index.val.ts?p="sections".4');
+    const block = { type: "quote", text: "Good coffee.", by: "A reader" };
+    render(
+      <StudioTour
+        steps={[
+          {
+            id: "add",
+            title: "Add a block",
+            body: "Any block.",
+            moveOn: {
+              type: "edit",
+              write: { path: blocks, value: block, add: true },
+            },
+          },
+        ]}
+        onClose={() => undefined}
+        onOpenPanel={() => undefined}
+        look="ring"
+        observed={observed()}
+        act={{ write }}
+      />,
+    );
+    fireEvent.click(screen.getByText("Do it for me"));
+    expect(write).toHaveBeenCalledWith(blocks, block, true);
   });
 });

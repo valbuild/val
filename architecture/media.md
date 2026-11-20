@@ -24,8 +24,22 @@ were looking at.
 `.remote()` already on them (`initSchema`). The FACTORIES change, not the
 schemas: what comes out serializes byte-identically to a hand-written
 `.remote()`, so the Studio, the MCP tools, validation and publishing need to know
-nothing about the setting. A local path in such a project is the ordinary
-`image:upload-remote` error, and `val validate --fix` is the ordinary fix.
+nothing about the setting. A local path in such a project is
+`image:upload-remote`, and `val validate --fix` is the ordinary fix.
+
+That one is a WARNING, not an error (`WARNING_FIXES` in
+`shared/src/internal/validation/validationWarnings.ts`): `val validate` prints
+it and passes, `val publish` publishes, and the language server shows a
+warning. Nothing is broken -- the site serves the file from `public/` until it
+is uploaded -- and every project made from a template starts this way, hosted
+ones included, which have no CLI to upload with. `--strict` on either command
+makes it fail. A local file that does not exist is still an error, and so is
+`--fix` that cannot upload (not logged in, no project): it was asked to.
+
+The Studio's `/val/validate` reports the same files under "Check everything"
+as errors with a **Fix** that uploads them -- images, files and videos, a
+video with its poster, captions and stream -- which is how a hosted project,
+with no CLI, gets them to remote storage. See `docs/plans/studio-validate.md`, step 4.
 
 The Val app REQUIRES it: with `VAL_ENV=app` the server refuses to start without
 it (`APP_MODE_REQUIRES_REMOTE_FILES` in `valServerConfig.ts`), and `val publish`
@@ -140,9 +154,24 @@ all three until it was fixed, which made the locale form impossible to type and
 let `alt: null` compile against a required alt that then failed validation.
 
 `patch_id` also appears on a media source whose bytes are not committed yet. It
-is injected server-side, never authored, and `toExpression` drops it before
-writing a `.val.ts` — a whole-object write built from the client's optimistic
-view would otherwise print it into a user's file.
+is written by the engine that applies patches (`applyPatchRecord` in
+`@valbuild/shared`), where the file op lands, in Val's server and in the Studio
+alike (see [content-versions.md](./content-versions.md)); it is never
+authored, and `toExpression` drops it before writing a `.val.ts` — a
+whole-object write built from the client's optimistic view would otherwise
+print it into a user's file. A publish takes it out of the Studio's base again:
+the published patches are baked in without their `file` ops, because the file
+is where its path says now.
+
+A gallery's upload lands its `file` op on the ENTRY, whose value is metadata
+keyed by the file's path rather than a `{ path }`, and the entry gets the mark
+all the same: `{ width, height, mimeType, alt, patch_id }`. Val's server always
+did that; the Studio's view has since it reads through the engine, and it is
+load-bearing there too, because the view is what the overlay relays and
+`fillFromGallery` hands the entry's `patch_id` to a field that picked it, the
+only way a page learns that field's file is still in a patch. So a test that
+reads a gallery's source out of the Studio sees the mark; the Studio's own
+tiles read theirs from `useFilePatchIds()`, keyed by path.
 
 **There is no multi-valued gallery-backed field.** `s.image(module)` picks one
 image from a gallery; nothing picks several. Adding it means a new schema type
@@ -328,6 +357,15 @@ full at the route itself in `ValServer.ts`; the short version is that guessing
 one is infeasible, shimming it into a frontend is work, and the prize is an
 image about to be published anyway.
 
+**What it serves is decided by the path, since nothing else decides it.** A
+path under `/public` (`isPublicFilePath` in `safeFilePath.ts`), which the site
+serves anyway, or a draft of one. It used to answer any path in the project —
+`/api/val/files/.env` — and in http mode asked the content service for it with
+the project's api key. A media path outside `/public` is a remote ref or an
+absolute URL the site serves itself, and neither comes through here without a
+`patch_id`. The same file holds the rule for what an upload and a patch's `file`
+op may name, and for a patch id used as a directory name.
+
 **`/api/val/history/files` is authenticated**, and neither half of that argument
 transfers to it:
 
@@ -405,9 +443,9 @@ Two shapes from elsewhere in this file show up here:
   validation hash moved), so each draft ref is moved under its own new ref, and
   the rename is refused if any rewritten ref would resolve to a different entry.
 - **A referrer with its own `patch_id`** (it uploaded the draft itself). The app
-  reads a draft's URL off the field's own `patch_id`, never the gallery's, so
-  that referrer's patch carries a `file` op too, for the server to stamp the new
-  id on it.
+  reads a draft's URL off the field's own `patch_id` before the gallery's
+  (`fillFromGallery`), so that referrer's patch carries a `file` op too, for
+  the server to stamp the new id on it.
 
 A rename is a `move` of the record entry, which puts it last; `FileGallery`
 therefore tracks the open file by ref, not by index, and follows it to the new
@@ -512,9 +550,9 @@ sent it down the image arm and `useVal` handed a page an `Image`.
 **Every file is its own media object with its own `patch_id`.** The video, the
 poster and each caption track are uploaded by `file` ops whose `path` is the
 FIELD and whose `nestedFilePath` (`["poster"]`, `["captions", "2"]`) says where
-the `patch_id` goes. `ValOps` keys its patch-id injection by path AND nested
-path — keyed by path alone, the poster's op overwrote the video's and one of
-the two drafts would not resolve. `resolveVideo` is the one implementation of
+the `patch_id` goes. The engine keys where it writes `patch_id` by path AND
+nested path — keyed by path alone, the poster's op overwrote the video's and
+one of the two drafts would not resolve. `resolveVideo` is the one implementation of
 "a URL for each of them"; stega tags only the video's own `url`.
 
 **Editing is per property** (`add` on `posterTime`, `captions/1/label`, ...),

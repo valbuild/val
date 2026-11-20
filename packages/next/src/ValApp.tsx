@@ -169,7 +169,9 @@ export const ValApp = ({
       >
         <style>
           {`.${valPrefixedClass}animate-spin {
+  display: inline-flex;
   animation: ${valPrefixedClass}spin 2s linear infinite;
+  will-change: transform;
 }
 @keyframes ${valPrefixedClass}spin {
   0% {
@@ -180,20 +182,23 @@ export const ValApp = ({
   }
 }`}
         </style>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn(["animate-spin"])}
-        >
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
+        {/* The span spins, not the SVG: Safari wobbles a spinning SVG that
+            sits at a fractional pixel offset, which centring produces. */}
+        <span className={cn(["animate-spin"])}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        </span>
       </div>
     );
   if (isClientSIde && loadingScreen !== null) {

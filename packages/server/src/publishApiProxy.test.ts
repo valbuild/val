@@ -70,7 +70,6 @@ describe("what may be reached", () => {
     const allowed = [
       "/build-target",
       "/project-source",
-      "/update-target",
       "/publish",
       "/publish/pub_1",
       "/publish/pub_1/artifacts",
@@ -96,6 +95,10 @@ describe("what may be reached", () => {
       "/adept/types/public/zod@3.25.76",
       "/adept/types/public/@types/node@22.10.0",
       "/adept/compiler/5.9.3",
+      // The Upgrade button: is there anything to upgrade, and the site's
+      // lockfile its typecheck compares against.
+      "/upgrades",
+      "/dependency-files",
     ];
     for (const path of allowed) {
       const { ops, restore } = opsWith((call) => ({
@@ -127,6 +130,8 @@ describe("what may be reached", () => {
       "/project-source/secrets",
       "/project-sources",
       "/update-target/extra",
+      // The template's dependencies, published to live: the Upgrade replaced it.
+      "/update-target",
       "/publish-token",
       // A job's prepare carries its source files: only this server sends it.
       "/publish-jobs/J1/prepare",
@@ -145,6 +150,8 @@ describe("what may be reached", () => {
       "/adept/types/public/.bin@1.0.0",
       "/adept/types/p:acme/zod@3.25.76",
       "/adept/compiler/../stats",
+      "/upgrades/extra",
+      "/dependency-files/pnpm-lock.yaml",
       "",
     ];
     for (const path of refused) {

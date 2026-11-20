@@ -6,7 +6,6 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnyField } from "../AnyField";
 import { FieldErrorsOwned } from "../FieldErrorsOwner";
@@ -31,11 +30,16 @@ import {
   validateSession,
   type CheckRun,
 } from "./validateSession";
+import { useUploadLocalMedia } from "./useUploadLocalMedia";
+import { isStudioUploadFix } from "../../utils/uploadLocalMedia";
+import { Spinner } from "../designSystem/spinner";
+import { DEMO_FULL_CHECK_OFF, useValDemo } from "../../demo/ValDemoContext";
 
 /**
  * `/val/validate`, connected: the Studio's own errors, "Check everything"
  * against `/validate` one module at a time, and **Fix** through
- * `/validate/fix` into an ordinary pending change.
+ * `/validate/fix` into an ordinary pending change -- or, for a local file in a
+ * project with remote files, an upload made here (`useUploadLocalMedia`).
  */
 export function ValidateRoute() {
   const navigation = useNavigation();
@@ -45,6 +49,8 @@ export function ValidateRoute() {
   const val = useValSystem();
   const { deletePatches } = useDeletePatches();
   const session = useValidateSession();
+  const uploadLocalMedia = useUploadLocalMedia();
+  const demo = useValDemo();
 
   /*
    * Which of the Studio's own errors this page lists: the ones it was opened
@@ -210,6 +216,27 @@ export function ValidateRoute() {
         return;
       }
       validateSession.setFix(rowId, { status: "fixing" });
+      if (isStudioUploadFix(target.fix)) {
+        // Uploaded from the browser, as any Studio upload is: the server has
+        // no credential to upload with in every mode, and the bytes have to
+        // be stored with the patch anyway. See `uploadLocalMedia.ts`.
+        const uploaded = await uploadLocalMedia(target.sourcePath, target.fix);
+        validateSession.setFix(
+          rowId,
+          uploaded.status === "ok"
+            ? {
+                status: "fixed",
+                summary: uploaded.summary,
+                patchIds: uploaded.patchIds,
+              }
+            : {
+                status: "failed",
+                message: uploaded.message,
+                action: uploaded.retry ? "try-again" : "none",
+              },
+        );
+        return;
+      }
       const patchIds = shownPatchIds();
       const res = await client("/validate/fix", "POST", {
         body: {
@@ -257,10 +284,10 @@ export function ValidateRoute() {
       validateSession.setFix(rowId, {
         status: "fixed",
         summary: summaryOf(res.json.patch),
-        patchId: created.record.patchId,
+        patchIds: [created.record.patchId],
       });
     },
-    [client, shownPatchIds, targets, val],
+    [client, shownPatchIds, targets, uploadLocalMedia, val],
   );
 
   const onRowAction = useCallback(
@@ -286,9 +313,9 @@ export function ValidateRoute() {
           navigation.navigate(VAL_REVIEW_ROUTE);
           return;
         case "undo": {
-          const patchId = session.fixes[rowId]?.patchId;
-          if (patchId) {
-            deletePatches([patchId]);
+          const patchIds = session.fixes[rowId]?.patchIds;
+          if (patchIds && patchIds.length > 0) {
+            deletePatches(patchIds);
           }
           validateSession.setFix(rowId, undefined);
           return;
@@ -333,7 +360,12 @@ export function ValidateRoute() {
       .map((row) => row.id);
 
   const now = useNow(session.run.status === "done");
-  const fullCheck = fullCheckStateOf(session.run, now);
+  // The demo's server has no full check (it answers 501), so the page offers
+  // only what the Studio itself knows rather than a button that always fails.
+  const fullCheck: FullCheckState =
+    demo !== null
+      ? { status: "unavailable", reason: DEMO_FULL_CHECK_OFF }
+      : fullCheckStateOf(session.run, now);
 
   return (
     <ValidatePageView
@@ -347,7 +379,9 @@ export function ValidateRoute() {
         }),
       }))}
       fullCheck={fullCheck}
-      onCheckEverything={() => void checkEverything()}
+      onCheckEverything={
+        schemaData === undefined ? null : () => void checkEverything()
+      }
       onStop={() => validateSession.requestStop()}
       onFixEverything={() => void fixAll(fixableIn())}
       onFixGroup={(groupId) => void fixAll(fixableIn(groupId))}
@@ -362,7 +396,7 @@ function OwnFieldBody({ sourcePath }: { sourcePath: SourcePath }) {
   if (schemaAtPath.status !== "success") {
     return (
       <div className="flex items-center gap-2 text-sm text-fg-secondary">
-        <Loader2 size={14} className="animate-spin" aria-hidden />
+        <Spinner size={14} aria-hidden />
         <span>Loading field&hellip;</span>
       </div>
     );

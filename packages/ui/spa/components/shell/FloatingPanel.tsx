@@ -3,6 +3,12 @@ import { X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint } from "./types";
 import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
+import {
+  PHONE_BOTTOM,
+  PHONE_PANE_GAP,
+  PHONE_TOP,
+  phoneSlideStyle,
+} from "./workspace/phoneTrack";
 
 export type FloatingPanelProps = {
   /** Which edge the panel floats against on desktop/tablet. */
@@ -14,11 +20,41 @@ export type FloatingPanelProps = {
    * On mobile, `sheet` fills the height from the left edge (navigation),
    * `bottom-sheet` rises from the bottom (utilities, AI, notifications).
    */
-  mobileVariant: "sheet" | "bottom-sheet";
+  mobileVariant: "sheet" | "bottom-sheet" | "pane";
+  /**
+   * A `pane`'s place on the phone's strip of panes, from the one in front
+   * (`phoneTrack`): 0 on screen, otherwise slid off to one side. A pane is
+   * not dismissed: the pane bar moves between them, so it has no close
+   * button and Escape does not close it.
+   */
+  phoneOffset?: number;
+  /** Slide to it, rather than appear: off for reduced motion and tests. */
+  phoneAnimate?: boolean;
   breakpoint: ShellBreakpoint;
   onClose: () => void;
   /** Rendered to the right of the title, e.g. a "New" button. */
   headerAction?: ReactNode;
+  /** Rendered before the title: the assistant's Select. */
+  headerStart?: ReactNode;
+  /**
+   * `false` drops the scrim, so a click outside does not dismiss the panel:
+   * the assistant while its Select is picking on the page under it.
+   */
+  modal?: boolean;
+  /**
+   * The header's content, in place of the one-line `title`.
+   *
+   * For a sheet whose subject has a name of its own that has to be read in
+   * full: a proposal is called whatever its author wrote, and the phone's top
+   * bar does not show it at all, so this is the one place it is spelled out.
+   * `title` still names the dialog for assistive tech and the close button.
+   */
+  heading?: ReactNode;
+  /**
+   * `proposal`: the header wears the proposal tint, as the top bar does in
+   * one. A sheet ABOUT the proposal you are in should say so the same way.
+   */
+  tone?: "proposal";
   /**
    * Rendered directly below the header, above `sticky`. Used below the desktop
    * breakpoint to carry the destination switcher, since there is no left rail
@@ -59,6 +95,13 @@ export type FloatingPanelProps = {
    * composer scroll up out of sight.
    */
   fill?: boolean;
+  /**
+   * A column of the screen rather than something over it: the shell has
+   * moved its work area out from under the panel, so there is nothing
+   * behind it to click away to, and no scrim. Desktop only; elsewhere the
+   * panel floats.
+   */
+  docked?: boolean;
   children: ReactNode;
 };
 
@@ -75,89 +118,142 @@ export function FloatingPanel({
   width,
   title,
   mobileVariant,
+  phoneOffset = 0,
+  phoneAnimate = true,
   breakpoint,
   onClose,
   headerAction,
+  headerStart,
+  modal = true,
+  heading,
+  tone,
   subheader,
   sticky,
   footer,
   hidden = false,
   fill = false,
+  docked = false,
   children,
 }: FloatingPanelProps) {
   const isMobile = breakpoint === "mobile" && !hidden;
+  /** One of the phone's panes: switched by the pane bar, never dismissed. */
+  const isPhonePane = isMobile && mobileVariant === "pane";
+  const onScreen = !isPhonePane || phoneOffset === 0;
   const panelRef = useRef<HTMLDivElement>(null);
   // A mobile sheet is measured against the part of the screen the user can
   // actually see. With the keyboard up that is not the layout viewport, and
   // a panel with a text field in its footer — the assistant's input, a
   // filter — would otherwise put it underneath the keyboard. See
   // `useVisualViewport`.
-  const viewport = useVisualViewport(isMobile);
-  useLockBodyScroll(isMobile);
+  const viewport = useVisualViewport(isMobile && onScreen);
+  useLockBodyScroll(isMobile && onScreen);
   useEffect(() => {
-    if (hidden) return;
+    if (hidden || isPhonePane) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, hidden]);
+  }, [onClose, hidden, isPhonePane]);
   return (
     <>
       {/* Scrim: dark and dismissive on mobile where the sheet dominates the
           screen, invisible but still click-to-close on larger screens where
           the editor stays visible behind the panel. */}
-      {!hidden && (
-        <div
-          onClick={onClose}
-          aria-hidden
-          className={cn(
-            "absolute inset-0 z-window",
-            isMobile ? "bg-black/40" : "bg-transparent",
-          )}
-        />
-      )}
+      {!hidden &&
+        modal &&
+        !(docked && !isMobile) &&
+        !(isMobile && mobileVariant === "pane") && (
+          <div
+            onClick={onClose}
+            aria-hidden
+            className={cn(
+              "absolute inset-0 z-window",
+              isMobile ? "bg-black/40" : "bg-transparent",
+            )}
+          />
+        )}
       <div
         ref={panelRef}
         role="dialog"
         aria-label={title}
+        // Off to one side of the phone's strip: out of reach until it is
+        // slid back.
+        {...(onScreen ? {} : { inert: true, "aria-hidden": true })}
         // The region the guided tour's card has to keep off. A step that opens
         // a panel is a step ABOUT that panel, so a card covering it is covering
         // the answer. See `measureAvoid` in `StudioTour`.
-        data-val-tour-surface=""
+        // Not while it is off to one side of the phone's strip: laid out,
+        // but not on screen, it is nothing a card has to keep off.
+        data-val-tour-surface={onScreen ? "" : undefined}
         style={
           isMobile
-            ? mobileVariant === "sheet"
-              ? // Full height of the visible area, not of the layout viewport.
-                { top: viewport.offsetTop, height: viewport.height }
-              : // Sitting on top of the keyboard rather than behind it, and
-                // never taller than what is left above it.
-                {
-                  bottom: viewport.keyboardInset,
-                  // `height` rather than `maxHeight` when the sheet has to be
-                  // a container for a full-height child. See `fill`.
-                  ...(fill
-                    ? { height: viewport.height * 0.85 }
-                    : { maxHeight: viewport.height * 0.85 }),
+            ? mobileVariant === "pane"
+              ? {
+                  // Between the top bar and the pane bar, as the others are
+                  // (`PHONE_TOP`); above the keyboard while it is up.
+                  top: PHONE_TOP,
+                  bottom:
+                    viewport.keyboardInset > 0
+                      ? viewport.keyboardInset + 8
+                      : PHONE_BOTTOM,
+                  ...phoneSlideStyle(phoneOffset, {
+                    gap: PHONE_PANE_GAP,
+                    animate: phoneAnimate,
+                  }),
                 }
+              : mobileVariant === "sheet"
+                ? // Full height of the visible area, not of the layout viewport.
+                  { top: viewport.offsetTop, height: viewport.height }
+                : // Sitting on top of the keyboard rather than behind it, and
+                  // never taller than what is left above it.
+                  {
+                    bottom: viewport.keyboardInset,
+                    // `height` rather than `maxHeight` when the sheet has to be
+                    // a container for a full-height child. See `fill`.
+                    ...(fill
+                      ? { height: viewport.height * 0.85 }
+                      : { maxHeight: viewport.height * 0.85 }),
+                  }
             : { width }
         }
         className={cn(
-          "absolute z-full flex flex-col",
+          "absolute flex flex-col",
+          // A full-height panel's contents reach its bottom edge -- the
+          // assistant's composer -- and would square off its rounded corners
+          // and cover its border there without this.
+          fill && "overflow-hidden",
+          // A phone's pane is part of the workspace, like the panes beside
+          // it: under the scrim and the sheets a phone opens over it (the
+          // account, the menu), not over them.
+          isMobile && mobileVariant === "pane" ? "z-hover" : "z-full",
           "bg-bg-float border border-border-float shadow-lg",
           // `display: none`, so the subtree keeps its state and its effects but
           // takes no space, catches no clicks and leaves the accessibility tree.
           hidden && "hidden",
           isMobile
-            ? mobileVariant === "sheet"
-              ? "fixed left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"
-              : "fixed inset-x-0 rounded-t-xl border-b-0"
+            ? mobileVariant === "pane"
+              ? // One of the phone's panes (`PhonePaneBar`): between the top
+                // bar and the pane bar, as the others are, not over them.
+                "fixed inset-x-3 rounded-xl"
+              : mobileVariant === "sheet"
+                ? "fixed left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"
+                : "fixed inset-x-0 rounded-t-xl border-b-0"
             : cn(
                 // Inset to clear the floating bars: below the top bar, above
                 // the status bar, and — for left panels on desktop — to the
                 // right of the rail, which has to stay reachable while a
                 // panel is open.
-                "top-16 bottom-14 rounded-lg",
+                //
+                // Docked, it is a column of the work area rather than
+                // something hanging off the top bar, so it starts where the
+                // work area's panes do (`pt-20` in `Shell`'s
+                // `workspaceOverride` and in `PageWorkspace`): beside them, a
+                // panel 16px taller than the pane next to it read as a
+                // mistake.
+                docked
+                  ? "top-20 bottom-14 rounded-lg"
+                  : "top-16 bottom-14 rounded-lg",
                 side === "right"
                   ? "right-3"
                   : breakpoint === "desktop"
@@ -166,20 +262,35 @@ export function FloatingPanel({
               ),
         )}
       >
-        <div className="flex items-center gap-2 shrink-0 h-11 pl-4 pr-2 border-b border-border-float">
-          <span className="text-[0.8125rem] font-semibold tracking-tight truncate">
-            {title}
-          </span>
+        <div
+          className={cn(
+            "flex gap-2 shrink-0 pl-4 pr-2 border-b border-border-float",
+            heading === undefined ? "items-center h-11" : "items-start py-3",
+            // The tint runs to the sheet's own rounded edge.
+            tone === "proposal" && "rounded-t-[inherit] bg-bg-proposal-soft",
+          )}
+        >
+          {headerStart}
+          {heading === undefined ? (
+            <span className="text-[0.8125rem] font-semibold tracking-tight truncate">
+              {title}
+            </span>
+          ) : (
+            <div className="min-w-0 flex-1">{heading}</div>
+          )}
           <div className="ml-auto flex items-center gap-1">
             {headerAction}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={`Close ${title}`}
-              className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              <X size={15} />
-            </button>
+            {/* A phone's pane is not closed: the pane bar moves away from it. */}
+            {!isPhonePane && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={`Close ${title}`}
+                className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+              >
+                <X size={15} />
+              </button>
+            )}
           </div>
         </div>
         {subheader !== undefined && (

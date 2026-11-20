@@ -2,7 +2,7 @@ import type { PatchId } from "@valbuild/core";
 import { selectionClosure } from "@valbuild/shared/internal";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import type { SavePatches } from "../history/restoreDestination";
-import { callJson, StudioPublishError } from "../publish/publishClient";
+import { callJson, StudioPublishError } from "@valbuild/shared/publish";
 import { z } from "zod";
 
 /**

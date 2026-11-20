@@ -95,12 +95,20 @@ export const createValClient = (
         },
       } satisfies ClientFetchErrors;
     }
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (anyReq?.headers) {
+      for (const [name, value] of Object.entries(anyReq.headers)) {
+        if (typeof value === "string") {
+          headers[name] = value;
+        }
+      }
+    }
     try {
       const res = await send(`${host}${fullPath}`, {
         method: method as string,
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body:
           anyReq.body !== undefined ? JSON.stringify(anyReq.body) : undefined,
       }).then(async (res) => {
@@ -114,6 +122,29 @@ export const createValClient = (
               path: path,
             },
           } satisfies ClientFetchErrors;
+        }
+        /*
+         * Not modified: the route answered an ETag the caller sent back
+         * (`/manifest`). A 304 carries no body, so there is no JSON to read;
+         * it is handed on as `null` and checked against the route like any
+         * other answer.
+         */
+        if (res.status === 304) {
+          const notModified = { status: 304, json: null };
+          if (apiEndpoint.res?.safeParse(notModified).success === false) {
+            return {
+              status: null,
+              json: {
+                type: "client_side_validation_error",
+                message: `Invalid response (304 from a route that does not answer one). This could be a result of mismatched Val versions.`,
+                details: {
+                  validationError: "Unexpected 304",
+                  data: { status: res.status },
+                },
+              },
+            } satisfies ClientFetchErrors;
+          }
+          return notModified;
         }
         if (!contentTypeHeaders?.includes("application/json")) {
           return {

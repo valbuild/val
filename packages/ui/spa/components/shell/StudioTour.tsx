@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import { Compass, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { isPathWithin } from "../../utils/sourcePath";
@@ -10,11 +11,16 @@ import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 /** Where the card is drawn, in shell coordinates. */
 type Box = { top: number; left: number; width: number; height: number };
 
-/** How far the card sits from the thing it points at, in px. */
-const GAP = 10;
+/**
+ * How far the card sits from the thing it points at, in px: room for the
+ * arrow, whose tip then reaches the ring (4-6px outside the target).
+ */
+const GAP = 14;
 /** Never closer than this to the edge of the shell. */
 const MARGIN = 12;
 const CARD_WIDTH = 296;
+/** Wider when the step shows code, so a line of a schema fits on one. */
+const CARD_WIDTH_WITH_CODE = 380;
 /**
  * Below this width the ring look's card is a sheet along the bottom rather
  * than a card beside its target: on a phone there is no beside, and a card
@@ -67,7 +73,9 @@ function measureTarget(
    * hidden panel, a button that has not laid out yet — measures zero, and a
    * spotlight on a zero-sized box is a dot in the corner.
    */
-  const rect = firstOnScreen(scope, `[data-val-tour="${target}"]`);
+  // `~=`: a control can stand in for several, the phone's menu button for
+  // every destination the rail would have shown.
+  const rect = firstOnScreen(scope, `[data-val-tour~="${target}"]`);
   return rect ? relativeTo(root, rect) : null;
 }
 
@@ -217,6 +225,71 @@ export function placeCard(
 }
 
 /**
+ * The card's arrow: which of its edges faces the target, and how far along
+ * that edge the arrow sits, in px from the edge's start (its left, or its top).
+ */
+export type CardArrow = {
+  side: "top" | "bottom" | "left" | "right";
+  offset: number;
+};
+
+/** The arrow keeps this far from the card's corners, which are rounded. */
+const ARROW_INSET = 16;
+
+/**
+ * Where the card's arrow goes, from where the card ended up rather than from
+ * which rule put it there: `placeCard` clamps, and steps aside for panels.
+ *
+ * The edge facing the target, aimed at the middle of what the two share along
+ * that edge. Null when they share nothing -- a card moved beside a panel, or
+ * centred because there is no target -- since an arrow pointing past the
+ * thing it is about is worse than none.
+ */
+export function pointArrow(target: Box | null, card: Box): CardArrow | null {
+  if (!target) return null;
+  const along = (
+    cardStart: number,
+    cardSize: number,
+    targetStart: number,
+    targetSize: number,
+  ): number | null => {
+    const from = Math.max(cardStart, targetStart);
+    const to = Math.min(cardStart + cardSize, targetStart + targetSize);
+    if (to <= from || cardSize < ARROW_INSET * 2) return null;
+    const middle = (from + to) / 2 - cardStart;
+    return Math.min(Math.max(middle, ARROW_INSET), cardSize - ARROW_INSET);
+  };
+  const side: CardArrow["side"] | null =
+    card.top >= target.top + target.height
+      ? "top"
+      : card.top + card.height <= target.top
+        ? "bottom"
+        : card.left >= target.left + target.width
+          ? "left"
+          : card.left + card.width <= target.left
+            ? "right"
+            : null;
+  if (side === null) return null;
+  const offset =
+    side === "top" || side === "bottom"
+      ? along(card.left, card.width, target.left, target.width)
+      : along(card.top, card.height, target.top, target.height);
+  return offset === null ? null : { side, offset };
+}
+
+/**
+ * The arrow itself: a small square turned 45 degrees, half over the card's
+ * edge, with the card's fill and its border on the two sides that show, so
+ * it reads as part of the card rather than something stuck to it.
+ */
+const ARROW_EDGE: Record<CardArrow["side"], string> = {
+  top: "-top-[6px] border-l border-t",
+  bottom: "-bottom-[6px] border-b border-r",
+  left: "-left-[6px] border-b border-l",
+  right: "-right-[6px] border-r border-t",
+};
+
+/**
  * What the Studio is doing, as far as a step that moves on by itself cares.
  * See `TourMoveOn`.
  */
@@ -237,7 +310,8 @@ export type TourObserved = {
  */
 export type TourActions = {
   openPath?: (path: SourcePath) => void;
-  write?: (path: SourcePath, value: string) => void;
+  write?: (path: SourcePath, value: JSONValue, add: boolean) => void;
+  addPage?: (path: SourcePath) => void;
   nextLocale?: () => void;
 };
 
@@ -257,6 +331,7 @@ export function hasMovedOn(
         now.selectedPath !== null && isPathWithin(now.selectedPath, moveOn.path)
       );
     case "edit":
+    case "newPage":
       return now.reviewCount > atStart.reviewCount;
     case "panel":
       return now.openPanel === moveOn.panel;
@@ -276,6 +351,8 @@ export function canDoItForMe(
       return act.openPath !== undefined;
     case "edit":
       return moveOn.write !== undefined && act.write !== undefined;
+    case "newPage":
+      return act.addPage !== undefined;
     case "panel":
       return canOpenPanel;
     case "locale":
@@ -305,6 +382,11 @@ export type StudioTourProps = {
    * treats the two the same — see `closeTour` in `Shell`.
    */
   onClose: () => void;
+  /**
+   * The last step was done, rather than the tour left part way. Called
+   * before `onClose`. The demo script ticks a tour off with it.
+   */
+  onFinish?: () => void;
   /**
    * Open (or close, with `null`) a panel, so the step's subject is on screen
    * behind the card. The tour drives the real navigation rather than drawing
@@ -344,6 +426,7 @@ export type StudioTourProps = {
 export function StudioTour({
   steps,
   onClose,
+  onFinish,
   onOpenPanel,
   look = "spotlight",
   observed = NOT_OBSERVED,
@@ -378,6 +461,7 @@ export function StudioTour({
     left: number;
   } | null>(null);
   const [asSheet, setAsSheet] = useState(false);
+  const [arrow, setArrow] = useState<CardArrow | null>(null);
   const step = steps[stepIndex];
   const isLast = stepIndex === steps.length - 1;
 
@@ -413,7 +497,14 @@ export function StudioTour({
   const done =
     moveOn !== undefined &&
     hasMovedOn(moveOn, observed, startedAt.current.observed);
-  const advance = () => (isLast ? onClose() : setIndex(stepIndex + 1));
+  const advance = () => {
+    if (!isLast) {
+      setIndex(stepIndex + 1);
+      return;
+    }
+    onFinish?.();
+    onClose();
+  };
   const advanceRef = useRef(advance);
   advanceRef.current = advance;
   useEffect(() => {
@@ -431,7 +522,13 @@ export function StudioTour({
         act.openPath?.(moveOn.path);
         return;
       case "edit":
-        if (moveOn.write) act.write?.(moveOn.write.path, moveOn.write.value);
+        if (moveOn.write) {
+          const { path, value, add } = moveOn.write;
+          act.write?.(path, value, add === true);
+        }
+        return;
+      case "newPage":
+        act.addPage?.(moveOn.path);
         return;
       case "panel":
         onOpenPanel(moveOn.panel);
@@ -457,15 +554,19 @@ export function StudioTour({
       const box = measureTarget(root, step?.target, step?.field);
       setTarget(box);
       const rootRect = root.getBoundingClientRect();
-      setAsSheet(ring && rootRect.width < SHEET_BELOW);
-      setPlacement(
-        placeCard(
-          box,
-          { width: rootRect.width, height: rootRect.height },
-          { width: card.offsetWidth, height: card.offsetHeight },
-          measureAvoid(root),
-        ),
+      const sheet = ring && rootRect.width < SHEET_BELOW;
+      setAsSheet(sheet);
+      const size = { width: card.offsetWidth, height: card.offsetHeight };
+      const at = placeCard(
+        box,
+        { width: rootRect.width, height: rootRect.height },
+        size,
+        measureAvoid(root),
       );
+      setPlacement(at);
+      // A sheet along the bottom is not beside anything, so it points at
+      // nothing; the ring above it does that.
+      setArrow(sheet ? null : pointArrow(box, { ...at, ...size }));
     };
     measure();
     /*
@@ -689,7 +790,7 @@ export function StudioTour({
           asSheet
             ? undefined
             : {
-                width: CARD_WIDTH,
+                width: step.code ? CARD_WIDTH_WITH_CODE : CARD_WIDTH,
                 maxWidth: "calc(100% - 24px)",
                 // Off screen until it has been measured, so the first frame of
                 // a step is never the card in the top left corner.
@@ -705,6 +806,21 @@ export function StudioTour({
           asSheet && ["left-3 right-3", CLEAR_OF_BOTTOM_BARS],
         )}
       >
+        {arrow && (
+          <div
+            aria-hidden
+            data-val-tour-arrow={arrow.side}
+            className={cn(
+              "pointer-events-none absolute h-[10px] w-[10px] rotate-45 border-border-float bg-bg-float",
+              ARROW_EDGE[arrow.side],
+            )}
+            style={
+              arrow.side === "top" || arrow.side === "bottom"
+                ? { left: arrow.offset - 5 }
+                : { top: arrow.offset - 5 }
+            }
+          />
+        )}
         <div className="flex items-start gap-2">
           {/*
            * The same green as the spotlight ring, which is the tour's colour.
@@ -729,6 +845,22 @@ export function StudioTour({
             >
               {step.body}
             </p>
+            {step.code && (
+              /*
+               * Under the words rather than beside the field: what a
+               * developer is shown is the one line that made the field, and
+               * the card is already next to it. Scrolls sideways rather than
+               * wrapping -- a wrapped line of code reads as two.
+               */
+              <figure className="mt-2.5 overflow-hidden rounded-md border border-border-float bg-bg-secondary">
+                <figcaption className="truncate border-b border-border-float px-2 py-1 font-mono text-[0.625rem] text-fg-secondary-alt">
+                  {step.code.file}
+                </figcaption>
+                <pre className="overflow-x-auto px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-fg-primary">
+                  <code>{step.code.text}</code>
+                </pre>
+              </figure>
+            )}
           </div>
           <button
             type="button"

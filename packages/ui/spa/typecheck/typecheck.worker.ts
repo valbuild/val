@@ -1,8 +1,10 @@
-import { SourceError } from "./acquireTypes";
-import { adeptSources } from "./adeptSources";
-import { LockfileError } from "./pnpmLockfile";
-import { UnsupportedLayoutError } from "./pnpmLayout";
-import { typecheckProject } from "./typecheckProject";
+import {
+  SourceError,
+  adeptSources,
+  LockfileError,
+  UnsupportedLayoutError,
+  typecheckProject,
+} from "@valbuild/shared/typecheck";
 import type {
   TypecheckFailure,
   TypecheckReply,

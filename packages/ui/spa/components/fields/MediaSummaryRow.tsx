@@ -3,10 +3,10 @@ import {
   ChevronRight,
   File as FileIcon,
   Image as ImageIcon,
-  Loader2,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { MediaThumbnail } from "../MediaThumbnail";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * What file this field is using, in one row.
@@ -85,7 +85,7 @@ export function MediaSummaryRow({
       )}
       {uploading && (
         <div className="absolute inset-0 grid place-items-center bg-bg-secondary/70">
-          <Loader2 size={18} className="animate-spin text-fg-primary" />
+          <Spinner size={18} className="text-fg-primary" />
           {progressPercentage !== null && progressPercentage !== undefined && (
             <span className="absolute bottom-1 text-[0.625rem] tabular-nums text-fg-primary">
               {progressPercentage}%

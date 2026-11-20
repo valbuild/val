@@ -11,6 +11,7 @@
  * Pure and React-free, so the stores and the publish client -- which see the
  * bodies -- can report one without importing the shell that shows it.
  */
+import { onPublishRefusal } from "@valbuild/shared/publish";
 import { safeHref } from "./safeHref";
 
 /**
@@ -148,3 +149,11 @@ export function onPlanRefusal(listener: Listener): () => void {
     listeners.delete(listener);
   };
 }
+
+/*
+ * The publish client is `@valbuild/shared/publish`'s, which knows nothing of
+ * the shell: the bodies of what it is refused reach the shell through here.
+ */
+onPublishRefusal((body) => {
+  reportPlanRefusal(body);
+});

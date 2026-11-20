@@ -6,7 +6,6 @@ import {
   Copy,
   FileCode2,
   Globe,
-  Loader2,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
@@ -14,6 +13,7 @@ import { useState, type ReactNode } from "react";
 import classNames from "classnames";
 import { urlOf } from "@valbuild/shared/internal";
 import { Button } from "../designSystem/button";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * `/val/validate`: the Studio's errors page, grown so it can also run the
@@ -28,7 +28,12 @@ import { Button } from "../designSystem/button";
 export type ValidatePageViewProps = {
   groups: ValidateGroup[];
   fullCheck: FullCheckState;
-  onCheckEverything: () => void;
+  /**
+   * Null until the Studio has the project's schemas: the check walks every
+   * module they name, so a press before then would check nothing. The button
+   * is disabled rather than quietly doing nothing.
+   */
+  onCheckEverything: (() => void) | null;
   onStop: () => void;
   onFixEverything: () => void;
   onFixGroup: (groupId: string) => void;
@@ -107,6 +112,12 @@ export type FixState =
 
 export type FullCheckState =
   | { status: "not-run" }
+  /**
+   * This Studio cannot run the full check at all -- a demo, whose server runs
+   * in the tab without the project's files or Val's file hosts. Nothing
+   * offers it, and `reason` says so where it would have been.
+   */
+  | { status: "unavailable"; reason: string }
   | {
       status: "running";
       checked: number;
@@ -163,13 +174,15 @@ export function ValidatePageView({
               <Button variant="secondary" size="sm" onClick={onStop}>
                 Stop
               </Button>
-            ) : fullCheck.status === "failed" ? null : ( // **Try again**; a second button doing the same thing is noise. // The banner below carries
+            ) : fullCheck.status === "failed" ||
+              fullCheck.status === "unavailable" ? null : ( // **Try again**; a second button doing the same thing is noise. // The banner below carries
               <Button
                 variant={
                   fullCheck.status === "not-run" ? "default" : "secondary"
                 }
                 size="sm"
-                onClick={onCheckEverything}
+                disabled={onCheckEverything === null}
+                onClick={onCheckEverything ?? undefined}
               >
                 {fullCheck.status === "not-run"
                   ? "Check everything"
@@ -227,6 +240,11 @@ export function ValidatePageView({
           checks them on the server. It can take a minute.
         </div>
       )}
+      {fullCheck.status === "unavailable" && (
+        <div className="border-t border-dashed border-border-primary pt-4 text-sm text-fg-secondary">
+          {fullCheck.reason}
+        </div>
+      )}
     </div>
   );
 }
@@ -250,6 +268,7 @@ function Summary({
         }`;
   switch (fullCheck.status) {
     case "not-run":
+    case "unavailable":
       return (
         <p className="text-sm text-fg-secondary">
           {counts} · from the Studio&rsquo;s own check
@@ -258,7 +277,7 @@ function Summary({
     case "running":
       return (
         <p className="flex items-center gap-2 text-sm text-fg-secondary">
-          <Loader2 size={14} className="animate-spin" aria-hidden />
+          <Spinner size={14} aria-hidden />
           Checking everything&hellip;
         </p>
       );
@@ -316,7 +335,7 @@ function RunProgress({
                 aria-hidden
               />
             ) : module.state === "checking" ? (
-              <Loader2 size={13} className="animate-spin" aria-hidden />
+              <Spinner size={14} aria-hidden />
             ) : (
               <span className="inline-block h-[13px] w-[13px]" aria-hidden />
             )}
@@ -527,7 +546,7 @@ function RowButtons({
           disabled={fixing}
           className="shrink-0"
         >
-          {fixing && <Loader2 size={13} className="animate-spin" aria-hidden />}
+          {fixing && <Spinner size={14} aria-hidden />}
           {row.action.label ?? "Fix"}
         </Button>
       );
@@ -578,7 +597,7 @@ function RowButtons({
           disabled={fixing}
           className="shrink-0"
         >
-          {fixing && <Loader2 size={13} className="animate-spin" aria-hidden />}
+          {fixing && <Spinner size={14} aria-hidden />}
           Try again
         </Button>
       );
@@ -667,7 +686,7 @@ function CheckFailed({
   message: string;
   details?: string;
   action: FailureAction;
-  onTryAgain: () => void;
+  onTryAgain: (() => void) | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -685,7 +704,12 @@ function CheckFailed({
           </span>
         </div>
         {action === "try-again" && (
-          <Button size="xs" onClick={onTryAgain} className="shrink-0">
+          <Button
+            size="xs"
+            disabled={onTryAgain === null}
+            onClick={onTryAgain ?? undefined}
+            className="shrink-0"
+          >
             Try again
           </Button>
         )}

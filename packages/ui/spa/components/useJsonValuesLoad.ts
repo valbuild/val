@@ -1,11 +1,7 @@
 import { useValSystem } from "../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef } from "react";
-import {
-  useAllSources,
-  useJsonEntriesProgress,
-  useSchemas,
-} from "./ValFieldProvider";
+import { useAllSources, useSchemas } from "./ValFieldProvider";
 import {
   JsonValuesLoadQuery,
   allJsonValuesModules,
@@ -18,7 +14,17 @@ import {
  * and `error` that it cannot be trusted until a retry succeeds.
  */
 export type JsonValuesLoadStatus =
-  | { status: "loading"; percentage: number }
+  | {
+      status: "loading";
+      percentage: number;
+      /**
+       * Entries of the modules being loaded that are here, and how many they
+       * have: what a progress bar says ("2,300 of 10,000"). Both 0 while the
+       * set of modules is not known yet.
+       */
+      loaded: number;
+      total: number;
+    }
   | { status: "success" }
   | {
       status: "error";
@@ -47,7 +53,13 @@ export type JsonValuesLoadStatus =
  * hiding it.
  */
 export type ReferencesResult =
-  | { status: "loading"; refs: SourcePath[]; percentage: number }
+  | {
+      status: "loading";
+      refs: SourcePath[];
+      percentage: number;
+      loaded: number;
+      total: number;
+    }
   | { status: "success"; refs: SourcePath[] }
   | {
       status: "error";
@@ -152,9 +164,8 @@ function useJsonValuesLoad(
   moduleFilePaths: ModuleFilePath[] | null,
 ): JsonValuesLoadStatus {
   const val = useValSystem();
-  const progress = useJsonEntriesProgress();
-  // Subscribing to sources is what re-renders this hook as batches land: an
-  // entry arriving bumps its module, which is a `source:change`.
+  // Subscribing to sources is what re-renders this hook as batches land: a
+  // batch arriving bumps its module, which is a `source:change`.
   useAllSources();
 
   // The module list as a primitive, so effects key on its CONTENT: the schema
@@ -169,16 +180,39 @@ function useJsonValuesLoad(
     moduleFilePaths === null || moduleFilePaths.length === 0
       ? null
       : (val?.system.sourceStore.entriesStatus(moduleFilePaths) ?? null);
-  const needsLoad = loadStatus?.status === "incomplete";
+  /**
+   * Loading until complete, failures included: a load of 10,000 entries with
+   * one failed batch keeps going (and says so) rather than stopping where the
+   * first failure was found, which is what dropping the load on `error` did.
+   */
+  const needsLoad = loadStatus !== null && loadStatus.status !== "complete";
+
+  // Of the modules asked for, not the project: a "used by" waits for the
+  // records that can point at the file, and says how far those are.
+  let loaded = 0;
+  let total = 0;
+  if (needsLoad && moduleFilePaths !== null && val !== null) {
+    for (const moduleFilePath of moduleFilePaths) {
+      const progress = val.system.sourceStore.entriesProgress(moduleFilePath);
+      loaded += progress.loaded;
+      total += progress.total;
+    }
+  }
 
   useEffect(() => {
     const modules = requiredRef.current;
-    if (!needsLoad || modules === null) {
+    if (!needsLoad || modules === null || val === null) {
       return;
     }
+    // Nobody waiting any more (search closed, the inspector left): the store
+    // drops the batches it has not sent. See `SourceStore.loadAllEntries`.
+    const stop = new AbortController();
     for (const moduleFilePath of modules) {
-      void val?.system.sourceStore.loadAllEntries(moduleFilePath);
+      void val.system.sourceStore.loadAllEntries(moduleFilePath, {
+        signal: stop.signal,
+      });
     }
+    return () => stop.abort();
   }, [val, requiredKey, needsLoad]);
 
   /**
@@ -190,13 +224,14 @@ function useJsonValuesLoad(
    * route: `ArrayAndRecordTools` saw a new `refs` on all 118 of its renders and
    * the page ended on "Maximum update depth exceeded".
    *
-   * Every input here is stable by contract — `entriesStatus` and the progress
-   * snapshot are reference-stable in `SourceStore`, and `requiredKey` is a
-   * string — so this memo genuinely holds rather than recomputing each time.
+   * Every input here is stable by contract — `entriesStatus` is
+   * reference-stable in `SourceStore`, the counts are numbers and
+   * `requiredKey` is a string — so this memo genuinely holds rather than
+   * recomputing each time.
    */
   return useMemo<JsonValuesLoadStatus>(() => {
     if (moduleFilePaths === null) {
-      return { status: "loading", percentage: 0 };
+      return { status: "loading", percentage: 0, loaded: 0, total: 0 };
     }
     if (loadStatus === null || loadStatus.status === "complete") {
       return LOAD_COMPLETE;
@@ -217,22 +252,28 @@ function useJsonValuesLoad(
           if (requiredRef.current === null) {
             return;
           }
+          const byModule = new Map<ModuleFilePath, string[]>();
           for (const { moduleFilePath, key } of errors) {
-            void val?.system.sourceStore.retryEntry(moduleFilePath, key);
+            const keys = byModule.get(moduleFilePath) ?? [];
+            keys.push(key);
+            byModule.set(moduleFilePath, keys);
+          }
+          for (const [moduleFilePath, keys] of byModule) {
+            void val?.system.sourceStore.retryEntries(moduleFilePath, keys);
           }
         },
       };
     }
     return {
       status: "loading",
-      // The run has not started yet on the render that discovers the work, and an
-      // idle progress store reports 100 — which would read as "done".
-      percentage: progress.status === "loading" ? progress.percentage : 0,
+      percentage: total === 0 ? 0 : Math.floor((loaded / total) * 100),
+      loaded,
+      total,
     };
     // `moduleFilePaths` is deliberately absent: it is a fresh array every render
     // (the schema record is rebuilt), and `requiredKey` is its content as a
     // string, which is what this actually depends on.
-  }, [val, requiredKey, moduleFilePaths === null, loadStatus, progress]);
+  }, [val, requiredKey, moduleFilePaths === null, loadStatus, loaded, total]);
 }
 
 /** Attaches the refs a scan found to the status of the load it depended on. */
@@ -244,7 +285,13 @@ export function withReferences(
     return { status: "success", refs };
   }
   if (scan.status === "loading") {
-    return { status: "loading", refs, percentage: scan.percentage };
+    return {
+      status: "loading",
+      refs,
+      percentage: scan.percentage,
+      loaded: scan.loaded,
+      total: scan.total,
+    };
   }
   return {
     status: "error",
@@ -274,14 +321,21 @@ export function mergeReferences(
     return { ...b, refs };
   }
   if (a.status === "loading" || b.status === "loading") {
-    const percentages: number[] = [];
-    if (a.status === "loading") {
-      percentages.push(a.percentage);
+    // The one further behind: the union is only as far as its slower half.
+    const behind =
+      a.status === "loading" &&
+      (b.status !== "loading" || a.percentage <= b.percentage)
+        ? a
+        : b;
+    if (behind.status === "loading") {
+      return {
+        status: "loading",
+        refs,
+        percentage: behind.percentage,
+        loaded: behind.loaded,
+        total: behind.total,
+      };
     }
-    if (b.status === "loading") {
-      percentages.push(b.percentage);
-    }
-    return { status: "loading", refs, percentage: Math.min(...percentages) };
   }
   return { status: "success", refs };
 }

@@ -1,3 +1,5 @@
+import type { JSONValue } from "@valbuild/core/patch";
+
 /**
  * A Val demo, as the page hands it to the Studio.
  *
@@ -28,6 +30,10 @@ export type ValDemoRuntime = {
    * `ValDemoTourStep`. Absent: the Studio's.
    */
   tour?: ValDemoTourStep[];
+  /** The demo script. See `ValDemoOptions.tours`. */
+  tours?: ValDemoTour[];
+  /** "What brings you here?". See `ValDemoOptions.audiences`. */
+  audiences?: ValDemoAudience[];
 };
 
 /**
@@ -36,7 +42,57 @@ export type ValDemoRuntime = {
  * `demo` alone (`true`) is the same with nothing given.
  */
 export type ValDemoOptions = {
+  /**
+   * One tour, behind the demo card's Tour button, opened on a first visit.
+   * `tours` replaces it: given both, `tours` is used.
+   */
   tour?: ValDemoTourStep[];
+  /**
+   * The demo script: short tours the visitor picks from on the demo card,
+   * each ticked off once done. A tour can be started from a link too:
+   * `/val?tour=<id>`.
+   */
+  tours?: ValDemoTour[];
+  /**
+   * What the demo card asks first, "What brings you here?": each answer is a
+   * list of `tours`, by id, and the card shows the list for the answer. With
+   * two or more, the Studio adds "Show me everything", all of them in order.
+   * Absent: every tour, in the order given.
+   */
+  audiences?: ValDemoAudience[];
+};
+
+/** One item of the demo script. */
+export type ValDemoTour = {
+  /** Stable: the answer's list names it, and `?tour=` starts it. */
+  id: string;
+  title: string;
+  /** How long it takes, as the card says it: "30 s", "1 min". */
+  duration?: string;
+  /**
+   * Where the tour starts, as a source path: a page of the site (a page
+   * router's module and the page's key). The Studio goes there first, so a
+   * tour about the home page is not started on whatever page the last one
+   * left open.
+   */
+  start?: string;
+  steps: ValDemoTourStep[];
+};
+
+/**
+ * An answer to "What brings you here?".
+ *
+ * The first tour of its list is the one the card offers first, with a
+ * button of its own: the one to start with.
+ */
+export type ValDemoAudience = {
+  id: string;
+  /** "I write and edit content". */
+  title: string;
+  /** What the list has in it, in a line: "Pages, photos, languages". */
+  description?: string;
+  /** Tours by id, in order. */
+  tours: string[];
 };
 
 /**
@@ -57,7 +113,8 @@ export type ValDemoTourTarget =
   | "ai"
   | "locale"
   | "demo"
-  | "utility";
+  | "utility"
+  | "new-page";
 
 /** A panel a step opens, so what it is about is on screen behind the card. */
 export type ValDemoTourPanel = "pages" | "media" | "data" | "settings" | "ai";
@@ -70,14 +127,20 @@ export type ValDemoTourPanel = "pages" | "media" | "data" | "settings" | "ai";
  *
  * - `open`: a field at or below this source path is opened -- by clicking it
  *   on the page, or anywhere else. Do it for me opens it.
- * - `edit`: a change is made. Do it for me writes `value` at `path`; without
- *   them, it is offered nowhere and the step waits for the visitor.
+ * - `edit`: a change is made. Do it for me writes `value` at `path` --
+ *   replacing what is there, or with `add: true` adding it, as a new entry of
+ *   a record or a new item of a list at that index; without them, it is
+ *   offered nowhere and the step waits for the visitor.
+ * - `newPage`: a page is added. Do it for me adds the page this source path
+ *   names (a page router's module and the new page's key, `?p="/journal/x"`)
+ *   the way the New page form does, empty, and opens it.
  * - `panel`: that panel is opened. Do it for me opens it.
  * - `locale`: the language shown is changed. Do it for me picks the next one.
  */
 export type ValDemoTourMoveOn =
   | { open: string }
-  | { edit: true; path?: string; value?: string }
+  | { edit: true; path?: string; value?: JSONValue; add?: boolean }
+  | { newPage: string }
   | { panel: ValDemoTourPanel }
   | { locale: true };
 
@@ -109,6 +172,12 @@ export type ValDemoTourStep = {
   page?: string;
   panel?: ValDemoTourPanel;
   moveOn?: ValDemoTourMoveOn;
+  /**
+   * Code to show in the card: the line of a `.val.ts` behind what the step is
+   * about, for a visitor who builds sites. Written by the site, so it has to
+   * be kept the same as the file; `file` says which one.
+   */
+  code?: { file: string; text: string };
 };
 
 /*

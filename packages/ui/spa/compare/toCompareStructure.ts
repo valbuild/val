@@ -173,7 +173,7 @@ export function toCompareStructure({
         sourcePath: pagePath,
         /* The URL is the page's location AND its identity. See `Description.url`. */
         location: route,
-        ...changeOfRows(pageRows),
+        ...changeOfRows(pageRows, pagePath),
         /* One segment in: everything under the route key is inside the page. */
         rows: pageRows.map((row) => ({
           ...row,
@@ -184,7 +184,7 @@ export function toCompareStructure({
         id,
         label: route,
         kind: "page",
-        ...changeOfRows(pageRows),
+        ...changeOfRows(pageRows, pagePath),
         changedCount: pageRows.length,
         ...authorIdsOf(pageRows),
       });
@@ -216,7 +216,7 @@ export function toCompareStructure({
                * not, which reads as the two halves disagreeing about what a
                * row is rather than as a fact about the content.
                */
-              ...changeOfRows(rows),
+              ...changeOfRows(rows, moduleFilePath),
               changedCount: rows.length,
               ...authorIdsOf(rows),
             },
@@ -341,15 +341,26 @@ function byRoute(
  *
  * Read off the rows rather than from the node's own `change`, because a router
  * module's change is about the record and not about any one page in it.
+ *
+ * Only the row AT `self` can say the thing was added, removed or renamed. A
+ * row inside it that was added -- an item appended to a list on the page --
+ * is an edit of the page, and taking its kind for the page's said "new page"
+ * of one that has always been there. The page compare leaves the site's side
+ * empty for a new page, which made that a page nobody could look at.
  */
-function changeOfRows(rows: CompareRowStructure[]): {
+function changeOfRows(
+  rows: CompareRowStructure[],
+  /** The page's or the module's own path. */
+  self: string,
+): {
   change?: CompareChangeKind;
 } {
   for (const row of rows) {
     if (
-      row.change === "added" ||
-      row.change === "removed" ||
-      row.change === "moved"
+      row.sourcePath === self &&
+      (row.change === "added" ||
+        row.change === "removed" ||
+        row.change === "moved")
     ) {
       return { change: row.change };
     }

@@ -1,6 +1,7 @@
-import type { StudioDeployResult } from "./runStudioDeploy";
-import type { SiteUpdateOutcome } from "./runSiteUpdate";
-import type { StudioJobResult } from "./runStudioJob";
+import type {
+  StudioDeployResult,
+  StudioJobResult,
+} from "@valbuild/shared/publish";
 import { randomUUID } from "../utils/randomUUID";
 import {
   browserStorage,
@@ -9,10 +10,11 @@ import {
   writeKeyed,
 } from "./browserStorage";
 import {
+  isQuickPreviewFiles,
   parseRequestStatus,
-  type DependencyChange,
   type PublishRequestStatus,
   type PublishTabJob,
+  type QuickPreviewFiles,
 } from "@valbuild/shared/internal";
 
 /**
@@ -85,6 +87,10 @@ export type HandoffIntent =
    * instead of the site's pending changes. Everything after the press is a
    * publish like any other. There is no gate and nothing to wait for: the
    * proposal was saved before the tap, and its merge ships that save.
+   *
+   * `commitMessage`: with `merge`, the message of the commit Publish makes
+   * first in a project connected to git -- typed at the tap, where the
+   * project asks for one (`studio.commitMessage`). Absent: content's default.
    */
   | {
       kind: "press";
@@ -92,6 +98,7 @@ export type HandoffIntent =
       tab: string;
       after: string | null;
       merge?: string;
+      commitMessage?: string;
     }
   /**
    * "Try again" on a failed publish: resume content's queue and press anew.
@@ -106,15 +113,24 @@ export type HandoffIntent =
       after: string | null;
       merge?: string;
     }
-  /** Update the site's dependencies: `runSiteUpdate`. */
-  | { kind: "update" }
   /**
    * Build a proposal's staged code and serve the build at its address: the
    * proposal's Build, or the assistant's `build_proposal`, from a page that
    * cannot build (`buildProposal`). Nothing goes live on the site. The tab is
    * opened at the proposal's address, so it reads the proposal's files there.
    */
-  | { kind: "build-proposal"; name: string };
+  | { kind: "build-proposal"; name: string }
+  /**
+   * Bundle a proposal's client code for a quick preview and hand the files
+   * back (`buildQuickPreview`): a quick preview, asked for from a page
+   * that cannot build. Nothing is uploaded; the page shows them.
+   */
+  | { kind: "quick-preview"; name: string };
+
+/** How a quick preview's bundle in a builder tab ended, as the tab reports it. */
+export type HandedQuickPreview =
+  | { status: "built"; files: QuickPreviewFiles }
+  | { status: "failed"; message: string };
 
 /**
  * How a proposal build in a builder tab ended, as the tab reports it: the
@@ -127,6 +143,14 @@ export type HandedProposalBuild =
   | { status: "already-built"; hash: string | null }
   | { status: "failed"; message: string };
 
+/**
+ * What content answered when it refused a merge the tab pressed: its status
+ * and body, as they came. Handed back to the page, which reads why --
+ * someone pushed to the proposal's branch, say -- and offers what helps there
+ * (`commitRefusalOf`), rather than a sentence it can only repeat.
+ */
+export type RefusedAnswer = { status: number; message: string; body: unknown };
+
 /** Site -> tab. */
 export type ToTab =
   | {
@@ -138,13 +162,7 @@ export type ToTab =
       requestId: string | null;
     }
   /** The press did not start a job, so there is nothing to build. */
-  | { type: "cancel"; message: string }
-  /**
-   * Update the site's dependencies (`runSiteUpdate`) instead of publishing a
-   * job. Nothing is requested first, so there is nothing to wait for: the page
-   * sends this at the press, and the tab starts as soon as it hears it.
-   */
-  | { type: "update" };
+  | { type: "cancel"; message: string };
 
 /** Tab -> site. */
 export type ToSite =
@@ -197,15 +215,13 @@ export type ToSite =
        * result's own message is the technical details.
        */
       summary?: string;
+      /** Content's refusal of a merge the tab pressed: see {@link RefusedAnswer}. */
+      refused?: RefusedAnswer;
     }
-  /**
-   * How an update ended. Its own message rather than `done`, because an
-   * update can end without deploying anything at all -- already current, or
-   * refused by the platform -- and those are answers, not failed publishes.
-   */
-  | { type: "update-done"; outcome: SiteUpdateOutcome }
   /** How a proposal build ended: see {@link HandedProposalBuild}. */
-  | { type: "proposal-built"; outcome: HandedProposalBuild };
+  | { type: "proposal-built"; outcome: HandedProposalBuild }
+  /** How a quick preview's bundle ended: see {@link HandedQuickPreview}. */
+  | { type: "quick-preview-built"; outcome: HandedQuickPreview };
 
 type Envelope<T> = { id: string; message: T };
 
@@ -291,15 +307,14 @@ function asIntent(value: unknown): HandoffIntent | null {
   if (typeof value !== "object" || value === null || !("kind" in value)) {
     return null;
   }
-  if (value.kind === "update") return { kind: "update" };
   const text = (key: string): string | null => {
     const field: unknown = key in value ? Reflect.get(value, key) : undefined;
     return typeof field === "string" && field !== "" ? field : null;
   };
-  if (value.kind === "build-proposal") {
+  if (value.kind === "build-proposal" || value.kind === "quick-preview") {
     const name = text("name");
     return name !== null && PROPOSAL_NAME.test(name)
-      ? { kind: "build-proposal", name }
+      ? { kind: value.kind, name }
       : null;
   }
   const requestId = text("requestId");
@@ -309,7 +324,15 @@ function asIntent(value: unknown): HandoffIntent | null {
   const merge = text("merge");
   const merging = merge !== null ? { merge } : {};
   if (value.kind === "press") {
-    return { kind: "press", requestId, tab, after, ...merging };
+    const commitMessage = text("commitMessage");
+    return {
+      kind: "press",
+      requestId,
+      tab,
+      after,
+      ...merging,
+      ...(merge !== null && commitMessage !== null ? { commitMessage } : {}),
+    };
   }
   const replaces = text("replaces");
   if (value.kind === "try-again" && replaces !== null) {
@@ -421,8 +444,6 @@ export type SiteHandoff = {
   stored: boolean;
   /** Hand the tab the job to build. Re-sent whenever a tab says it is ready. */
   job: (payload: Extract<ToTab, { type: "job" }>) => void;
-  /** Ask the tab to run an update. Re-sent whenever a tab says it is ready. */
-  update: () => void;
   cancel: (message: string) => void;
   onMessage: (listener: (message: ToSite) => void) => () => void;
   close: () => void;
@@ -471,10 +492,6 @@ export function openHandoff(
     job: (payload) => {
       pending = payload;
       send(payload);
-    },
-    update: () => {
-      pending = { type: "update" };
-      send(pending);
     },
     cancel: (message) => {
       pending = { type: "cancel", message };
@@ -569,7 +586,6 @@ function asToTab(message: unknown): ToTab | null {
       message: typeof message.message === "string" ? message.message : "",
     };
   }
-  if (message.type === "update") return { type: "update" };
   if (
     message.type === "job" &&
     "job" in message &&
@@ -668,9 +684,32 @@ function asToSite(message: unknown): ToSite | null {
     const result = asJobResult(message.result);
     return result === null ? null : { type: "job-result", result };
   }
-  if (message.type === "update-done" && "outcome" in message) {
-    const outcome = asUpdateOutcome(message.outcome);
-    return outcome === null ? null : { type: "update-done", outcome };
+  if (message.type === "quick-preview-built" && "outcome" in message) {
+    const outcome: unknown = message.outcome;
+    if (typeof outcome !== "object" || outcome === null) return null;
+    if (
+      "status" in outcome &&
+      outcome.status === "built" &&
+      "files" in outcome &&
+      isQuickPreviewFiles(outcome.files)
+    ) {
+      return {
+        type: "quick-preview-built",
+        outcome: { status: "built", files: outcome.files },
+      };
+    }
+    if (
+      "status" in outcome &&
+      outcome.status === "failed" &&
+      "message" in outcome &&
+      typeof outcome.message === "string"
+    ) {
+      return {
+        type: "quick-preview-built",
+        outcome: { status: "failed", message: outcome.message },
+      };
+    }
+    return null;
   }
   if (message.type === "proposal-built" && "outcome" in message) {
     const outcome = asHandedProposalBuild(message.outcome);
@@ -684,9 +723,36 @@ function asToSite(message: unknown): ToSite | null {
   ) {
     const result = asResult(message.result);
     if (result === null) return null;
-    return "summary" in message && typeof message.summary === "string"
-      ? { type: "done", result, ms: message.ms, summary: message.summary }
-      : { type: "done", result, ms: message.ms };
+    const refused =
+      "refused" in message ? asRefusedAnswer(message.refused) : null;
+    return {
+      type: "done",
+      result,
+      ms: message.ms,
+      ...("summary" in message && typeof message.summary === "string"
+        ? { summary: message.summary }
+        : {}),
+      ...(refused !== null ? { refused } : {}),
+    };
+  }
+  return null;
+}
+
+/* Read back structurally, as every message from the tab is. */
+function asRefusedAnswer(value: unknown): RefusedAnswer | null {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "status" in value &&
+    typeof value.status === "number" &&
+    "message" in value &&
+    typeof value.message === "string"
+  ) {
+    return {
+      status: value.status,
+      message: value.message,
+      body: "body" in value ? value.body : undefined,
+    };
   }
   return null;
 }
@@ -723,63 +789,6 @@ function asHandedProposalBuild(value: unknown): HandedProposalBuild | null {
     default:
       return null;
   }
-}
-
-function asUpdateOutcome(value: unknown): SiteUpdateOutcome | null {
-  if (typeof value !== "object" || value === null || !("status" in value))
-    return null;
-  const message =
-    "message" in value && typeof value.message === "string"
-      ? value.message
-      : "";
-  switch (value.status) {
-    case "updated":
-      return {
-        status: "updated",
-        changes:
-          "changes" in value && Array.isArray(value.changes)
-            ? value.changes.flatMap(asDependencyChange)
-            : [],
-      };
-    case "current":
-      return { status: "current" };
-    case "unavailable":
-      return { status: "unavailable", message };
-    case "failed":
-      return {
-        status: "failed",
-        message: message || "The update could not be published.",
-        details:
-          "details" in value && typeof value.details === "string"
-            ? value.details
-            : "",
-        // The deploy's own record stays in the tab; the page shows the words.
-        deploy: null,
-      };
-  }
-  return null;
-}
-
-function asDependencyChange(change: unknown): DependencyChange[] {
-  if (
-    typeof change !== "object" ||
-    change === null ||
-    !("name" in change) ||
-    typeof change.name !== "string" ||
-    !("section" in change) ||
-    (change.section !== "dependencies" && change.section !== "devDependencies")
-  ) {
-    return [];
-  }
-  const from =
-    "from" in change && typeof change.from === "string" ? change.from : null;
-  // `null` is a removal. Anything else that is not a version is not a change.
-  if (
-    !("to" in change) ||
-    (typeof change.to !== "string" && change.to !== null)
-  )
-    return [];
-  return [{ name: change.name, section: change.section, from, to: change.to }];
 }
 
 function asJobResult(value: unknown): StudioJobResult | null {

@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
-import { ValCanvasElement } from "@valbuild/shared/internal";
+import type { JSONValue } from "@valbuild/core/patch";
+import {
+  isCanvasSelectionColor,
+  relocateForLocale,
+  ValCanvasElement,
+  type PickedElement,
+} from "@valbuild/shared/internal";
+import { isListedUnder } from "../../utils/isAtLocation";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
-import { CanvasFrame } from "./canvas/CanvasFrame";
+import {
+  CanvasFrame,
+  PageCamera,
+  PageLogReader,
+  PageReader,
+} from "./canvas/CanvasFrame";
+import { AssistantPage, AssistantPageContext } from "./canvas/AssistantPage";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
 import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
@@ -16,9 +29,13 @@ import { usePlanNotice } from "./planLimits/usePlanNotice";
 import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
+import type { Owner } from "./planLimits/studioAccess";
 import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
-import { useSteadySaveState } from "./useSteadySaveState";
+import { saveStateOf, useSteadySaveState } from "./useSteadySaveState";
+import { SaveFailedNotice } from "./SaveFailedNotice";
+import type { FloatingNoticeItem } from "./FloatingNotices";
+import { AlertTriangle } from "lucide-react";
 import { PublishState } from "./TopBar";
 import {
   ShellBreakpoint,
@@ -29,8 +46,10 @@ import {
   ShellValidationError,
 } from "./types";
 import { useShellData } from "./useShellData";
+import { useShellVersions } from "./useShellVersions";
+import { pagesInLocale } from "./localePages";
 import { ValSettingsSections } from "./ValSettingsSections";
-import { ValSiteUpdate } from "./ValSiteUpdate";
+import { SiteUpdateSection } from "./SiteUpdateSection";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -61,6 +80,8 @@ import {
   readDemoTourSeen,
   writeDemoTourSeen,
 } from "../../demo/demoTour";
+import { demoScriptFromSite, markDemoTourDone } from "../../demo/demoScript";
+import type { TourRun } from "./tourSteps";
 import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
 import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
@@ -71,6 +92,7 @@ import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
   VAL_ERRORS_ROUTE,
+  VAL_HOME_ROUTE,
   VAL_HISTORY_ROUTE,
   VAL_REVIEW_ROUTE,
   scrollToStudioPath,
@@ -82,6 +104,7 @@ import { ReviewLoader, ReviewSurface } from "../../review/ReviewSurface";
 import { useDiscardAll } from "../useDiscardAll";
 import { historyEnabledFor } from "./historyEnabled";
 import { CommitList } from "../../history/CommitList";
+import { useStudioSketchpads } from "../sketchpad/useStudioSketchpads";
 import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
 import { useValConfig } from "../ValFieldProvider";
@@ -117,11 +140,14 @@ import {
   useChangesWithoutModuleNotice,
   useGlobalTransientErrors,
   useAddModuleFilePatch,
+  useCurrentProfileId,
 } from "../ValProvider";
 import {
   useFilePatchIds,
   useGetNavPath,
+  usePatchSyncState,
   useResolveNavPath,
+  useRetrySave,
 } from "../ValFieldProvider";
 import type { NavPathResolution } from "../getNavPath";
 import { refToUrl } from "../MediaPicker/refToUrl";
@@ -134,10 +160,17 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
+import { useBuildEpoch } from "./canvas/useServedBuild";
+import {
+  useCodeModeQuickPreview,
+  withQuickPreviewState,
+} from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
+import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
 import { SiteErrors } from "./SiteErrors";
+import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
 
 /**
  * The Val studio on the floating shell.
@@ -149,6 +182,9 @@ import { SiteErrors } from "./SiteErrors";
  * signing out) is delegated to the components that already own it rather than
  * reimplemented against the new layout.
  */
+/** Stable, so the proposals bar's callbacks do not move with every render. */
+const NO_OWNERS: Owner[] = [];
+
 export function ValShell() {
   const shellData = useShellData();
   const authenticationState = useAuthenticationState();
@@ -224,9 +260,44 @@ function ValShellBody({
    * tab is.
    */
   const demo = useValDemo();
-  const [demoTourPending] = useState(
-    () => demo !== null && !readDemoTourSeen(),
+  const versions = useShellVersions();
+  /*
+   * The demo script (`ValDemoOptions.tours`): tours the card lists, for the
+   * visitor to pick from. Where there is one, nothing opens by itself -- the
+   * card asks first -- unless a link names a tour (`/val?tour=pages`).
+   */
+  const demoScript = useMemo(
+    () =>
+      demo === null ? null : demoScriptFromSite(demo.tours, demo.audiences),
+    [demo],
   );
+  /*
+   * How a tour goes to the page it starts on: `openPath`, which is made
+   * further down, with the navigation it needs. A ref, so a run can be made
+   * up here -- before the first render, for a tour a link names.
+   */
+  const openPathForTour = useRef<((path: SourcePath) => void) | null>(null);
+  const demoTourRun = useCallback(
+    (tourId: string): TourRun | null => {
+      const tour = demoScript?.tours.find((t) => t.id === tourId);
+      if (!tour) return null;
+      const { start } = tour;
+      return {
+        steps: tour.steps,
+        ...(start ? { onStart: () => openPathForTour.current?.(start) } : {}),
+        onFinish: () => markDemoTourDone(tour.id),
+      };
+    },
+    [demoScript],
+  );
+  const [demoTourPending] = useState<boolean | TourRun>(() => {
+    if (demo === null) return false;
+    if (demoScript) {
+      const named = readTourParam();
+      return (named !== null && demoTourRun(named)) || false;
+    }
+    return !readDemoTourSeen();
+  });
   /*
    * The site's own tour when it wrote one (`<ValApp demo={{ tour }}>`), so
    * what the demo says changes with the site rather than with a release; the
@@ -237,10 +308,13 @@ function ValShellBody({
       demo === null
         ? undefined
         : (project: { destinations: readonly ShellDestination[] }) =>
-            demo.tour && demo.tour.length > 0
-              ? demoTourStepsFromSite(demo.tour)
-              : demoTourSteps({ ...project, uploads: demo.uploads }),
-    [demo],
+            // With a script, the tour Quick actions offers is its first.
+            demoScript
+              ? (demoScript.tours[0]?.steps ?? [])
+              : demo.tour && demo.tour.length > 0
+                ? demoTourStepsFromSite(demo.tour)
+                : demoTourSteps({ ...project, uploads: demo.uploads }),
+    [demo, demoScript],
   );
   /**
    * The place on the page the tour's step is about, outlined by the page in
@@ -254,18 +328,18 @@ function ValShellBody({
    */
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const writeForTour = useCallback(
-    (path: SourcePath, value: string) => {
+    (path: SourcePath, value: JSONValue, add: boolean) => {
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
+      const patchPath = Internal.createPatchPath(modulePath);
       addModuleFilePatch(
         moduleFilePath,
         [
-          {
-            op: "replace",
-            path: Internal.createPatchPath(modulePath),
-            value,
-          },
+          add
+            ? { op: "add", path: patchPath, value }
+            : { op: "replace", path: patchPath, value },
         ],
+        // Unused by the store; see `useAddModuleFilePatch`.
         "string",
       );
     },
@@ -320,12 +394,13 @@ function ValShellBody({
   const commitState = useHistoricalCommit(history.commitSha);
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
+  const syncState = usePatchSyncState();
+  const retrySave = useRetrySave();
   const { patchErrors } = useAllPatchErrors();
   const validationErrors = useAllValidationErrors();
   // The query the search overlay is showing, so the content index can answer
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
-  const contentSearch = useContentSearch(searchQuery);
   /**
    * Remote files unavailable: a card above the editor, folded into a chip in
    * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
@@ -520,8 +595,76 @@ function ValShellBody({
     return () => setOpenAIChatImpl(null);
   }, [isAIChatEnabled, setOpenAIChatImpl, openAIPanel]);
 
-  const data: ShellData =
+  /**
+   * The language being shown, or null for all of them — one the project has,
+   * or none. The same normalising `LocaleFilterProvider` does, for the reads
+   * here that happen outside it.
+   */
+  const activeLocale =
+    locale !== null && projectLocales.includes(locale) ? locale : null;
+  // Down here rather than beside `searchQuery`: a hit in another language is
+  // left out, so the search needs the language. See `useContentSearch`.
+  const contentSearch = useContentSearch(
+    searchQuery,
+    activeLocale,
+    projectLocales,
+    navigation.currentSourcePath || null,
+  );
+  const unfilteredData: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  /**
+   * The shell's data, with the pages and modules the picked language hides
+   * taken out.
+   *
+   * Here, before anything reads `pages`, so the Pages tree, the canvas's route
+   * bar and the route the canvas falls back to all list the same pages — the
+   * three of them disagreeing is how an editor working in Norwegian ends up on
+   * an English page they never chose. See `pagesInLocale`.
+   */
+  const data: ShellData = useMemo(() => {
+    const location = navigation.currentSourcePath || null;
+    const pages = pagesInLocale(unfilteredData.pages, activeLocale, location);
+    // A data module is in a language as a whole only where its root has a
+    // locale field; everything finer is filtered inside it, row by row.
+    const modules =
+      activeLocale === null
+        ? unfilteredData.data
+        : unfilteredData.data.filter((module) =>
+            isListedUnder(
+              activeLocale,
+              module.locale,
+              location,
+              module.moduleFilePath,
+            ),
+          );
+    return pages === unfilteredData.pages &&
+      modules.length === unfilteredData.data.length
+      ? unfilteredData
+      : { ...unfilteredData, pages, data: modules };
+  }, [unfilteredData, activeLocale, navigation.currentSourcePath]);
+
+  /*
+   * The project's sketchpads: the top bar's button, "Sketch changes" on a
+   * page, the workspace while one is open, and the state the assistant's
+   * tools share with them. See `sketchpad/useStudioSketchpads.tsx`.
+   */
+  /** Bumped when the sketch asks for its page to be looked at. */
+  const [revealPreview, setRevealPreview] = useState(0);
+  const showRouteRef = useRef<((route: string) => void) | null>(null);
+  const sketchpads = useStudioSketchpads({
+    openAssistant: isAIChatEnabled ? openAIPanel : null,
+    pages: data.pages,
+    pageTypes: data.newPage?.routes.map((route) => route.patternString),
+    currentProfileId: useCurrentProfileId(),
+    // The page the sketch is about, in the Studio's one preview -- as
+    // picking it in Pages would (`onCanvasRouteChange`, below). Pressed in
+    // the sketch, it is also a request to look at it: on a phone, the
+    // preview pane comes to the front (`ShellProps.revealPreview`).
+    onShowRoute: (route, how) => {
+      showRouteRef.current?.(route);
+      if (how.pressed) setRevealPreview((count) => count + 1);
+    },
+  });
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
     own: deployState,
@@ -619,28 +762,6 @@ function ValShellBody({
   );
 
   /**
-   * The settings panel's sections.
-   *
-   * The connected half is mounted only while the panel is open (the shell calls
-   * this from inside it), which is what keeps a project without a settings
-   * module from calling hooks with a path it does not have.
-   */
-  const renderSettings = useCallback(
-    () => (
-      <>
-        {/*
-         * First, and only where the Studio is what builds the site: an update
-         * is a rebuild and a publish, which is the Studio's job for a managed
-         * project and nobody's here for a connected one.
-         */}
-        {studioIsDeployer && <ValSiteUpdate />}
-        <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
-      </>
-    ),
-    [data.settings?.moduleFilePath, studioIsDeployer],
-  );
-
-  /**
    * The external pages dialog.
    *
    * Only called while it is open - `Shell` owns that state - so the reference
@@ -722,6 +843,64 @@ function ValShellBody({
     setTypedRoute(null);
   }, [selectedPageRoute]);
 
+  /**
+   * Pick a language, and leave anything that is in another one.
+   *
+   * Picking Norsk while on an English page would otherwise leave the editor on
+   * the one page the filter exists to hide. Where they go is
+   * `relocateForLocale`'s answer: the same entry in Norsk where Val knows it
+   * for certain, else the nearest parent that is not English, else the
+   * Studio's start with nothing selected. Not a page: even `/` can be English.
+   *
+   * Only here, on a pick. A link or a reference that OPENS something English
+   * while Norsk is picked is the editor asking for exactly that, and it stays
+   * open — see `isAtLocation`.
+   *
+   * A navigation, not a replace: the entry before it still has the old
+   * language in its URL, so Back undoes both at once.
+   *
+   * Below `typedRoute`, which it clears when that route is in another
+   * language.
+   */
+  const valSystem = useValSystem();
+  const changeLocale = useCallback(
+    (next: string | null) => {
+      setLocale(next);
+      // A route typed into the canvas bar is a location too. One in another
+      // language goes, and the canvas falls back to a route the filter lists.
+      const typedPage =
+        typedRoute === null || next === null
+          ? undefined
+          : findPageByUrl(unfilteredData.pages, typedRoute);
+      if (!isListedUnder(next, typedPage?.locale, null, undefined)) {
+        setTypedRoute(null);
+      }
+      const path = navigation.currentSourcePath;
+      if (next === null || !projectLocales.includes(next) || !path) {
+        return;
+      }
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+      const schema = valSystem?.system.schemaStore.get(moduleFilePath);
+      const source = valSystem?.system.sourceStore.moduleSource(moduleFilePath);
+      if (schema === undefined || source === undefined) {
+        return;
+      }
+      const relocation = relocateForLocale(
+        path,
+        next,
+        schema,
+        source,
+        projectLocales,
+      );
+      if (relocation.type === "path") {
+        navigation.navigate(relocation.path);
+      } else if (relocation.type === "home") {
+        navigation.navigate(VAL_HOME_ROUTE);
+      }
+    },
+    [navigation, projectLocales, valSystem, typedRoute, unfilteredData.pages],
+  );
+
   /** The routes Val resolves, for the address bar's suggestions. */
   /**
    * Every route Val resolves, and the module behind it.
@@ -770,6 +949,7 @@ function ValShellBody({
     },
     [routeSourcePaths, navigation],
   );
+  showRouteRef.current = onCanvasRouteChange;
 
   /**
    * The routes the address bar offers, in URL order.
@@ -913,6 +1093,19 @@ function ValShellBody({
    */
   const addPage = useAddPage();
   /**
+   * "Do it for me" for a step that asks for a new page: the New page form's
+   * own call, with the key the step names.
+   */
+  const addPageForTour = useCallback(
+    (path: SourcePath) => {
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(path);
+      const [key] = Internal.createPatchPath(modulePath);
+      if (key !== undefined) addPage(moduleFilePath, key);
+    },
+    [addPage],
+  );
+  /**
    * Copy a page to another URL, and open the copy.
    *
    * The router module IS the record, so the two URLs are the two keys and the
@@ -966,6 +1159,7 @@ function ValShellBody({
     },
     [navigation, getNavPath],
   );
+  openPathForTour.current = openPath;
 
   /**
    * A pick on the page opens the field it belongs to, or says why it cannot.
@@ -990,6 +1184,65 @@ function ValShellBody({
    */
   const resolveNavPath = useResolveNavPath();
   const reportError = useReportError();
+
+  /**
+   * Which document of the page the canvas holds, beyond its own reloads.
+   *
+   * The canvas is the one preview in every mode -- the content editor, code
+   * mode, the Sketchpad -- so it is what has to follow the code: when the
+   * server serves another build, whoever built it, the page in the frame is
+   * the old build's document until it is loaded again. Content needs nothing
+   * here: the frame relays every edit as it is made.
+   */
+  const buildEpoch = useBuildEpoch();
+  /**
+   * In a proposal, the proposal's client code shown on the page in seconds
+   * after each change, before a build: see `useCodeModeQuickPreview`. The
+   * canvas opens the page as the quick preview while one is shown.
+   */
+  const [canvasLive, setCanvasLive] = useState(false);
+  const quickPreview = useCodeModeQuickPreview({
+    pageLive: canvasLive,
+    buildEpoch,
+  });
+  const quickId = quickPreview.quickId;
+  const setQuickStorer = quickPreview.setStorer;
+  const onQuickDocument = quickPreview.onDocument;
+  /** Code mode's status asked for the page again. */
+  const [codeReloads, setCodeReloads] = useState(0);
+
+  /**
+   * The Assistant's Select: picking on the page for the assistant, once, and
+   * what was picked, which goes with the next message. See `AssistantPage`.
+   */
+  const [assistantSelecting, setAssistantSelecting] = useState(false);
+  const [pointedAt, setPointedAt] = useState<PickedElement | null>(null);
+  /**
+   * How it picks: any element in code mode, outlined in the proposal's
+   * colour, and fields otherwise. Set once code mode is known, below.
+   */
+  const [assistantPick, setAssistantPick] = useState<{
+    codeMode: boolean;
+    color?: string;
+  }>({ codeMode: false });
+  /** The page in the frame, for the assistant's `read_page`. */
+  const pageReader = useRef<PageReader | null>(null);
+  const pageCamera = useRef<PageCamera | null>(null);
+  const pageLogReader = useRef<PageLogReader | null>(null);
+  const assistantPage = useMemo(
+    (): AssistantPage => ({
+      codeMode: assistantPick.codeMode,
+      selecting: assistantSelecting,
+      setSelecting: setAssistantSelecting,
+      pointedAt,
+      setPointedAt,
+      readPage: () => pageReader.current,
+      screenshotPage: () => pageCamera.current,
+      readPageLog: () => pageLogReader.current,
+    }),
+    [assistantPick.codeMode, assistantSelecting, pointedAt],
+  );
+  const documentKey = `${buildEpoch}:${codeReloads}`;
   const openPickedPath = useCallback(
     (paths: SourcePath[]): boolean => {
       const path = paths[0];
@@ -1039,12 +1292,18 @@ function ValShellBody({
       onPicked,
       enableKey,
       onStatusChange,
+      onCodeChanged,
+      onPickingStopped,
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
         url={canvasUrl}
+        quickPreviewId={quickId}
+        onQuickPreviewStorer={setQuickStorer}
+        onDocument={onQuickDocument}
         width={width}
         height={height}
         reloadKey={reloadKey}
+        documentKey={documentKey}
         isPicking={isPicking}
         /*
          * The project's accent, for the outlines drawn on the page itself.
@@ -1079,7 +1338,41 @@ function ValShellBody({
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          if (openPickedPath(paths)) onPicked(paths[0] ?? null);
+          if (!openPickedPath(paths)) return;
+          onPicked(paths[0] ?? null);
+        }}
+        onPickingStopped={onPickingStopped}
+        /*
+         * The Assistant's Select: any element in code mode, a field
+         * otherwise, once. `null` rather than absent while it is off, so a
+         * page that was picking is told to stop.
+         */
+        elementPicking={
+          assistantSelecting
+            ? {
+                active: true,
+                modifier: "alt",
+                keepPicked: false,
+                fieldsOnly: !assistantPick.codeMode,
+                ...(assistantPick.color !== undefined
+                  ? { color: assistantPick.color }
+                  : {}),
+              }
+            : null
+        }
+        onPickElement={(element) => {
+          setPointedAt(element);
+          setAssistantSelecting(false);
+        }}
+        onElementPickingStopped={() => setAssistantSelecting(false)}
+        onPageReader={(reader) => {
+          pageReader.current = reader;
+        }}
+        onPageCamera={(camera) => {
+          pageCamera.current = camera;
+        }}
+        onPageLogReader={(reader) => {
+          pageLogReader.current = reader;
         }}
         onPinch={onPinch}
         onZoom={onZoom}
@@ -1090,11 +1383,26 @@ function ValShellBody({
          * the frame is. See `CanvasPreviewNotice`.
          */
         enableKey={enableKey}
-        onStatusChange={onStatusChange}
+        onStatusChange={(status) => {
+          onStatusChange(status);
+          setCanvasLive(status === "live");
+        }}
         onRefreshingChange={onRefreshingChange}
+        onCodeChanged={onCodeChanged}
       />
     );
-  }, [canvasUrl, focusedPath, openPickedPath, tourPagePath]);
+  }, [
+    canvasUrl,
+    documentKey,
+    focusedPath,
+    openPickedPath,
+    tourPagePath,
+    assistantSelecting,
+    assistantPick,
+    quickId,
+    setQuickStorer,
+    onQuickDocument,
+  ]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -1173,17 +1481,45 @@ function ValShellBody({
    * "saving": patches are applied locally first, so the editor is never
    * waiting on a round trip to show your change.
    */
-  const rawSaveState: SaveState = useMemo(() => {
-    const hasPatchErrors = Object.values(patchErrors ?? {}).some(
-      (forModule) => Object.keys(forModule ?? {}).length > 0,
-    );
-    if (hasPatchErrors || connectionStatus === "service-unavailable") {
-      return "error";
-    }
-    return pendingClientSidePatchIds.length > 0 ? "saving" : "saved";
-  }, [patchErrors, connectionStatus, pendingClientSidePatchIds]);
+  const rawSaveState: SaveState = useMemo(
+    () =>
+      saveStateOf({
+        sync: syncState,
+        unsavedCount: pendingClientSidePatchIds.length,
+        hasPatchErrors: Object.values(patchErrors ?? {}).some(
+          (forModule) => Object.keys(forModule ?? {}).length > 0,
+        ),
+        serviceUnavailable: connectionStatus === "service-unavailable",
+      }),
+    [syncState, patchErrors, connectionStatus, pendingClientSidePatchIds],
+  );
   /** Held through a burst of writes, so typing does not blink the bar. */
   const saveState = useSteadySaveState(rawSaveState);
+  /**
+   * A save the content service would not take: said where it stays until it
+   * is fixed, with Try again beside it. One id for the whole spell, so a
+   * dismissed notice folds into the status bar and is not pushed back up by
+   * every timed retry that fails the same way.
+   */
+  const saveFailedNotice: FloatingNoticeItem | null = useMemo(
+    () =>
+      syncState?.status === "failed"
+        ? {
+            id: "save-failed",
+            label: "Not saved",
+            icon: <AlertTriangle size={13} />,
+            content: (
+              <SaveFailedNotice
+                message={syncState.message}
+                details={syncState.details}
+                changeCount={syncState.patches.length}
+                onRetry={retrySave}
+              />
+            ),
+          }
+        : null,
+    [syncState, retrySave],
+  );
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
@@ -1201,33 +1537,118 @@ function ValShellBody({
   const inProposal = useCurrentProposal() !== null;
   const siteChanges = useSiteChanges(inProposal);
   const [siteCompareOpen, setSiteCompareOpen] = useState(false);
-  const openSiteCompare = useCallback(() => setSiteCompareOpen(true), []);
+  /** Review opened on the code changes, from code mode's menu. */
+  const [siteCompareOnCode, setSiteCompareOnCode] = useState(false);
+  const openSiteCompare = useCallback(() => {
+    setSiteCompareOnCode(false);
+    setSiteCompareOpen(true);
+  }, []);
+  const openCodeChanges = useCallback(() => {
+    setSiteCompareOnCode(true);
+    setSiteCompareOpen(true);
+  }, []);
   const {
     proposals: proposalsBar,
     dialogs: proposalDialogs,
-    notice: proposalNotice,
+    notices: proposalNotices,
     restoreDestination,
+    upgrade,
+    upgradeSettings,
+    siteUrl: proposalSiteUrl,
+    codeChanges,
   } = useProposalsBar({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
     onCompare: openSiteCompare,
+    owners: studioAccess.access?.owners ?? NO_OWNERS,
+    projectUrl: studioAccess.access?.projectUrl ?? null,
   });
-  // A merged proposal's notice first: it says this whole Studio is finished.
-  const shellNotice =
-    proposalNotice === null ? (
-      editorNotice
-    ) : (
-      <div className="flex flex-col gap-3">
-        {proposalNotice}
-        {editorNotice}
-      </div>
+  /*
+   * Code mode holds the preview open: what the code changes is seen there,
+   * and the changes themselves are in Review (`openCodeChanges`).
+   */
+  const inCodeMode = codeChanges !== null;
+  /*
+   * In code mode the Assistant's Select takes any element, outlined in the
+   * proposal's colour: the one the chrome wears, read off the Studio's own
+   * stylesheet so a project's theme reaches the page too. A colour the page
+   * would refuse (`isCanvasSelectionColor`) is left out, and the page uses
+   * its selection colour.
+   */
+  const codeModeOn = proposalsBar?.codeMode?.on === true;
+  useEffect(() => {
+    if (!codeModeOn) {
+      setAssistantPick((current) =>
+        current.codeMode ? { codeMode: false } : current,
+      );
+      return;
+    }
+    const color =
+      portalContainer !== null && portalContainer !== undefined
+        ? getComputedStyle(portalContainer)
+            .getPropertyValue("--border-proposal")
+            .trim()
+        : "";
+    setAssistantPick((current) =>
+      current.codeMode && current.color === color
+        ? current
+        : {
+            codeMode: true,
+            ...(isCanvasSelectionColor(color) ? { color } : {}),
+          },
     );
+  }, [codeModeOn, portalContainer]);
+
+  /**
+   * The settings panel's sections.
+   *
+   * The connected half is mounted only while the panel is open (the shell calls
+   * this from inside it), which is what keeps a project without a settings
+   * module from calling hooks with a path it does not have.
+   */
+  const updates = studioIsDeployer ? upgradeSettings : null;
+  const settingsModule = data.settings?.moduleFilePath;
+  const renderSettings = useCallback(
+    () => (
+      <>
+        {/*
+         * First, and only where the Studio is what builds the site: an
+         * upgrade is made in a proposal and published from there, which is
+         * the Studio's job for a managed project and nobody's here for a
+         * connected one.
+         */}
+        {updates !== null && <SiteUpdateSection upgrade={updates} />}
+        {/*
+         * A hosted project made from a template has no settings module, and
+         * Updates is what it opened Settings for: telling it how to add one
+         * is for a developer, who would see it in a project without Updates.
+         */}
+        {(settingsModule !== undefined || updates === null) && (
+          <ValSettingsSections moduleFilePath={settingsModule} />
+        )}
+      </>
+    ),
+    [settingsModule, updates],
+  );
   const proposals = useMemo(
     () =>
       proposalsBar && inProposal
-        ? { ...proposalsBar, onCompare: openSiteCompare }
+        ? {
+            ...proposalsBar,
+            onCompare: openSiteCompare,
+            // The code changes are in Review, with the content changes, not
+            // a view of their own (the plan's open question 8).
+            ...(proposalsBar.codeMode !== undefined
+              ? {
+                  codeMode: {
+                    ...proposalsBar.codeMode,
+                    onShowCode: openCodeChanges,
+                  },
+                }
+              : {}),
+          }
         : proposalsBar,
-    [proposalsBar, inProposal, openSiteCompare],
+    [proposalsBar, inProposal, openSiteCompare, openCodeChanges],
   );
 
   /**
@@ -1312,249 +1733,363 @@ function ValShellBody({
     restoreDestination,
   );
 
-  const renderHistory = history.commitSha
+  /**
+   * The past, in its two parts: "now" is the editor, in the mode a restore
+   * gives it, and the past is the module at the commit. Above a phone the
+   * past takes the preview's place (`ShellProps.history`); on a phone the two
+   * are one pane and a toggle (`HistorySplit`).
+   */
+  const historyParts = history.commitSha
+    ? {
+        label: `At ${history.commitSha.slice(0, 7)}`,
+        now: (editor: React.ReactNode) => (
+          <RestoreModeProvider mode={restore.nowMode}>
+            {editor}
+          </RestoreModeProvider>
+        ),
+        past: (
+          <HistoryPane
+            wrapModule={(module) => (
+              <RestoreModeProvider mode={restore.commitMode}>
+                {module}
+              </RestoreModeProvider>
+            )}
+            restoreSlot={
+              <RestoreControls
+                patchSet={
+                  commitState?.status === "success"
+                    ? commitState.patchSet
+                    : undefined
+                }
+                path={navigation.currentSourcePath as SourcePath | null}
+                restore={restore}
+              />
+            }
+            patchSet={
+              commitState?.status === "success"
+                ? commitState.patchSet
+                : undefined
+            }
+            path={
+              history.locked
+                ? (navigation.currentSourcePath as SourcePath | null)
+                : history.rightPath
+            }
+            loading={commitState?.status === "loading"}
+            error={commitState?.status === "error" ? commitState.message : null}
+          />
+        ),
+      }
+    : undefined;
+  const renderHistory = historyParts
     ? (
         editor: React.ReactNode,
         breakpoint: "mobile" | "tablet" | "desktop",
       ) => (
         <HistorySplit
-          editor={
-            <RestoreModeProvider mode={restore.nowMode}>
-              {editor}
-            </RestoreModeProvider>
-          }
+          editor={historyParts.now(editor)}
           breakpoint={breakpoint}
-          commitLabel={`At ${history.commitSha?.slice(0, 7)}`}
-          history={
-            <HistoryPane
-              wrapModule={(module) => (
-                <RestoreModeProvider mode={restore.commitMode}>
-                  {module}
-                </RestoreModeProvider>
-              )}
-              restoreSlot={
-                <RestoreControls
-                  patchSet={
-                    commitState?.status === "success"
-                      ? commitState.patchSet
-                      : undefined
-                  }
-                  path={navigation.currentSourcePath as SourcePath | null}
-                  restore={restore}
-                />
-              }
-              patchSet={
-                commitState?.status === "success"
-                  ? commitState.patchSet
-                  : undefined
-              }
-              path={
-                history.locked
-                  ? (navigation.currentSourcePath as SourcePath | null)
-                  : history.rightPath
-              }
-              loading={commitState?.status === "loading"}
-              error={
-                commitState?.status === "error" ? commitState.message : null
-              }
-            />
-          }
+          commitLabel={historyParts.label}
+          history={historyParts.past}
         />
       )
     : undefined;
 
-  return (
-    <LocaleFilterProvider locale={locale}>
-      <Shell
-        renderHistory={renderHistory}
-        data={data}
-        theme={resolvedTheme}
-        themeStyle={themeStyle}
-        onThemeChange={setTheme}
-        mode={mode}
-        selectionId={overrideEditor ? null : selectionId}
-        onSelectionChange={onSelectionChange}
-        renderEditor={renderEditor}
-        renderSettings={renderSettings}
-        renderExternalPages={renderExternalPages}
-        tourEnabled={demo !== null || isTourOffered(studioSettings)}
-        buildTourSteps={buildDemoTourSteps}
-        autoStartTour={demoTourPending}
-        tourLook={demo !== null ? "ring" : undefined}
-        onTourHighlightPage={setTourPagePath}
-        onTourWrite={demo !== null ? writeForTour : undefined}
-        onTourClose={demo !== null ? writeDemoTourSeen : undefined}
-        renderDemoBanner={
-          demo !== null
-            ? (startTour) => (
-                <DemoBanner
-                  onStartTour={startTour}
-                  // The demo's edits live in this page's memory, so a reload
-                  // is a reset: there is nothing stored to clear.
-                  onReset={() => window.location.reload()}
-                />
-              )
-            : undefined
-        }
-        editorOverride={overrideEditor}
-        notice={shellNotice}
-        renderPlanStatus={planStatus}
-        renderSiteErrors={renderSiteErrors}
-        statusNotice={remoteFilesStatusNotice}
-        publishSlot={demo !== null ? <DemoPublishButton /> : <PublishButton />}
-        publishState={publishState}
-        publishIndicator={publishIndicatorState}
-        saveState={saveState}
-        autoSave={autoPublish}
-        onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
-        pendingChanges={data.pendingChanges ?? 0}
-        /*
-         * Zeroed when the pending patches cancel out, so Review does not put a
-         * number on changes that will not ship. The button itself stays: that
-         * view is where Discard is, and Publish is disabled until something
-         * changes.
-         */
-        reviewCount={
-          inProposal
-            ? siteChanges.status === "ready"
-              ? siteChanges.changeCount
-              : 0
-            : hasNetChanges
-              ? pendingChangeCount
-              : 0
-        }
-        /*
-         * Offered only once the metadata behind the confirm has arrived.
-         *
-         * The confirm names the other people whose work would go, and those
-         * names come from the patch sets. While those are still grouping the
-         * list is empty — so an eager button could throw away a colleague's
-         * work having promised, and shown, nothing about it. A row that appears
-         * a moment late is the cheaper mistake.
-         */
-        onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
-        discardAllDescription={discardAll.description}
-        portalContainer={portalContainer}
-        isLoading={state.status === "loading"}
-        loadError={state.status === "error" ? state.error : undefined}
-        renderCanvas={renderCanvas}
-        canvasPaths={canvasPaths}
-        onSelectCanvasPath={openPath}
-        selectedCanvasPath={focusedPath}
-        canvasRoute={canvasUrl}
-        onCanvasRouteChange={onCanvasRouteChange}
-        canvasRoutes={canvasRoutes}
-        initialPanel={urlState.initial.panel}
-        locales={projectLocales}
-        locale={locale}
-        onLocaleChange={setLocale}
-        initialCanvasOpen={urlState.initial.canvasOpen}
-        initialCanvasView={urlState.initial.canvasView}
-        restoreViewState={restoreViewState}
-        initialCanvasTransform={urlState.initial.canvasTransform}
-        onViewStateChange={setViewState}
-        onNewPage={addPage}
-        onDuplicatePage={duplicatePage}
-        onRenamePage={renamePage}
-        // Where the demo cannot relay uploads (see `ValDemoRuntime.uploads`).
-        onUploadMedia={demo !== null && !demo.uploads ? undefined : uploadInto}
-        onPreview={openPreviewTab}
-        // Also as an href, so the menu item is a link that can be copied. The URL
-        // enables preview and redirects, so it is worth sending to someone.
-        previewHref={previewHref}
-        onSelectValidationError={onSelectValidationError}
-        onCompare={inProposal ? openSiteCompare : showReview}
-        // Recent activity rows did nothing: the panel listed them and no handler
-        // was passed. They carry a real source path, so opening one is the same
-        // act as opening a search hit.
-        onSelectActivity={(entry) => openPath(entry.sourcePath as SourcePath)}
-        getMediaFileUrl={getMediaFileUrl}
-        searchContentResults={contentSearch.results}
-        isSearchingContent={contentSearch.isSearching}
-        onSearchQueryChange={setSearchQuery}
-        // A content hit is a path inside a module, so it is opened directly.
-        onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
-        onSignOut={onSignOut}
-        accountError={
-          profilesError
-            ? { message: profilesError.message, onRetry: profilesError.retry }
-            : undefined
-        }
-        aiEnabled={isAIChatEnabled}
-        /*
-         * The real assistant, not a stand-in.
-         *
-         * Mounted only while the panel is open — same as the on-page overlay.
-         * The socket is not: it belongs to `ValProvider`, so closing the panel
-         * does not disconnect, and the conversation comes back because
-         * `AIChatSurface` seeds itself from the session id in the URL.
-         */
-        aiSlot={
-          isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
-        }
-        /*
-         * Whether to offer History at all.
-         *
-         * False in FS mode: local dev has git rather than a commit archive, so
-         * there is no published history to list and `/history/commits` answers
-         * `not-supported-in-fs-mode`. The button is hidden rather than leading
-         * to a page whose only content is an apology.
-         *
-         * And false without a resolved branch, for the same reason rather than
-         * a second one: history is listed PER BRANCH, so `HistoryView` has no
-         * request to make and says so. The server names the branch it lists
-         * -- a proposal's, a git mirror's or a managed project's -- so this
-         * is the deployment that has none. Offering the button there is the
-         * dead affordance this comment exists to forbid.
-         */
-        historyEnabled={historyEnabledFor({
-          mode,
-          historyBranch: shellHistoryBranch,
-        })}
-        historyActive={navigation.isHistoryView}
-        onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
-        onOpenValidate={() => navigation.navigate(VAL_ERRORS_ROUTE)}
-        validateActive={navigation.isErrorsView}
-        validateCount={validateCount}
-        onMentionField={(sourcePath) =>
-          insertFieldRef(sourcePath as SourcePath)
-        }
-        // Held until the first load's patches are in — see `PendingChangesGate`.
-        pendingChangesLoaded={pendingChangesLoaded}
-        pendingChangesProgress={pendingChangesProgress}
-        pendingChangesError={pendingChangesError}
-        proposals={proposals}
-      />
-      {proposalDialogs}
-      <ProposalSiteCompare
-        changes={siteChanges}
-        open={siteCompareOpen}
-        onOpenChange={setSiteCompareOpen}
-        portalContainer={portalContainer}
-      />
-      {handoff.state !== null && handoffCardInStudio(handoff.state) && (
-        /*
-         * A publish this Studio handed to a builder tab, because it cannot
-         * build here -- only when something needs doing about it: the tab was
-         * blocked, or it failed. While it builds, the status bar's indicator
-         * says so, with the tab's step; once it is content's, this Studio's
-         * own indicator and toast follow it. See `handoffCardInStudio`.
-         */
-        <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
-          <PublishHandoffCard
-            state={handoff.state}
-            onReload={() => window.location.reload()}
-            onOpenStudio={handoff.openStudio}
-            onDismiss={
-              handoff.state.kind === "opening" ||
-              handoff.state.kind === "running"
-                ? undefined
-                : handoff.dismiss
+  return sketchpads.wrap(
+    <AssistantPageContext.Provider value={assistantPage}>
+      <ContentAnalyticsProvider>
+        <LocaleFilterProvider
+          locale={locale}
+          location={navigation.currentSourcePath || null}
+        >
+          <Shell
+            sketchpad={sketchpads.sketchpad}
+            onSketchPage={sketchpads.onSketchPage}
+            /*
+             * The Sketchpad when it is open. Code mode no longer replaces the
+             * workspace: the canvas is the same in every mode, and code mode's
+             * view is the code changes in the editor's column, beside it.
+             */
+            sketchPane={sketchpads.sketchPane}
+            /*
+             * Code mode's view is the code changes beside the page: the canvas
+             * is held open, and the assistant that changes the page is docked
+             * beside it rather than over it.
+             */
+            // Held open while code mode is on, and while a sketchpad is: the
+            // sketch is about a page, and the preview is where it is shown.
+            canvasPinned={inCodeMode || sketchpads.sketchPane !== undefined}
+            revealPreview={revealPreview}
+            assistantSelect={
+              isAIChatEnabled
+                ? {
+                    pressed: assistantSelecting,
+                    onPressedChange: setAssistantSelecting,
+                    codeMode: assistantPick.codeMode,
+                    // As Content's: a page that has not reported is one
+                    // whose picker is not listening yet. In code mode any
+                    // element can be picked, so a page with no Val fields
+                    // on it -- a new route being built -- is enough once it
+                    // answers.
+                    ...((
+                      assistantPick.codeMode
+                        ? !canvasLive
+                        : canvasPaths.length === 0
+                    )
+                      ? {
+                          unavailable:
+                            "Nothing on the page can be selected until the preview has loaded it",
+                        }
+                      : {}),
+                  }
+                : undefined
             }
+            previewStatus={
+              codeChanges !== null ? (
+                <CodeModeStatus
+                  build={withQuickPreviewState(codeChanges.build, quickPreview)}
+                  onReload={() => setCodeReloads((count) => count + 1)}
+                />
+              ) : undefined
+            }
+            renderHistory={renderHistory}
+            history={historyParts}
+            data={data}
+            theme={resolvedTheme}
+            themeStyle={themeStyle}
+            onThemeChange={setTheme}
+            mode={mode}
+            selectionId={overrideEditor ? null : selectionId}
+            onSelectionChange={onSelectionChange}
+            renderEditor={renderEditor}
+            renderSettings={renderSettings}
+            renderExternalPages={renderExternalPages}
+            tourEnabled={demo !== null || isTourOffered(studioSettings)}
+            buildTourSteps={buildDemoTourSteps}
+            autoStartTour={demoTourPending}
+            tourLook={demo !== null ? "ring" : undefined}
+            onTourHighlightPage={setTourPagePath}
+            onTourWrite={demo !== null ? writeForTour : undefined}
+            onTourAddPage={demo !== null ? addPageForTour : undefined}
+            onTourClose={demo !== null ? writeDemoTourSeen : undefined}
+            renderDemoBanner={
+              demo !== null
+                ? (startTour) => (
+                    <DemoBanner
+                      script={demoScript}
+                      onStartTour={(tourId) => {
+                        const run =
+                          tourId === undefined ? null : demoTourRun(tourId);
+                        startTour(run ?? undefined);
+                      }}
+                      // The demo's edits live in this page's memory, so a reload
+                      // is a reset: there is nothing stored to clear.
+                      onReset={() => window.location.reload()}
+                    />
+                  )
+                : undefined
+            }
+            editorOverride={overrideEditor}
+            notice={editorNotice}
+            floatingNotices={
+              saveFailedNotice === null
+                ? proposalNotices
+                : [saveFailedNotice, ...proposalNotices]
+            }
+            renderPlanStatus={planStatus}
+            renderSiteErrors={renderSiteErrors}
+            statusNotice={remoteFilesStatusNotice}
+            publishSlot={
+              demo !== null ? <DemoPublishButton /> : <PublishButton />
+            }
+            publishState={publishState}
+            publishIndicator={publishIndicatorState}
+            saveState={saveState}
+            onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
+            autoSave={autoPublish}
+            onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
+            pendingChanges={data.pendingChanges ?? 0}
+            /*
+             * Zeroed when the pending patches cancel out, so Review does not put a
+             * number on changes that will not ship. The button itself stays: that
+             * view is where Discard is, and Publish is disabled until something
+             * changes.
+             */
+            reviewCount={
+              inProposal
+                ? siteChanges.status === "ready"
+                  ? siteChanges.changeCount
+                  : 0
+                : hasNetChanges
+                  ? pendingChangeCount
+                  : 0
+            }
+            /*
+             * Offered only once the metadata behind the confirm has arrived.
+             *
+             * The confirm names the other people whose work would go, and those
+             * names come from the patch sets. While those are still grouping the
+             * list is empty — so an eager button could throw away a colleague's
+             * work having promised, and shown, nothing about it. A row that appears
+             * a moment late is the cheaper mistake.
+             */
+            onDiscardAll={
+              discardAll.enabled ? discardAll.discardAll : undefined
+            }
+            discardAllDescription={discardAll.description}
+            portalContainer={portalContainer}
+            isLoading={state.status === "loading"}
+            loadError={state.status === "error" ? state.error : undefined}
+            renderCanvas={renderCanvas}
+            canvasPaths={canvasPaths}
+            onSelectCanvasPath={openPath}
+            selectedCanvasPath={focusedPath}
+            canvasRoute={canvasUrl}
+            onCanvasRouteChange={onCanvasRouteChange}
+            canvasRoutes={canvasRoutes}
+            initialPanel={urlState.initial.panel}
+            locales={projectLocales}
+            locale={locale}
+            onLocaleChange={changeLocale}
+            initialCanvasOpen={urlState.initial.canvasOpen}
+            initialCanvasView={urlState.initial.canvasView}
+            restoreViewState={restoreViewState}
+            initialCanvasTransform={urlState.initial.canvasTransform}
+            onViewStateChange={setViewState}
+            onNewPage={addPage}
+            onDuplicatePage={duplicatePage}
+            onRenamePage={renamePage}
+            // Where the demo cannot relay uploads (see `ValDemoRuntime.uploads`).
+            onUploadMedia={
+              demo !== null && !demo.uploads ? undefined : uploadInto
+            }
+            onPreview={openPreviewTab}
+            // Also as an href, so the menu item is a link that can be copied. The URL
+            // enables preview and redirects, so it is worth sending to someone.
+            previewHref={previewHref}
+            onSelectValidationError={onSelectValidationError}
+            onCompare={inProposal ? openSiteCompare : showReview}
+            // Recent activity rows did nothing: the panel listed them and no handler
+            // was passed. They carry a real source path, so opening one is the same
+            // act as opening a search hit.
+            onSelectActivity={(entry) =>
+              openPath(entry.sourcePath as SourcePath)
+            }
+            getMediaFileUrl={getMediaFileUrl}
+            searchContentResults={contentSearch.results}
+            isSearchingContent={contentSearch.isSearching}
+            searchContentLoad={contentSearch.load}
+            onSearchQueryChange={setSearchQuery}
+            // A content hit is a path inside a module, so it is opened directly.
+            onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
+            onSignOut={onSignOut}
+            accountError={
+              profilesError
+                ? {
+                    message: profilesError.message,
+                    onRetry: profilesError.retry,
+                  }
+                : undefined
+            }
+            aiEnabled={isAIChatEnabled}
+            /*
+             * The real assistant, not a stand-in.
+             *
+             * Mounted only while the panel is open — same as the on-page overlay.
+             * The socket is not: it belongs to `ValProvider`, so closing the panel
+             * does not disconnect, and the conversation comes back because
+             * `AIChatSurface` seeds itself from the session id in the URL.
+             */
+            aiSlot={
+              isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
+            }
+            /*
+             * Whether to offer History at all.
+             *
+             * False in FS mode: local dev has git rather than a commit archive, so
+             * there is no published history to list and `/history/commits` answers
+             * `not-supported-in-fs-mode`. The button is hidden rather than leading
+             * to a page whose only content is an apology.
+             *
+             * And false without a resolved branch, for the same reason rather than
+             * a second one: history is listed PER BRANCH, so `HistoryView` has no
+             * request to make and says so. The server names the branch it lists
+             * -- a proposal's, a git mirror's or a managed project's -- so this
+             * is the deployment that has none. Offering the button there is the
+             * dead affordance this comment exists to forbid.
+             */
+            historyEnabled={historyEnabledFor({
+              mode,
+              historyBranch: shellHistoryBranch,
+            })}
+            historyActive={navigation.isHistoryView}
+            onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
+            // In the demo the page has only the Studio's own errors to show (its
+            // server has no full check), so the button is there while it has some.
+            onOpenValidate={
+              demo === null || validateCount > 0 || navigation.isErrorsView
+                ? () => navigation.navigate(VAL_ERRORS_ROUTE)
+                : undefined
+            }
+            {...(upgrade !== null ? { upgrade } : {})}
+            versions={versions}
+            validateActive={navigation.isErrorsView}
+            validateCount={validateCount}
+            onMentionField={(sourcePath) =>
+              insertFieldRef(sourcePath as SourcePath)
+            }
+            // Held until the first load's patches are in — see `PendingChangesGate`.
+            pendingChangesLoaded={pendingChangesLoaded}
+            pendingChangesProgress={pendingChangesProgress}
+            pendingChangesError={pendingChangesError}
+            proposals={proposals}
           />
-        </div>
-      )}
-    </LocaleFilterProvider>
+          {proposalDialogs}
+          <ProposalSiteCompare
+            changes={siteChanges}
+            siteUrl={proposalSiteUrl}
+            open={siteCompareOpen}
+            onOpenChange={setSiteCompareOpen}
+            portalContainer={portalContainer}
+            code={
+              codeChanges !== null
+                ? {
+                    name: codeChanges.name,
+                    build: withQuickPreviewState(
+                      codeChanges.build,
+                      quickPreview,
+                    ),
+                    onReload: () => setCodeReloads((count) => count + 1),
+                  }
+                : undefined
+            }
+            initialView={siteCompareOnCode ? "code" : undefined}
+          />
+          {handoff.state !== null && handoffCardInStudio(handoff.state) && (
+            /*
+             * A publish this Studio handed to a builder tab, because it cannot
+             * build here -- only when something needs doing about it: the tab was
+             * blocked, or it failed. While it builds, the status bar's indicator
+             * says so, with the tab's step; once it is content's, this Studio's
+             * own indicator and toast follow it. See `handoffCardInStudio`.
+             */
+            <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
+              <PublishHandoffCard
+                state={handoff.state}
+                onReload={() => window.location.reload()}
+                onOpenStudio={handoff.openStudio}
+                onDismiss={
+                  handoff.state.kind === "opening" ||
+                  handoff.state.kind === "running"
+                    ? undefined
+                    : handoff.dismiss
+                }
+              />
+            </div>
+          )}
+        </LocaleFilterProvider>
+      </ContentAnalyticsProvider>
+    </AssistantPageContext.Provider>,
   );
 }
 
@@ -1809,3 +2344,32 @@ const EMPTY_SHELL_DATA: ShellData = {
   data: [],
   validationErrors: [],
 };
+
+/**
+ * The tour a link names, `/val?tour=<id>`: the docs, the home page or an
+ * email can send someone straight into one of the demo's tours.
+ */
+function readTourParam(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get("tour");
+  } catch {
+    return null;
+  }
+}
+
+/** The page at a URL, anywhere in the tree, or `undefined` where none is. */
+function findPageByUrl(
+  pages: ShellData["pages"],
+  urlPath: string,
+): ShellData["pages"][number] | undefined {
+  for (const page of pages) {
+    if (page.urlPath === urlPath && page.sourcePath !== undefined) {
+      return page;
+    }
+    const below = findPageByUrl(page.children ?? [], urlPath);
+    if (below !== undefined) {
+      return below;
+    }
+  }
+  return undefined;
+}

@@ -35,6 +35,7 @@ export type {
   VideoStreamOptions,
 } from "./schema/video";
 import { videosetEntryVideoSchema } from "./schema/videodir";
+import { galleryEntryMediaSchema } from "./schema/galleryEntryMediaSchema";
 export type {
   VideodirEntryMetadata,
   VideodirOptions,
@@ -144,7 +145,7 @@ import {
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
-import { ModulePath, SourcePath, getValPath, isVal } from "./val";
+import { ModulePath, SourcePath, getValPath, isVal, setValPath } from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
@@ -162,7 +163,12 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
-import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
+import {
+  isJson,
+  isJsonFromServer,
+  getJsonImport,
+  resolveJsonValues,
+} from "./source/json";
 import { isExternal, hasInlineExternalEntries } from "./source/external";
 import {
   createExternalFileRef,
@@ -444,6 +450,7 @@ const Internal = {
     core: corePackageJson.version,
   },
   videosetEntryVideoSchema,
+  galleryEntryMediaSchema,
   // A view's read-path plumbing: `Internal` rather than the public surface,
   // because an app never builds or unwraps a handle — it passes one to
   // `useVal`.
@@ -468,6 +475,7 @@ const Internal = {
   },
   getSchema,
   getValPath,
+  setValPath,
   getSource,
   isValModule,
   resolvePath,
@@ -513,6 +521,7 @@ const Internal = {
   },
   isVal,
   isJson,
+  isJsonFromServer,
   getJsonImport,
   resolveJsonValues,
   isExternal,

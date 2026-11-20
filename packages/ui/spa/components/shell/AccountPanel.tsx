@@ -1,10 +1,14 @@
 import { ReactNode } from "react";
 import {
+  Bell,
+  ArrowUpCircle,
+  Compass,
   ExternalLink,
   LogOut,
   LucideIcon,
   Moon,
   Settings2,
+  ShieldAlert,
   Sun,
   Users,
 } from "lucide-react";
@@ -14,7 +18,14 @@ import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
 import { Avatar } from "../Avatar";
 import { AccountErrorNotice, ShellAccountError } from "./AccountError";
 import { DeploymentRows } from "./Deployments";
-import { ShellAdminLinks, ShellBreakpoint, ShellDeployment } from "./types";
+import {
+  ShellAdminLinks,
+  ShellBreakpoint,
+  ShellDeployment,
+  ShellVersions,
+} from "./types";
+import { VersionList } from "./VersionList";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 
 export type AccountPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -64,6 +75,32 @@ export type AccountPanelProps = {
    * wired to a function that did nothing.
    */
   onSignOut?: () => void;
+  /**
+   * Run the guided tour. Passed on a phone only, where there is no Quick
+   * actions panel to keep it: the account is where help lives there.
+   */
+  onStartTour?: () => void;
+  /**
+   * The project's members, in Val Build's own sheet: on a phone this takes the
+   * place of the top bar's Members button, and of the link out to manage them.
+   */
+  members?: ReactNode;
+  /**
+   * The notifications, on a phone: their bell was in the bottom bar, which
+   * is the workspace's panes now. A row that opens them, with how many wait.
+   */
+  activity?: { count: number; onOpen: () => void };
+  /**
+   * The Updates notice, on a phone, where the top bar has no room for it
+   * (valbuild/home `docs/plans/upgrades-v2.md`, piece E). Absent while there
+   * is nothing to upgrade.
+   */
+  upgrade?: UpgradeButton;
+  /**
+   * The versions of Val's packages, as one quiet line at the very foot.
+   * Absent where there is no server to ask (a story that does not supply one).
+   */
+  versions?: ShellVersions;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -97,6 +134,11 @@ export function AccountPanel({
   deployments,
   siteErrors,
   onSignOut,
+  onStartTour,
+  members,
+  activity,
+  upgrade,
+  versions,
   onClose,
   navSwitcher,
 }: AccountPanelProps) {
@@ -105,7 +147,9 @@ export function AccountPanel({
       side="left"
       width={300}
       title="Account"
-      mobileVariant="sheet"
+      // From the avatar, like every other sheet a phone opens from a button:
+      // the side sheet is navigation's, behind the menu button.
+      mobileVariant="bottom-sheet"
       breakpoint={breakpoint}
       onClose={onClose}
       subheader={navSwitcher}
@@ -124,6 +168,24 @@ export function AccountPanel({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activity && (
+          <div className="px-4 pb-2">
+            <button
+              type="button"
+              onClick={activity.onOpen}
+              className="flex h-10 w-full items-center gap-2.5 rounded-md bg-bg-float-raised px-3 text-left text-xs font-medium text-fg-primary"
+            >
+              <Bell size={15} className="shrink-0 text-fg-secondary" />
+              <span className="flex-1">Activity</span>
+              {activity.count > 0 && (
+                <span className="grid h-5 min-w-5 place-items-center rounded-full bg-fg-primary px-1.5 text-[0.625rem] font-semibold tabular-nums text-bg-float">
+                  {activity.count > 9 ? "9+" : activity.count}
+                </span>
+              )}
+            </button>
           </div>
         )}
 
@@ -165,12 +227,14 @@ export function AccountPanel({
                 label="Administer project"
                 description="Settings, API keys and versions in Val Build."
               />
-              <AdminLink
-                href={admin.members}
-                icon={Users}
-                label="Manage members"
-                description="Who can edit this project's content."
-              />
+              {members ?? (
+                <AdminLink
+                  href={admin.members}
+                  icon={Users}
+                  label="Manage members"
+                  description="Who can edit this project's content."
+                />
+              )}
             </div>
           </>
         )}
@@ -210,6 +274,53 @@ export function AccountPanel({
           </div>
         )}
 
+        {upgrade !== undefined && (
+          <>
+            <PanelSectionLabel divided>Dependencies</PanelSectionLabel>
+            <div className="px-4 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  upgrade.onOpen();
+                }}
+                className="flex items-center gap-2 -mx-2 w-[calc(100%+1rem)] px-2 py-1.5 rounded-md text-xs text-fg-primary hover:bg-bg-float-raised"
+              >
+                {upgrade.vulnerable ? (
+                  <ShieldAlert
+                    size={13}
+                    className="shrink-0 text-fg-error-on-surface"
+                  />
+                ) : (
+                  <ArrowUpCircle
+                    size={13}
+                    className="shrink-0 text-fg-secondary"
+                  />
+                )}
+                {upgrade.label}
+              </button>
+            </div>
+          </>
+        )}
+        {onStartTour && (
+          <>
+            <PanelSectionLabel divided>Help</PanelSectionLabel>
+            <div className="px-4 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onStartTour();
+                }}
+                className="flex items-center gap-2 -mx-2 w-[calc(100%+1rem)] px-2 py-1.5 rounded-md text-xs text-fg-primary hover:bg-bg-float-raised"
+              >
+                <Compass size={13} className="shrink-0 text-fg-secondary" />
+                Take a tour
+              </button>
+            </div>
+          </>
+        )}
+
         {onSignOut && (
           <div className="px-4 pt-4">
             <button
@@ -222,6 +333,8 @@ export function AccountPanel({
             </button>
           </div>
         )}
+
+        {versions && <VersionList versions={versions} mode={mode} />}
       </div>
     </FloatingPanel>
   );

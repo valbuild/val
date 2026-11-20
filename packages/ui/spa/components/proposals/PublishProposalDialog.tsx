@@ -2,11 +2,16 @@ import {
   AlertTriangle,
   ArrowRight,
   Check,
+  ExternalLink,
   GitCompare,
-  Loader2,
+  Hammer,
+  Package,
+  ShieldCheck,
   Upload,
   X,
 } from "lucide-react";
+import type { ProposalUpgrade } from "../../proposals/proposalsClient";
+import { describeUpgrade } from "./UpgradeProposalNotice";
 import { cn } from "../designSystem/cn";
 import {
   Dialog,
@@ -16,6 +21,12 @@ import {
 } from "../designSystem/dialog";
 import { changesLabel } from "./ProposalSwitcher";
 import { conflictKey, UpdateConflicts } from "./UpdateConflicts";
+import { Spinner } from "../designSystem/spinner";
+import {
+  CommitRefusedNotice,
+  type BuildOnPushState,
+  type CommitRefused,
+} from "./CommitRefusedNotice";
 
 /** One merge check, as the dialog shows it. */
 export type MergeCheckView = {
@@ -27,9 +38,14 @@ export type MergeCheckView = {
    * What clears it, when something here does. "update-from-site": the site
    * changed under the proposal -- its code (site-code), or a page the proposal
    * changes (published-since) -- and the proposal is brought up to it
-   * (valbuild/home `docs/hosted-publishing.md`, step 8).
+   * (valbuild/home `docs/hosted-publishing.md`, step 8). "compute-lockfile":
+   * its dependencies changed without a lockfile to match. "typecheck": it
+   * has dependencies of its own and no typecheck of what it stages
+   * (valbuild/home `docs/adept.md`, step 6 and decision 20). "build":
+   * somebody's push was taken in, and the proposal's build does not have
+   * their code yet (`taken-push`).
    */
-  action?: "update-from-site";
+  action?: "update-from-site" | "compute-lockfile" | "typecheck" | "build";
 };
 
 /** Something both sides changed, as the person decides it. */
@@ -96,7 +112,25 @@ export type PublishProposalState =
        */
       continuedIn?: { displayName: string; changes: number };
     }
-  | { kind: "failed"; message: string }
+  | {
+      kind: "failed";
+      message: string;
+      /**
+       * Pressing again cannot help -- GitHub refused the commit Publish makes
+       * first, for good -- and this is where to see why. Absent: Try again.
+       */
+      seeWhy?: { label: string; url: string };
+    }
+  /**
+   * The commit Publish makes first was refused: somebody else pushed to the
+   * proposal's branch. Publishing again would be refused the same way, so the
+   * dialog offers Build on their push, then Publish again.
+   */
+  | {
+      kind: "someone-pushed";
+      refused: CommitRefused;
+      buildOn: BuildOnPushState;
+    }
   | {
       kind: "error";
       message: string;
@@ -124,6 +158,22 @@ function changesMadeDuring(changes: number): string {
     : `${changes} changes made during the merge are`;
 }
 
+/** "Val 0.149.4 → 0.149.7 and 5 more packages, fixing 2 security issues". */
+function upgradeWords(upgrade: ProposalUpgrade): string {
+  const { val, others, fixes } = describeUpgrade(upgrade);
+  const packages = (count: number) =>
+    count === 1 ? "1 package" : `${count} packages`;
+  const moved =
+    val === null
+      ? packages(others)
+      : others > 0
+        ? `${val} and ${others} more ${others === 1 ? "package" : "packages"}`
+        : val;
+  return fixes > 0
+    ? `${moved}, fixing ${fixes} security ${fixes === 1 ? "issue" : "issues"}`
+    : moved;
+}
+
 /** A message from elsewhere, as a sentence: they do not all end in one. */
 function asSentence(message: string): string {
   const trimmed = message.trim();
@@ -139,6 +189,8 @@ export function PublishProposalDialog({
   open,
   onOpenChange,
   displayName,
+  upgrade,
+  siteName,
   state,
   onPublish,
   onRetry,
@@ -146,14 +198,29 @@ export function PublishProposalDialog({
   onGoToSite,
   onOpenContinuation,
   onUpdateFromSite,
+  onComputeLockfile,
+  onTypecheck,
+  typechecking = false,
   onResolve,
   onCancelUpdate,
   updating = false,
+  onBuildOnPush,
+  onRebuild,
+  onAskAssistant,
+  onBuild,
+  building = false,
   portalContainer,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   displayName: string;
+  /**
+   * An upgrade proposal's upgrade: the dialog says what publishing it
+   * updates, instead of counting content changes it has none of.
+   */
+  upgrade?: ProposalUpgrade;
+  /** The project's name, "quiet-harbor-24": what an upgrade updates. */
+  siteName?: string;
   state: PublishProposalState;
   onPublish: () => void;
   /** Ask again: the checks, the update or the merge, whichever failed. */
@@ -166,6 +233,12 @@ export function PublishProposalDialog({
   onOpenContinuation?: () => void;
   /** A check's action: the proposal brought up to the site, for that check. */
   onUpdateFromSite?: (checkId: string) => void;
+  /** The dependencies check's action: compute the lockfile. */
+  onComputeLockfile?: () => void;
+  /** The types check's action: typecheck what the proposal stages. */
+  onTypecheck?: () => void;
+  /** The typecheck is running. */
+  typechecking?: boolean;
   /**
    * The conflicts decided: for each, in order, which side the proposal
    * keeps. Merges the update with those.
@@ -175,16 +248,37 @@ export function PublishProposalDialog({
   onCancelUpdate?: () => void;
   /** Updating from the site now. */
   updating?: boolean;
+  /**
+   * Build on their push, when the commit Publish makes first was refused
+   * because someone else pushed (`someone-pushed`).
+   */
+  onBuildOnPush?: () => void;
+  /** Build the preview with their code, which Publish waits for. */
+  onRebuild?: () => void;
+  /** That build failed: ask the assistant to fix what breaks it. */
+  onAskAssistant?: () => void;
+  /** The `build` check's action: build the proposal, then check again. */
+  onBuild?: () => void;
+  /** The proposal is being built now. */
+  building?: boolean;
   portalContainer?: HTMLElement | null;
 }) {
   const busy = state.kind === "publishing";
+  const site = siteName ?? "the site";
   const blocked =
     state.kind === "ready" && state.checks.some((check) => !check.ok);
   // Blocked by someone else's changes, which only they can publish or
-  // discard -- not by something an action here clears.
+  // discard -- not by something an action here clears, and not by the
+  // proposal's own dependencies or types, which say what to do themselves.
   const blockedByPeople =
     state.kind === "ready" &&
-    state.checks.some((check) => !check.ok && check.action === undefined);
+    state.checks.some(
+      (check) =>
+        !check.ok &&
+        check.action === undefined &&
+        check.id !== "dependencies" &&
+        check.id !== "types",
+    );
   return (
     <Dialog
       open={open}
@@ -202,20 +296,25 @@ export function PublishProposalDialog({
           <DialogTitle className="text-sm font-semibold">
             {state.kind === "merged"
               ? `Published “${displayName}”`
-              : `Publish “${displayName}” to the site`}
+              : upgrade !== undefined
+                ? `Publish “${displayName}” to update ${site}`
+                : `Publish “${displayName}” to the site`}
           </DialogTitle>
           <DialogDescription className="text-xs text-fg-secondary">
-            {state.kind === "merged"
-              ? "It is live on the site, as one change. This proposal is finished: anything more starts a new one."
-              : "Its changes go to the site as one change, checked before anything there changes. The proposal is finished afterwards."}
+            {upgrade !== undefined
+              ? state.kind === "merged"
+                ? `It is live: ${site} runs the new packages. This proposal is finished.`
+                : `It updates ${site}'s packages: ${upgradeWords(upgrade)}. The site is built and checked with them before anything there changes. The proposal is finished afterwards.`
+              : state.kind === "merged"
+                ? "It is live on the site, as one change. This proposal is finished: anything more starts a new one."
+                : "Its changes go to the site as one change, checked before anything there changes. The proposal is finished afterwards."}
           </DialogDescription>
         </div>
 
         <div className="flex flex-col gap-3 px-5 pb-4">
           {state.kind === "checking" && (
             <div className="flex items-center gap-2 text-xs text-fg-secondary">
-              <Loader2 size={14} className="animate-spin" /> Checking whether it
-              can be published…
+              <Spinner size={14} /> Checking whether it can be published…
             </div>
           )}
 
@@ -228,7 +327,11 @@ export function PublishProposalDialog({
               )}
               <div className="flex items-center justify-between gap-2 text-xs text-fg-primary">
                 <span>
-                  {changesLabel(state.changes)}
+                  {upgrade === undefined
+                    ? changesLabel(state.changes)
+                    : state.changes === 0
+                      ? "No content changes"
+                      : `${changesLabel(state.changes)} to content as well`}
                   {state.unsaved > 0 && (
                     <span className="text-fg-secondary">
                       {" "}
@@ -288,13 +391,58 @@ export function PublishProposalDialog({
                               className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
                             >
                               {updating ? (
-                                <Loader2 size={13} className="animate-spin" />
+                                <Spinner size={14} />
                               ) : (
                                 <ArrowRight size={13} />
                               )}
                               {updating
                                 ? "Updating from the site…"
                                 : "Update from the site"}
+                            </button>
+                          )}
+                        {!check.ok &&
+                          check.action === "compute-lockfile" &&
+                          onComputeLockfile !== undefined && (
+                            <button
+                              type="button"
+                              onClick={onComputeLockfile}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft"
+                            >
+                              <Package size={13} /> Compute lockfile
+                            </button>
+                          )}
+                        {!check.ok &&
+                          check.action === "build" &&
+                          onBuild !== undefined && (
+                            <button
+                              type="button"
+                              onClick={onBuild}
+                              disabled={building}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
+                            >
+                              {building ? (
+                                <Spinner size={14} />
+                              ) : (
+                                <Hammer size={13} />
+                              )}
+                              {building ? "Building…" : "Build"}
+                            </button>
+                          )}
+                        {!check.ok &&
+                          check.action === "typecheck" &&
+                          onTypecheck !== undefined && (
+                            <button
+                              type="button"
+                              onClick={onTypecheck}
+                              disabled={typechecking}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
+                            >
+                              {typechecking ? (
+                                <Spinner size={14} />
+                              ) : (
+                                <ShieldCheck size={13} />
+                              )}
+                              {typechecking ? "Typechecking…" : "Typecheck"}
                             </button>
                           )}
                       </span>
@@ -316,7 +464,7 @@ export function PublishProposalDialog({
 
           {state.kind === "publishing" && (
             <div className="flex items-center gap-2 text-xs text-fg-primary">
-              <Loader2 size={14} className="animate-spin text-fg-proposal" />
+              <Spinner size={14} className="text-fg-proposal" />
               {STEP_WORDS[state.step]}
             </div>
           )}
@@ -334,6 +482,18 @@ export function PublishProposalDialog({
                 </div>
               )}
             </div>
+          )}
+
+          {state.kind === "someone-pushed" && (
+            <CommitRefusedNotice
+              refused={state.refused}
+              state={state.buildOn}
+              onBuildOn={() => onBuildOnPush?.()}
+              onAgain={onPublish}
+              {...(onRebuild !== undefined ? { onRebuild } : {})}
+              {...(onAskAssistant !== undefined ? { onAskAssistant } : {})}
+              onDismiss={() => onOpenChange(false)}
+            />
           )}
 
           {(state.kind === "failed" || state.kind === "error") && (
@@ -406,8 +566,18 @@ export function PublishProposalDialog({
               >
                 Cancel
               </button>
-              {state.kind === "failed" ||
-              (state.kind === "error" && state.update?.checkId !== null) ? (
+              {state.kind === "someone-pushed" ? null : state.kind ===
+                  "failed" && state.seeWhy !== undefined ? (
+                <a
+                  href={state.seeWhy.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-float px-3 text-xs font-medium text-fg-primary hover:bg-bg-float-raised"
+                >
+                  <ExternalLink size={14} /> {state.seeWhy.label}
+                </a>
+              ) : state.kind === "failed" ||
+                (state.kind === "error" && state.update?.checkId !== null) ? (
                 <button
                   type="button"
                   onClick={onRetry}
@@ -426,11 +596,7 @@ export function PublishProposalDialog({
                     "disabled:bg-bg-disabled disabled:text-fg-disabled",
                   )}
                 >
-                  {busy ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Upload size={14} />
-                  )}
+                  {busy ? <Spinner size={14} /> : <Upload size={14} />}
                   {busy ? "Publishing…" : "Publish"}
                 </button>
               )}

@@ -2,6 +2,7 @@ import { FC, useState } from "react";
 import { HANDOFF_PARAM, storedHandoffIntent } from "../publish/handoff";
 import { HandoffPublishTab } from "./shell/HandoffPublishTab";
 import { HandoffProposalBuildTab } from "./proposals/HandoffProposalBuildTab";
+import { HandoffQuickPreviewTab } from "./proposals/HandoffQuickPreviewTab";
 import { ValClient } from "@valbuild/shared/internal";
 import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
@@ -52,6 +53,14 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       ? { name: stored.intent.name, at: stored.at }
       : null;
   });
+  // Or to bundle a quick preview: the same, its own kind.
+  const [quickPreview] = useState(() => {
+    if (handoffId === null) return null;
+    const stored = storedHandoffIntent(handoffId);
+    return stored?.intent.kind === "quick-preview"
+      ? { name: stored.intent.name, at: stored.at }
+      : null;
+  });
   return (
     <ValProvider
       client={client}
@@ -86,6 +95,12 @@ export const ValStudio: FC<ValFullscreenProps> = ({
                     id={handoffId}
                     name={proposalBuild.name}
                     at={proposalBuild.at}
+                  />
+                ) : handoffId !== null && quickPreview !== null ? (
+                  <HandoffQuickPreviewTab
+                    id={handoffId}
+                    name={quickPreview.name}
+                    at={quickPreview.at}
                   />
                 ) : handoffId !== null ? (
                   <HandoffPublishTab id={handoffId} />

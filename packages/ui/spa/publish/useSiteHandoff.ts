@@ -13,7 +13,7 @@ import {
   type SiteHandoff,
   type ToSite,
 } from "./handoff";
-import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
+import { RENEW_EVERY_MS, type StudioJobResult } from "@valbuild/shared/publish";
 import { isSettled } from "./publishJobs";
 import { randomUUID } from "../utils/randomUUID";
 import { PUBLISH_TAB_ID } from "./tabId";
@@ -23,6 +23,11 @@ export type PrepareOptions = {
   after?: string | null;
   /** Publish in a proposal: the tab presses this proposal's merge. */
   merge?: string;
+  /**
+   * With `merge`: the message of the commit Publish makes first, typed
+   * before the tap. The tab presses with it, or it would be lost there.
+   */
+  commitMessage?: string;
   /**
    * A press this page made already, without a tab, whose job turned out to
    * need a build: the tab presses it again -- idempotent on the id, so it
@@ -246,6 +251,10 @@ export function useSiteHandoff(
               tab: PUBLISH_TAB_ID,
               after,
               ...merging,
+              ...(prepareOptions?.merge !== undefined &&
+              prepareOptions.commitMessage !== undefined
+                ? { commitMessage: prepareOptions.commitMessage }
+                : {}),
             };
       const handoff = openHandoff({ intent });
       if (!handoff.stored) {
@@ -399,6 +408,9 @@ export function useSiteHandoff(
                     message.summary ??
                     "The site could not be rebuilt. Publish again to retry.",
                   details: message.result.message,
+                  ...(message.refused !== undefined
+                    ? { refused: message.refused }
+                    : {}),
                 }
               : { kind: "live", ms: message.ms },
           );

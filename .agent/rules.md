@@ -10,6 +10,13 @@ expensive to re-derive from the code:
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
   reference stability is load-bearing.
+- [`architecture/content-versions.md`](../architecture/content-versions.md) —
+  the one content model every reader goes through: a module's base plus its
+  chain of patches through one engine, versions (`{ schema, base, chain }`)
+  and `seq`, the server's head, the manifest and `GET /modules`, the readers'
+  sources and `layered`, and how a draft page settles on `confirmed`. **Read
+  this before touching `fetchVal`/`useVal`, the relay, `ValHead`, or how the
+  Studio loads content.**
 - [`architecture/media.md`](../architecture/media.md) — `s.imagedir()` / `s.filedir()` / `s.fontdir()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly). Also `s.video()`: the one
@@ -253,11 +260,11 @@ direction:
 
 - **A title** is what a thing is CALLED, where the thing is shown as a thing:
   the heading of what you opened, a card, a list row, a search hit, a reference
-  once it has been chosen. A preview belongs in all of these.
+  once it has been chosen, and the link back to the parent under the heading. A
+  preview belongs in all of these.
 - **A location** is WHERE YOU ARE, and it is made of path segments: the
-  breadcrumb under the heading, the Explorer tree, the Pages tree. A preview
-  belongs in NONE of these — not even for a module root, not even when it reads
-  better.
+  Explorer tree, the Pages tree. A preview belongs in NONE of these — not even
+  for a module root, not even when it reads better.
 
 Two reasons, and the second is the one that settles it:
 
@@ -267,11 +274,19 @@ Two reasons, and the second is the one that settles it:
 2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
    A location that moves under you is not a location.
 
+The line under the heading was a breadcrumb of path segments, and is not any
+more: it is one link back to the PARENT, named by its title — "‹ Product 1".
+The parent is where the level above is SHOWN, through `getNavPath`, so from a
+section of a page it is the page, not its `sections` field (every segment in
+between opened the page anyway). `parentDestination` and `BackLink` in
+`ModuleScope.tsx` are that rule.
+
 The one thing a location may take from the heading is a page's ROUTE, because a
 route IS the page's location. And it takes it INSTEAD of the file path, not
 beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
 and nothing else, because nobody reaches a page through the file — the Pages
-panel is a tree of routes. `scopePartsBelowPageRouter` is that rule.
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule, and it is
+why a page itself offers no way back: the file it lives in is not its parent.
 
 ### `describePath` is the one implementation
 
@@ -283,8 +298,9 @@ wrote from a key we had lying around.
 
 Anything that TITLES a path goes through it rather than deriving a name of its
 own — the heading, list rows, search hits and references disagreed with each
-other before it existed. Anything that LOCATES a path does not go near it: the
-breadcrumb and the Explorer use path segments, per the rule above.
+other before it existed — and so does the back link under the heading, which
+names its destination. Anything that LOCATES a path does not go near it: the
+Explorer and the Pages tree use path segments, per the rule above.
 `useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
 and stays the right call for a list row, which has no `self` to read.
 
@@ -460,9 +476,10 @@ What is NOT lazy, and cannot be: `s.view(x)` needs a static import of `x` to get
 its path, exactly as `s.keyOf(x)` does, so `x`'s bytes are in whatever bundle
 holds the page either way. `ValViewSchema` additionally RETAINS the module (a
 `KeyOfSchema` extracts and drops it) — that changes reachability, not loading,
-since an ES module binding lives for the process anyway. And see
-`architecture/quirks.md` for the one real eager load in the area, which predates
-views: draft-mode `fetchVal` fetches the whole tree per call.
+since an ES module binding lives for the process anyway. A draft-mode
+`fetchVal` does not load anything eagerly either: it reads the process's head,
+and a module nobody edited is read from the bundle without asking it (see
+`architecture/content-versions.md`).
 
 One trap when testing this: `stegaEncode` returns `any`, so
 `stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type
@@ -603,9 +620,12 @@ Two things follow, and they are the ones that get forgotten:
   ADDING IT THERE — a module (or a field in one), registered in
   `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
   that exists only in `packages/core` is a feature nobody can look at.
-  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
-  suite and the language server drive, and it is allowed to hold things the
-  showcase does not.
+  `examples/next` is the FIXTURE app for the language server and for the e2e
+  specs that keep `@valbuild/next` covered (`smoke`, `insecure-context`, the
+  canvas suite), and it is allowed to hold things the showcase does not. The
+  rest of the e2e suite drives `examples/tanstack`, whose e2e fixtures live in
+  `examples/tanstack/content/` (and a few `src/routes/_site.*` fixture pages),
+  registered only when `VAL_E2E_FIXTURES=true`.
 - **The TanStack checks are CI jobs** (`build-tanstack`, and the `tanstack`
   project in the blocking `smoke` job), and still yours to run before pushing
   a change the Studio loads through: `pnpm exec playwright test --project=tanstack`
@@ -631,7 +651,9 @@ partly overrides, and an image gallery entry with a default focal point; and `s.
 content analytics, switched on by `VAL_ANALYTICS=true` in its `.env.development`
 (on a hosted site it is a project setting, so there is no `val.config.ts`
 option) and read in `_site.tsx`'s loader, so its content is tagged for every
-visitor after hydration (`e2e/tanstack/analytics.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
+visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
+page writing JSON-LD and a share link through `val.raw()`, which the dev-only
+leak warning checks (`e2e/tanstack/leakWarning.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
@@ -841,6 +863,43 @@ pnpm format
 
 1. Never "fix" an issue by changing the test file
 2. Prefer to define test data in a type-safe manner using `s` and `c` from `initVal`. Search for examples.
+3. **A test drives the product's code, never a copy of it.** When a test does
+   something the product does (an edit, a code change, a request, a publish,
+   a build), it calls the same function the product calls for it: one
+   function, called by both. A helper with its own path proves that its own
+   path works, while the product's can break with the test still green.
+   - If the product's function is buried in a component, a hook or a tool
+     handler, extract it, make the product call the extracted one, and call
+     that from the test. Never write a second version for the test.
+   - Fakes stay at the edges we do not own: the network, the clock, the
+     framework's request context, a third-party service.
+   - If the product itself has two paths for one thing, the test is not done
+     until they are one, or it covers both.
+   - Example: the scenario harness's `studio.edit` writes through
+     `stringFieldPatch` and `patchStore.createPatch`, as a string field does;
+     `world.changeCode` must stage files through the same function as the
+     assistant's `write_files` tool.
+
+### Scenario tests (`scenarios/`)
+
+`scenarios/` is a private workspace package that runs Val's real server, the
+Studio's real stores and a page's real readers together, with the network and
+the framework's request context in the test's hands. Every scenario is
+checked against the same invariants (`world.expectInvariants()`). See
+`scenarios/README.md` and `docs/plans/one-content-model.md`. Run it with
+`pnpm test scenarios`.
+
+### Measuring performance (`scenarios/measure/`)
+
+Read `scenarios/measure/README.md` before measuring anything, and especially
+before claiming something fits in a Cloudflare isolate. In short: measure the
+product's path, print rather than assert a stopwatch, and gate CI on counted
+work (`world.expectWork`), not milliseconds. A heap number from Node with
+`--max-old-space-size` is a LOWER bound for an isolate's 128 MB, which also
+counts WebAssembly and the app's own code. It is not known that a local
+`workerd` / `wrangler dev` enforces 128 MB, so passing there proves nothing
+about the limit. Only a deployed loader (`wrangler tail`, `exceededMemory`) is
+certain.
 
 ## CI
 
@@ -857,7 +916,8 @@ cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
 
 Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
-which selects only `chromium` and `chromium-http` and does not block. They are
+which selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit
+projects, and does not block. They are
 the gate for "the Studio does not come up at all", on both frameworks and in an
 insecure context, which is the one class of failure that reaches every user at
 once, so run them before pushing anything the Studio loads through:
@@ -869,11 +929,12 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
 ```
 
 `webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
-in WebKit — Safari's engine, and every iOS browser's. It is declared only when
-asked for by name (`--project=webkit-http`), because a bare `playwright test`
-runs every project and WebKit is not installed in most places this runs: it
-needs `pnpm exec playwright install --with-deps webkit`. CI runs it as one
-entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`
+runs the builder-tab spec (`tanstack-http/publishHandoff`) there. Each is
+declared only when asked for by name (`--project=webkit-http`), because a bare
+`playwright test` runs every project and WebKit is not installed in most places
+this runs: it needs `pnpm exec playwright install --with-deps webkit`. CI runs
+each as one entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
 entry's `browser` (chromium when unset).
 
 Notes:
@@ -931,8 +992,9 @@ no amount of clicking in the normal dev loop reaches that UI.
 
 What DOES exercise it is the `chromium-http` Playwright project, which starts
 `e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
-history endpoints — alongside a second `examples/next` in proxy mode. Ports and
-secrets live in `e2e/http/config.ts`.
+history endpoints — alongside a second `examples/tanstack` in proxy mode, with
+the e2e fixtures (`examples/tanstack/content/`) switched on. Ports and secrets
+live in `e2e/http/config.ts`.
 
 **Do not add a second history implementation to `ValOpsFS`.** The mock content
 host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`

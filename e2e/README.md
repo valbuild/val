@@ -21,20 +21,50 @@ converted; it is proof nothing obvious was added.
 
 ## The projects, and which app each one drives
 
-| project                      | app                         | what it is for                                                |
-| ---------------------------- | --------------------------- | ------------------------------------------------------------- |
-| `chromium`                   | `examples/next`, fs mode    | most of the suite                                             |
-| `chromium-http`              | `examples/next`, proxy mode | publishing, deployments, two editors — `e2e/http/`            |
-| `tanstack`                   | `examples/tanstack`         | "does the Studio come up on TanStack Start, and can it write" |
-| `warmup` / `tanstack-warmup` | the two above               | not tests: they pay the first compile so no test does         |
-| `screens`                    | `examples/next`             | screenshots for a human; opt-in by name, asserts nothing      |
+| project                      | app                        | what it is for                                                |
+| ---------------------------- | -------------------------- | ------------------------------------------------------------- |
+| `chromium`                   | `examples/tanstack`, fs    | most of the suite; a few specs pinned to `examples/next`      |
+| `chromium-http`              | `examples/tanstack`, proxy | publishing, deployments, history, two editors — `e2e/http/`   |
+| `tanstack`                   | `examples/tanstack`        | "does the Studio come up on TanStack Start, and can it write" |
+| `tanstack-http`              | `examples/tanstack`, proxy | the builder tab — `e2e/tanstack-http/`                        |
+| `warmup` / `warmup-tanstack` | the two fs-mode apps       | not tests: they pay the first compile so no test does         |
+| `tanstack-warmup`            | `examples/tanstack`, fs    | the same, for the `tanstack` project                          |
+| `http-warmup`                | `examples/tanstack`, proxy | the same, for both proxy-mode projects                        |
+| `webkit-http`                | `examples/tanstack`, proxy | publishing in WebKit; opt-in by name                          |
+| `webkit-tanstack-http`       | `examples/tanstack`, proxy | the builder tab in WebKit; opt-in by name                     |
+| `screens`                    | `examples/next`            | screenshots for a human; opt-in by name, asserts nothing      |
 
 `playwright.config.ts` starts only the servers the selected project needs, so
 `--project=tanstack` never starts `next dev` and a `chromium` shard never starts
 the mock content host.
 
+Every proxy-mode project drives ONE app: a copy of `examples/tanstack` on 3459,
+in proxy mode against the mock content host on 4568 (`e2e/http/config.ts`). It
+was a copy of `examples/next` until `next dev` kept failing these specs on its
+own manifests ("Manifest file is empty", "Unexpected end of JSON input", just as
+a Studio loaded). The Studio is the same code on either framework, and TanStack
+Start is the primary release target. `chromium-http` and `tanstack-http` are two
+projects only because CI's matrix names them; both are that app.
+
+The specs edit the e2e FIXTURES, not the showcase: `examples/tanstack/content/`,
+the same `/content/*.val.ts` modules the Next example has. They are registered
+only when `VAL_E2E_FIXTURES=true` (and the remote ones only with
+`VAL_E2E_REMOTE_MEDIA=true`), which the suite's servers set and a plain `pnpm
+dev` does not -- see `examples/tanstack/val.modules.ts`.
+
+The fs-mode suite (`chromium`) drives the same fixtures in the fs-mode copy of
+`examples/tanstack`, plus the fixture PAGES ported from the Next example's
+`app/` as TanStack routes (`src/routes/_site.blogs.$blog.*`, `support.$slug`,
+`notes.$note`, `generic.$`). The home page is the showcase's own index. A few
+specs pin themselves to `examples/next` with `test.use({ baseURL })`, so
+`@valbuild/next` stays covered: `smoke` and `insecure-context`, which the
+blocking `smoke` job runs on Next on purpose, and the canvas suite, which runs
+on both apps (`canvasSuite.ts`, `canvas.spec.ts` and `canvas.next.spec.ts`)
+because the overlay and the canvas bridge are a copy per framework. See
+`e2e/apps.ts`.
+
 The `tanstack` project is deliberately three tests. Everything about the stores
-is framework-independent and covered against the Next app; what is not covered
+is framework-independent and covered by the rest of the suite; what is not covered
 anywhere else is `@valbuild/tanstack`'s provider, its `/api/val/$` route and the
 `/val` layout route. It exists because "the Studio does not come up at all"
 shipped in 0.125.0 with all of CI green — nothing ran the TanStack app, and
@@ -44,7 +74,8 @@ caught).
 
 **In CI as the blocking `smoke` job** (this project plus `smoke.spec.ts` and
 `insecure-context.spec.ts`), beside a `build-tanstack` job. The `e2e` matrix
-selects only `chromium` and `chromium-http` and does not block, so `smoke` is
+selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit projects,
+and does not block, so `smoke` is
 what gates on them. Run them by hand before pushing:
 
 ```bash

@@ -1,7 +1,9 @@
 import type { RequestPublish } from "../stores/PublishSeam";
 import { randomUUID } from "../utils/randomUUID";
-import type { StudioJobClient } from "./jobClient";
-import { isTransientPublishError } from "./publishClient";
+import {
+  type StudioJobClient,
+  isTransientPublishError,
+} from "@valbuild/shared/publish";
 import { PUBLISH_TAB_ID } from "./tabId";
 import { withinDeadline } from "./withinDeadline";
 

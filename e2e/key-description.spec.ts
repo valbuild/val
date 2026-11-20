@@ -32,7 +32,7 @@ test.describe("a record key's description", () => {
      */
     await expect(studio.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(
-      studio.getByRole("navigation", { name: "Scope" }),
+      studio.getByRole("navigation", { name: "Back" }),
     ).toBeVisible();
 
     /*
@@ -45,33 +45,30 @@ test.describe("a record key's description", () => {
     await expect(studio.getByText(DESCRIPTION)).toHaveCount(0);
   });
 
-  test("the folder in the trail is not a link", async ({ page }) => {
+  test("an entry's way back is its module, not its folder", async ({
+    page,
+  }) => {
     await openStudio(page, ENTRY);
     const studio = page.locator("#val-shadow-root");
-    const scope = studio.getByRole("navigation", { name: "Scope" });
+    const back = studio.getByRole("navigation", { name: "Back" });
 
-    // `/content/authors.val.ts` reads as `Content / Authors`, and both segments
-    // carry the module's own path — so linking the folder offered a second route
-    // to the same place under a name that is not a place.
-    await expect(scope).toContainText("Content");
-    await expect(scope.getByRole("link")).toHaveCount(1);
-    await expect(scope.getByRole("link")).toContainText("Authors");
+    // `/content/authors.val.ts` is the folder `content` and the module
+    // `Authors`, and only one of them is a place.
+    await expect(back.getByRole("link")).toHaveCount(1);
+    await expect(back.getByRole("link")).toContainText("Authors");
+    await expect(back).not.toContainText("Content");
   });
 
-  test("a module's own page offers no way up to its folder", async ({
+  test("a module's own page offers no way back to its folder", async ({
     page,
   }) => {
     await openStudio(page, "/val/~/content/authors.val.ts");
     const studio = page.locator("#val-shadow-root");
-    const scope = studio.getByRole("navigation", { name: "Scope" });
 
-    // The level above a module is its directory, and "up" there navigated to the
-    // module you were already looking at.
-    await expect(scope).toContainText("Content");
-    await expect(scope.getByRole("link")).toHaveCount(0);
-    await expect(
-      studio.getByRole("link", { name: /^Up one level/ }),
-    ).toHaveCount(0);
+    // The level above a module is its directory, and "back" there navigated to
+    // the module you were already looking at.
+    await expect(studio.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(studio.getByRole("link", { name: /^Back to/ })).toHaveCount(0);
   });
 
   test("is said once in the rename popover, not twice", async ({ page }) => {

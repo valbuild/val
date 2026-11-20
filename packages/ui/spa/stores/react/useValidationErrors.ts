@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import {
   Internal,
   type ModuleFilePath,
@@ -40,12 +39,12 @@ export function useModuleValidation(
   /**
    * PROTOTYPE: no `useSyncExternalStore`.
    *
-   * A counter plus a memo, which is the shape `useAllValidationErrors` in
-   * `ValErrorProvider` already uses and argues for. Two things change, one of
-   * them for the better and one of them a cost this file now has to carry
-   * itself. If we adopt this shape everywhere, `useVersion` and this whole
-   * subscribe-compare-memo body want extracting into one helper rather than
-   * being copied seventeen times.
+   * A counter plus a memo. Two things change, one of them for the better and
+   * one of them a cost this file now has to carry itself. (`useAllValidationErrors`
+   * had the same shape and left it: one counter and memo per caller meant one
+   * whole-project filter per caller per event, so it reads
+   * `ValidationStore.surfacedErrors`, a reference-stable snapshot, through
+   * `useSyncExternalStore` instead.)
    *
    * BETTER: the store no longer owes anything. `getSnapshot` had to be
    * reference-stable, and that obligation is invisible at the call site,
@@ -178,32 +177,6 @@ export function useModuleValidation(
 const NO_ERRORS: ValidationError[] = [];
 
 /**
- * The surfaced errors per module RESULT, cached by the result's identity.
- *
- * Keyed on the result object rather than on the module path, and that is what
- * makes it correct rather than merely fast: resolving depends on the project's
- * schemas and sources, and any change to either invalidates validation, which
- * deletes the result and produces a new object. So a stale resolution cannot
- * outlive the inputs it was computed from.
- *
- * "Any change" has to include changes to OTHER modules, and this is where that
- * promise is relied on: a `keyOf` error resolves against the referenced record's
- * keys, so `ValidationStore` invalidates this module when those keys move — not
- * only when this module's own source does (see `resolvedAgainst` there). Before
- * it did, renaming a page and then discarding the rename left the field pointing
- * at it showing "does not exist" about a key that was back, from this cache.
- *
- * A `WeakMap` because the key is the store's own object and the store decides
- * when it dies. Cached at all because the alternative is resolving the whole
- * module's errors once per FIELD in it — `useValidationErrors` is on every field
- * on screen.
- */
-const surfacedByResult = new WeakMap<
-  ValidationResult,
-  Record<SourcePath, ValidationError[]>
->();
-
-/**
  * Just this path's errors, RESOLVED and filtered to what a user must act on.
  *
  * ## The filtering is not cosmetic
@@ -233,25 +206,12 @@ export function useValidationErrorsAtPath(
   const [moduleFilePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const result = useModuleValidation(moduleFilePath);
-  const surfaced = useMemo(() => {
-    if (
-      val === null ||
-      result.status !== "validated" ||
-      result.errors === false
-    ) {
-      return null;
-    }
-    const cached = surfacedByResult.get(result);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const next = filterBlockingValidationErrors(
-      result.errors,
-      val.system.schemaStore.all(),
-      val.system.sourceStore.allSources(),
-    );
-    surfacedByResult.set(result, next);
-    return next;
-  }, [val, result]);
+  // Once per module RESULT, for every field under it and the whole-project
+  // readers alike: see `ValidationStore.surfacedOf` for why the result object
+  // is the right key, and what invalidates it.
+  const surfaced = useMemo(
+    () => (val === null ? null : val.system.validationStore.surfacedOf(result)),
+    [val, result],
+  );
   return surfaced?.[sourcePath] ?? NO_ERRORS;
 }

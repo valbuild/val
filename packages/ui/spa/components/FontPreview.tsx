@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { FileText, Loader2 } from "lucide-react";
+import { FileText } from "lucide-react";
 import { cn } from "./designSystem/cn";
+import { Spinner } from "./designSystem/spinner";
 
 /**
  * A font file, drawn in itself.
@@ -124,7 +125,7 @@ export function FontSpecimen({
         title={font.status === "error" ? "Could not load the font" : undefined}
       >
         {font.status === "loading" ? (
-          <Loader2 size={16} className="animate-spin" />
+          <Spinner size={16} />
         ) : (
           <FileText size={variant === "tile" ? 16 : 40} strokeWidth={1.25} />
         )}
