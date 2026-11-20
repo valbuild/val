@@ -1,4 +1,5 @@
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 export async function uploadRemoteFile(
   contentHost: string,
@@ -41,7 +42,11 @@ export async function uploadRemoteFile(
     `${contentHost}/v1/${project}/remote/files/b/${bucket}/f/${fileHash}.${fileExt}`,
     {
       method: "PUT",
-      headers: { ...authHeader, "Content-Type": "application/octet-stream" },
+      headers: {
+        ...VAL_CLIENT_HEADERS,
+        ...authHeader,
+        "Content-Type": "application/octet-stream",
+      },
       body: new Uint8Array(fileBuffer),
     },
   );

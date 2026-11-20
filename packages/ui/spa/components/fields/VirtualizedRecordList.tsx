@@ -20,7 +20,7 @@ import { Button } from "../designSystem/button";
  * It also bounds the un-virtualized `.jsonValues()` load: at most this many keys
  * are requested at once, which is one or two batches.
  */
-const VIRTUALIZE_THRESHOLD = 50;
+export const VIRTUALIZE_THRESHOLD = 50;
 /**
  * Fallback height for the virtualized viewport, before it has been measured.
  *

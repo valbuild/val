@@ -22,15 +22,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../designSystem/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "../designSystem/command";
+import { WindowedOptionList } from "../WindowedOptionList";
 import { Button, insetFocusRing } from "../designSystem/button";
 import { Input } from "../designSystem/input";
 import { cn } from "../designSystem/cn";
@@ -112,10 +104,13 @@ export function KeySelector({
    * title draws a blank where the reference should be. The key is what the
    * reference is, so it is the honest fallback.
    */
-  const previewOf = (key: string): KeyPreview | undefined => {
-    const preview = previews?.[key];
-    return preview && preview.title ? preview : undefined;
-  };
+  const previewOf = React.useCallback(
+    (key: string): KeyPreview | undefined => {
+      const preview = previews?.[key];
+      return preview && preview.title ? preview : undefined;
+    },
+    [previews],
+  );
   const selectedPreview = value !== null ? previewOf(value) : undefined;
   // Closing discards a half-filled form: reopening into someone else's
   // abandoned input is worse than starting clean. Same rule as `RouteSelector`.
@@ -227,88 +222,117 @@ export function KeySelector({
             />
           )
         ) : (
-          <Command>
-            <CommandInput
-              placeholder="Search key..."
-              value={search}
-              onValueChange={setSearch}
-            />
-            <CommandList>
-              {isLoading ? (
-                <div className="py-6 text-center text-sm">Loading...</div>
-              ) : keys.length === 0 ? (
-                <CommandEmpty>No keys found.</CommandEmpty>
-              ) : (
-                <CommandGroup>
-                  {keys.map((key) => {
-                    const preview = previewOf(key);
-                    const filterValue = preview
-                      ? `${key} ${preview.title}`
-                      : key;
-                    return (
-                      <CommandItem
-                        key={key}
-                        value={filterValue}
-                        onSelect={() => {
-                          onChange(key);
-                          // `closeAndReset`, not `setOpen(false)`: Radix calls
-                          // `onOpenChange` for ITS own closes, not for a
-                          // programmatic one, so closing this way skipped the
-                          // reset and left the search text in state - and the
-                          // create form, which starts from it, then opened
-                          // prefilled with whatever was typed the time before.
-                          closeAndReset();
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <Check
-                          className={cn(
-                            "h-4 w-4 shrink-0",
-                            value === key ? "opacity-100" : "opacity-0",
-                          )}
-                        />
-                        {preview ? (
-                          <DropdownPreviewRow
-                            title={preview.title}
-                            subtitle={preview.subtitle ?? null}
-                            image={preview.image ?? null}
-                          />
-                        ) : (
-                          <span className="truncate">{key}</span>
-                        )}
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
-              {onCreate !== undefined && !isLoading && (
-                <>
-                  {/* Both of these are told to stay: cmdk hides a separator
-                      while there is a search, and hides a GROUP whose items do
-                      not match it - and a force-mounted item inside a hidden
-                      group is still invisible. Which is exactly backwards here,
-                      because a search that matches nothing is how the editor
-                      establishes that the key does not exist yet, and the
-                      moment they need this option most. The group's
-                      `forceMount` reaches its items through cmdk's context. */}
-                  <CommandSeparator alwaysRender />
-                  <CommandGroup forceMount>
-                    <CommandItem
-                      value="__val_new_key__"
-                      onSelect={() => setCreating(true)}
-                      className="flex items-center gap-2"
-                    >
-                      <Plus className="h-4 w-4 shrink-0" />
-                      <span>{createLabel}</span>
-                    </CommandItem>
-                  </CommandGroup>
-                </>
-              )}
-            </CommandList>
-          </Command>
+          <KeyOptions
+            keys={keys}
+            previewOf={previewOf}
+            value={value}
+            search={search}
+            onSearchChange={setSearch}
+            isLoading={isLoading}
+            onChoose={(key) => {
+              onChange(key);
+              // `closeAndReset`, not `setOpen(false)`: Radix calls
+              // `onOpenChange` for ITS own closes, not for a programmatic one,
+              // so closing this way skipped the reset and left the search text
+              // in state - and the create form, which starts from it, then
+              // opened prefilled with whatever was typed the time before.
+              closeAndReset();
+            }}
+            // Shown whatever the search: a search that matches nothing is how
+            // the editor establishes that the key does not exist yet, and the
+            // moment they need this option most.
+            createAction={
+              onCreate !== undefined
+                ? { label: createLabel, onSelect: () => setCreating(true) }
+                : undefined
+            }
+          />
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * The keys as options: built when the list is open and not before, since a
+ * closed dropdown's options are still elements if they are written inline --
+ * 10,000 of them on every render of the field, which re-renders on every
+ * keystroke elsewhere on the page.
+ */
+function KeyOptions({
+  keys,
+  previewOf,
+  value,
+  search,
+  onSearchChange,
+  isLoading,
+  onChoose,
+  createAction,
+}: {
+  keys: string[];
+  previewOf: (key: string) => KeyPreview | undefined;
+  value: string | null;
+  search: string;
+  onSearchChange: (search: string) => void;
+  isLoading: boolean;
+  onChoose: (key: string) => void;
+  createAction?: { label: string; onSelect: () => void };
+}) {
+  const options = React.useMemo(
+    () =>
+      keys.map((key) => {
+        const preview = previewOf(key);
+        return {
+          key,
+          filterText: preview ? `${key} ${preview.title}` : key,
+          preview,
+        };
+      }),
+    [keys, previewOf],
+  );
+  return (
+    <WindowedOptionList
+      label="Keys"
+      options={options}
+      selectedKey={value}
+      search={search}
+      onSearchChange={onSearchChange}
+      placeholder="Search key..."
+      emptyText="No keys found."
+      isLoading={isLoading}
+      onSelect={(option) => onChoose(option.key)}
+      renderOption={(option, { selected }) => (
+        <>
+          <Check
+            className={cn(
+              "h-4 w-4 shrink-0",
+              selected ? "opacity-100" : "opacity-0",
+            )}
+          />
+          {option.preview ? (
+            <DropdownPreviewRow
+              title={option.preview.title}
+              subtitle={option.preview.subtitle ?? null}
+              image={option.preview.image ?? null}
+            />
+          ) : (
+            <span className="truncate">{option.key}</span>
+          )}
+        </>
+      )}
+      actions={
+        createAction
+          ? [
+              {
+                id: "__val_new_key__",
+                label: createAction.label,
+                icon: <Plus className="h-4 w-4 shrink-0" />,
+                onSelect: createAction.onSelect,
+              },
+            ]
+          : []
+      }
+    />
   );
 }
 
@@ -417,6 +441,19 @@ export function KeyOfField({
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch, addModuleFilePatch } = useAddPatch(path);
   const portalContainer = useValPortal();
+  // Kept while the referenced module and its preview are, so the options
+  // (one per key: 10,000 of them for a record that size) are not built again
+  // when something else on the page changes.
+  const referencedData =
+    "data" in referencedSource ? referencedSource.data : undefined;
+  const keys = React.useMemo(
+    () => (referencedData ? Object.keys(referencedData) : undefined),
+    [referencedData],
+  );
+  const previews = React.useMemo(
+    () => buildKeyPreviews(referencedPreview),
+    [referencedPreview],
+  );
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -500,12 +537,7 @@ export function KeyOfField({
       />
     );
   }
-  const keys =
-    "data" in referencedSource && referencedSource.data
-      ? Object.keys(referencedSource.data)
-      : undefined;
   const source = sourceAtPath.data as string | null;
-  const previews = buildKeyPreviews(referencedPreview);
   const isLoading =
     schemaAtPath.status === "loading" ||
     keyOf === undefined ||
@@ -653,19 +685,29 @@ export function KeyOfField({
       {inlineRender &&
         referencedItemPath !== undefined &&
         referencedItemSchema !== undefined && (
-          <div className="mt-2 rounded-md border border-border-primary p-3">
+          <div className="mt-1.5 rounded-md border border-border-primary py-1.5 pr-1.5">
             {/* Edits here go to the referenced module (this is the SHARED
                 entry, not a copy), which is what a reference means — but it is
                 worth a label so nobody mistakes it for row-local content. */}
-            <div className="pb-2 text-xs text-fg-secondary-alt truncate">
+            <div className="pb-1 pl-2 font-mono text-xs text-fg-secondary-alt truncate">
               {source}
             </div>
-            <AnyField
-              path={referencedItemPath}
-              schema={referencedItemSchema}
-              readonly={readonly === true}
-              compact
-            />
+            {/* `dense`: the entry is shown in place, so an object is laid
+                out like an inline row's own fields (which carry their own
+                left inset) rather than as a stack of full-size cards. */}
+            <div
+              className={
+                referencedItemSchema.type === "object" ? undefined : "pl-2"
+              }
+            >
+              <AnyField
+                path={referencedItemPath}
+                schema={referencedItemSchema}
+                readonly={readonly === true}
+                compact
+                dense
+              />
+            </div>
           </div>
         )}
     </div>

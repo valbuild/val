@@ -44,6 +44,8 @@ export {
 
 // Next specific
 export { ValProvider } from "./ValProvider";
+// What `<ValProvider draft>` takes: `fetchValDraft`'s answer (`initValRsc`).
+export type { ValDraft } from "@valbuild/react/internal";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValVideo, type ValVideoProps } from "./ValVideo";
 export { ValApp } from "./ValApp";

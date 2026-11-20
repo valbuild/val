@@ -1,15 +1,17 @@
-import { initVal, type ModuleFilePath } from "@valbuild/core";
-import { raw } from "@valbuild/react/stega";
-import type { RequestScopedMemo } from "@valbuild/shared/internal";
+import { randomUUID } from "crypto";
 import {
-  initFetchValKeyStega,
-  initFetchValStega,
-  type DraftSources,
-  type DraftSourcesValServer,
-  type GetDraftSourcesScope,
-} from "./initValRsc";
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type ValModules,
+} from "@valbuild/core";
+import type { Patch } from "@valbuild/core/patch";
+import { raw } from "@valbuild/react/stega";
+import { InMemoryPatchStore } from "@valbuild/server";
+import { createValRuntime } from "@valbuild/server/internal";
+import { initFetchValKeyStega, initFetchValStega } from "./initValRsc";
 
-const { s, c } = initVal();
+const { s, c, config } = initVal();
 
 /**
  * A `.jsonValues()` record whose entries count their imports. A path per test,
@@ -47,26 +49,40 @@ const headers = async () => ({
 const cookies = async () => ({
   get: (name: string) => ({ name, value: "session" }),
 });
-const scope: GetDraftSourcesScope = async () =>
-  ({}) as RequestScopedMemo<DraftSources | null>;
 
-/** A server whose draft view of `path` is `draft`. */
-function draftServer(
-  path: ModuleFilePath,
-  draft: unknown,
-): Promise<DraftSourcesValServer> {
-  return Promise.resolve({
-    "/sources/~": {
-      PUT: async () => ({
-        status: 200,
-        json: {
-          schemaSha: "schema-sha",
-          sourcesSha: "sources-sha",
-          modules: { [path]: { source: draft, preview: null } },
-        },
-      }),
+/** A real runtime in memory mode for `module`, with these edits pending. */
+async function runtimeWith(
+  module: ReturnType<typeof notes>,
+  ...patches: Patch[]
+) {
+  const valModules: ValModules = {
+    config,
+    modules: [{ def: async () => ({ default: module.module }) }],
+  };
+  const runtime = createValRuntime(
+    valModules,
+    "/api/val",
+    {
+      ...config,
+      sourceFiles: {},
+      patchStore: new InMemoryPatchStore(),
+      unsafelyAllowUnauthenticated: true,
     },
-  } as DraftSourcesValServer);
+    config,
+  );
+  for (const patch of patches) {
+    await (
+      await runtime
+    ).ops.createPatch(
+      module.path,
+      patch,
+      randomUUID() as PatchId,
+      { type: "head", headBaseSha: await (await runtime).ops.getBaseSha() },
+      null,
+      null,
+    );
+  }
+  return runtime;
 }
 
 /*
@@ -76,54 +92,69 @@ function draftServer(
  */
 describe("fetchVal on a .jsonValues() record", () => {
   test("published: every entry's content, imported from the bundle", async () => {
-    const { module, imports } = notes("/server-notes-published.val.ts");
-    const fetchVal = initFetchValStega(
-      { project: "test" },
-      "/api/val",
-      draftServer("/unused.val.ts" as ModuleFilePath, {}),
-      async () => false,
-      headers,
-      cookies,
-      scope,
-    );
-    expect(titles(await fetchVal(module))).toEqual({
+    const notesOf = notes("/server-notes-published.val.ts");
+    const fetchVal = initFetchValStega({
+      runtime: runtimeWith(notesOf),
+      isEnabled: async () => false,
+      getHeaders: headers,
+      getCookies: cookies,
+    });
+    expect(titles(await fetchVal(notesOf.module))).toEqual({
       a: "Note A",
       b: "Note B",
     });
-    expect(imports.a).toHaveBeenCalledTimes(1);
-    expect(imports.b).toHaveBeenCalledTimes(1);
+    expect(notesOf.imports.a).toHaveBeenCalledTimes(1);
+    expect(notesOf.imports.b).toHaveBeenCalledTimes(1);
   });
 
-  test("draft: an entry the draft has, and the rest imported from the bundle", async () => {
-    const { module, imports, path } = notes("/server-notes-draft.val.ts");
-    const fetchVal = initFetchValStega(
-      { project: "test" },
-      "/api/val",
-      draftServer(path, { a: { title: "Edited A" }, b: { _type: "json" } }),
-      async () => true,
-      headers,
-      cookies,
-      scope,
-    );
-    expect(titles(await fetchVal(module))).toEqual({
+  test("draft, nothing pending: the record is the bundle's, read from the bundle", async () => {
+    const notesOf = notes("/server-notes-draft.val.ts");
+    const fetchVal = initFetchValStega({
+      runtime: runtimeWith(notesOf),
+      isEnabled: async () => true,
+      getHeaders: headers,
+      getCookies: cookies,
+    });
+    expect(titles(await fetchVal(notesOf.module))).toEqual({
+      a: "Note A",
+      b: "Note B",
+    });
+    expect(notesOf.imports.a).toHaveBeenCalledTimes(1);
+    expect(notesOf.imports.b).toHaveBeenCalledTimes(1);
+  });
+
+  test("draft: an entry a pending patch edits is the head's patched entry, not the bundle's", async () => {
+    const notesOf = notes("/server-notes-pending.val.ts");
+    const fetchVal = initFetchValStega({
+      runtime: runtimeWith(notesOf, [
+        { op: "replace", path: ["a", "title"], value: "Edited A" },
+      ]),
+      isEnabled: async () => true,
+      getHeaders: headers,
+      getCookies: cookies,
+    });
+    expect(titles(await fetchVal(notesOf.module))).toEqual({
       a: "Edited A",
       b: "Note B",
     });
-    expect(imports.a).not.toHaveBeenCalled();
+    // Once by the head, for the base entry its edit applies to; the other
+    // entry by the bundle, as the reader fills a marker.
+    expect(notesOf.imports.a).toHaveBeenCalledTimes(1);
+    expect(notesOf.imports.b).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("fetchValKey on a .jsonValues() record", () => {
   test("loads only the entry it names", async () => {
-    const { module, imports } = notes("/server-notes-key.val.ts");
-    const fetchValKey = initFetchValKeyStega(
-      Promise.resolve({} as never),
-      async () => false,
-      cookies,
-    );
-    const note = await fetchValKey(module, "a");
+    const notesOf = notes("/server-notes-key.val.ts");
+    const fetchValKey = initFetchValKeyStega({
+      runtime: runtimeWith(notesOf),
+      isEnabled: async () => false,
+      getCookies: cookies,
+    });
+    const note = await fetchValKey(notesOf.module, "a");
     expect(note && raw(note.title)).toBe("Note A");
-    expect(imports.a).toHaveBeenCalledTimes(1);
-    expect(imports.b).not.toHaveBeenCalled();
+    expect(notesOf.imports.a).toHaveBeenCalledTimes(1);
+    expect(notesOf.imports.b).not.toHaveBeenCalled();
   });
 });

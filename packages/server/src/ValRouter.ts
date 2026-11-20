@@ -4,7 +4,9 @@ import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks } from "./ValServer";
 import { initHandlerOptions } from "./valServerConfig";
 import { nodePlatform } from "./nodePlatform";
+import { valRuntime, type ValRuntime } from "./valRuntime";
 import { createValRequestHandler } from "./ValRouterCore";
+import { parseAllowedHosts, setRequestGuard } from "./requestGuard";
 
 type Versions = {
   versions?: {
@@ -155,6 +157,16 @@ type ValServerOverrides = Partial<{
    */
   projectSource?: Record<string, string>;
   /**
+   * For each of this build's module files, every project file it depends on
+   * as the build resolved its imports (by path with no leading slash,
+   * transitive): what tells a proposal's address that a module whose own
+   * file is not staged is of code the build was not made of, through a file
+   * it imports. A host that builds the project itself hands it over, beside
+   * {@link projectSource}; the build platform does, as
+   * `platform:val-module-dependencies`. Nothing else should set it.
+   */
+  moduleDependencies?: Record<string, string[]>;
+  /**
    * The publish job the RUNNING build was made for, when a Studio built it in
    * a tab. Such a build has no commit to name its place in the content
    * service's chain with, so it names its job, and the service places it by
@@ -269,7 +281,7 @@ export async function createValServer(
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
-  return ValServer(
+  const server = ValServer(
     valModules,
     {
       formatter,
@@ -288,6 +300,41 @@ export async function createValServer(
     callbacks,
     nodePlatform,
   );
+  // fs mode has no sign-in, so which requests it answers is decided here.
+  setRequestGuard(server, {
+    mode: valServerConfig.mode,
+    production: process.env.NODE_ENV === "production",
+    allowedHosts: parseAllowedHosts(process.env.VAL_ALLOWED_HOSTS),
+  });
+  return server;
+}
+
+/**
+ * The runtime the draft readers read through (`initValContent`,
+ * `initValRsc`): the same one `createValServer` builds its server on, for the
+ * same `valModules` and options (`valRuntime`), so a save through the API
+ * moves what the readers read. The readers read its head directly, with the
+ * request's session (`ValRuntime.authorize`): no private server, and no
+ * request to it.
+ */
+export async function createValRuntime(
+  valModules: ValModules,
+  route: string,
+  opts: ValApiOptions,
+  config: ValConfig,
+): Promise<ValRuntime> {
+  const valServerConfig = await initHandlerOptions(route, opts, config);
+  return valRuntime(valModules, {
+    ...(opts.versions?.framework && opts.versions.next
+      ? {
+          framework: {
+            name: opts.versions.framework,
+            version: opts.versions.next,
+          },
+        }
+      : {}),
+    ...valServerConfig,
+  });
 }
 
 // TODO: remove

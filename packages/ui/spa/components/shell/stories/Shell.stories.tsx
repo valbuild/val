@@ -43,7 +43,20 @@ import {
   THEME_RADIUS_STEPS,
   ThemeRadius,
 } from "@valbuild/core";
-import { themeCustomProperties } from "@valbuild/shared/internal";
+import {
+  themeCustomProperties,
+  type PickedElement,
+} from "@valbuild/shared/internal";
+import { AIChat } from "../../AIChat";
+
+/** What the Assistant's Select picked, in the stories that show one. */
+const STORY_PICK: PickedElement = {
+  tag: "h1",
+  text: "Built to outlast the season",
+  classes: ["text-6xl"],
+  selector: "section > h1",
+  valPath: '/app/page.val.ts?p="hero"."headline"',
+};
 
 /**
  * The whole shell in one story.
@@ -238,6 +251,12 @@ type HarnessProps = {
   canvasOpen: boolean;
   canvasView: CanvasView;
   canvasReported: boolean;
+  /**
+   * The Assistant's Select (`SelectButton`), with a stand-in chat: off,
+   * picking on the page, or something picked and above the composer.
+   * Absent leaves the shell's own "no assistant" panel.
+   */
+  assistantPointing?: "off" | "selecting" | "picked";
   readOnly?: "" | "owner" | "editor";
   plan?: "" | PlanScenario;
   planViewer?: "owner" | "editor";
@@ -387,8 +406,15 @@ function ShellHarness({
   readOnly = "",
   plan = "",
   planViewer = "owner",
+  assistantPointing,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
+  const [assistantSelecting, setAssistantSelecting] = useState(
+    assistantPointing === "selecting",
+  );
+  const [pointedAt, setPointedAt] = useState<PickedElement | null>(
+    assistantPointing === "picked" ? STORY_PICK : null,
+  );
   /**
    * Held here because the real one lives in `localStorage` behind
    * `useAutoPublish`, which needs a running system. Only visible under
@@ -484,6 +510,26 @@ function ShellHarness({
       initialSearchOpen={searchOpen}
       initialTourOpen={tourOpen}
       aiEnabled={aiEnabled}
+      {...(assistantPointing !== undefined
+        ? {
+            assistantSelect: {
+              pressed: assistantSelecting,
+              onPressedChange: setAssistantSelecting,
+              codeMode: false,
+            },
+            aiSlot: (
+              <AIChat
+                className="h-full"
+                isConnected
+                authError={false}
+                mode="http"
+                onSendMessage={() => true}
+                pointedAt={pointedAt}
+                onClearPointedAt={() => setPointedAt(null)}
+              />
+            ),
+          }
+        : {})}
       theme={currentTheme}
       /*
        * What `ValThemeProvider` computes in the app. Passed as a prop so a
@@ -1094,6 +1140,36 @@ export const CanvasFieldsView: Story = {
     canvasOpen: true,
     canvasView: "fields",
   },
+};
+
+/**
+ * The assistant beside the preview, with its Select in its header: on the
+ * left, toward the preview. Content's Select is in Content's header, on the
+ * right, toward the preview -- and the preview's toolbar has none. The
+ * assistant is docked beside the preview rather than floating over it, so
+ * what it is pointed at is never under it.
+ */
+export const CanvasWithAssistant: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    canvasOpen: true,
+    openPanel: "ai",
+    assistantPointing: "off",
+  },
+};
+
+/** The Assistant's Select picking: pressed, dashed. Content's is off. */
+export const CanvasAssistantSelecting: Story = {
+  args: { ...CanvasWithAssistant.args, assistantPointing: "selecting" },
+};
+
+/**
+ * Something picked: above the composer, removable, and it goes with the next
+ * message.
+ */
+export const CanvasAssistantPointedAt: Story = {
+  args: { ...CanvasWithAssistant.args, assistantPointing: "picked" },
 };
 
 /** The canvas with the Pages panel open over it — panels still float. */

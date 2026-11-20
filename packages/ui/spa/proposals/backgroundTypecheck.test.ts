@@ -27,7 +27,7 @@ const ERROR = {
 };
 const client = { files: jest.fn(), reportTypecheck: jest.fn() };
 
-describe("the design tab's background typecheck", () => {
+describe("a proposal's background typecheck", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     resetProposalTypecheck();

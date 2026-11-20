@@ -25,6 +25,28 @@ const PUBLISHED = "Content as code, in a TanStack Start app.";
 /** The zero-width characters Val's edit tags are written in. */
 const STEGA = new RegExp("[\\u200B-\\u200D\\uFEFF\\u2060-\\u2064]");
 
+/**
+ * What a poll reads, with a dropped connection read as "not yet".
+ *
+ * `expect.poll` rethrows an error its callback throws instead of polling
+ * again, so one connection the dev server resets, anywhere in a 20 s wait,
+ * failed the test (`read ECONNRESET`, seen in CI on unrelated branches).
+ * Only a transport error is "not yet": anything else -- a wrong status, a
+ * thrown assertion -- still fails at once. The error is what the poll
+ * reads, so a wait that never succeeds says why.
+ */
+async function orNotYet(read: () => Promise<string>): Promise<string> {
+  try {
+    return await read();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/ECONNRESET|ECONNREFUSED|socket hang up|EPIPE/.test(message)) {
+      return `(not yet: ${message})`;
+    }
+    throw error;
+  }
+}
+
 /** The text of the HTML the server sends for `/`, scripts left out. */
 async function serverHtml(page: Page): Promise<string> {
   const res = await page.request.get("/");
@@ -46,7 +68,7 @@ test.describe("a draft page, as the server renders it", () => {
 
     // Polled: the write is saved to the server asynchronously.
     await expect
-      .poll(() => serverHtml(page), { timeout: 20_000 })
+      .poll(() => orNotYet(() => serverHtml(page)), { timeout: 20_000 })
       .toContain(DRAFT);
     // The text only: its edit tags come with the render after hydration, so
     // that what is hydrated is exactly what the server sent.
@@ -57,7 +79,7 @@ test.describe("a draft page, as the server renders it", () => {
     await writeDraft(page);
     await page.goto("/api/val/enable?redirect_to=/");
     await expect
-      .poll(() => serverHtml(page), { timeout: 20_000 })
+      .poll(() => orNotYet(() => serverHtml(page)), { timeout: 20_000 })
       .toContain(DRAFT);
 
     /*
@@ -104,7 +126,7 @@ test.describe("a draft page, as the server renders it", () => {
     page,
   }) => {
     /*
-     * `/sources/~` keeps each entry of such a module as a marker -- its
+     * The server's head keeps each entry of such a module as a marker -- its
      * content lives in its own file -- so the draft has to carry the edited
      * entries' content, or the page rendered the published entry first.
      */
@@ -118,7 +140,9 @@ test.describe("a draft page, as the server renders it", () => {
       const res = await page.request.get("/showcase");
       return (await res.text()).replace(/<script[\s\S]*?<\/script>/g, "");
     };
-    await expect.poll(showcase, { timeout: 20_000 }).toContain(ENTRY_DRAFT);
+    await expect
+      .poll(() => orNotYet(showcase), { timeout: 20_000 })
+      .toContain(ENTRY_DRAFT);
     expect(await showcase()).not.toContain("What is Val?<");
 
     // And the browser hydrates the entry from the same draft.
@@ -158,12 +182,13 @@ test.describe("a draft page, as the server renders it", () => {
     await page.goto("/api/val/enable?redirect_to=/showcase");
     await expect
       .poll(
-        async () => {
-          const res = await page.request.get("/showcase");
-          return (await res.text())
-            .replace(/<script[\s\S]*?<\/script>/g, "")
-            .replace(new RegExp(STEGA.source, "g"), "");
-        },
+        () =>
+          orNotYet(async () => {
+            const res = await page.request.get("/showcase");
+            return (await res.text())
+              .replace(/<script[\s\S]*?<\/script>/g, "")
+              .replace(new RegExp(STEGA.source, "g"), "");
+          }),
         { timeout: 20_000 },
       )
       .toContain("<strong>What is Val?</strong>");

@@ -5,6 +5,7 @@ import fs from "fs";
 import os from "node:os";
 import path from "node:path";
 import { ValOpsMemory } from "./ValOpsMemory";
+import { loadTypeScriptKit } from "./patch/ts/loadTypeScriptKit";
 
 /**
  * The OTHER kind of content, put through the same test that caught the first
@@ -85,6 +86,8 @@ function setup() {
     },
     {
       config,
+      // As `createValOps` builds it on Node: a save rewrites the `.val.ts`.
+      typescript: loadTypeScriptKit,
       sourceFiles: {
         [MODULE_PATH]: MODULE_CODE,
         /*

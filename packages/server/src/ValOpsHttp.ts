@@ -2,6 +2,8 @@ import {
   proposalJsonEntries,
   layeredSnapshot,
   proposalSnapshot,
+  servingBuildOf,
+  stagedAfterBuild,
   type ValContentVersion,
   type ValProposal,
 } from "./proposal";
@@ -40,7 +42,6 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
-import { patchModuleFiles } from "./patchModuleText";
 import { stagedModuleSources } from "./stagedModuleSources";
 import {
   MoveInputs,
@@ -65,26 +66,33 @@ import {
   PatchId as PatchIdSchema,
   SerializedSchema as SerializedSchemaSchema,
   PlanRefusalError,
+  type ProjectVersion,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
   getErrorMessageFromUnknownJson,
   newestCommitSha,
+  valModulesEntryPath,
+  type BuildRegistry,
 } from "@valbuild/shared/internal";
 import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import {
+  loadTypeScriptKit,
+  type TypeScriptKit,
+} from "./patch/ts/loadTypeScriptKit";
+import { VAL_CLIENT_HEADERS } from "./valClient";
+import {
+  contentServiceAnswered,
+  contentServiceFailureText,
+  contentServiceName,
+  contentServiceUnreachable,
+} from "./contentServiceFailure";
 
 const textEncoder = new TextEncoder();
 
 /** The body of the content API's 403 for a write the project's plan refuses. */
 const PlanRefusedBody = z.object({ error: PlanRefusalError });
-
-/** `POST /proposals-api/<name>/patch-file`: see `patchFileInProposal`. */
-const PatchFileBody = z.object({
-  moduleFilePath: z.string().regex(/^\/.+\.val\.(ts|js)$/),
-  patch: Patch,
-  message: z.string().max(500).optional(),
-});
 
 /** A staging's body, as `write_files` sends it. */
 const StageFilesBody = z.object({
@@ -112,11 +120,6 @@ async function withStagedModuleSources(body: string): Promise<string> {
   return JSON.stringify({ ...parsed, modules });
 }
 
-/** What `patchFileInProposal` reads of content's answer for a proposal's files. */
-const ProposalFilesRead = z.object({
-  files: z.record(z.string(), z.string().nullable()),
-});
-
 const PatchId = z.string().refine((s): s is PatchId => !!s); // TODO: validate
 const CommitSha = z.string().refine((s): s is CommitSha => !!s); // TODO: validate
 const BaseSha = z.string().refine((s): s is BaseSha => !!s); // TODO: validate
@@ -137,6 +140,19 @@ const MetadataRes = z.object({
   metadata: Metadata,
   type: z.union([z.literal("file"), z.literal("image")]).nullable(),
 });
+
+/**
+ * How long a content service that predates `GET /chain/version` is not
+ * asked it again: see `ValOpsHttp.chainSeq`.
+ */
+export const CHAIN_VERSION_RETRY_MS = 10 * 60 * 1000;
+
+/**
+ * `GET /v1/{project}/chain/version`: the branch's chain version alone, for
+ * "has the chain moved?" without reading the chain (phase 6 of
+ * `docs/plans/one-content-model.md`, "a cheap `seq` in http mode").
+ */
+const ChainVersionResponse = z.object({ headVersion: z.number() });
 
 const GetApplicablePatches = z.object({
   patches: z.array(
@@ -226,6 +242,30 @@ const GetApplicablePatches = z.object({
       publishJobs: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * The build the branch's chain version last counted live, with the base it
+   * reported (`sources_sha`, which every request here sends), and whether
+   * THIS build went live before it (valbuild/home `utils/liveBuild.ts`).
+   * Absent from a content service that predates it, and when no build of
+   * the branch has been counted.
+   */
+  liveBuild: z
+    .object({
+      deployment: z.string(),
+      version: z.number(),
+      sourcesSha: z
+        .string()
+        .refine((s): s is SourcesSha => !!s)
+        .nullable(),
+      callerIsPrevious: z.boolean(),
+    })
+    .optional(),
+  /**
+   * Asked for with `relative_to=live` (`/stat` asks): what the list is
+   * relative to. `live` names the live build's position, and `/stat` names
+   * `liveBuild.sourcesSha` as the base the chain belongs on.
+   */
+  relativeTo: z.union([z.literal("live"), z.literal("caller")]).optional(),
 });
 const FilesResponse = z.object({
   files: z.array(
@@ -458,13 +498,23 @@ const NonceResponse = z.object({
 });
 
 export class ValOpsHttp extends ValOps {
-  private readonly authHeaders:
-    | { Authorization: string }
-    | { "x-val-pat": string };
+  /**
+   * Sent with every request to the content service: the credential, and
+   * `x-val-client` (see `VAL_CLIENT_HEADER` in `@valbuild/shared`), which is
+   * why every request spreads this rather than building its own.
+   */
+  private readonly authHeaders: Record<string, string>;
   private readonly root: string;
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
   override readonly kind = "http";
+  /**
+   * Always available: this data layer only runs on Node. See
+   * {@link ValOpsOptions.typescript}.
+   */
+  protected override loadTypeScriptKit(): Promise<TypeScriptKit> {
+    return this.options?.typescript?.() ?? loadTypeScriptKit();
+  }
   /** The content service's. See `sketchpads/httpSketchpadStore.ts`. */
   override readonly sketchpads: SketchpadStore;
   /** See {@link ValOps.requiresAuth}. */
@@ -592,6 +642,8 @@ export class ValOpsHttp extends ValOps {
       root?: string;
       /** See `projectSource` on {@link ValApiOptions}. */
       projectSource?: Record<string, string>;
+      /** See `moduleDependencies` on {@link ValApiOptions}. */
+      moduleDependencies?: Record<string, string[]>;
       /** See `publishJob` on {@link ValApiOptions}. */
       publishJob?: string;
       /** See `publishBuild` on {@link ValApiOptions}. */
@@ -612,6 +664,16 @@ export class ValOpsHttp extends ValOps {
       options?.proposal,
       options?.contentVersion,
     );
+    /*
+     * The modules whose staged code this build was not made of: read from
+     * their staged text, versioned as their staging. See `stagedAfterBuild`.
+     */
+    const proposal = options?.proposal;
+    const staged =
+      proposal !== undefined
+        ? stagedAfterBuild(proposal, servingBuildOf(options ?? {}))
+        : {};
+    const stagedPaths = Object.keys(staged);
     super(
       valModules,
       options && snapshot
@@ -619,6 +681,30 @@ export class ValOpsHttp extends ValOps {
             ...options,
             ...(options.proposal !== undefined
               ? { snapshotSources: proposalSnapshot(options.proposal) }
+              : {}),
+            ...(proposal !== undefined && stagedPaths.length > 0
+              ? {
+                  stagedAfterBuild: {
+                    versions: staged,
+                    readSources: () =>
+                      stagedModuleSources(
+                        Object.fromEntries(
+                          stagedPaths.map((path) => {
+                            const file = path.replace(/^\/+/, "");
+                            // A module staged after the build through a file
+                            // it imports has its own text unstaged: the
+                            // build's, unless a save rewrote it.
+                            return [
+                              file,
+                              proposal.files[file] ??
+                                options.projectSource?.[file] ??
+                                null,
+                            ];
+                          }),
+                        ),
+                      ),
+                  },
+                }
               : {}),
             ...(options.contentVersion !== undefined
               ? {
@@ -632,10 +718,12 @@ export class ValOpsHttp extends ValOps {
           }
         : options,
     );
-    this.authHeaders =
-      "pat" in auth
+    this.authHeaders = {
+      ...VAL_CLIENT_HEADERS,
+      ...("pat" in auth
         ? { "x-val-pat": auth.pat }
-        : { Authorization: `Bearer ${auth.apiKey}` };
+        : { Authorization: `Bearer ${auth.apiKey}` }),
+    };
     this.root = options?.root ?? "";
     this.sketchpads = createHttpSketchpadStore({
       url: `${contentUrl}/v1/${project}/sketchpads`,
@@ -664,6 +752,85 @@ export class ValOpsHttp extends ValOps {
     this.publishBuild =
       this.contentVersion === null ? (options?.publishBuild ?? null) : null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
+    this.buildName = options?.publishBuild ?? git?.commit ?? null;
+    this.platformBuild = options?.publishBuild ?? null;
+  }
+
+  /** `VAL_BUILD`, as the platform handed it over: see {@link buildRegistry}. */
+  private readonly platformBuild: string | null;
+
+  /**
+   * The platform's name for the build (`VAL_BUILD`), else the commit it was
+   * built from. Part of `ProjectVersion.build`; `seq` is the content
+   * service's `headVersion`, so this store keeps no counter of its own.
+   */
+  private readonly buildName: string | null;
+
+  protected override hostBuild(): string | null {
+    return this.buildName;
+  }
+
+  /**
+   * The platform's build emits its registry beside its client chunks, named
+   * after the build (`@valbuild/tanstack-build`), and the platform tells
+   * this server the build's name (`VAL_BUILD`). Whatever content version
+   * it serves: the code is the build's either way.
+   */
+  override buildRegistry(): BuildRegistry | null {
+    if (this.platformBuild === null) return null;
+    return {
+      entry: valModulesEntryPath(this.platformBuild),
+      core: Internal.VERSION.core,
+    };
+  }
+
+  /**
+   * Until when the content service is taken to predate `GET /chain/version`
+   * (it answered a 404 that is not JSON: Express's own "Cannot GET", from a
+   * service without the route). Asked again after
+   * {@link CHAIN_VERSION_RETRY_MS}, since a service is upgraded under a
+   * running server. A JSON 404 is not that: it is "no such project", which
+   * every other call will report too, and stops nothing.
+   */
+  private chainVersionUnansweredUntil = 0;
+
+  /**
+   * "Has the chain moved?" as one small read: the branch's chain version
+   * (`headVersion`), which the content service bumps with every write,
+   * delete and publish and with each deployment going live -- the same
+   * counter `applicable/patches` answers with, read alone (valbuild/home
+   * `readChainVersion`). A branch nothing was written to answers 0.
+   * `null` when it cannot be read: from a content service that predates it,
+   * or on any failure, the head reads the whole chain as before.
+   */
+  override async chainSeq(): Promise<number | null> {
+    if (Date.now() < this.chainVersionUnansweredUntil) return null;
+    const branch = this.ownBranch();
+    const query =
+      branch !== undefined ? `?${new URLSearchParams({ branch })}` : "";
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/chain/version${query}`,
+        { headers: this.authHeaders },
+      );
+      if (res.status === 404) {
+        const isJson =
+          res.headers.get("content-type")?.includes("application/json") ??
+          false;
+        if (!isJson) {
+          this.chainVersionUnansweredUntil =
+            Date.now() + CHAIN_VERSION_RETRY_MS;
+        }
+        return null;
+      }
+      if (!res.ok) return null;
+      const parsed = ChainVersionResponse.safeParse(await res.json());
+      if (!parsed.success) return null;
+      return parsed.data.headVersion;
+    } catch (err) {
+      Internal.log.debug("could not read the chain version", err);
+      return null;
+    }
   }
   /**
    * A deployment that cannot mirror a project which expects to be mirrored.
@@ -978,8 +1145,13 @@ export class ValOpsHttp extends ValOps {
 
   override async publishApi(
     path: string,
-    init: { method: string; body?: string },
-  ): Promise<{ status: number; body: string; contentType: string }> {
+    init: { method: string; body?: string; ifNoneMatch?: string },
+  ): Promise<{
+    status: number;
+    body: string;
+    contentType: string;
+    etag?: string;
+  }> {
     /*
      * Nothing is published from a proposal's address: its way to the site is
      * a merge. The publish API reaches the SITE's builds and jobs, so a
@@ -1021,7 +1193,9 @@ export class ValOpsHttp extends ValOps {
    * Which proposal calls the browser may make, by method and the path after
    * `/proposals`: list and open, read and rename one, read what its build
    * targets and how far an upgrade's preparation is, render its build as a
-   * canary (`verify`), and close, reopen and retry its setup. Not `/save` -- the Studio saves through `/save`, which
+   * canary (`verify`), close, reopen and retry its setup, turn code mode on
+   * and off, and commit it to git (both at its own address only, see
+   * {@link ValOpsHttp.proposalFilesWrite}). Not `/save` -- the Studio saves through `/save`, which
    * prepares the commit here -- and not `/patches`, which moves the site's
    * changes into a proposal and has no screen yet.
    */
@@ -1035,14 +1209,16 @@ export class ValOpsHttp extends ValOps {
       );
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|quick-preview|verify|update-from-site|restore-code)$/.test(
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|quick-preview|verify|update-from-site|restore-code|code-mode|commit|take-push)$/.test(
         path,
       )
     );
   }
 
   /**
-   * A write to a proposal's FILES -- staging code, computing its lockfile
+   * A write to a proposal's FILES -- or to what decides who may change
+   * them: code mode, committing them to git, and taking in somebody's push
+   * to its branch -- staging code, computing its lockfile
    * (valbuild/home `docs/adept.md`, step 6), reporting the typecheck of
    * them (step 7, decision 20), serving a build of it
    * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
@@ -1057,49 +1233,21 @@ export class ValOpsHttp extends ValOps {
   ): { name: string; write: string } | null {
     if (method !== "POST") return null;
     const match =
-      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|quick-preview|update-from-site|restore-code)$/.exec(
+      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|quick-preview|update-from-site|restore-code|code-mode|commit|take-push)$/.exec(
         path,
       );
     return match === null ? null : { name: match[1], write: match[2] };
   }
 
   /**
-   * The writes the SITE's server may make to a proposal's files: what the
-   * design tab does (valbuild/home `docs/design-tab.md`, step 2) -- stage
-   * code, build it, and report its typecheck. The tab is served by the site's
-   * build so that a build the assistant breaks in the proposal cannot take
-   * down the tools it would fix it with; at the proposal's address those
-   * tools run on the proposal's own code.
-   *
-   * The typecheck too, though it blocks the proposal's Publish (adept.md,
-   * decision 20): it is the proposal's staged files checked against the
-   * site's, the same program from either address, and the content service
-   * keeps it only for the inputs it was made from. Without it the tab's
-   * Types check, and the assistant's `typecheck`, had nothing to show.
-   *
-   * And a quick preview: the browser half of a build of the staged files,
-   * which Val Build makes and nothing serves.
-   *
-   * The rest stay the proposal's own: Update from the site and the lockfile
-   * are answered from the proposal's build and schemas, and bringing back a
-   * point's code is the Studio at its address finishing a restore.
-   */
-  private static readonly SITE_MAY_WRITE = new Set([
-    "files",
-    "build",
-    "quick-preview",
-    "typecheck",
-  ]);
-
-  /**
    * Whether this server may make a write to a proposal's files: the
-   * proposal's own server, any of them; the site's, the design tab's; and a
-   * proposal's address, none to another proposal. Either way the site's own
-   * files change only when a proposal is merged.
+   * proposal's own server, to its own files, and no other. The site's server
+   * makes none -- code is changed in the proposal's own Studio, in code mode
+   * -- and a proposal's address none to another proposal. Either way the
+   * site's own files change only when a proposal is merged.
    */
   private mayWriteFiles(write: { name: string; write: string }): boolean {
-    if (this.proposal !== null) return write.name === this.proposal.name;
-    return ValOpsHttp.SITE_MAY_WRITE.has(write.write);
+    return this.proposal !== null && write.name === this.proposal.name;
   }
 
   /**
@@ -1149,10 +1297,6 @@ export class ValOpsHttp extends ValOps {
     const updating = /^\/([0-9a-f]{20})\/update-content$/.exec(path)?.[1];
     if (updating !== undefined && init.method === "POST") {
       return this.updateContentFromSite(updating, init.body, profileId);
-    }
-    const patching = /^\/([0-9a-f]{20})\/patch-file$/.exec(path)?.[1];
-    if (patching !== undefined && init.method === "POST") {
-      return this.patchFileInProposal(patching, init.body, profileId);
     }
     const withCode = /^\/([0-9a-f]{20})\/update-code$/.exec(path)?.[1];
     if (withCode !== undefined && init.method === "POST") {
@@ -1228,148 +1372,6 @@ export class ValOpsHttp extends ValOps {
       status: res.status,
       body: await res.text(),
       contentType: res.headers.get("Content-Type") ?? json,
-    };
-  }
-
-  /**
-   * A patch written into a module's FILE in a proposal, and staged there as
-   * code: the design tab's `create_patch` (valbuild/home `docs/design-tab.md`).
-   * The assistant there changes the proposal's code, so content it writes goes
-   * with that code -- a field it just added is filled in the same change, and
-   * built and rendered with it -- rather than into the proposal's saves, which
-   * the site's server does not write.
-   *
-   * Answered here, at `POST /<name>/patch-file`: the file is the proposal's
-   * copy if it has one, otherwise the one this build was made from, and the
-   * patch is written into it as a save writes one (`patchModuleText`). Who may
-   * is who may stage files: {@link ValOpsHttp.mayWriteFiles}.
-   */
-  private async patchFileInProposal(
-    name: string,
-    body: string | undefined,
-    profileId: string | null,
-  ): Promise<{ status: number; body: string; contentType: string }> {
-    const json = "application/json";
-    const answer = (status: number, value: unknown) => ({
-      status,
-      contentType: json,
-      body: JSON.stringify(value),
-    });
-    if (!this.mayWriteFiles({ name, write: "files" })) {
-      return answer(403, {
-        message:
-          "Files are changed in the proposal this Studio is open in, not in another.",
-      });
-    }
-    let parsedBody: unknown;
-    try {
-      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
-    } catch {
-      return answer(400, { message: "The patch's body is not JSON." });
-    }
-    const request = PatchFileBody.safeParse(parsedBody);
-    if (!request.success) {
-      return answer(400, {
-        message: `Invalid patch: ${fromError(request.error).toString()}`,
-      });
-    }
-    const { moduleFilePath, patch, message } = request.data;
-    const content = this.proposalContent(name, profileId);
-    const read = await content("/files");
-    if (!read.ok) {
-      return {
-        status: read.status,
-        contentType: json,
-        body: await read.text(),
-      };
-    }
-    const files = ProposalFilesRead.safeParse(await read.json());
-    if (!files.success) {
-      return answer(502, {
-        message: `Content answered the proposal's files in a shape this Val does not read: ${fromError(files.error).toString()}`,
-      });
-    }
-    const filePath = moduleFilePath.replace(/^\/+/, "");
-    const own = files.data.files[filePath];
-    if (own === null) {
-      return answer(409, {
-        message: `${moduleFilePath} is deleted in this proposal.`,
-      });
-    }
-    if (own === undefined && this.projectSource === null) {
-      return answer(409, {
-        message: `This build does not carry its source, so ${moduleFilePath} can only be patched once the proposal has its own copy: write it with write_files.`,
-      });
-    }
-    const text = own ?? this.projectSource?.[filePath];
-    if (text === undefined) {
-      return answer(404, {
-        message: `There is no module file ${moduleFilePath} in this proposal or on the site.`,
-      });
-    }
-    const patched = await patchModuleFiles(
-      moduleFilePath,
-      text,
-      (path) => {
-        const proposalCopy = files.data.files[path];
-        return proposalCopy !== undefined
-          ? proposalCopy
-          : this.projectSource?.[path];
-      },
-      patch,
-    );
-    if (result.isErr(patched)) {
-      return answer(422, {
-        message: `The patch does not apply to ${moduleFilePath}: ${patched.error}`,
-      });
-    }
-    const formatter = this.options?.formatter;
-    const format = async (
-      written: string,
-      path: string,
-    ): Promise<result.Result<string, string>> => {
-      if (!formatter) return result.ok(written);
-      try {
-        return result.ok(await formatter(written, path));
-      } catch (error) {
-        return result.err(
-          `The patched ${path} could not be formatted: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    };
-    const staging: Record<string, string> = {};
-    if (patched.value.moduleText !== null) {
-      const formatted = await format(patched.value.moduleText, moduleFilePath);
-      if (result.isErr(formatted)) {
-        return answer(422, { message: formatted.error });
-      }
-      staging[filePath] = formatted.value;
-    }
-    // An entry's file as a save writes it: see `ValOps.prepare`.
-    for (const [entryFile, content] of Object.entries(patched.value.entries)) {
-      const formatted = await format(
-        JSON.stringify(content, null, 2),
-        `/${entryFile}`,
-      );
-      if (result.isErr(formatted)) {
-        return answer(422, { message: formatted.error });
-      }
-      staging[entryFile] = formatted.value;
-    }
-    const modules = await stagedModuleSources(staging);
-    const staged = await content("/files", {
-      method: "POST",
-      body: JSON.stringify({
-        files: staging,
-        // The Source the patched text declares: see `stagedModuleSources`.
-        ...(Object.keys(modules).length > 0 ? { modules } : {}),
-        ...(message !== undefined ? { message } : {}),
-      }),
-    });
-    return {
-      status: staged.status,
-      contentType: staged.headers.get("Content-Type") ?? json,
-      body: await staged.text(),
     };
   }
 
@@ -1817,15 +1819,29 @@ export class ValOpsHttp extends ValOps {
 
   private async callPublishApi(
     path: string,
-    init: { method: string; body?: string },
-  ): Promise<{ status: number; body: string; contentType: string }> {
+    init: { method: string; body?: string; ifNoneMatch?: string },
+  ): Promise<{
+    status: number;
+    body: string;
+    contentType: string;
+    etag?: string;
+  }> {
     const json = "application/json";
     const send = async (token: string) =>
       fetch(`${this.contentUrl}/v1${path}`, {
         method: init.method,
         headers: {
+          ...VAL_CLIENT_HEADERS,
           Authorization: `Bearer ${token}`,
           ...(init.body === undefined ? {} : { "Content-Type": json }),
+          /*
+           * By version: content answers 304 to the tag of what the caller
+           * holds (`/project-source`; valbuild/home's `etagOf`). A GET's
+           * alone: a write is never "not modified".
+           */
+          ...(init.ifNoneMatch !== undefined && init.method === "GET"
+            ? { "If-None-Match": init.ifNoneMatch }
+            : {}),
         },
         ...(init.body === undefined ? {} : { body: init.body }),
       });
@@ -1858,10 +1874,12 @@ export class ValOpsHttp extends ValOps {
       res = await send(second.token);
     }
 
+    const etag = res.headers.get("etag");
     return {
       status: res.status,
       contentType: res.headers.get("content-type") ?? json,
       body: await res.text(),
+      ...(etag !== null ? { etag } : {}),
     };
   }
 
@@ -1970,10 +1988,43 @@ export class ValOpsHttp extends ValOps {
     }
   }
 
+  /**
+   * The chain `/stat` answers, relative to the live build, read again only
+   * when the chain version moved (`chainSeq`: one small read of the content
+   * service). Every Studio polls `/stat`, and each socket message makes it
+   * ask; reading the whole chain for each was the content service's busiest
+   * call. A deployment going live moves the version too, so "relative to the
+   * live build" cannot go stale under the same version.
+   *
+   * The version is read BEFORE the chain, so a write in between leaves the
+   * kept chain newer than the version it is kept under -- read again on the
+   * next call, never served stale.
+   */
+  private async statChain(): Promise<OrderedPatchesMetadata> {
+    const seq = await this.chainSeq();
+    const kept = this.keptStatChain;
+    if (seq !== null && kept !== null && kept.seq === seq) {
+      return kept.chain;
+    }
+    const chain = await this.fetchPatchesInternal({
+      excludePatchOps: true,
+      patchIds: undefined,
+      relativeToLive: true,
+    });
+    if (seq !== null && !chain.error && !chain.errors?.length) {
+      this.keptStatChain = { seq, chain };
+    }
+    return chain;
+  }
+
+  private keptStatChain: { seq: number; chain: OrderedPatchesMetadata } | null =
+    null;
+
   async getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
+      schemaSha?: SchemaSha;
+      version?: ProjectVersion;
       patches?: PatchId[];
       profileId?: AuthorId;
     } | null,
@@ -2022,11 +2073,19 @@ export class ValOpsHttp extends ValOps {
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
-    const currentSourcesSha = await this.getSourcesSha();
-    const allPatchData = await this.fetchPatches({
-      excludePatchOps: true,
-      patchIds: undefined,
-    });
+    /*
+     * The chain RELATIVE TO THE LIVE BUILD, when this is a previous build
+     * still answering (S26): for up to a minute after a publish the edge
+     * serves the build before it, and a Studio told this build's base fetched
+     * it and showed the content from before the build. The content service
+     * knows which build is live and what its base is, and answers at it
+     * (`relativeTo: "live"`); then the base named is the live build's -- the
+     * one a Studio holding the new bundle already has. Otherwise this build's
+     * own, as always.
+     */
+    const allPatchData = await this.statChain();
+    const currentSourcesSha =
+      allPatchData.chainBase ?? (await this.getSourcesSha());
     if (
       "error" in allPatchData &&
       allPatchData.error &&
@@ -2081,7 +2140,10 @@ export class ValOpsHttp extends ValOps {
         appliedPatches.push(patchData.patchId);
       }
     }
-    const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
+    const webSocketNonceRes = await this.getWebSocketNonce(
+      params.profileId,
+      "live",
+    );
     if (webSocketNonceRes.status === "error") {
       return { type: "error", error: webSocketNonceRes.error };
     }
@@ -2173,12 +2235,33 @@ export class ValOpsHttp extends ValOps {
     return this.publishJob !== null ? { job: this.publishJob } : {};
   }
 
+  /**
+   * This build's base, as a report to the content service (`sources_sha`), or
+   * `null` when it cannot be read: a request must not fail for a report.
+   */
+  private async reportedBase(): Promise<SourcesSha | null> {
+    try {
+      return await this.getSourcesSha();
+    } catch (err) {
+      Internal.log.debug("could not read this build's base to report", err);
+      return null;
+    }
+  }
+
   /** The branch this server's patches are on, where it knows it. */
   private ownBranch(): string | undefined {
     return this.proposal?.branch ?? this.git?.branch;
   }
 
-  async getWebSocketNonce(profileId: string): Promise<
+  async getWebSocketNonce(
+    profileId: string,
+    /**
+     * `live`: when this is a previous build, the socket follows the chain the
+     * live build's `/stat` named (`relativeTo` on the stat's
+     * `applicable/patches`), so its `patches` messages and that stat agree.
+     */
+    relativeTo?: "live",
+  ): Promise<
     | {
         status: "success";
         data: { nonce: string; url: string };
@@ -2205,6 +2288,7 @@ export class ValOpsHttp extends ValOps {
         })(),
         // Which build is asking, beside what it says about itself.
         ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
+        ...(relativeTo !== undefined ? { relativeTo } : {}),
       }),
       headers: {
         ...this.authHeaders,
@@ -2273,9 +2357,13 @@ export class ValOpsHttp extends ValOps {
         return {
           status: "error" as const,
           error: {
-            message:
-              "Could not get nonce. Error: " +
-              (e instanceof Error ? e.message : e.toString()),
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "connect for live updates",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -2399,6 +2487,13 @@ export class ValOpsHttp extends ValOps {
   async fetchPatchesInternal<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
     excludePatchOps: ExcludePatchOps;
+    /**
+     * Ask for the chain relative to the branch's LIVE build when this one is
+     * a previous build (`relative_to=live`). Only `/stat` asks: every other
+     * reader applies the chain to this build's own base, which needs this
+     * build's chain. See {@link OrderedPatchesMetadata.chainBase}.
+     */
+    relativeToLive?: boolean;
   }): Promise<
     ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
@@ -2435,6 +2530,19 @@ export class ValOpsHttp extends ValOps {
     }
     if (filters.excludePatchOps) {
       params.push(["exclude_patch_ops", "true"]);
+    }
+    /*
+     * This build's base, reported: the content service files it under the
+     * build this is, so once this build is live it can name it to a previous
+     * build still answering (S26; valbuild/home `utils/liveBuild.ts`). Not at
+     * a proposal's address, whose builds are never the site's live one.
+     */
+    const ownBase = this.proposal === null ? await this.reportedBase() : null;
+    if (ownBase !== null) {
+      params.push(["sources_sha", ownBase]);
+    }
+    if (filters.relativeToLive) {
+      params.push(["relative_to", "live"]);
     }
     const searchParams = new URLSearchParams(params);
     try {
@@ -2538,6 +2646,21 @@ export class ValOpsHttp extends ValOps {
             ...(data.heldBackPatches !== undefined
               ? { heldBackPatches: data.heldBackPatches }
               : {}),
+            ...(data.liveBuild?.callerIsPrevious === true
+              ? { superseded: true }
+              : {}),
+            /*
+             * Answered at the live build, whose base it names: the base this
+             * chain belongs on. Only when asked, and when both are said -- a
+             * list at the live build without its base could not be put on
+             * anything.
+             */
+            ...(filters.relativeToLive &&
+            data.relativeTo === "live" &&
+            data.liveBuild?.sourcesSha !== undefined &&
+            data.liveBuild.sourcesSha !== null
+              ? { chainBase: data.liveBuild.sourcesSha }
+              : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata
             : OrderedPatches;
@@ -2554,11 +2677,17 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
+      const failure = contentServiceAnswered(
+        contentServiceName(this.contentUrl),
+        "load your changes",
+        {
+          status: patchesRes.status,
+          statusText: patchesRes.statusText,
+          body: await patchesRes.text().catch(() => ""),
+        },
+      );
       Internal.log.error(
-        "Could not get patches. HTTP error: " +
-          patchesRes.status +
-          " " +
-          patchesRes.statusText,
+        `Could not get patches. ${failure.message} ${failure.details}`,
       );
       if (patchesRes.status === 401) {
         return {
@@ -2571,27 +2700,37 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
+      /*
+       * The service ANSWERED, so this is not a network problem -- it used to
+       * say "most likely due to a network issue. Check your network
+       * connection" about a 500, to an editor whose network was fine. What it
+       * said goes in `details`. The Studio asks again on the next `/stat`,
+       * which fails fast and is retried while the service is failing.
+       */
       return {
         patches,
         error: {
-          message:
-            "Could not get your changes. It is most likely due to a network issue. Check your network connection and please try again.",
+          message: failure.message,
+          details: failure.details,
         },
       } as ExcludePatchOps extends true
         ? OrderedPatchesMetadata
         : OrderedPatches;
     } catch (err) {
+      const failure = contentServiceUnreachable(
+        contentServiceName(this.contentUrl),
+        "load your changes",
+        err,
+      );
       Internal.log.error(
-        "Could not get patches (connection error):",
-        err instanceof Error ? err.message : JSON.stringify(err),
+        `Could not get patches. ${failure.message} ${failure.details}`,
       );
       return {
         patches: [],
         networkError: true,
         error: {
-          message: `Error: ${
-            err instanceof Error ? err.message : JSON.stringify(err)
-          }`,
+          message: failure.message,
+          details: failure.details,
         },
       };
     }
@@ -2656,8 +2795,27 @@ export class ValOpsHttp extends ValOps {
             message: "Conflict: " + (await res.text()),
           });
         }
-        if (res.headers.get("Content-Type")?.includes("application/json")) {
-          const json = await res.json();
+        const body = await res.text();
+        const failure = contentServiceAnswered(
+          contentServiceName(this.contentUrl),
+          "save your change",
+          { status: res.status, statusText: res.statusText, body },
+        );
+        if (failure.retryable) {
+          /*
+           * The SERVICE failed -- a 500 from a database missing a column was
+           * the one that found this. It used to be an `other`, which the
+           * Studio is told is a bad patch and drops: the field went back to
+           * its old value and the status bar said "All changes saved".
+           */
+          return result.err({
+            errorType: "service-error",
+            message: failure.message,
+            details: failure.details,
+          });
+        }
+        const json = parseJsonOrNull(body);
+        if (json !== null) {
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           /*
            * Refused for the plan: the patch is fine, and the reason comes as
@@ -2681,19 +2839,19 @@ export class ValOpsHttp extends ValOps {
         }
         return result.err({
           errorType: "other",
-          message:
-            "Could not save patch. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
+          message: `${failure.message} ${failure.details}`,
         });
       })
       .catch((e): SaveSourceFilePatchResult => {
+        const failure = contentServiceUnreachable(
+          contentServiceName(this.contentUrl),
+          "save your change",
+          e,
+        );
         return result.err({
-          errorType: "other",
-          message: `Could save source file patch (connection error?): ${
-            e instanceof Error ? e.message : e.toString()
-          }`,
+          errorType: "service-error",
+          message: failure.message,
+          details: failure.details,
         });
       });
   }
@@ -2752,11 +2910,17 @@ export class ValOpsHttp extends ValOps {
           }
           return {
             error: {
-              message:
-                "Could not save patch file. HTTP error: " +
-                res.status +
-                " " +
-                res.statusText,
+              message: contentServiceFailureText(
+                contentServiceAnswered(
+                  contentServiceName(this.contentUrl),
+                  "save the file",
+                  {
+                    status: res.status,
+                    statusText: res.statusText,
+                    body: await res.text().catch(() => ""),
+                  },
+                ),
+              ),
             },
           };
         },
@@ -2764,7 +2928,13 @@ export class ValOpsHttp extends ValOps {
       .catch((e): WithGenericError<{ patchId: PatchId; filePath: string }> => {
         return {
           error: {
-            message: `Could save source binary file in patch (connection error?): ${e.toString()}`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "save the file",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -2851,20 +3021,30 @@ export class ValOpsHttp extends ValOps {
         }
         return {
           error: {
-            message:
-              "Could not get files. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "load the files",
+                {
+                  status: res.status,
+                  statusText: res.statusText,
+                  body: await res.text().catch(() => ""),
+                },
+              ),
+            ),
           },
         };
       })
       .catch((e) => {
         return {
           error: {
-            message: `Could not get file (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "load the files",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3053,11 +3233,17 @@ export class ValOpsHttp extends ValOps {
       return {
         errors: [
           {
-            message:
-              "Could not get metadata. HTTP error: " +
-              metadataRes.status +
-              " " +
-              metadataRes.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "read the file's details",
+                {
+                  status: metadataRes.status,
+                  statusText: metadataRes.statusText,
+                  body: await metadataRes.text().catch(() => ""),
+                },
+              ),
+            ),
             filePath,
           },
         ],
@@ -3066,11 +3252,13 @@ export class ValOpsHttp extends ValOps {
       return {
         errors: [
           {
-            message:
-              "Could not get metadata (connection error?): " +
-              (err instanceof Error
-                ? err.message
-                : err?.toString() || "unknown error"),
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "read the file's details",
+                err,
+              ),
+            ),
           },
         ],
       };
@@ -3159,20 +3347,30 @@ export class ValOpsHttp extends ValOps {
         }
         return {
           error: {
-            message:
-              "Could not delete patches. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "discard the changes",
+                {
+                  status: res.status,
+                  statusText: res.statusText,
+                  body: await res.text().catch(() => ""),
+                },
+              ),
+            ),
           },
         };
       })
       .catch((e) => {
         return {
           error: {
-            message: `Could not delete patches (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "discard the changes",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3306,42 +3504,45 @@ export class ValOpsHttp extends ValOps {
           },
         };
       }
-      if (res.headers.get("Content-Type")?.includes("application/json")) {
-        const json = z
-          .object({ isNotFastForward: z.boolean().optional() })
-          .safeParse(await res.json());
-        if (json.success && json.data.isNotFastForward) {
-          return {
-            isNotFastForward: true,
-            error: {
-              message: "Could not commit. Not a fast-forward commit",
-            },
-          };
-        }
-        const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+      const body = await res.text().catch(() => "");
+      const payload = parseJsonOrNull(body);
+      const notFastForward = z
+        .object({ isNotFastForward: z.boolean().optional() })
+        .safeParse(payload);
+      if (notFastForward.success && notFastForward.data.isNotFastForward) {
         return {
+          isNotFastForward: true,
           error: {
-            message,
+            message: "Could not commit. Not a fast-forward commit",
           },
         };
       }
+      /*
+       * The service's own words, read from the PAYLOAD. This used to hand
+       * `getErrorMessageFromUnknownJson` the zod `safeParse` result, which
+       * has no `message`, so every commit failure read "Unknown error".
+       */
       return {
         error: {
-          message:
-            "Could not commit. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
+          message: contentServiceFailureText(
+            contentServiceAnswered(
+              contentServiceName(this.contentUrl),
+              "publish",
+              { status: res.status, statusText: res.statusText, body },
+            ),
+          ),
         },
       };
     } catch (err) {
       return {
         error: {
-          message: `Could not commit (connection error?): ${
-            err instanceof Error
-              ? err.message
-              : err?.toString() || "unknown error"
-          }`,
+          message: contentServiceFailureText(
+            contentServiceUnreachable(
+              contentServiceName(this.contentUrl),
+              "publish",
+              err,
+            ),
+          ),
         },
       };
     }

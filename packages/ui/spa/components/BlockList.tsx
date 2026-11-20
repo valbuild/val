@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -19,24 +26,41 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  ChevronRight,
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpDown,
+  ArrowUpToLine,
+  Hash,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  ChevronDown,
   Copy,
-  EllipsisVertical,
   GripVertical,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
 import {
+  Internal,
   Json,
   SerializedSchema,
   SerializedArraySchema,
   SerializedDiscriminatedUnionSchema,
+  SerializedRecordSchema,
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
+import { hasLocaleRouteParam, isLocaleSchema } from "@valbuild/shared/internal";
 import { array } from "@valbuild/core/fp";
 import { JSONValue } from "@valbuild/core/patch";
-import { useSourceAtPath, useValField } from "./ValFieldProvider";
+import {
+  useAddPatch,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSourceAtPath,
+  useValField,
+} from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { AnyField } from "./AnyField";
 import {
@@ -49,34 +73,61 @@ import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "./designSystem/dropdown-menu";
+import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
 
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { FieldValidationError } from "./FieldValidationError";
 import { useEmptyOf } from "../hooks/useEmptyOf";
-import { LocaleFiltered } from "./LocaleFilterProvider";
+import {
+  LocaleFiltered,
+  useLocaleFilterPredicate,
+} from "./LocaleFilterProvider";
+import { useArrayAndRecordTools } from "./ArrayAndRecordTools";
+import { ChangeRecordPopover } from "./ChangeRecordPopover";
+import { DuplicateRecordPopover } from "./DuplicateRecordPopover";
+import { DeleteRecordPopover } from "./DeleteRecordPopover";
+import { AddRecordPopover } from "./AddRecordPopover";
+import { fromCamelToTitleCase } from "../utils/prettifyText";
 import { ContentViewsBadge } from "../analytics/ContentViewsBadge";
 
 /**
- * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
- * lists of inline objects nested three levels deep — fits on a laptop screen.
+ * The inline list: an array or a record whose items are edited in place, dense
+ * enough that a page-builder tree — lists of inline objects nested three
+ * levels deep — fits on a laptop screen.
  *
- * `ArrayFields` renders this whenever the list declares
- * `.render({ as: "inline" })` (see `isInlineRender`) and `SortableList`
- * otherwise, so a list of preview rows is untouched by any of this.
+ * `ArrayFields` and `RecordFields` render this whenever the container
+ * declares `.render({ as: "inline" })` (see `isInlineRender`), so an array
+ * and a record that both say "inline" look the same: one row per item, the
+ * index or the key as its label, a menu for what can be done to it. Lists of
+ * preview rows (`SortableList`, the record list) are untouched by any of this.
  *
  * What it does differently from `SortableList`:
  * - Each item is EDITED IN PLACE inside its (sortable) row, because the list
  *   said so. The decision reads straight off the serialized ARRAY schema —
  *   the item has no say.
- * - Object items get a compact header (grip, index, summary, collapse) and lay
- *   their fields out tightly; nested inline lists recurse with a thin
- *   indentation rail instead of another card-in-card.
- * - Leaf items (string, number, ...) are a single row: grip, the field, menu.
+ * - Object items get a compact header (grip, index or key, summary, collapse)
+ *   and lay their fields out tightly; a nested inline list is indented to its
+ *   label and carries its Add on that label's row.
+ * - Leaf items (string, number, ...) are a single row: grip or key, the field,
+ *   menu.
+ * - A record's rows have no grip: a record has no order.
  *
  * The optimistic-permutation-reset in the dnd wiring is the same doctrine as
  * `SortableContainer` (see the long comment there): an array item's path is
@@ -84,42 +135,89 @@ import { ContentViewsBadge } from "../analytics/ContentViewsBadge";
  * moment the move patch applies, or the move is applied twice and cancels out.
  */
 /**
- * A density pass over the stock field controls, scoped to the list so nothing
- * outside it changes: the design-system `Input` is `h-10 m-1` and the rich text
- * editor `p-4`, which alone put a three-level tree far past one laptop screen.
+ * A light density pass over the stock field controls, scoped to the list so
+ * nothing outside it changes. It takes away the design-system `Input`'s outer
+ * `m-1` and a little of its height, and the rich text editor's resting
+ * padding — and leaves the TYPE alone: a value reads the same size here as in
+ * the normal field view, which is what makes the two look like one Studio.
  *
  * Descendant overrides, which is the part that should not last: these want to
  * be proper `compact` variants on the controls themselves. Until they are, a
  * control that changes its metrics changes them here too, silently.
  */
 const DENSE_FIELDS = cn(
-  "[&_input]:h-7 [&_input]:m-0 [&_input]:w-full [&_input]:px-2 [&_input]:py-1 [&_input]:text-[13px]",
+  "[&_input]:h-9 [&_input]:m-0 [&_input]:w-full [&_input]:py-1.5",
   // The auto-growing textarea's height comes from its invisible ghost twin, so
   // the ghost needs the same metrics or the box stays sized for the old ones.
   // `field-sizing: content` stops the textarea's default `rows=2` from setting
   // the grid row's intrinsic height (Chromium; elsewhere it stays two rows).
-  "[&_textarea]:min-h-0 [&_textarea]:m-0 [&_textarea]:px-2 [&_textarea]:py-1 [&_textarea]:text-[13px] [&_textarea]:leading-5 [&_textarea]:[field-sizing:content]",
-  "[&_[data-testid=auto-growing-textarea-ghost]]:m-0 [&_[data-testid=auto-growing-textarea-ghost]]:px-2 [&_[data-testid=auto-growing-textarea-ghost]]:py-1 [&_[data-testid=auto-growing-textarea-ghost]]:text-[13px] [&_[data-testid=auto-growing-textarea-ghost]]:leading-5",
+  "[&_textarea]:min-h-0 [&_textarea]:m-0 [&_textarea]:py-1.5 [&_textarea]:[field-sizing:content]",
+  "[&_[data-testid=auto-growing-textarea-ghost]]:m-0 [&_[data-testid=auto-growing-textarea-ghost]]:py-1.5",
   // The rich text editor keeps its fixed toolbar (and the padding reserving
   // room for it) only while focused; at rest it is one tight paragraph box.
-  "[&_.rich-text-editor:not(:focus-within)_.prose-editor]:p-2 [&_.rich-text-editor:not(:focus-within)_.prose-editor]:min-h-0",
+  "[&_.rich-text-editor:not(:focus-within)_.prose-editor]:p-3 [&_.rich-text-editor:not(:focus-within)_.prose-editor]:min-h-0",
   "[&_.rich-text-editor:not(:focus-within)>.absolute]:hidden",
-  "[&_.prose-editor]:text-[13px]",
 );
 
 export function BlockList({
   path,
   readonly,
   depth = 0,
+  showAdd = true,
 }: {
   path: SourcePath;
   readonly?: boolean;
-  /** Nesting level, used only for layout (rail indentation). */
+  /** Nesting level, used only for layout. */
   depth?: number;
+  /**
+   * Whether the list draws its own "Add" button: always for a record, and for
+   * an EMPTY array (with rows, the insert point under the last row is the
+   * array's Add). A nested list does not: its + sits on its label row, as a
+   * `Field`'s does.
+   */
+  showAdd?: boolean;
+}) {
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status !== "success") {
+    return null;
+  }
+  if (schemaAtPath.data.type === "record") {
+    return (
+      <RecordBlockList
+        path={path}
+        schema={schemaAtPath.data}
+        readonly={readonly}
+        depth={depth}
+        showAdd={showAdd}
+      />
+    );
+  }
+  if (schemaAtPath.data.type === "array") {
+    return (
+      <ArrayBlockList
+        path={path}
+        readonly={readonly}
+        depth={depth}
+        showAdd={showAdd}
+      />
+    );
+  }
+  return null;
+}
+
+function ArrayBlockList({
+  path,
+  readonly,
+  depth,
+  showAdd,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  depth: number;
+  showAdd: boolean;
 }) {
   const type = "array";
   const { navigate } = useNavigation();
-  const emptyOf = useEmptyOf();
   const sourceAtPath = useSourceAtPath(path);
   const {
     source: shallowSourceAtPath,
@@ -144,6 +242,8 @@ export function BlockList({
     setItems(nextItems);
   }, [sourcePaths]);
 
+  // The handle only drags (the row's menu is its number or key), so these
+  // are dnd-kit's defaults: Space or Enter picks a row up from the keyboard.
   const sensors = useSensors(
     useSensor(MouseSensor),
     useSensor(TouchSensor),
@@ -154,6 +254,87 @@ export function BlockList({
   const [activeId, setActiveId] = useState<number | null>(null);
   const activeItem =
     activeId !== null ? items.find((item) => item.id === activeId) : undefined;
+
+  const emptyOf = useEmptyOf();
+  const containerRef = useRef<HTMLDivElement>(null);
+  /**
+   * Where focus goes once the list has caught up with an edit made from the
+   * keyboard. After an insert, into the new item: grip, Tab to the bar above
+   * it, Enter, and you are typing in it. After a move, to the moved item's
+   * number (its menu), so moving it again is one more keypress; after a
+   * delete, to the number of the row that took its place.
+   */
+  const pendingFocus = useRef<{
+    index: number;
+    target: "body" | "position";
+  } | null>(null);
+  type FocusRequest = { index: number; target: "body" | "position" };
+  // Puts focus on a row of THIS list once it has painted.
+  const focusRow = useCallback(({ index, target }: FocusRequest) => {
+    // After paint: the row for the index re-renders with its new content in
+    // the commit this runs after, but its fields mount lazily.
+    requestAnimationFrame(() => {
+      // THIS list's row: a nested list's rows carry the same attribute and
+      // can come first in the DOM (inside an earlier row of this one).
+      const container = containerRef.current;
+      const row = Array.from(
+        container?.querySelectorAll(`[data-block-index="${index}"]`) ?? [],
+      ).find(
+        (el) => el.parentElement?.closest("[data-block-list]") === container,
+      );
+      // The row's own controls come before any nested row's in the DOM, so
+      // the first match is this row's.
+      const element =
+        target === "position"
+          ? row?.querySelector<HTMLElement>("[data-block-position]")
+          : (row?.querySelector<HTMLElement>(
+              "[data-block-body] :is(input, textarea, [contenteditable='true'], [role='combobox'])",
+            ) ?? row?.querySelector<HTMLElement>("[data-block-grip]"));
+      element?.focus();
+    });
+  }, []);
+  /**
+   * An edit chosen from a row's menu has to wait for that menu to be GONE
+   * before focus moves: a closing menu is still mounted while it animates
+   * out, and when the edit shifts the rows under the pointer it takes focus
+   * back to itself (Radix focuses the menu when the pointer leaves an item),
+   * then unmounts and drops focus on the page. So the menu says when an edit
+   * starts and when it has closed, and the focus waits in between.
+   */
+  const menuClosing = useRef(false);
+  const deferredFocus = useRef<FocusRequest | null>(null);
+  const menuLifecycle = useMemo(
+    () => ({
+      beginMenuAction: () => {
+        menuClosing.current = true;
+      },
+      endMenuAction: () => {
+        menuClosing.current = false;
+        const deferred = deferredFocus.current;
+        deferredFocus.current = null;
+        if (deferred) {
+          focusRow(deferred);
+        }
+      },
+    }),
+    [focusRow],
+  );
+  useEffect(() => {
+    const pending = pendingFocus.current;
+    if (
+      pending === null ||
+      sourcePaths === null ||
+      pending.index >= sourcePaths.length
+    ) {
+      return;
+    }
+    pendingFocus.current = null;
+    if (menuClosing.current) {
+      deferredFocus.current = pending;
+      return;
+    }
+    focusRow(pending);
+  }, [sourcePaths, focusRow]);
 
   const onMove = useCallback(
     (from: number, to: number) => {
@@ -196,55 +377,123 @@ export function BlockList({
     return null;
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
+  const insertAt = (index: number) => {
+    pendingFocus.current = { index, target: "body" };
+    addPatch(
+      [
+        {
+          op: "add",
+          path: patchPath.concat(index.toString()),
+          value: emptyOf(schema.item) as JSONValue,
+        },
+      ],
+      type,
+    );
+  };
 
-  const renderRow = (item: { path: SourcePath; id: number }, index: number) => (
+  // The keyboard's (and anyone's) way to reorder: pick a position. The same
+  // optimistic reorder and `move` patch as a drag.
+  const moveTo = (from: number, to: number) => {
+    if (from === to) {
+      return;
+    }
+    pendingFocus.current = { index: to, target: "position" };
+    setItems((prev) => arrayMove(prev, from, to));
+    onMove(from, to);
+  };
+
+  const renderRow = (
+    item: { path: SourcePath; id: number },
+    index: number,
+    isOverlay: boolean,
+  ) => (
     <LocaleFiltered key={item.id} path={item.path}>
-      <BlockRow
+      <SortableBlockRow
         id={item.id}
-        index={index}
+        onInsertAbove={
+          readonly || isOverlay ? undefined : () => insertAt(index)
+        }
+        onInsertBelow={
+          readonly || isOverlay || index !== items.length - 1
+            ? undefined
+            : () => insertAt(index + 1)
+        }
         path={item.path}
+        label={{ kind: "index", index, count: items.length }}
         itemSchema={schema.item}
         isInline={isInlineRender(schema)}
         depth={depth}
         readonly={readonly}
         onNavigate={(p) => navigate(p)}
-        onDelete={() => {
-          addPatch(
-            [
-              {
-                op: "remove",
-                path: patchPath.concat(
-                  index.toString(),
-                ) as array.NonEmptyArray<string>,
-              },
-            ],
-            type,
-          );
-        }}
-        onDuplicate={() => {
-          if (
-            "data" in sourceAtPath &&
-            sourceAtPath.data &&
-            Array.isArray(sourceAtPath.data)
-          ) {
-            addPatch(
-              [
-                {
-                  op: "add",
-                  path: patchPath.concat(index.toString()),
-                  value: (sourceAtPath.data[index] ?? null) as JSONValue,
+        arrayActions={
+          // Readonly means readonly: with the menu still rendered, Delete and
+          // Duplicate stayed live and wrote patches even though the grip and
+          // every field were disabled.
+          readonly || isOverlay
+            ? undefined
+            : {
+                ...menuLifecycle,
+                onInsertAbove: () => insertAt(index),
+                onInsertBelow: () => insertAt(index + 1),
+                onMove: (to) => moveTo(index, to),
+                onDelete: () => {
+                  // Focus goes to the number of the row that takes its
+                  // place (or the new last one), not back to a trigger
+                  // whose row may be gone.
+                  if (items.length > 1) {
+                    pendingFocus.current = {
+                      index: Math.min(index, items.length - 2),
+                      target: "position",
+                    };
+                  }
+                  addPatch(
+                    [
+                      {
+                        op: "remove",
+                        path: patchPath.concat(
+                          index.toString(),
+                        ) as array.NonEmptyArray<string>,
+                      },
+                    ],
+                    type,
+                  );
                 },
-              ],
-              type,
-            );
-          }
-        }}
+                onDuplicate: () => {
+                  if (
+                    "data" in sourceAtPath &&
+                    sourceAtPath.data &&
+                    Array.isArray(sourceAtPath.data)
+                  ) {
+                    addPatch(
+                      [
+                        {
+                          op: "add",
+                          path: patchPath.concat(index.toString()),
+                          value: (sourceAtPath.data[index] ??
+                            null) as JSONValue,
+                        },
+                      ],
+                      type,
+                    );
+                  }
+                },
+              }
+        }
       />
     </LocaleFiltered>
   );
 
   return (
-    <div id={path} className={cn("w-full", { [DENSE_FIELDS]: depth === 0 })}>
+    <div
+      id={path}
+      ref={containerRef}
+      data-block-list=""
+      className={cn("w-full", {
+        [DENSE_FIELDS]: depth === 0,
+        // Nothing to insert between while a row is in the air.
+        "[&_[data-insert-bar]]:invisible": activeId !== null,
+      })}
+    >
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -257,7 +506,15 @@ export function BlockList({
           strategy={verticalListSortingStrategy}
           disabled={readonly}
         >
-          <div className="flex flex-col gap-1 w-full">
+          {/* The gaps are the insert bars' room: each row draws the bar
+              above itself in the gap over it (and the last row the one below
+              it too), so a gap is exactly one bar tall. */}
+          <div
+            className={cn("flex flex-col w-full", {
+              "gap-3 py-3": !readonly && items.length > 0,
+              "gap-1": readonly,
+            })}
+          >
             {/* `empty:hidden` — see `SortableList`, same wrapper, same reason. */}
             {items.map((item, index) => (
               <div
@@ -265,7 +522,7 @@ export function BlockList({
                 className="empty:hidden"
                 style={{ opacity: item.id === activeId ? 0.3 : undefined }}
               >
-                {renderRow(item, index)}
+                {renderRow(item, index, false)}
               </div>
             ))}
           </div>
@@ -274,63 +531,184 @@ export function BlockList({
             renders a positional path, and the content at that path changes the
             moment the patch lands. */}
         <DragOverlay dropAnimation={null}>
-          {activeItem ? renderRow(activeItem, items.indexOf(activeItem)) : null}
+          {activeItem
+            ? renderRow(activeItem, items.indexOf(activeItem), true)
+            : null}
         </DragOverlay>
       </DndContext>
-      {!readonly && (
-        <button
-          className="flex items-center gap-1 h-6 mt-0.5 px-1 text-xs text-fg-tertiary hover:text-fg-primary"
-          onClick={() => {
-            addPatch(
-              [
-                {
-                  op: "add",
-                  path: patchPath.concat(items.length.toString()),
-                  value: emptyOf(schema.item) as JSONValue,
-                },
-              ],
-              type,
-            );
-          }}
-        >
-          <Plus size={12} />
-          <span>Add</span>
-        </button>
+      {/* With rows, the bar under the last one is the Add. An empty list has
+          no bars, so it keeps the button. */}
+      {showAdd && !readonly && items.length === 0 && (
+        <ListAddButton path={path} />
       )}
     </div>
   );
 }
 
-function BlockRow({
-  id,
-  index,
+/**
+ * An inline RECORD, drawn with the same rows as an inline array so the two
+ * read as one thing: the key is the row's label (and its menu: rename,
+ * duplicate, delete) where an array has its number.
+ *
+ * There is no grip, because a record is not ordered — there is nowhere to
+ * drag an entry to.
+ */
+function RecordBlockList({
   path,
+  schema,
+  readonly,
+  depth,
+  showAdd,
+}: {
+  path: SourcePath;
+  schema: SerializedRecordSchema;
+  readonly?: boolean;
+  depth: number;
+  showAdd: boolean;
+}) {
+  const { navigate } = useNavigation();
+  const matchesLocale = useLocaleFilterPredicate();
+  const sourceAtPath = useShallowSourceAtPath(path, "record");
+  if (!("data" in sourceAtPath) || !sourceAtPath.data) {
+    return null;
+  }
+  const source = sourceAtPath.data;
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const router =
+    schema.router !== undefined ? { schema, moduleFilePath } : undefined;
+  // The same two rules as `RecordFields`: a locale-keyed record (or a router
+  // whose routes name their language) is filtered on the KEY, every other
+  // record by asking each entry.
+  const keyDecidesLocale =
+    (schema.key !== undefined && isLocaleSchema(schema.key)) ||
+    hasLocaleRouteParam(schema);
+  const entries = schema.item.hidden
+    ? []
+    : Object.entries(source).filter(([key, itemPath]) =>
+        matchesLocale({
+          key,
+          keySchema: schema.key,
+          router,
+          path: itemPath,
+        }),
+      );
+  const itemReadonly = readonly === true || schema.item.readonly === true;
+  return (
+    <div id={path} className={cn("w-full", { [DENSE_FIELDS]: depth === 0 })}>
+      <div className="flex flex-col gap-1 w-full">
+        {entries.map(([key, itemPath]) => {
+          const row = (
+            <BlockRow
+              path={itemPath}
+              label={{ kind: "key", key }}
+              itemSchema={schema.item}
+              isInline={true}
+              depth={depth}
+              readonly={itemReadonly}
+              onNavigate={(p) => navigate(p)}
+              menuItems={
+                readonly
+                  ? undefined
+                  : (close) => <RecordMenuItems path={itemPath} close={close} />
+              }
+            />
+          );
+          return keyDecidesLocale ? (
+            <div key={itemPath}>{row}</div>
+          ) : (
+            <LocaleFiltered key={itemPath} path={itemPath}>
+              {row}
+            </LocaleFiltered>
+          );
+        })}
+      </div>
+      {showAdd && !readonly && <ListAddButton path={path} />}
+    </div>
+  );
+}
+
+type RowLabel =
+  | { kind: "index"; index: number; count: number }
+  | { kind: "key"; key: string };
+
+/** What an array row's menu can do to it. */
+type ArrayRowActions = {
+  /** Called before an edit chosen from the menu, and once the menu has
+   * closed after it — see `menuLifecycle` in `ArrayBlockList`. */
+  beginMenuAction: () => void;
+  endMenuAction: () => void;
+  onInsertAbove: () => void;
+  onInsertBelow: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  /** To a 0-based index. */
+  onMove: (to: number) => void;
+};
+
+function SortableBlockRow({
+  id,
+  readonly,
+  ...props
+}: Omit<Parameters<typeof BlockRow>[0], "sortable"> & { id: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id, disabled: readonly === true });
+  return (
+    <BlockRow
+      {...props}
+      readonly={readonly}
+      sortable={{
+        handleProps: { ...attributes, ...listeners },
+        setNodeRef,
+        style: { transform: CSS.Transform.toString(transform), transition },
+      }}
+    />
+  );
+}
+
+function BlockRow({
+  path,
+  label,
   itemSchema,
   isInline,
   depth,
   readonly,
   onNavigate,
-  onDelete,
-  onDuplicate,
+  menuItems,
+  arrayActions,
+  sortable,
+  onInsertAbove,
+  onInsertBelow,
 }: {
-  id: number;
-  index: number;
   path: SourcePath;
+  /** An array row is numbered, a record row is named by its key. */
+  label: RowLabel;
   itemSchema: SerializedSchema;
   /** The LIST's render, not the item's: see `isInlineRender`. */
   isInline: boolean;
   depth: number;
   readonly?: boolean;
   onNavigate: (path: SourcePath) => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
+  /**
+   * A record row's menu, opened from its key. Absent when nothing may be done
+   * to the row (readonly).
+   */
+  menuItems?: (close: () => void) => React.ReactNode;
+  /** An array row's menu: what it can do. Absent when it can do nothing. */
+  arrayActions?: ArrayRowActions;
+  /** Absent for a record: its entries have no order to change. */
+  sortable?: {
+    handleProps: React.ButtonHTMLAttributes<HTMLButtonElement>;
+    setNodeRef: (node: HTMLElement | null) => void;
+    style: React.CSSProperties;
+  };
+  /** Draws the insert bar in the gap above the row. */
+  onInsertAbove?: () => void;
+  /** Draws one below it too — the last row's, which is the list's Add. */
+  onInsertBelow?: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id, disabled: readonly === true });
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = useValidationErrors(path);
-  const style = { transform: CSS.Transform.toString(transform), transition };
-  // An inline object gets a header row (index, summary, collapse) above its
+  // An inline object gets a header row (label, summary, collapse) above its
   // fields; an inline leaf is a single line with the editor in it.
   //
   // A discriminated union is headered too: it is an object once the tag is
@@ -341,27 +719,17 @@ function BlockRow({
     isInline &&
     (itemSchema.type === "object" || itemSchema.type === "discriminated-union");
 
-  const grip = (
-    <button
-      {...attributes}
-      {...listeners}
-      className={cn(
-        "cursor-grab text-fg-secondary-alt hover:text-fg-primary",
-        // See `DRAG_HANDLE_TOUCH`.
-        DRAG_HANDLE_TOUCH,
-        { "opacity-30": readonly },
-      )}
-      disabled={readonly}
-    >
-      <GripVertical size={14} />
-    </button>
-  );
-  // Readonly means readonly: with the menu still rendered, Delete and
-  // Duplicate stayed live and wrote patches even though the grip and every
-  // field were disabled.
-  const menu = readonly ? null : (
-    <RowMenu onDelete={onDelete} onDuplicate={onDuplicate} />
-  );
+  const rowNumber = label.kind === "index" ? label.index + 1 : undefined;
+  // The gutter: the row's drag handle. None when the row cannot move —
+  // readonly, or a record, which has no order.
+  const gutter =
+    !readonly && sortable ? (
+      <RowHandle
+        label={label}
+        alignTo={headered ? "header" : "field"}
+        handleProps={sortable.handleProps}
+      />
+    ) : null;
 
   return (
     <div
@@ -369,103 +737,608 @@ function BlockRow({
          goes through `Field`, so without this a navigation to a path in this
          list has nothing to scroll to (see `scrollToStudioPath`). */
       data-val-studio-path={path}
-      ref={setNodeRef}
-      style={style}
+      data-block-row=""
+      data-block-index={label.kind === "index" ? label.index : undefined}
+      ref={sortable?.setNodeRef}
+      style={sortable?.style}
       className={cn(
-        "border bg-bg-primary",
+        "relative flex",
         // See `SORTABLE_ROW_TOUCH`.
-        SORTABLE_ROW_TOUCH,
-        // A nested row shares its parent row's LEFT border instead of drawing
-        // its own: the parent's body has no left padding, so the child sits
-        // flush against that edge — one border line, and the horizontal room
-        // that a second border + padding used to cost comes back as content.
-        depth === 0 ? "rounded-md" : "rounded-r-md border-l-0",
-        {
-          "border-border-primary": validationErrors.length === 0,
-          "border-bg-warning-secondary": validationErrors.length > 0,
-        },
+        { [SORTABLE_ROW_TOUCH]: sortable !== undefined },
       )}
     >
-      {headered && (
-        <div className="flex items-center gap-1 h-7 px-1.5">
-          {grip}
-          <button
-            className="flex items-center gap-1 flex-1 min-w-0 text-left"
-            onClick={() => setCollapsed((prev) => !prev)}
-          >
-            <ChevronRight
-              size={12}
-              className={cn(
-                "shrink-0 text-fg-secondary-alt transition-transform",
-                { "rotate-90": !collapsed },
-              )}
-            />
-            <span className="w-4 shrink-0 text-[10px] text-fg-secondary-alt">
-              {index + 1}
-            </span>
-            <RowSummary path={path} />
-          </button>
-          <ContentViewsBadge path={path} />
-          {menu}
-        </div>
+      {gutter}
+      {onInsertAbove && (
+        <InsertBar
+          position="above"
+          label={
+            rowNumber !== undefined
+              ? `Add item above item ${rowNumber}`
+              : "Add item above"
+          }
+          onClick={onInsertAbove}
+        />
       )}
-      {headered && !collapsed && (
-        // Right padding only: nested lists reach the left border (see the row
-        // class above); leaf fields add their own small left inset.
-        <div className="pr-1.5 pb-1.5 pt-0.5">
-          {itemSchema.type === "discriminated-union" ? (
-            <InlineDiscriminatedUnionBody
-              path={path}
-              itemSchema={itemSchema}
-              depth={depth}
-              readonly={readonly}
+      {/* The card. The gutter is outside its border, beside it. */}
+      <div
+        className={cn("flex-1 min-w-0 border bg-bg-primary", {
+          "rounded-md": true,
+          "border-border-primary": validationErrors.length === 0,
+          "border-bg-warning-secondary": validationErrors.length > 0,
+        })}
+      >
+        {headered && (
+          <div className="flex items-center gap-1.5 h-9 px-2">
+            {/* The number or key is the row's menu, so it is a control of
+                its own and cannot be inside the collapse button. */}
+            <RowLabelText
+              label={label}
+              menuItems={menuItems}
+              arrayActions={arrayActions}
             />
-          ) : (
-            <InlineObjectBody
-              path={path}
-              itemSchema={itemSchema}
-              depth={depth}
-              readonly={readonly}
-            />
-          )}
-        </div>
-      )}
-      {isInline && !headered && (
-        <div className="flex items-start gap-1.5 px-1.5 py-1">
-          <div className="pt-2">{grip}</div>
-          <div className="flex-1 min-w-0">
-            <AnyField
-              path={path}
-              schema={itemSchema}
-              readonly={readonly === true || itemSchema.readonly === true}
-              compact
-              errorDisplay="none"
-            />
+            {/* The rest of the header is the collapse button, chevron at the
+                right end — where `Field` puts its own. */}
+            <button
+              className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed((prev) => !prev)}
+            >
+              <RowSummary
+                path={path}
+                unionKey={
+                  itemSchema.type === "discriminated-union"
+                    ? itemSchema.key
+                    : undefined
+                }
+                muted={label.kind === "key"}
+              />
+              <ContentViewsBadge path={path} />
+              {/* `Field`'s compact chevron: down when closed, up when open. */}
+              <ChevronDown
+                size={14}
+                className={cn("shrink-0 transition-transform", {
+                  "rotate-180": !collapsed,
+                })}
+              />
+            </button>
           </div>
-          <ContentViewsBadge path={path} />
-          {menu}
-        </div>
-      )}
-      {!isInline && (
-        <div className="flex items-center gap-1.5 px-1.5 py-1">
-          {grip}
-          <button
-            className="flex-1 min-w-0 overflow-y-clip rounded text-left text-xs hover:bg-bg-secondary-hover"
-            style={{ maxHeight: 96 }}
-            onClick={() => onNavigate(path)}
+        )}
+        {headered && !collapsed && (
+          // The fields carry their own small left inset (see
+          // `InlineObjectBody`), so the body only pads the right and bottom.
+          <div data-block-body="" className="pr-1.5 pb-1.5">
+            {itemSchema.type === "discriminated-union" ? (
+              <InlineDiscriminatedUnionBody
+                path={path}
+                itemSchema={itemSchema}
+                depth={depth}
+                readonly={readonly}
+              />
+            ) : (
+              <InlineObjectBody
+                path={path}
+                itemSchema={itemSchema}
+                depth={depth}
+                readonly={readonly}
+              />
+            )}
+          </div>
+        )}
+        {isInline && !headered && (
+          <div
+            data-block-body=""
+            className="flex items-start gap-1.5 px-1.5 py-1"
           >
-            <RefPreview path={path} className="w-full" />
-          </button>
-          <ContentViewsBadge path={path} />
-          {menu}
-        </div>
-      )}
-      {validationErrors.length > 0 && (
-        <div className="px-2.5 pb-1.5">
-          <FieldValidationError validationErrors={validationErrors} />
-        </div>
+            {/* `h-9`, the height of an input here, so a number or key lines up
+              with the first line of the field however tall it grows. */}
+            <div
+              className={cn("flex items-center h-9 shrink-0", {
+                "max-w-[40%]": label.kind === "key",
+              })}
+            >
+              <RowLabelText
+                label={label}
+                menuItems={menuItems}
+                arrayActions={arrayActions}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <AnyField
+                path={path}
+                schema={itemSchema}
+                readonly={readonly === true || itemSchema.readonly === true}
+                compact
+                errorDisplay="none"
+              />
+            </div>
+            <ContentViewsBadge path={path} />
+          </div>
+        )}
+        {!isInline && (
+          <div className="flex items-center gap-1.5 px-1.5 py-1">
+            <button
+              className="flex-1 min-w-0 overflow-y-clip rounded text-left text-xs hover:bg-bg-secondary-hover"
+              style={{ maxHeight: 96 }}
+              onClick={() => onNavigate(path)}
+            >
+              <RefPreview path={path} className="w-full" />
+            </button>
+            <ContentViewsBadge path={path} />
+          </div>
+        )}
+        {validationErrors.length > 0 && (
+          <div className="px-2.5 pb-1.5">
+            <FieldValidationError validationErrors={validationErrors} />
+          </div>
+        )}
+      </div>
+      {onInsertBelow && (
+        <InsertBar
+          position="below"
+          label="Add item at the end"
+          onClick={onInsertBelow}
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * The bar in the gap between two rows: an insert there. Invisible at rest —
+ * the gap is just a gap — and on hover or focus a plus appears in the middle
+ * of it, between two short brand lines that fade out. The row menu's "Add
+ * above" / "Add below" are the same inserts for anyone who does not find the
+ * gap.
+ *
+ * Absolutely placed in the gap the list leaves for it, but in the DOM it sits
+ * inside the row — "above" right after the row's grip, "below" after the
+ * row's content — so Tab reaches it from the grip, which is the order it is
+ * read in.
+ */
+function InsertBar({
+  position,
+  label,
+  onClick,
+}: {
+  position: "above" | "below";
+  label: string;
+  onClick: () => void;
+}) {
+  // Each piece is a direct child of the bar, so one selector per state reaches
+  // all three: the bar's own hover/focus, or the grip right before it holding
+  // keyboard focus. `+` and `>`, never `~` or a descendant selector: the grip
+  // lights the bar right after it (its own row's "above"), not the row's
+  // "below" bar or any bar nested inside the row.
+  const shown = cn(
+    "opacity-0 transition-opacity",
+    "group-hover/insert:opacity-100 group-focus-visible/insert:opacity-100",
+    "[[data-block-grip]:focus-visible+[data-insert-bar]>&]:opacity-100",
+  );
+  // Short, and fading out away from the plus, so it reads as a mark at one
+  // place between two rows rather than as another border.
+  const line = "h-0.5 w-1/4 max-w-32 rounded-full to-transparent";
+  return (
+    <button
+      type="button"
+      data-insert-bar=""
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        // The whole gap is the target; what shows is centred over the card
+        // (not the gutter).
+        "group/insert absolute left-4 right-0 flex h-3 items-center justify-center gap-1.5 outline-none",
+        position === "above" ? "-top-3" : "-bottom-3",
+      )}
+    >
+      <span
+        className={cn(
+          line,
+          "bg-gradient-to-l from-border-brand-primary",
+          shown,
+        )}
+      />
+      <Plus
+        size={14}
+        strokeWidth={2.5}
+        className={cn("text-fg-primary", shown)}
+      />
+      <span
+        className={cn(
+          line,
+          "bg-gradient-to-r from-border-brand-primary",
+          shown,
+        )}
+      />
+    </button>
+  );
+}
+
+function RowLabelText({
+  label,
+  menuItems,
+  arrayActions,
+}: {
+  label: RowLabel;
+  menuItems?: (close: () => void) => React.ReactNode;
+  arrayActions?: ArrayRowActions;
+}) {
+  if (label.kind === "index" && arrayActions) {
+    return <ArrayRowMenu label={label} actions={arrayActions} />;
+  }
+  if (menuItems) {
+    return <RowLabelMenu label={label} menuItems={menuItems} />;
+  }
+  if (label.kind === "index") {
+    return (
+      <span className="min-w-6 shrink-0 text-center text-sm tabular-nums text-fg-secondary-alt">
+        {label.index + 1}
+      </span>
+    );
+  }
+  return <span className={KEY_TEXT}>{label.key}</span>;
+}
+
+// A key is data, not a field name, so it is shown as written — never
+// title-cased the way `FieldLabel` treats a schema's own keys.
+const KEY_TEXT =
+  "min-w-0 max-w-full truncate font-mono text-base text-fg-primary";
+
+const LABEL_TRIGGER = cn(
+  "group/label flex h-7 min-w-0 items-center gap-0.5 rounded px-1 outline-none",
+  "hover:bg-bg-secondary-hover data-[state=open]:bg-bg-secondary-hover",
+  "focus-visible:ring-1 focus-visible:ring-border-focus",
+);
+const LABEL_CHEVRON =
+  "shrink-0 text-fg-secondary-alt opacity-60 group-hover/label:opacity-100 group-data-[state=open]/label:opacity-100";
+
+/**
+ * A record row's key is its menu: click it, or Enter on it, for Rename,
+ * Duplicate and Delete. Those are popovers with forms of their own (a new
+ * key), so this is a popover of buttons rather than a menu: a menu item
+ * closes the menu it is in, which would take its form with it.
+ *
+ * The small chevron beside the key is the hint that it opens.
+ */
+function RowLabelMenu({
+  label,
+  menuItems,
+}: {
+  label: RowLabel;
+  menuItems: (close: () => void) => React.ReactNode;
+}) {
+  const portalContainer = useValPortal();
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        aria-label={
+          label.kind === "key"
+            ? `${label.key}: actions`
+            : `Item ${label.index + 1}: actions`
+        }
+        className={cn(LABEL_TRIGGER, "max-w-[50%]")}
+      >
+        {label.kind === "key" ? (
+          <span className={KEY_TEXT}>{label.key}</span>
+        ) : (
+          <span className="min-w-4 text-center text-sm tabular-nums text-fg-secondary">
+            {label.index + 1}
+          </span>
+        )}
+        <ChevronDown size={12} className={LABEL_CHEVRON} />
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        side="bottom"
+        align="start"
+        className="flex w-auto min-w-44 max-w-64 flex-col p-1"
+      >
+        {menuItems(() => setOpen(false))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * An array row's number is its menu: click it, or Enter on it.
+ *
+ * A real menu (Radix `DropdownMenu`), so it is navigated the way menus are:
+ * arrow keys between items, Enter or Space to choose, Right to open the Move
+ * submenu and Left to leave it, Escape to close, and typing a letter jumps to
+ * the item that starts with it. Moving lives in a submenu so the top level
+ * stays short and "move" reads as one group of choices.
+ *
+ * "Move to position…" opens a small form instead of holding an input inside
+ * the menu: a menu traps Tab and gives the arrow keys to its items, so a
+ * number field in one could be typed in but not left, nor its button
+ * reached, from the keyboard. The form is anchored to the same number, so it
+ * appears where the menu was.
+ */
+function ArrayRowMenu({
+  label,
+  actions,
+}: {
+  label: Extract<RowLabel, { kind: "index" }>;
+  actions: ArrayRowActions;
+}) {
+  const portalContainer = useValPortal();
+  const [formOpen, setFormOpen] = useState(false);
+  // Set when a choice edits the list or opens the form: the menu must not
+  // hand focus back to this trigger then. After an edit the list moves focus
+  // itself (`pendingFocus`), and the form takes focus itself.
+  const keepFocus = useRef(false);
+  // The form is anchored to the number, not opened by it, so Radix has no
+  // trigger to give focus back to when it closes: that is done here.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const movedFromForm = useRef(false);
+  const { index, count } = label;
+  const first = index === 0;
+  const last = index === count - 1;
+  // Every list edit from the menu: the menu must not hand focus back to
+  // this trigger (the row it names may have changed or gone), and the list
+  // holds its own focus hand-off until the menu has closed.
+  const edit = (action: () => void) => () => {
+    keepFocus.current = true;
+    actions.beginMenuAction();
+    action();
+  };
+  const move = (to: number) => edit(() => actions.onMove(to))();
+  const itemClass = "gap-2";
+  return (
+    <Popover open={formOpen} onOpenChange={setFormOpen}>
+      <DropdownMenu modal={false}>
+        <PopoverAnchor asChild>
+          <DropdownMenuTrigger
+            ref={triggerRef}
+            data-block-position=""
+            aria-label={`Item ${index + 1} of ${count}: actions`}
+            className={cn(LABEL_TRIGGER, "shrink-0")}
+          >
+            <span className="min-w-4 text-center text-sm tabular-nums text-fg-secondary">
+              {index + 1}
+            </span>
+            <ChevronDown size={12} className={LABEL_CHEVRON} />
+          </DropdownMenuTrigger>
+        </PopoverAnchor>
+        <DropdownMenuContent
+          container={portalContainer}
+          align="start"
+          className="min-w-48"
+          onCloseAutoFocus={(event) => {
+            if (keepFocus.current) {
+              event.preventDefault();
+              keepFocus.current = false;
+            }
+            actions.endMenuAction();
+          }}
+        >
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={edit(actions.onInsertAbove)}
+          >
+            <BetweenHorizontalStart className="w-3.5 h-3.5" />
+            Add above
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={edit(actions.onInsertBelow)}
+          >
+            <BetweenHorizontalEnd className="w-3.5 h-3.5" />
+            Add below
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={edit(actions.onDuplicate)}
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Duplicate
+          </DropdownMenuItem>
+          {count > 1 && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className={itemClass}>
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                Move
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal container={portalContainer}>
+                <DropdownMenuSubContent className="min-w-48">
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={first}
+                    onSelect={() => move(index - 1)}
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    Move up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={last}
+                    onSelect={() => move(index + 1)}
+                  >
+                    <ArrowDown className="w-3.5 h-3.5" />
+                    Move down
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={first}
+                    onSelect={() => move(0)}
+                  >
+                    <ArrowUpToLine className="w-3.5 h-3.5" />
+                    Move to start
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={last}
+                    onSelect={() => move(count - 1)}
+                  >
+                    <ArrowDownToLine className="w-3.5 h-3.5" />
+                    Move to end
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className={itemClass}
+                    onSelect={() => {
+                      keepFocus.current = true;
+                      setFormOpen(true);
+                    }}
+                  >
+                    <Hash className="w-3.5 h-3.5" />
+                    Move to position…
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={edit(actions.onDelete)}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <PopoverContent
+        container={portalContainer}
+        side="bottom"
+        align="start"
+        className="w-64 p-3"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          // After a move, focus follows the item instead (`pendingFocus`).
+          if (!movedFromForm.current) {
+            triggerRef.current?.focus();
+          }
+          movedFromForm.current = false;
+        }}
+      >
+        <MoveToPositionForm
+          index={index}
+          count={count}
+          onMove={(to) => {
+            movedFromForm.current = true;
+            setFormOpen(false);
+            actions.onMove(to);
+          }}
+          onCancel={() => setFormOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Where to move an item, typed as a number.
+ *
+ * A number outside 1–count is not refused and not silently moved: the first
+ * Move puts the nearest valid position in the field (-1 becomes 1, 10001 in a
+ * three-item list becomes 3) and says why, and the next Move moves. The
+ * number the item lands on is then always the number that was on screen.
+ */
+function MoveToPositionForm({
+  index,
+  count,
+  onMove,
+  onCancel,
+}: {
+  index: number;
+  count: number;
+  /** To a 0-based index. */
+  onMove: (to: number) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(String(index + 1));
+  const [note, setNote] = useState<{
+    kind: "clamped" | "invalid";
+    text: string;
+  } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const noteId = useId();
+  const submit = () => {
+    const typed = Number(value.trim());
+    if (value.trim() === "" || !Number.isFinite(typed)) {
+      setNote({
+        kind: "invalid",
+        text: `Enter a number from 1 to ${count}.`,
+      });
+      inputRef.current?.focus();
+      return;
+    }
+    const position = Math.min(Math.max(Math.round(typed), 1), count);
+    if (position !== typed) {
+      setValue(String(position));
+      setNote({
+        kind: "clamped",
+        text: `Changed to ${position}: positions are whole numbers from 1 to ${count}. Press Move again to move it there.`,
+      });
+      inputRef.current?.focus();
+      return;
+    }
+    if (position - 1 === index) {
+      onCancel();
+      return;
+    }
+    onMove(position - 1);
+  };
+  return (
+    <form
+      // The checking is ours: the browser's would refuse 10001 with a bubble
+      // of its own before this form could put 3 in the field and say why.
+      noValidate
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <label htmlFor={inputId} className="text-sm text-fg-primary">
+        Move item {index + 1} to position
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={count}
+          step={1}
+          value={value}
+          aria-invalid={note?.kind === "invalid" ? true : undefined}
+          aria-describedby={noteId}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setNote(null);
+          }}
+          className={cn(
+            "h-9 w-20 rounded-md border bg-bg-primary px-2 text-sm tabular-nums text-fg-primary",
+            // No native spinner (a white box on a dark theme); the arrow keys
+            // still step the number.
+            "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+            note?.kind === "invalid"
+              ? "border-border-error-primary"
+              : "border-border-primary",
+          )}
+        />
+        <span className="text-sm text-fg-tertiary">of {count}</span>
+        <Button type="submit" size="sm" className="ml-auto">
+          Move
+        </Button>
+      </div>
+      <p
+        id={noteId}
+        aria-live="polite"
+        className={cn("min-h-4 text-xs", {
+          "text-fg-tertiary": note?.kind !== "invalid",
+          "text-fg-error-on-surface": note?.kind === "invalid",
+        })}
+      >
+        {note?.text ?? `From 1 to ${count}.`}
+      </p>
+    </form>
   );
 }
 
@@ -495,12 +1368,15 @@ function InlineDiscriminatedUnionBody({
     return null;
   }
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="pl-2">
+    <div className="flex flex-col gap-2.5">
+      {/* Labelled like every other field: it is the discriminator, which is
+          a field of the value even though it is drawn as the variant picker. */}
+      <div className="flex flex-col gap-1 pl-2">
+        <FieldLabel label={itemSchema.key} />
         <DiscriminatedUnionTagSelect
           state={state}
           readonly={readonly}
-          className="h-7 w-auto min-w-24 px-2 py-1 text-[13px]"
+          className="m-0 h-9 w-auto min-w-28 self-start"
         />
       </div>
       <InlineObjectBody
@@ -515,34 +1391,37 @@ function InlineDiscriminatedUnionBody({
 }
 
 /**
- * The fields of one inline object item, laid out tightly. A field that is
- * itself an array of inline items recurses into a nested `BlockList` behind a
- * thin rail, instead of another card-in-card — that rail is most of what buys
- * the third level on a laptop.
+ * The fields of one inline object, laid out tightly: a small label (with the
+ * field's description under it — it is being entered here, so it gets its
+ * input help), then the field. A field that is itself an inline array or
+ * record recurses into a nested `BlockList`, indented to line up with the
+ * labels, with its Add on the label row.
+ *
+ * Exported for `KeyOfField`, whose inline render shows the referenced entry
+ * the same way a row shows its own.
  */
-function InlineObjectBody({
+export function InlineObjectBody({
   path,
   itemSchema,
-  depth,
+  depth = 0,
   readonly,
   omitKeys,
 }: {
   path: SourcePath;
   itemSchema: SerializedSchema;
-  depth: number;
+  depth?: number;
   readonly?: boolean;
   /** Fields the row draws elsewhere — a union's discriminator, which is the
    * tag selector above rather than a field of its own. */
   omitKeys?: string[];
 }) {
-  // Which nested lists are folded away. Hiding fields is what buys clearance
-  // on the left once the rows themselves stopped indenting.
+  // Which nested lists are folded away.
   const [hiddenLists, setHiddenLists] = useState<Record<string, boolean>>({});
   if (itemSchema.type !== "object") {
     return null;
   }
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2.5">
       {Object.entries(itemSchema.items).map(([key, fieldSchema]) => {
         if (fieldSchema.hidden || omitKeys?.includes(key)) {
           return null;
@@ -550,38 +1429,62 @@ function InlineObjectBody({
         const fieldPath = sourcePathOfItem(path, key);
         const fieldReadonly =
           readonly === true || fieldSchema.readonly === true;
-        if (fieldSchema.type === "array" && isInlineRender(fieldSchema)) {
+        const isNestedList =
+          isInlineRender(fieldSchema) &&
+          // A media directory is a gallery, not a list of rows.
+          !(fieldSchema.type === "record" && fieldSchema.mediaType);
+        if (isNestedList) {
           const hidden = hiddenLists[key] === true;
           return (
             <div key={key} className="flex flex-col gap-1">
-              <button
-                className="flex items-center gap-1 pl-2 text-left"
-                onClick={() =>
-                  setHiddenLists((prev) => ({ ...prev, [key]: !hidden }))
-                }
-              >
-                <ChevronRight
-                  size={10}
-                  className={cn(
-                    "shrink-0 text-fg-secondary-alt transition-transform",
-                    { "rotate-90": !hidden },
-                  )}
-                />
-                <FieldLabel label={key} />
-              </button>
+              {/* Laid out like a `Field` header: the label on the left, the
+                  list's tools then the collapse chevron on the right. */}
+              <div className="flex items-center gap-1.5 pl-2 min-h-7">
+                <div className="flex-1 min-w-0">
+                  <FieldLabel label={key} />
+                </div>
+                {!hidden && !fieldReadonly && (
+                  <ListAddButton path={fieldPath} label={key} iconOnly />
+                )}
+                <button
+                  type="button"
+                  className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-bg-secondary-hover"
+                  aria-expanded={!hidden}
+                  aria-label={`${hidden ? "Show" : "Hide"} ${fromCamelToTitleCase(key)}`}
+                  onClick={() =>
+                    setHiddenLists((prev) => ({ ...prev, [key]: !hidden }))
+                  }
+                >
+                  <ChevronDown
+                    size={14}
+                    className={cn("transition-transform", {
+                      "rotate-180": !hidden,
+                    })}
+                  />
+                </button>
+              </div>
+              {fieldSchema.description && (
+                <FieldDescription description={fieldSchema.description} inset />
+              )}
               {!hidden && (
-                <BlockList
-                  path={fieldPath}
-                  depth={depth + 1}
-                  readonly={fieldReadonly}
-                />
+                <div className="pl-2">
+                  <BlockList
+                    path={fieldPath}
+                    depth={depth + 1}
+                    readonly={fieldReadonly}
+                    showAdd={false}
+                  />
+                </div>
               )}
             </div>
           );
         }
         return (
-          <div key={key} className="flex flex-col gap-0.5 pl-2">
+          <div key={key} className="flex flex-col gap-1 pl-2">
             <FieldLabel label={key} />
+            {fieldSchema.description && (
+              <FieldDescription description={fieldSchema.description} />
+            )}
             <AnyField
               path={fieldPath}
               schema={fieldSchema}
@@ -596,9 +1499,32 @@ function InlineObjectBody({
   );
 }
 
+/** A schema key, drawn the way `Field` labels the same key elsewhere:
+ * title-cased, 14px, regular weight, primary colour. */
 function FieldLabel({ label }: { label: string }) {
   return (
-    <span className="text-[11px] leading-4 text-fg-tertiary">{label}</span>
+    <span className="truncate text-sm text-fg-primary">
+      {fromCamelToTitleCase(label)}
+    </span>
+  );
+}
+
+function FieldDescription({
+  description,
+  inset,
+}: {
+  description: string;
+  /** Line it up with a label that has its own inset (a nested list's). */
+  inset?: boolean;
+}) {
+  return (
+    <span
+      className={cn("text-sm text-fg-tertiary", {
+        "pl-2": inset,
+      })}
+    >
+      {description}
+    </span>
   );
 }
 
@@ -610,33 +1536,75 @@ function FieldLabel({ label }: { label: string }) {
  * what a header that can collapse the editor away needs. It never decides how
  * the row is EDITED — that is the render, and inline wins it outright. Without
  * a declared preview, the first string in the value stands in.
+ *
+ * A union row also shows which variant it is, because that is the first thing
+ * you need to know about a collapsed block.
  */
-function RowSummary({ path }: { path: SourcePath }) {
+function RowSummary({
+  path,
+  unionKey,
+  muted,
+}: {
+  path: SourcePath;
+  unionKey?: string;
+  /** Beside a record's key, which is the row's label: the summary is second. */
+  muted?: boolean;
+}) {
   const preview = useRefPreview(path);
   const sourceAtPath = useSourceAtPath(path);
+  const source =
+    "data" in sourceAtPath && sourceAtPath.data !== undefined
+      ? sourceAtPath.data
+      : undefined;
+  const tag = useMemo(() => {
+    if (
+      unionKey === undefined ||
+      source === undefined ||
+      source === null ||
+      typeof source !== "object"
+    ) {
+      return null;
+    }
+    const value = Object.entries(source).find(([key]) => key === unionKey);
+    return typeof value?.[1] === "string" ? value[1] : null;
+  }, [source, unionKey]);
   const summary = useMemo(() => {
     if (preview?.title) {
       return preview.title;
     }
-    if ("data" in sourceAtPath && sourceAtPath.data !== undefined) {
-      return firstStringOf(sourceAtPath.data);
+    if (source !== undefined) {
+      return firstStringOf(source, unionKey);
     }
     return null;
-  }, [preview, sourceAtPath]);
+  }, [preview, source, unionKey]);
   return (
-    <span className="flex-1 min-w-0 truncate text-xs text-fg-tertiary">
-      {summary ?? ""}
-    </span>
+    <>
+      {tag !== null && (
+        <span className="shrink-0 rounded bg-bg-secondary px-1.5 py-0.5 text-xs text-fg-secondary">
+          {tag}
+        </span>
+      )}
+      <span
+        className={cn(
+          "flex-1 min-w-0 truncate",
+          // The row's title, a step above the field labels under it. Beside
+          // a record's key it is second, so it stays at body size.
+          muted ? "text-sm text-fg-secondary" : "text-base text-fg-primary",
+        )}
+      >
+        {summary ?? ""}
+      </span>
+    </>
   );
 }
 
 /**
  * Depth-first first string in a source — a cheap stand-in for a title when the
  * schema has no `preview`. Skips the keys that are structure rather than
- * content: a union's discriminator, and a rich text node's `tag`, which would
- * otherwise title a whole text block "p".
+ * content: a union's discriminator (whatever it is called), and a rich text
+ * node's `tag`, which would otherwise title a whole text block "p".
  */
-function firstStringOf(source: Json): string | null {
+function firstStringOf(source: Json, unionKey?: string): string | null {
   if (typeof source === "string") {
     return source;
   }
@@ -651,7 +1619,12 @@ function firstStringOf(source: Json): string | null {
   }
   if (source !== null && typeof source === "object") {
     for (const [key, value] of Object.entries(source)) {
-      if (key === "type" || key === "_type" || key === "tag") {
+      if (
+        key === "type" ||
+        key === "_type" ||
+        key === "tag" ||
+        key === unionKey
+      ) {
         continue;
       }
       if (value === undefined) {
@@ -666,39 +1639,252 @@ function firstStringOf(source: Json): string | null {
   return null;
 }
 
-function RowMenu({
-  onDelete,
-  onDuplicate,
+const MENU_ITEM =
+  "flex h-7 w-full items-center justify-start gap-2 rounded px-2 text-sm font-normal text-fg-primary hover:bg-bg-secondary-hover";
+const ICON_ADD_BUTTON =
+  "flex size-6 shrink-0 items-center justify-center rounded p-0 text-fg-primary hover:bg-bg-secondary-hover";
+const ADD_BUTTON =
+  "flex h-6 items-center gap-1 rounded px-1 text-xs font-normal text-fg-tertiary hover:bg-transparent hover:text-fg-primary";
+
+/**
+ * The handle on a row's left edge: drag it to move the row. It does nothing
+ * else — the row's menu is its number (or key), see `RowLabelMenu`.
+ *
+ * It stays a direct child of the row, and the insert bar above the row its
+ * next sibling: the bar shows its plus while this has keyboard focus (see
+ * `InsertBar`), and is the next Tab stop.
+ */
+function RowHandle({
+  label,
+  alignTo,
+  handleProps,
 }: {
-  onDelete: () => void;
-  onDuplicate: () => void;
+  label: RowLabel;
+  /** Line the grip up with the row's header, or with a leaf row's field. */
+  alignTo: "header" | "field";
+  handleProps: React.ButtonHTMLAttributes<HTMLButtonElement>;
 }) {
-  const portalContainer = useValPortal();
+  const name = label.kind === "index" ? `item ${label.index + 1}` : label.key;
   return (
-    <Popover>
-      <PopoverTrigger className="shrink-0 rounded px-0.5 py-1 text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-secondary-hover">
-        <EllipsisVertical size={14} />
-      </PopoverTrigger>
-      <PopoverContent
-        className="p-2 w-auto"
-        container={portalContainer}
-        side="top"
-      >
-        <button
-          className="flex items-center gap-x-2 text-sm"
-          onClick={onDelete}
+    <button
+      {...handleProps}
+      type="button"
+      data-block-grip=""
+      aria-label={`Move ${name}`}
+      className={cn(
+        "flex w-4 shrink-0 cursor-grab items-start justify-center self-stretch rounded-sm",
+        alignTo === "header" ? "pt-3" : "pt-4",
+        "text-fg-secondary-alt outline-none transition-colors",
+        // Quiet at rest: just the grip icon. The strip appears while its
+        // row is hovered or holds focus — the INNERMOST such row only, so
+        // working in a nested list does not light every level above it.
+        // `>`: the handle is the row's own direct child.
+        "[[data-block-row]:hover:not(:has([data-block-row]:hover))>&]:bg-bg-secondary",
+        "[[data-block-row]:focus-within:not(:has([data-block-row]:focus-within))>&]:bg-bg-secondary",
+        "hover:bg-bg-brand-primary hover:text-fg-brand-primary",
+        "focus-visible:bg-bg-brand-primary focus-visible:text-fg-brand-primary",
+        // See `DRAG_HANDLE_TOUCH`.
+        DRAG_HANDLE_TOUCH,
+      )}
+    >
+      <GripVertical size={14} />
+    </button>
+  );
+}
+
+/**
+ * A record entry's menu. The actions are the record popovers the module
+ * header uses, each asking for the key it needs; what is ALLOWED (a fixed
+ * route cannot be renamed, a referenced entry cannot be deleted) is
+ * `useArrayAndRecordTools`'s, so this menu and the header cannot disagree.
+ */
+function RecordMenuItems({
+  path,
+  close,
+}: {
+  path: SourcePath;
+  close: () => void;
+}) {
+  const { entry } = useArrayAndRecordTools(path);
+  if (
+    entry === null ||
+    !(entry.canChange || entry.canDuplicate || entry.canDelete)
+  ) {
+    return (
+      <span className="px-2 py-1 text-sm text-fg-tertiary">
+        This entry cannot be renamed, copied or deleted here.
+      </span>
+    );
+  }
+  return (
+    <>
+      {entry.canChange && (
+        <ChangeRecordPopover
+          defaultValue={entry.key}
+          parentPath={entry.parentPath}
+          variant="ghost"
+          size="sm"
+          className={MENU_ITEM}
+          tooltip={false}
+          routePattern={entry.routePattern}
+          references={entry.references}
+          keyDescription={entry.keyDescription}
+          onComplete={close}
         >
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>Delete</span>
-        </button>
-        <button
-          className="flex items-center gap-x-2 text-sm"
-          onClick={onDuplicate}
+          <Pencil className="w-3.5 h-3.5" />
+          <span>{entry.routePattern ? "Change URL" : "Rename"}</span>
+        </ChangeRecordPopover>
+      )}
+      {entry.canDuplicate && (
+        <DuplicateRecordPopover
+          defaultValue={entry.key}
+          parentPath={entry.parentPath}
+          variant="ghost"
+          size="sm"
+          className={MENU_ITEM}
+          tooltip={false}
+          routePattern={entry.routePattern}
+          keyDescription={entry.keyDescription}
+          onComplete={close}
         >
           <Copy className="w-3.5 h-3.5" />
           <span>Duplicate</span>
-        </button>
-      </PopoverContent>
-    </Popover>
+        </DuplicateRecordPopover>
+      )}
+      {entry.canDelete && (
+        <DeleteRecordPopover
+          path={path}
+          parentPath={entry.parentPath}
+          variant="ghost"
+          size="sm"
+          className={MENU_ITEM}
+          references={entry.references}
+          confirmationMessage={`This will delete the ${entry.key} record.`}
+          onComplete={close}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Delete</span>
+        </DeleteRecordPopover>
+      )}
+    </>
+  );
+}
+
+/**
+ * The Add for a list, wherever it is drawn: under a top-level list, or on the
+ * label row of a nested one. An array appends an empty item in place; a record
+ * first needs a key, so it opens the same key form as the module header's +.
+ */
+function ListAddButton({
+  path,
+  label,
+  iconOnly,
+}: {
+  path: SourcePath;
+  /** The list's field name, for the icon-only button's accessible name. */
+  label?: string;
+  /** A `+` on a header row, like `Field`'s, instead of "+ Add" under a list. */
+  iconOnly?: boolean;
+}) {
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status !== "success") {
+    return null;
+  }
+  const look: AddLook = iconOnly
+    ? {
+        className: ICON_ADD_BUTTON,
+        children: <Plus size={14} />,
+        name: label ? `Add to ${fromCamelToTitleCase(label)}` : "Add",
+      }
+    : {
+        className: ADD_BUTTON,
+        children: (
+          <>
+            <Plus size={12} />
+            <span>Add</span>
+          </>
+        ),
+        name: undefined,
+      };
+  if (schemaAtPath.data.type === "record") {
+    return <RecordAddButton path={path} look={look} />;
+  }
+  if (schemaAtPath.data.type === "array") {
+    return (
+      <ArrayAddButton path={path} schema={schemaAtPath.data} look={look} />
+    );
+  }
+  return null;
+}
+
+type AddLook = {
+  className: string;
+  children: React.ReactNode;
+  /** An accessible name, when the children are only an icon. */
+  name: string | undefined;
+};
+
+function ArrayAddButton({
+  path,
+  schema,
+  look,
+}: {
+  path: SourcePath;
+  schema: SerializedArraySchema;
+  look: AddLook;
+}) {
+  const emptyOf = useEmptyOf();
+  const { addPatch, patchPath } = useAddPatch(path);
+  const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
+  if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
+    return null;
+  }
+  const length = shallowSourceAtPath.data.length;
+  return (
+    <button
+      className={look.className}
+      aria-label={look.name}
+      title={look.name}
+      onClick={() => {
+        addPatch(
+          [
+            {
+              op: "add",
+              path: patchPath.concat(length.toString()),
+              value: emptyOf(schema.item) as JSONValue,
+            },
+          ],
+          "array",
+        );
+      }}
+    >
+      {look.children}
+    </button>
+  );
+}
+
+function RecordAddButton({ path, look }: { path: SourcePath; look: AddLook }) {
+  const { add } = useArrayAndRecordTools(path);
+  if (add === null || !add.canAdd) {
+    return null;
+  }
+  return (
+    <AddRecordPopover
+      path={path}
+      variant="ghost"
+      size="sm"
+      className={look.className}
+      routePattern={add.routePattern}
+      keyDescription={add.keyDescription}
+    >
+      {look.name ? (
+        <>
+          {look.children}
+          <span className="sr-only">{look.name}</span>
+        </>
+      ) : (
+        look.children
+      )}
+    </AddRecordPopover>
   );
 }

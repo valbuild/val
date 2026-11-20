@@ -41,6 +41,8 @@ import {
   parsePromote,
   parseStatus,
   parseVerify,
+  publishApiOf,
+  type PublishApiAt,
 } from "../internal";
 
 export {
@@ -48,6 +50,9 @@ export {
   callJson,
   isTransientPublishError,
 } from "./callJson";
+// Where content's publish API is reached: declared beside the project source
+// reader (`@valbuild/shared/internal`), and a part of this entry's API.
+export { publishApiOf, type PublishApiAt };
 
 /** An artifact the live build has and this publish re-declares by hash. */
 export type CarriedArtifact = { key: string; sha256: string; bytes: number };
@@ -114,27 +119,6 @@ export type StudioPublishClient = {
 
 export function isExpiredSlot(error: unknown): boolean {
   return error instanceof StudioUploadError && error.statusCode === 403;
-}
-
-/**
- * Where content's publish API is reached: through Val's proxy on this origin
- * (`api`, the Studio), or directly (`publishApi`, `<content>/v1`: home's
- * upgrade page, whose `fetchImpl` adds the project token).
- */
-export type PublishApiAt =
-  | {
-      /** Val's API root on this origin, e.g. `/api/val`. */
-      api: string;
-    }
-  | {
-      /** Content's publish API itself, e.g. `https://content.val.build/v1`. */
-      publishApi: string;
-    };
-
-export function publishApiOf(at: PublishApiAt): string {
-  return "publishApi" in at
-    ? at.publishApi.replace(/\/+$/, "")
-    : `${at.api.replace(/\/+$/, "")}/publish-api`;
 }
 
 export function createStudioPublishClient(

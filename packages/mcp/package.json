@@ -20,7 +20,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-mcp.cjs.d.ts",
-  "version": "0.150.21",
+  "version": "0.153.6",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -38,7 +38,7 @@
     "@valbuild/server": "workspace:*",
     "@valbuild/shared": "workspace:*",
     "minimatch": "^10.2.6",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@prettier/sync": "^0.6.1",

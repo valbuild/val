@@ -2,6 +2,9 @@ import type { Meta, StoryObj } from "@storybook/react";
 import {
   CanvasPreviewNotice,
   CanvasPreviewStatus,
+  PREVIEW_RECOVERY,
+  type PreviewRecoveryPhase,
+  type PreviewRecoveryTiming,
 } from "../canvas/CanvasPreviewNotice";
 
 /**
@@ -13,9 +16,11 @@ import {
  * rather than on its own. Anything that hides more of it than the pill does is
  * the old design coming back.
  *
- * The severity is a clock, not a state — see `PREVIEW_WARNING_DELAY_MS` — so
- * each story below is one END of it. The stories force it rather than waiting
- * twenty seconds, which is what `warning` does.
+ * What it says is a clock, not a state -- see `PREVIEW_RECOVERY`: a spinner
+ * alone for ten seconds, then what the Studio is doing about it while it turns
+ * preview mode on by itself every five seconds, and after thirty seconds the
+ * warning with the button. Each story below is one stretch of that clock,
+ * forced rather than waited for (`phase`).
  */
 const meta: Meta<typeof CanvasPane> = {
   title: "Shell/CanvasPreviewNotice",
@@ -73,20 +78,24 @@ function MockPage() {
  * The canvas pane as `PageWorkspace` builds it: the page, and the notice above
  * it in the same `relative` box.
  */
+/** A clock that is already at `phase`, and makes no attempts of its own. */
+function timingAt(phase: PreviewRecoveryPhase): PreviewRecoveryTiming {
+  if (phase === "loading") return PREVIEW_RECOVERY;
+  if (phase === "recovering") return { ...PREVIEW_RECOVERY, quietMs: 0 };
+  return { ...PREVIEW_RECOVERY, quietMs: 0, retryForMs: 0 };
+}
+
+/**
+ * The canvas pane as `PageWorkspace` builds it: the page, and the notice above
+ * it in the same `relative` box.
+ */
 function CanvasPane({
   status,
-  warning,
+  phase = "loading",
 }: {
   status: CanvasPreviewStatus;
-  /**
-   * Skip the wait, so the warning end of the clock is reachable in a story.
-   *
-   * The clock runs from when the attempt began and re-mounting only restarts
-   * it, so the delay is a prop with a default rather than something a story
-   * can wait out - twenty seconds is longer than anyone reviewing a design
-   * will sit still for.
-   */
-  warning?: boolean;
+  /** Where on the clock to show it: see `timingAt`. */
+  phase?: PreviewRecoveryPhase;
 }) {
   return (
     <div className="h-screen bg-bg-canvas p-6">
@@ -94,33 +103,44 @@ function CanvasPane({
         <MockPage />
         <CanvasPreviewNotice
           status={status}
-          warnAfterMs={warning ? 0 : undefined}
-          onEnable={() => console.log("enable preview mode")}
-          onReload={() => console.log("reload")}
+          timing={timingAt(phase)}
+          // The stories' notice has no frame to navigate: the attempts it
+          // makes on its own clock land here and change nothing.
+          onEnable={() => undefined}
+          onReload={() => undefined}
         />
       </div>
     </div>
   );
 }
 
-/** The first twenty seconds of anything: a spinner, and no accusation. */
-export const NotReadyYet: Story = {
-  render: () => <CanvasPane status="preview-off" />,
+/** The first ten seconds of anything: a spinner, and no words. */
+export const Loading: Story = {
+  render: () => <CanvasPane status="connecting" />,
 };
 
-/** Past the wait, with the page having answered that draft mode is off. */
+/**
+ * Ten to thirty seconds, with the page having said preview mode is off: the
+ * Studio is turning it on every five seconds, and says so. No button: it is
+ * already doing what the button would.
+ */
+export const TurningOnByItself: Story = {
+  render: () => <CanvasPane status="preview-off" phase="recovering" />,
+};
+
+/** Ten to thirty seconds, with nothing having answered yet. */
+export const StillLoading: Story = {
+  render: () => <CanvasPane status="connecting" phase="recovering" />,
+};
+
+/** After thirty seconds, with the page still saying preview mode is off. */
 export const PreviewModeOff: Story = {
-  render: () => <CanvasPane status="preview-off" warning />,
+  render: () => <CanvasPane status="preview-off" phase="gave-up" />,
 };
 
-/** Past the wait, with nothing having answered at all. */
+/** After thirty seconds, with nothing having answered at all. */
 export const NoAnswer: Story = {
-  render: () => <CanvasPane status="no-answer" warning />,
-};
-
-/** Between the click and the new document arriving. */
-export const TurningOn: Story = {
-  render: () => <CanvasPane status="enabling" />,
+  render: () => <CanvasPane status="no-answer" phase="gave-up" />,
 };
 
 /** Working: the notice is not there at all. */

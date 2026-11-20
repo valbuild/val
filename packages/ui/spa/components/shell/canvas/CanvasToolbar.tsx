@@ -1,8 +1,7 @@
 import {
-  Maximize2,
   Minus,
   Monitor,
-  MousePointerClick,
+  MoveHorizontal,
   Plus,
   RotateCw,
   Smartphone,
@@ -10,6 +9,8 @@ import {
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { CanvasDevice } from "./types";
+
+const DEVICES: readonly CanvasDevice[] = ["desktop", "tablet", "mobile"];
 
 const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
   desktop: Monitor,
@@ -21,12 +22,10 @@ const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
  * The canvas's own controls: what width the page is shown at and how far it
  * is zoomed.
  *
- * Picking is here too, because it is a property of the page rather than of the
- * column beside it. It used to follow from the view, which meant the only way
- * to select something on the page was to give up the module editor for the
- * fields list — and no way at all to read the page normally while still being
- * able to point at a bit of it. Switching views still sets it, since each view
- * has an obvious default; the button is how you disagree.
+ * Picking is not here. It was, and the trouble with that was a pick has an
+ * owner — Content opens the field, the assistant is told about it — and one
+ * button on the page could not say which. Each owner has its own Select now,
+ * in its header (`SelectButton`).
  *
  * Floats over the canvas rather than sitting above it, so the canvas keeps
  * the full height — the same reasoning as the shell's other bars.
@@ -38,26 +37,21 @@ export function CanvasToolbar({
   onZoomIn,
   onZoomOut,
   onFit,
-  isPicking,
-  onPickingChange,
   onReload,
   isRefreshing,
+  docked = false,
   className,
 }: {
   device: CanvasDevice;
-  onDeviceChange: (device: CanvasDevice) => void;
+  /**
+   * Absent where the width is chosen elsewhere -- Review's comparison, whose
+   * one switch sets both sides -- and the toolbar shows no widths of its own.
+   */
+  onDeviceChange?: (device: CanvasDevice) => void;
   scale: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
-  /**
-   * Whether a click on the page selects what it hits.
-   *
-   * Absent where picking means nothing — the demo page in Storybook reports no
-   * paths, so there is nothing for a click to select.
-   */
-  isPicking?: boolean;
-  onPickingChange?: (isPicking: boolean) => void;
   /**
    * Load the page again.
    *
@@ -77,12 +71,25 @@ export function CanvasToolbar({
    * say it is happening by itself.
    */
   isRefreshing?: boolean;
+  /**
+   * On a phone: the bottom edge of the page's card, a full-width row with a
+   * line above it, tap-sized -- as the Sketchpad's tools are docked to its
+   * page -- instead of a pill floating under the card.
+   */
+  docked?: boolean;
   className?: string;
 }) {
+  // Tap-sized where it is docked, as the Sketchpad's tools are.
+  const size = docked ? "h-10 w-10" : "h-7 w-7";
   return (
     <div
+      role="toolbar"
+      aria-label="Preview"
       className={cn(
-        "flex items-center gap-1 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
+        "flex items-center gap-1",
+        docked
+          ? "w-full justify-center border-t border-border-float bg-bg-float px-2 py-1"
+          : "rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
         // On a phone the canvas is a pane a little narrower than the screen,
         // and this is nine controls: it has to be able to run out of room
         // without pushing itself off both sides of the page it sits on.
@@ -92,36 +99,41 @@ export function CanvasToolbar({
         // buttons quietly compress towards their 14px icons and the dividers
         // vanish — the strip always fits, and never once overflows enough to
         // scroll.
-        "max-w-[calc(100%-1.5rem)] overflow-x-auto scrollbar-none [&>*]:shrink-0",
+        !docked && "max-w-[calc(100%-1.5rem)]",
+        "overflow-x-auto scrollbar-none [&>*]:shrink-0",
         className,
       )}
     >
-      {(Object.keys(DEVICE_ICON) as CanvasDevice[]).map((option) => {
-        const Icon = DEVICE_ICON[option];
-        return (
-          <button
-            key={option}
-            type="button"
-            aria-label={`${option} width`}
-            aria-pressed={device === option}
-            onClick={() => onDeviceChange(option)}
-            className={cn(
-              "grid h-7 w-7 place-items-center rounded-md",
-              device === option
-                ? "bg-bg-float-raised text-fg-primary"
-                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-            )}
-          >
-            <Icon size={14} />
-          </button>
-        );
-      })}
-      <Divider />
+      {onDeviceChange !== undefined &&
+        DEVICES.map((option) => {
+          const Icon = DEVICE_ICON[option];
+          return (
+            <button
+              key={option}
+              type="button"
+              aria-label={`${option} width`}
+              aria-pressed={device === option}
+              onClick={() => onDeviceChange(option)}
+              className={cn(
+                cn("grid place-items-center rounded-md", size),
+                device === option
+                  ? "bg-bg-float-raised text-fg-primary"
+                  : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+              )}
+            >
+              <Icon size={14} />
+            </button>
+          );
+        })}
+      {onDeviceChange !== undefined && <Divider />}
       <button
         type="button"
         aria-label="Zoom out"
         onClick={onZoomOut}
-        className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "grid place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          size,
+        )}
       >
         <Minus size={14} />
       </button>
@@ -132,7 +144,10 @@ export function CanvasToolbar({
         type="button"
         aria-label="Zoom in"
         onClick={onZoomIn}
-        className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "grid place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          size,
+        )}
       >
         <Plus size={14} />
       </button>
@@ -146,38 +161,13 @@ export function CanvasToolbar({
         aria-label="Fit page width"
         title="Show the page at the width of the pane, from the top"
         onClick={onFit}
-        className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "grid place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          size,
+        )}
       >
-        <Maximize2 size={13} />
+        <MoveHorizontal size={13} />
       </button>
-      {onPickingChange && (
-        <>
-          <Divider />
-          <button
-            type="button"
-            aria-label={
-              isPicking ? "Stop selecting on the page" : "Select on the page"
-            }
-            aria-pressed={isPicking}
-            title={
-              isPicking
-                ? "Clicking the page selects what it hits"
-                : "Clicking the page follows links, as a visitor would"
-            }
-            onClick={() => onPickingChange(!isPicking)}
-            className={cn(
-              "grid h-7 w-7 place-items-center rounded-md",
-              isPicking
-                ? // The green the page's own outlines are drawn in, so the
-                  // button and what it does read as the same thing.
-                  "bg-bg-page-selection-fill text-fg-brand-primary ring-1 ring-inset ring-bg-page-selection"
-                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-            )}
-          >
-            <MousePointerClick size={14} />
-          </button>
-        </>
-      )}
       {onReload && (
         <>
           <Divider />
@@ -191,7 +181,8 @@ export function CanvasToolbar({
             }
             onClick={onReload}
             className={cn(
-              "grid h-7 w-7 place-items-center rounded-md hover:bg-bg-float-raised hover:text-fg-primary",
+              "grid place-items-center rounded-md hover:bg-bg-float-raised hover:text-fg-primary",
+              size,
               isRefreshing ? "text-fg-brand-primary" : "text-fg-secondary",
             )}
           >

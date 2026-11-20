@@ -24,6 +24,11 @@ export type PrepareOptions = {
   /** Publish in a proposal: the tab presses this proposal's merge. */
   merge?: string;
   /**
+   * With `merge`: the message of the commit Publish makes first, typed
+   * before the tap. The tab presses with it, or it would be lost there.
+   */
+  commitMessage?: string;
+  /**
    * A press this page made already, without a tab, whose job turned out to
    * need a build: the tab presses it again -- idempotent on the id, so it
    * finds it pressed and follows it -- and builds its job.
@@ -246,6 +251,10 @@ export function useSiteHandoff(
               tab: PUBLISH_TAB_ID,
               after,
               ...merging,
+              ...(prepareOptions?.merge !== undefined &&
+              prepareOptions.commitMessage !== undefined
+                ? { commitMessage: prepareOptions.commitMessage }
+                : {}),
             };
       const handoff = openHandoff({ intent });
       if (!handoff.stored) {
@@ -399,6 +408,9 @@ export function useSiteHandoff(
                     message.summary ??
                     "The site could not be rebuilt. Publish again to retry.",
                   details: message.result.message,
+                  ...(message.refused !== undefined
+                    ? { refused: message.refused }
+                    : {}),
                 }
               : { kind: "live", ms: message.ms },
           );

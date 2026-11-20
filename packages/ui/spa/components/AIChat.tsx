@@ -10,9 +10,11 @@ import React, {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import { assistantMarkdownComponents } from "./assistantMarkdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
+import { SketchpadMessageCard } from "./sketchpad/SketchpadMessageCard";
 import {
   Send,
   Square,
@@ -27,6 +29,7 @@ import {
   ChevronLeft,
   Paperclip,
   X,
+  MousePointerSquareDashed,
   AlertTriangle,
   ArrowUp,
   Clock,
@@ -52,7 +55,11 @@ import {
   chatDocumentToPlainText,
   collectImageKeysFromDoc,
 } from "./AIChatEditor";
-import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
+import {
+  ToolActivities,
+  isPendingQuestion,
+  isWaitingOnPerson,
+} from "./AIChatToolActivities";
 import { decideBubble } from "./aiChatBubble";
 import { TurnStatsLine } from "./AIChatTurnStats";
 import {
@@ -69,6 +76,7 @@ import type {
   AskUserQuestionItem,
   ToolActivity,
 } from "./AIChatToolActivities";
+import type { CodeModeRequest } from "./CodeModeRequestCard";
 import { Spinner } from "./designSystem/spinner";
 import { Avatar } from "./Avatar";
 import { PeopleStack } from "./proposals/PeopleStack";
@@ -209,8 +217,8 @@ type QueuedMessage = {
 };
 
 /**
- * What a message carries besides its text, taken when it is written: the
- * design tab's picked element. `pointedAt: null` sends none, even if
+ * What a message carries besides its text, taken when it is written: an
+ * element picked on the page. `pointedAt: null` sends none, even if
  * something is picked by the time it goes.
  */
 export type SendContext = { pointedAt: PickedElement | null };
@@ -270,6 +278,15 @@ export type AIChatHandle = {
     toolName: string,
     questions?: AskUserQuestionItem[],
   ) => void;
+  /**
+   * Show a tool call as the assistant asking for code mode, or move the card
+   * on: asking, turning on, on, declined. See `CodeModeRequestCard`.
+   */
+  setCodeModeRequest: (
+    messageId: string,
+    toolCallId: string,
+    request: CodeModeRequest,
+  ) => void;
   /** Mark a tool call as complete */
   completeToolCall: (messageId: string, toolCallId: string) => void;
   /** Mark a tool call as errored */
@@ -283,6 +300,12 @@ export type AIChatHandle = {
    * does: shown in the chat, then sent. Ignored while a turn is running.
    * What the Sketchpad's "Send to AI" goes through, so the message it sends
    * is on screen like anything typed.
+   *
+   * As a chat's FIRST message, with more than one model to choose from, it is
+   * held instead: a chat keeps the model it starts with, and a message the
+   * person did not type -- the Sketchpad's Build -- would otherwise start it
+   * on whichever model was picked last, without ever showing the choice. It
+   * waits above the composer with the model picker until they send it.
    */
   sendUserMessage: (text: string) => void;
   /**
@@ -319,11 +342,18 @@ export type AIChatProps = {
     context?: SendContext,
   ) => boolean;
   /**
-   * Take what goes with a message that is QUEUED rather than sent -- the
-   * design tab's picked element -- so it goes with that message when it is
+   * Take what goes with a message that is QUEUED rather than sent -- an
+   * element picked on the page -- so it goes with that message when it is
    * sent, not with whichever message is sent next.
    */
   onCaptureSendContext?: () => SendContext;
+  /**
+   * What the next message is about: picked on the page with the Assistant's
+   * Select. Shown above the composer, and goes with the next message.
+   */
+  pointedAt?: PickedElement | null;
+  /** Take the pick off the next message. */
+  onClearPointedAt?: () => void;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
@@ -375,6 +405,14 @@ export type AIChatProps = {
   ) => void;
   /** Called when the user cancels an ask_user_question tool call */
   onCancelToolQuestion?: (toolCallId: string) => void;
+  /**
+   * A `request_code_mode` card's button was pressed: turn code mode on (or,
+   * on the site, choose a proposal for it). The app answers the tool call and
+   * updates the activity's `codeModeRequest`. See `CodeModeRequestCard`.
+   */
+  onEnableCodeMode?: (toolCallId: string) => void;
+  /** Its "Not now". */
+  onDeclineCodeMode?: (toolCallId: string) => void;
   /** A chat several people work in: see `AIChatTogether`. */
   together?: AIChatTogether;
   /**
@@ -432,7 +470,7 @@ function getTextContent(content: AIMessageContent): string {
 // this gate omits makes the whole message fall through and render its markup
 // as literal text.
 const USER_HTML_TAG_RE =
-  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field)\b/i;
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field|sketchpad)\b/i;
 
 function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
   return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
@@ -517,6 +555,20 @@ function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
         <span key={key} className="italic text-fg-secondary">
           [{alt ? `image: ${alt}` : "image"}]
         </span>
+      );
+    }
+    case "sketchpad": {
+      // "Build" from a Sketchpad: the sketchpad as a card to open it by.
+      const routes = (el.getAttribute("routes") ?? "")
+        .split(" ")
+        .filter((route) => route !== "");
+      return (
+        <SketchpadMessageCard
+          key={key}
+          id={el.getAttribute("id") ?? ""}
+          title={el.getAttribute("title") ?? "Sketchpad"}
+          routes={routes}
+        />
       );
     }
     case "field": {
@@ -680,6 +732,48 @@ function getImageUrls(content: AIMessageContent): string[] {
     .map((block) => block.url);
 }
 
+/**
+ * What the next message is about, above the composer: the element picked on
+ * the page with the Assistant's Select. Named as the page shows it -- its
+ * words, or its tag where it has none -- with the field it shows when it shows
+ * one, and removable, since a pick nobody meant should not go with the
+ * message.
+ */
+function PointedAtChip({
+  pointedAt,
+  onRemove,
+}: {
+  pointedAt: PickedElement;
+  onRemove?: () => void;
+}) {
+  const name = pointedAt.text !== "" ? pointedAt.text : `<${pointedAt.tag}>`;
+  return (
+    <div className="mb-2 flex">
+      <div
+        data-val-pointed-at=""
+        title={pointedAt.valPath ?? pointedAt.selector}
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-dashed border-border-brand-secondary bg-bg-secondary px-2 py-1 text-xs touch:text-sm text-fg-primary"
+      >
+        <MousePointerSquareDashed className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
+        <span className="shrink-0 font-mono text-[10px] text-fg-tertiary">
+          &lt;{pointedAt.tag}&gt;
+        </span>
+        <span className="min-w-0 truncate">{name}</span>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="ml-0.5 shrink-0 text-fg-secondary hover:text-fg-primary"
+            aria-label="Do not send what you pointed at"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -693,6 +787,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     modelLocked,
     onSendMessage,
     onCaptureSendContext,
+    pointedAt,
+    onClearPointedAt,
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
@@ -710,6 +806,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     isLoadingSession,
     onAnswerToolQuestions,
     onCancelToolQuestion,
+    onEnableCodeMode,
+    onDeclineCodeMode,
     initialMessages,
     initialShowSessions = false,
     together,
@@ -779,7 +877,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   // so the client must not time out either.
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
-  ).some(isPendingQuestion);
+  ).some(isWaitingOnPerson);
 
   /**
    * Move the in-progress message into the finished list. Exactly once.
@@ -936,8 +1034,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   // `handleSend` is declared below the handle, which reaches it through this.
   const handleSendRef = useRef<((suggestion?: string) => void) | null>(null);
+  /** A first message waiting for the model to be chosen: see `sendUserMessage`. */
+  const [staged, setStaged] = useState<string | null>(null);
+  /** Whether the next message sent from outside waits for a model. */
+  const chooseModelFirstRef = useRef(false);
   useImperativeHandle(ref, () => ({
     sendUserMessage(text: string) {
+      if (chooseModelFirstRef.current) {
+        setStaged(text);
+        return;
+      }
       handleSendRef.current?.(text);
     },
     startAssistantMessage(id: string) {
@@ -1050,6 +1156,42 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         return prev;
       });
     },
+    setCodeModeRequest(
+      messageId: string,
+      toolCallId: string,
+      request: CodeModeRequest,
+    ) {
+      const withRequest = (activities: ToolActivity[] | undefined) =>
+        (activities ?? []).map((t) =>
+          t.toolCallId === toolCallId ? { ...t, codeModeRequest: request } : t,
+        );
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        return {
+          lastActivityAt: Date.now(),
+          message: withPauseSynced(
+            {
+              ...prev.message,
+              toolActivities: withRequest(prev.message.toolActivities),
+            },
+            Date.now(),
+          ),
+        };
+      });
+      // A card answered after its turn ended is in the transcript by then.
+      setCompletedMessages((prev) =>
+        prev.some((message) => message.id === messageId)
+          ? prev.map((message) =>
+              message.id === messageId
+                ? {
+                    ...message,
+                    toolActivities: withRequest(message.toolActivities),
+                  }
+                : message,
+            )
+          : prev,
+      );
+    },
     completeToolCall(messageId: string, toolCallId: string) {
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== messageId) return prev;
@@ -1100,6 +1242,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  chooseModelFirstRef.current =
+    isEmpty &&
+    !modelLocked &&
+    onSelectModel !== undefined &&
+    (models?.length ?? 0) > 1;
   const viewerId = together?.viewerId ?? null;
   const viewer = together?.people.find((p) => p.id === viewerId) ?? null;
   const turnBy = together?.turnBy ?? null;
@@ -1698,6 +1845,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   recordCancelInState(msg.id, toolCallId);
                   onCancelToolQuestion?.(toolCallId);
                 }}
+                onEnableCodeMode={onEnableCodeMode}
+                onDeclineCodeMode={onDeclineCodeMode}
               />
             ))
           )}
@@ -1732,6 +1881,30 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             {othersTurn && turnBy && (
               <OthersTurnStrip turnBy={turnBy} queued={queue.length} />
             )}
+            {staged !== null && (
+              <StagedFirstMessage
+                text={staged}
+                // Started meanwhile -- something typed, another chat opened:
+                // its model is settled, and the message goes into it.
+                choosesModel={chooseModelFirstRef.current}
+                picker={
+                  models && onSelectModel && chooseModelFirstRef.current ? (
+                    <AIChatModelPicker
+                      models={models}
+                      selectedModel={selectedModel}
+                      onSelectModel={onSelectModel}
+                      portalContainer={portalContainer}
+                    />
+                  ) : null
+                }
+                canSend={isConnected && !authError && selectedModel != null}
+                onSend={() => {
+                  setStaged(null);
+                  handleSend(staged);
+                }}
+                onCancel={() => setStaged(null)}
+              />
+            )}
             {queue.length > 0 && (
               <QueuedMessages
                 queue={queue}
@@ -1748,6 +1921,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 onMoveUp={moveQueuedUp}
                 onSendNext={busy ? null : sendNext}
                 onClear={clearQueue}
+              />
+            )}
+            {pointedAt && (
+              <PointedAtChip
+                pointedAt={pointedAt}
+                onRemove={onClearPointedAt}
               />
             )}
             {/* Attached file previews */}
@@ -1938,6 +2117,65 @@ function OthersTurnStrip({
             : `Then yours, ${queued} of them, in order.`}
       </span>
     </div>
+  );
+}
+
+/**
+ * A chat's first message, sent from outside the composer (the Sketchpad's
+ * Build), waiting for its model: the message as it will be sent, the model
+ * picker, and Send. See `AIChatHandle.sendUserMessage`.
+ */
+function StagedFirstMessage({
+  text,
+  choosesModel,
+  picker,
+  canSend,
+  onSend,
+  onCancel,
+}: {
+  text: string;
+  /** Still the chat's first message: its model is chosen here. */
+  choosesModel: boolean;
+  picker: React.ReactNode;
+  canSend: boolean;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section
+      aria-label="Ready to send"
+      className="mb-2 flex flex-col gap-2 rounded-md border border-border-brand-primary bg-bg-secondary p-2 text-xs touch:text-sm"
+    >
+      <p className="text-fg-primary">
+        {choosesModel
+          ? "Choose the model for this chat, then send. A chat keeps the model it starts with."
+          : "Send this to the chat?"}
+      </p>
+      <div className="rounded-md bg-bg-primary px-2 py-1.5 text-fg-primary">
+        {renderUserMessageText(text)}
+      </div>
+      <div className="flex items-center gap-1">
+        {picker}
+        <span className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            className="h-7 px-2 text-xs touch:text-sm"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={onSend}
+            disabled={!canSend}
+            className="h-7 px-3 text-xs touch:text-sm"
+          >
+            Send
+          </Button>
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -2213,6 +2451,8 @@ function MessageBubble({
   onRetry,
   onSubmitToolAnswers,
   onCancelToolQuestion,
+  onEnableCodeMode,
+  onDeclineCodeMode,
 }: {
   message: ChatMessage;
   /** Who wrote it, in a chat several people write in. */
@@ -2223,14 +2463,21 @@ function MessageBubble({
     answers: AskUserQuestionAnswer[],
   ) => void;
   onCancelToolQuestion: (toolCallId: string) => void;
+  onEnableCodeMode?: (toolCallId: string) => void;
+  onDeclineCodeMode?: (toolCallId: string) => void;
 }) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
   const activities = message.toolActivities ?? [];
   const hasPendingQuestion = activities.some(isPendingQuestion);
+  // A question or a code-mode card: either way the turn waits on the person.
+  const waitingOnPerson = activities.some(isWaitingOnPerson);
   const hasRunningTool = activities.some(
-    (a) => a.status === "pending" && a.questions === undefined,
+    (a) =>
+      a.status === "pending" &&
+      a.questions === undefined &&
+      a.codeModeRequest === undefined,
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
@@ -2280,6 +2527,8 @@ function MessageBubble({
           activities={activities}
           onSubmitAnswers={onSubmitToolAnswers}
           onCancel={onCancelToolQuestion}
+          onEnableCodeMode={onEnableCodeMode}
+          onDeclineCodeMode={onDeclineCodeMode}
         />
       )}
       {hasBubble && (
@@ -2358,7 +2607,9 @@ function MessageBubble({
                 </div>
               )}
               {textContent ? (
-                <ReactMarkdown>{textContent}</ReactMarkdown>
+                <ReactMarkdown components={assistantMarkdownComponents}>
+                  {textContent}
+                </ReactMarkdown>
               ) : isStreamingMsg ||
                 isError ||
                 fileUrls.length > 0 ||
@@ -2421,7 +2672,7 @@ function MessageBubble({
           phase={turnPhaseOf({
             status: message.status,
             stopped: turnStats.stopped,
-            waitingOnUser: hasPendingQuestion,
+            waitingOnUser: waitingOnPerson,
             hasRunningTool,
             hasText: textContent.length > 0,
           })}
@@ -2432,8 +2683,8 @@ function MessageBubble({
 }
 
 /**
- * Pause the turn's clock while a question card is open, and resume it once
- * the card is answered or cancelled — applied after every change to a
+ * Pause the turn's clock while a question or code-mode card is open, and
+ * resume it once the card is answered — applied after every change to a
  * message's tools, so no caller has to track the transition itself.
  */
 function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
@@ -2442,7 +2693,7 @@ function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
     ...message,
     turnStats: syncPause(
       message.turnStats,
-      (message.toolActivities ?? []).some(isPendingQuestion),
+      (message.toolActivities ?? []).some(isWaitingOnPerson),
       now,
     ),
   };

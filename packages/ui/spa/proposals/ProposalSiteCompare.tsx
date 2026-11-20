@@ -1,3 +1,5 @@
+import { CodeChangesConnected } from "../components/proposals/CodeChangesConnected";
+import type { CodeModeBuild } from "../components/proposals/CodeModeStatus";
 import { useCallback, useMemo } from "react";
 import type { SourcePath } from "@valbuild/core";
 import { CompareDialog } from "../compare/CompareDialog";
@@ -36,6 +38,8 @@ export function ProposalSiteCompare({
   open,
   onOpenChange,
   portalContainer,
+  code,
+  initialView,
 }: {
   changes: SiteChanges;
   /** Where the site is served; null until the proposals list has said. */
@@ -43,8 +47,43 @@ export function ProposalSiteCompare({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   portalContainer?: HTMLElement | null;
+  /**
+   * The proposal's code changes, while code mode is on: in Review with the
+   * content changes, rather than a view of the Studio of their own.
+   */
+  code?: { name: string; build: CodeModeBuild; onReload: () => void };
+  /** Open on the code changes. */
+  initialView?: "code";
 }) {
   if (!open || changes.status === "off") return null;
+  /*
+   * Opened on the code changes while the site is still being read, or could
+   * not be: the code changes do not depend on it, so they are not held back
+   * behind it. The content side comes with the next open.
+   */
+  if (changes.status !== "ready" && code && initialView === "code") {
+    return (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent
+          container={portalContainer}
+          className="flex h-[min(90vh,56rem)] max-w-5xl flex-col gap-0 overflow-hidden border-border-float bg-bg-float p-0"
+        >
+          <DialogTitle className="sr-only">Code changes</DialogTitle>
+          <DialogDescription className="sr-only">
+            The proposal's code, beside the site's.
+          </DialogDescription>
+          <div className="min-h-0 flex-1">
+            <CodeChangesConnected
+              name={code.name}
+              build={code.build}
+              onReload={code.onReload}
+              onEditContent={() => onOpenChange(false)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
   if (changes.status !== "ready") {
     return (
       <Dialog open onOpenChange={onOpenChange}>
@@ -88,6 +127,8 @@ export function ProposalSiteCompare({
         changes={changes}
         siteUrl={siteUrl}
         onOpenChange={onOpenChange}
+        code={code}
+        initialView={initialView}
       />
     </CompareBeforeSourcesContext.Provider>
   );
@@ -99,10 +140,14 @@ function MountedSiteCompare({
   changes,
   siteUrl,
   onOpenChange,
+  code,
+  initialView,
 }: {
   changes: Extract<SiteChanges, { status: "ready" }>;
   siteUrl: string | null;
   onOpenChange: (open: boolean) => void;
+  code?: { name: string; build: CodeModeBuild; onReload: () => void };
+  initialView?: "code";
 }) {
   const currentAuthorId = useCurrentAuthorId();
   const renderValue = useCallback(
@@ -141,6 +186,24 @@ function MountedSiteCompare({
       mode="http"
       currentAuthorId={currentAuthorId}
       renderPage={renderPage}
+      code={
+        code === undefined
+          ? undefined
+          : {
+              label: "Code changes",
+              render: () => (
+                <CodeChangesConnected
+                  name={code.name}
+                  build={code.build}
+                  onReload={code.onReload}
+                  // Back to the content: Review closes, and the Studio is
+                  // where it was.
+                  onEditContent={() => onOpenChange(false)}
+                />
+              ),
+            }
+      }
+      initialView={initialView}
     />
   );
 }

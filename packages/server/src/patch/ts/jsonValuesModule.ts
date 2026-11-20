@@ -76,7 +76,7 @@ export function jsonValuesRecordKeys(source: ts.Expression): string[] {
  * as written. An error for anything that is not a literal.
  *
  * What a staging records for a module (`stagedModuleSources`): without the
- * markers, an entry the design tab added to a record was in the module's code
+ * markers, an entry the assistant added to a record was in the module's code
  * and not in its Source, and an edit into it was undone.
  */
 export function evaluateModuleSource(

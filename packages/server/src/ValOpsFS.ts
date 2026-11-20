@@ -1,4 +1,10 @@
 import {
+  isMediaFilePath,
+  isPublicFilePath,
+  isSafePatchId,
+  MEDIA_FILE_PATH_ACCEPTS,
+} from "./safeFilePath";
+import {
   PatchId,
   ModuleFilePath,
   ValModules,
@@ -35,7 +41,12 @@ import { z } from "zod";
 import fs from "fs";
 import nodePath from "path";
 import { fromError } from "zod-validation-error";
-import { Patch, ParentRef, ValCommit } from "@valbuild/shared/internal";
+import {
+  Patch,
+  ParentRef,
+  ValCommit,
+  type ProjectVersion,
+} from "@valbuild/shared/internal";
 import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -69,12 +80,18 @@ import {
   resetPatchStore,
 } from "./patchStore";
 import { PATCH_LOCK_FILE_NAME, withPatchLock } from "./patchLock";
+import { PATCH_SEQ_FILE_NAME, bumpPatchSeq, readPatchSeq } from "./patchSeq";
 import { writePatchLogFile } from "./patchLog";
 import { uploadRemoteFile } from "./uploadRemoteFile";
 import { Buffer } from "buffer";
 import { getFileExt } from "./getFileExt";
 import { createFsSketchpadStore } from "./sketchpads/fsSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import {
+  loadTypeScriptKit,
+  type TypeScriptKit,
+} from "./patch/ts/loadTypeScriptKit";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 /** Serializes a schema, or gives up quietly — serialization errors are reported elsewhere. */
 function serializeSchemaSafely(
@@ -87,12 +104,27 @@ function serializeSchemaSafely(
   }
 }
 
+/**
+ * The newest `ValOpsFS` made in this process for each project root: the
+ * build whose base the patches in `.val/patches` are relative to (see
+ * `ValOps.chainBaseSha`). Hot reload makes the new instance in the same
+ * process as the one whose long poll is still parked.
+ */
+const newestByRoot = new Map<string, ValOpsFS>();
+
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
   private readonly host: FSOpsHost;
   /** The developer's own working tree. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = true;
   override readonly kind = "fs";
+  /**
+   * Always available: this data layer only runs on Node. See
+   * {@link ValOpsOptions.typescript}.
+   */
+  protected override loadTypeScriptKit(): Promise<TypeScriptKit> {
+    return this.options?.typescript?.() ?? loadTypeScriptKit();
+  }
   /**
    * The developer's own machine, where there is no credential to require and
    * nothing to protect it from. See {@link ValOps.requiresAuth}.
@@ -109,6 +141,29 @@ export class ValOpsFS extends ValOps {
     this.host = new FSOpsHost();
     this.jsonEntryFilesFingerprint = new JsonEntryFilesFingerprint(rootDir);
     this.sketchpads = createFsSketchpadStore(rootDir);
+    newestByRoot.set(fsPath.resolve(rootDir), this);
+  }
+
+  /**
+   * The base the store's chain is relative to: the newest build's, made in
+   * this process (see `ValOps.chainBaseSha`).
+   */
+  override newestOps(): ValOps {
+    return newestByRoot.get(fsPath.resolve(this.rootDir)) ?? this;
+  }
+
+  override async chainBaseSha(): Promise<SourcesSha> {
+    const newest = newestByRoot.get(fsPath.resolve(this.rootDir));
+    if (newest === undefined || newest === this) return this.getSourcesSha();
+    try {
+      return await newest.getSourcesSha();
+    } catch (err) {
+      Internal.log.debug(
+        "could not read the newest build's base; answering with this one's",
+        err,
+      );
+      return this.getSourcesSha();
+    }
   }
 
   /** In `.val/sketchpads`. See `sketchpads/fsSketchpadStore.ts`. */
@@ -161,6 +216,7 @@ export class ValOpsFS extends ValOps {
         {
           method: "POST",
           headers: {
+            ...VAL_CLIENT_HEADERS,
             ...authHeader,
             "Content-Type": "application/json",
           },
@@ -236,8 +292,11 @@ export class ValOpsFS extends ValOps {
   async getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
-      sourcesSha: SourcesSha;
+      /** @deprecated See `ValOps.getStat`: echoed by the previous release. */
+      schemaSha?: SchemaSha;
+      /** @deprecated See `ValOps.getStat`: echoed by the previous release. */
+      sourcesSha?: SourcesSha;
+      version?: ProjectVersion;
       patches: PatchId[];
       profileId?: AuthorId;
       jsonEntriesSha?: string;
@@ -251,6 +310,8 @@ export class ValOpsFS extends ValOps {
         patches: PatchId[];
         removed?: { patchId: PatchId; reason: string }[];
         jsonEntriesSha?: string;
+        /** The patch store's `seq`, read before the patches. See `patchSeq.ts`. */
+        seq?: number;
       }
     | {
         type: "use-websocket";
@@ -275,7 +336,11 @@ export class ValOpsFS extends ValOps {
     try {
       const currentBaseSha = await this.getBaseSha();
       const currentSchemaSha = await this.getSchemaSha();
-      const currentSourcesSha = await this.getSourcesSha();
+      // The base the chain is relative to, which is the newest build's
+      // rather than this instance's once a newer one has been made: see
+      // `chainBaseSha`. Compared with what the Studio echoes as well as
+      // answered, or a Studio parked here would be told "changed" each poll.
+      const currentSourcesSha = await this.chainBaseSha();
       const schemas = await this.getSchemas();
       const moduleFilePaths = Object.keys(schemas);
       const serializedSchemas = Object.fromEntries(
@@ -293,6 +358,8 @@ export class ValOpsFS extends ValOps {
       // and delivering out of another is what let this store tell a studio about
       // 410 unpublished changes and then hand over 359 of them, with nothing in
       // between reporting that anything was wrong.
+      // Before the read, so the answer is never behind the `seq` it carries.
+      const announceSeq = readPatchSeq(this.getPatchSeqFile()).seq;
       const announceRes = await this.readStore();
       if (announceRes.status === "error") {
         return { type: "error", error: { message: announceRes.message } };
@@ -331,9 +398,14 @@ export class ValOpsFS extends ValOps {
         (params.jsonEntriesSha !== undefined &&
           currentJsonEntriesSha !== params.jsonEntriesSha) ||
         currentBaseSha !== params.baseSha ||
-        // base sha covers both sources sha and schema sha, so we could remove checks for schema sha and sources sha
-        currentSourcesSha !== params.sourcesSha ||
-        currentSchemaSha !== params.schemaSha ||
+        // Another build: by the version the Studio echoes -- the build the
+        // chain is relative to (`chainBuild`), which every instance on this
+        // store answers with -- or, from a Studio that echoes no version
+        // (the release that shipped the one content model), by the shas.
+        (params.version !== undefined
+          ? params.version.build !== (await this.chainBuild())
+          : currentSourcesSha !== params.sourcesSha ||
+            currentSchemaSha !== params.schemaSha) ||
         patches.length !== params.patches.length ||
         patches.some((p, i) => p !== params.patches[i]);
       if (didChange) {
@@ -345,6 +417,7 @@ export class ValOpsFS extends ValOps {
           patches,
           ...removedNotice,
           jsonEntriesSha: currentJsonEntriesSha,
+          seq: announceSeq,
         };
       }
       let fsWatcher: fs.FSWatcher | null = null;
@@ -559,6 +632,7 @@ export class ValOpsFS extends ValOps {
        * from the open: a patch store that cannot be read is what the error path
        * is for, and the studio asks again.
        */
+      const answerSeq = readPatchSeq(this.getPatchSeqFile()).seq;
       const answerRes = await this.readStore();
       if (answerRes.status === "error") {
         return { type: "error", error: { message: answerRes.message } };
@@ -571,6 +645,7 @@ export class ValOpsFS extends ValOps {
         patches: answerRes.entries.map((entry) => entry.patchId),
         ...drainRemoved(),
         jsonEntriesSha: currentJsonEntriesSha,
+        seq: answerSeq,
       };
     } catch (err) {
       if (err instanceof Error) {
@@ -658,6 +733,8 @@ export class ValOpsFS extends ValOps {
             );
           }
         }
+        // The chain may have lost patches: a change like any other.
+        this.countChange();
         const after = readPatchStore(patchesDir);
         if (after.status === "ok" && after.problems.length === 0) {
           return { status: "ok", entries: after.entries };
@@ -874,6 +951,7 @@ export class ValOpsFS extends ValOps {
             }`,
           });
         }
+        this.countChange();
         return result.ok({ patchId });
       },
     );
@@ -934,6 +1012,17 @@ export class ValOpsFS extends ValOps {
     //
     // Staging is what makes that state unreachable rather than tolerated. See
     // `uploadsDir`.
+    // Both are joined onto the patches directory below. See `safeFilePath`.
+    if (!isSafePatchId(patchId)) {
+      return { error: { message: "Not a valid patch id." } };
+    }
+    if (!isMediaFilePath(filePath)) {
+      return {
+        error: {
+          message: `Cannot store a file at '${filePath}'. ${MEDIA_FILE_PATH_ACCEPTS}`,
+        },
+      };
+    }
     const patchesDir = this.getPatchesDir();
     const patchFilePath = stagedPatchBinaryFile(patchesDir, patchId, filePath);
     const metadataFilePath = stagedPatchBinaryFileMetadata(
@@ -1042,6 +1131,9 @@ export class ValOpsFS extends ValOps {
   ): Promise<Buffer | null> {
     // Straight from the id. This used to read and parse every patch on disk to
     // work out which directory the file was under, on every single image request.
+    if (!isSafePatchId(patchId) || !isMediaFilePath(filePath)) {
+      return null;
+    }
     const patchesDir = this.getPatchesDir();
     const absPath = this.wherePatchFileIs(
       patchBinaryFile(patchesDir, patchId, filePath),
@@ -1130,6 +1222,7 @@ export class ValOpsFS extends ValOps {
             };
           }
         }
+        this.countChange();
         return { status: "ok", deleted, errors };
       },
     );
@@ -1167,6 +1260,7 @@ export class ValOpsFS extends ValOps {
           // version refuses to read: discarding everything always works.
           this.host.moveDir(patchesDir, tmpDir);
           this.host.deleteDir(tmpDir);
+          this.countChange();
           return {};
         } catch (err) {
           return {
@@ -1273,6 +1367,16 @@ export class ValOpsFS extends ValOps {
     for (const [ref, { patchId }] of localFileDescriptors) {
       const filePath = ref;
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
+      // A publish writes uploaded files under /public and nowhere else.
+      // `createPatch` refuses any other path, so this is for a patch that was
+      // already on disk, or put there by hand.
+      if (!isPublicFilePath(filePath) || !isSafePatchId(patchId)) {
+        errors[absPath] = {
+          message: `Not written: '${filePath}' is not under /public.`,
+          filePath,
+        };
+        continue;
+      }
       try {
         this.host.copyFile(
           patchBinaryFile(this.getPatchesDir(), patchId, filePath),
@@ -1334,6 +1438,9 @@ export class ValOpsFS extends ValOps {
   ): Promise<BinaryFileReader | null> {
     let absPath: string | null;
     if (fromPatch) {
+      if (!isSafePatchId(fromPatch.patchId) || !isMediaFilePath(filePath)) {
+        return null;
+      }
       const patchesDir = this.getPatchesDir();
       absPath = this.wherePatchFileIs(
         patchBinaryFile(patchesDir, fromPatch.patchId, filePath),
@@ -1402,6 +1509,76 @@ export class ValOpsFS extends ValOps {
    */
   private getPatchLockFile() {
     return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, PATCH_LOCK_FILE_NAME);
+  }
+
+  /** Beside the lock, for the same reason: see `patchSeq.ts`. */
+  private getPatchSeqFile() {
+    return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, PATCH_SEQ_FILE_NAME);
+  }
+
+  /**
+   * One more change counted. Called under the patch lock, after the change it
+   * counts is on disk: a reader takes `seq` BEFORE it reads the store, so an
+   * answer can be behind its `seq`'s change but never claim one it lacks.
+   *
+   * A counter that cannot be written does not fail the write it counts: the
+   * change is made, and answers stay ordered by what came before.
+   */
+  private countChange(): void {
+    try {
+      bumpPatchSeq(this.getPatchSeqFile());
+    } catch (err) {
+      Internal.log.warn(
+        `could not count a change to the patch store in ${this.getPatchSeqFile()}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** Whether this instance has counted itself as a new build yet. */
+  private countedBuild = false;
+
+  protected override async ownSeq(build: string): Promise<number> {
+    const file = this.getPatchSeqFile();
+    // No `.val` yet: nothing has been written, so there is nothing to order
+    // against, and a read must not be what creates the directory. Counted as
+    // this instance's build all the same: the store starts with it, and
+    // counting it at the first read after the first write moved `seq` a
+    // second time for one write -- which a draft page reads as a second
+    // change to refresh for (`confirmed`, phase 4).
+    if (!this.countedBuild && !fs.existsSync(fsPath.dirname(file))) {
+      this.countedBuild = true;
+      return 0;
+    }
+    if (!this.countedBuild) {
+      this.countedBuild = true;
+      if (readPatchSeq(file).build !== build) {
+        // A new build, once per instance: under the lock, and only if no
+        // other instance of the same build got there first.
+        await withPatchLock(
+          this.getPatchLockFile(),
+          { ttlMs: 10_000, op: "count a new build" },
+          () => {
+            if (readPatchSeq(file).build !== build) {
+              bumpPatchSeq(file, build);
+            }
+          },
+        ).catch((err: unknown) => {
+          Internal.log.warn(
+            `could not count a new build in ${file}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      }
+    }
+    return readPatchSeq(file).seq;
+  }
+
+  override async chainPosition(): Promise<{
+    seq: number;
+    epoch: string;
+  } | null> {
+    const seq = await this.chainSeq();
+    if (seq === null) return null;
+    return { seq, epoch: readPatchSeq(this.getPatchSeqFile()).epoch ?? "" };
   }
 
   // #region history

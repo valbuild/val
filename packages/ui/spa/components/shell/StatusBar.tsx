@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
+import {
+  CircleDot,
+  Cloud,
+  GitBranch,
+  Info,
+  RotateCw,
+  Terminal,
+} from "lucide-react";
 import {
   isInFlight,
   type PublishIndicator,
@@ -19,6 +26,15 @@ export type SaveState = "saved" | "saving" | "error";
 export type StatusBarProps = {
   breakpoint: ShellBreakpoint;
   saveState: SaveState;
+  /**
+   * Send the failed save again: Try again, beside "Could not save".
+   *
+   * Absent unless retrying can help -- a save the content service failed to
+   * take. "Could not save" for other reasons (a patch error, a service that is
+   * down for everything) has no button, because one that leads straight back
+   * to the same error is worse than none.
+   */
+  onRetrySave?: () => void;
   /**
    * How Val is running: against the working copy on disk, or against a
    * project.
@@ -80,6 +96,7 @@ export type StatusBarProps = {
 export function StatusBar({
   breakpoint,
   saveState,
+  onRetrySave,
   mode,
   autoSave,
   onAutoSaveChange,
@@ -177,6 +194,21 @@ export function StatusBar({
           breakpoint={breakpoint}
           unsavedInProposal={unsavedInProposal}
         />
+        {saveState === "error" && onRetrySave && (
+          /*
+           * Outside the indicator's fixed-width grid: a button in there would
+           * be laid out invisibly in every other state, widening "All changes
+           * saved" by a button that is not on screen.
+           */
+          <button
+            type="button"
+            onClick={onRetrySave}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-fg-primary hover:bg-bg-float-raised"
+          >
+            <RotateCw size={12} />
+            Try again
+          </button>
+        )}
       </div>
     </footer>
   );

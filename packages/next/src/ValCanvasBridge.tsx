@@ -1,14 +1,14 @@
 "use client";
 
 import React from "react";
-import { Internal } from "@valbuild/core";
+import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
+  BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
-  isDesignTabOrigin,
+  installPageLog,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
-  quickPreviewSiteOrigin,
   readPageSnapshot,
   screenshotPage,
   restoreScroll,
@@ -16,12 +16,14 @@ import {
   storeQuickPreview,
   watchPageLocation,
   VAL_CANVAS_MESSAGE,
+  isCodeChangedDetail,
   type ElementPicking,
   type PickModifier,
   ValCanvasElement,
   ValCanvasPageMessage,
   type ValCanvasStudioMessage,
 } from "@valbuild/shared/client";
+import { VERSION } from "./version";
 
 /**
  * The colours Val outlines its content in, until the studio says otherwise.
@@ -64,8 +66,28 @@ const RESCAN_INTERVAL_MS = 5000;
 export function ValCanvasBridge({
   draftMode,
   isRefreshing,
+  holds,
+  holdsVersions,
+  codeChanged,
 }: {
   draftMode: boolean;
+  /**
+   * The modules the hooks could not read the Studio's content of, because it
+   * was made with another schema than this page's build has
+   * (`CodeChangedReporter.modules`): passed on as `codeChanged`, when the
+   * bridge mounts and each time the page announces a change.
+   */
+  codeChanged?: () => ModuleFilePath[];
+  /**
+   * The modules this page holds a draft of (`<ValProvider draft>`), reported
+   * with `ready`: the studio sends each of them in its catch-up. See `ready`
+   * in the canvas protocol.
+   */
+  holds?: readonly ModuleFilePath[];
+  /** The version it holds each at, where its draft says: see `ready`. */
+  holdsVersions?: Partial<
+    Record<ModuleFilePath, { schema: string; base: string; chain: string }>
+  >;
   /**
    * Whether the server tree is being re-rendered because of an edit.
    *
@@ -94,17 +116,21 @@ export function ValCanvasBridge({
   const pickingRef = React.useRef(false);
   pickingRef.current = picking;
   /**
-   * Picking ANY element (the design tab's `pickElements`), as the studio last
-   * said. `null` until it says, which is every studio but the design tab.
+   * Picking ANY element (`pickElements`), as the studio last said. `null`
+   * until it says.
    */
   const [elementPicking, setElementPicking] = React.useState<{
     enabled: boolean;
     active: boolean;
     modifier: PickModifier;
     keepPicked: boolean;
+    fieldsOnly: boolean;
+    color: string | null;
   } | null>(null);
   const elementPickingActive = React.useRef(false);
   elementPickingActive.current = elementPicking?.active === true;
+  const elementPickingFieldsOnly = React.useRef(false);
+  elementPickingFieldsOnly.current = elementPicking?.fieldsOnly === true;
   const elementPicker = React.useRef<ElementPicking | null>(null);
   /** A scroll back to where the last build was, still trying. */
   const stopRestoring = React.useRef<(() => void) | null>(null);
@@ -216,8 +242,16 @@ export function ValCanvasBridge({
       type: "ready",
       draftMode,
       url: window.location.href,
+      ...(holds !== undefined && holds.length > 0 ? { holds: [...holds] } : {}),
+      ...(holdsVersions !== undefined && Object.keys(holdsVersions).length > 0
+        ? { holdsVersions }
+        : {}),
+      // What this bridge answers, so the Studio never waits on a request
+      // it would not: see `capabilities` in the protocol.
+      capabilities: [...BRIDGE_CAPABILITIES],
+      bridge: { package: "@valbuild/next", version: VERSION },
     });
-  }, [post, draftMode]);
+  }, [post, draftMode, holds, holdsVersions]);
 
   /**
    * Re-scan whenever the page could have moved.
@@ -334,62 +368,64 @@ export function ValCanvasBridge({
           active: message.active,
           modifier: message.modifier,
           keepPicked: message.keepPicked,
+          fieldsOnly: message.fieldsOnly === true,
+          color: message.color ?? null,
         });
         return;
       }
       if (message.type === "scrollTo") {
-        // Where the build before this one was: the design tab swaps a new
-        // build in at the same place.
+        // Where the build before this one was: a new build swapped in at the
+        // same place.
         stopRestoring.current?.();
         stopRestoring.current = restoreScroll(window, message.x, message.y);
         return;
       }
       if (message.type === "readPage") {
-        // The assistant's `read_page`: what is on the page, read here because
-        // the tab is another origin and cannot. The page's words, unpublished
-        // ones included, so only for the frame's parent, and only when that
-        // is the site's design tab or the Studio here -- and answered to it
-        // alone, not to `*`.
+        // The assistant's `read_page`: what is on the page, read here, where
+        // the page's elements are. The page's words, unpublished ones
+        // included, so only for the frame's parent, and only when that is the
+        // Studio here, at this page's own origin -- and answered to it alone,
+        // not to `*`.
         if (event.source !== window.parent) return;
         const asker = event.origin;
-        void isDesignTabOrigin(asker, {
-          api: "/api/val",
-          own: window.location.origin,
-        }).then((trusted) => {
-          if (trusted) window.parent.postMessage(readPageReply(message), asker);
-        });
+        if (asker !== window.location.origin) return;
+        window.parent.postMessage(readPageReply(message), asker);
+        return;
+      }
+      if (message.type === "readPageLog") {
+        // The assistant's `read_page_log`: what the page logged as going
+        // wrong. As `readPage`: only for the frame's parent, when that is
+        // the Studio here, and answered to it alone.
+        if (event.source !== window.parent) return;
+        const asker = event.origin;
+        if (asker !== window.location.origin) return;
+        window.parent.postMessage(readPageLogReply(message), asker);
         return;
       }
       if (message.type === "screenshotPage") {
         // The assistant's `screenshot_page`: a picture of the page, drawn
-        // here because the tab is another origin and cannot. As `readPage`:
-        // only for the frame's parent, when that is the design tab or the
+        // here. As `readPage`: only for the frame's parent, when that is the
         // Studio here, and answered to it alone.
         if (event.source !== window.parent) return;
         const asker = event.origin;
-        void isDesignTabOrigin(asker, {
-          api: "/api/val",
-          own: window.location.origin,
-        }).then(async (trusted) => {
-          if (!trusted) return;
-          window.parent.postMessage(await screenshotReply(message), asker);
-        });
+        if (asker !== window.location.origin) return;
+        void screenshotReply(message).then((reply) =>
+          window.parent.postMessage(reply, asker),
+        );
         return;
       }
       if (message.type === "quickPreview") {
         // Code that will run on this address: only from the frame's parent,
-        // and only when that is the site's design tab. See `quickPreview.ts`.
+        // and only when that is the Studio here. See `quickPreview.ts`.
         if (event.source !== window.parent) return;
         const { id, files } = message;
         const origin = event.origin;
         void (async () => {
           try {
-            // The site's design tab alone: not even the Studio here, which
-            // never sends one.
-            const site = await quickPreviewSiteOrigin("/api/val");
-            if (site === null || site !== origin) {
+            // The Studio here alone: this page's own origin.
+            if (origin !== window.location.origin) {
               throw new Error(
-                "Only the site's design tab can show a quick preview of this proposal.",
+                "Only this proposal's own Studio can show a quick preview of it.",
               );
             }
             await storeQuickPreview(id, files, {
@@ -421,16 +457,15 @@ export function ValCanvasBridge({
          * `ValNextProvider` listens for this event on its own window to make an
          * inline edit visible behind the overlay; the only thing different here
          * is that the edit was made in another window. Re-dispatching rather
-         * than reaching into the store keeps one path into the page — including
-         * the `router.refresh()` it throttles behind it, which is what brings a
-         * server component's own re-read across.
+         * than reaching into the store keeps one path into the page. (What
+         * re-reads the server's own content is `confirmed`, below.)
          */
         window.dispatchEvent(
           new CustomEvent("val-event", {
             detail: {
               type: "source-update",
               moduleFilePath: message.moduleFilePath,
-              source: message.source,
+              read: message.read,
             },
           }),
         );
@@ -446,6 +481,16 @@ export function ValCanvasBridge({
         );
         return;
       }
+      if (message.type === "confirmed") {
+        // How far the server holds the editor's changes: what the provider
+        // re-reads its server-rendered content on. Relayed like the two above.
+        window.dispatchEvent(
+          new CustomEvent("val-event", {
+            detail: { type: "confirmed", seq: message.seq },
+          }),
+        );
+        return;
+      }
       setHighlighted(message.path);
       if (message.path !== null && message.scrollIntoView) {
         const target = findByPath(message.path);
@@ -457,12 +502,40 @@ export function ValCanvasBridge({
     return () => window.removeEventListener("message", listener);
   }, [scan, post]);
 
-  // Where the page is, as it moves: the design tab opens a new build there.
+  // What the hooks could not read for its schema: the Studio says the code
+  // changed, with a reload. What was refused before the bridge mounted, then
+  // each change the page announces (`val-overlay-spa`, `codeChanged`).
+  React.useEffect(() => {
+    const already = codeChanged?.() ?? [];
+    if (already.length > 0) {
+      post({ val: VAL_CANVAS_MESSAGE, type: "codeChanged", modules: already });
+    }
+    const listener = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      if (!isCodeChangedDetail(event.detail)) return;
+      post({
+        val: VAL_CANVAS_MESSAGE,
+        type: "codeChanged",
+        modules: event.detail.modules,
+      });
+    };
+    window.addEventListener("val-overlay-spa", listener);
+    return () => window.removeEventListener("val-overlay-spa", listener);
+  }, [codeChanged, post]);
+
+  // The page's log, if the provider's module did not start it already.
+  React.useEffect(() => {
+    pageLog();
+  }, []);
+
+  // Where the page is, as it moves: a new build is opened there. The log
+  // hears of it too, so a client-side navigation starts a new page in it.
   React.useEffect(
     () =>
-      watchPageLocation(window, (location) =>
-        post({ val: VAL_CANVAS_MESSAGE, type: "location", ...location }),
-      ),
+      watchPageLocation(window, (location) => {
+        pageLog().noteLocation();
+        post({ val: VAL_CANVAS_MESSAGE, type: "location", ...location });
+      }),
     [post],
   );
 
@@ -495,14 +568,27 @@ export function ValCanvasBridge({
       document.removeEventListener("click", onClick, { capture: true });
   }, [post]);
 
+  // Esc while picking fields: the key goes to the page, which has the focus
+  // once it has been clicked, so the studio hears of it only from here.
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && pickingRef.current) {
+        post({ val: VAL_CANVAS_MESSAGE, type: "pickingStopped" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [post]);
+
   /**
-   * Picking any element, for the design tab: the page's own elements, which
+   * Picking any element: the page's own elements, which
    * only this side of the frame can reach. The listeners and the outlines are
    * `startElementPicking`'s (`@valbuild/shared`), so both bindings run the
    * same picker; what crosses back is the element described.
    */
-  const selectionColorRef = React.useRef(selectionColors.selection);
-  selectionColorRef.current = selectionColors.selection;
+  const pickColor = elementPicking?.color ?? selectionColors.selection;
+  const selectionColorRef = React.useRef(pickColor);
+  selectionColorRef.current = pickColor;
   const pickingEnabled = elementPicking?.enabled === true;
   const pickModifier = elementPicking?.modifier ?? "alt";
   React.useEffect(() => {
@@ -510,6 +596,7 @@ export function ValCanvasBridge({
     const picker = startElementPicking(document.body, {
       modifier: pickModifier,
       active: () => elementPickingActive.current,
+      fieldsOnly: () => elementPickingFieldsOnly.current,
       color: selectionColorRef.current,
       onPick: (element) =>
         post({ val: VAL_CANVAS_MESSAGE, type: "elementPicked", element }),
@@ -527,8 +614,8 @@ export function ValCanvasBridge({
     if (!keepPicked) elementPicker.current?.clearPicked();
   }, [keepPicked]);
   React.useEffect(() => {
-    elementPicker.current?.setColor(selectionColors.selection);
-  }, [selectionColors.selection]);
+    elementPicker.current?.setColor(pickColor);
+  }, [pickColor]);
 
   /**
    * Two-finger gestures, handed to the studio.
@@ -838,6 +925,43 @@ async function screenshotReply(
   }
 }
 
+/**
+ * The page's log (`pageLog.ts`). Started when the provider's module was
+ * evaluated in the canvas, before hydration; started here, as late as the
+ * bridge mounts, only if that did not happen -- a document that was not the
+ * canvas when the provider loaded (see `isValCanvasFrame`).
+ */
+function pageLog() {
+  return installPageLog(window);
+}
+
+/** What `readPageLog` answers: the page's log, or why it could not be read. */
+function readPageLogReply(
+  message: Extract<ValCanvasStudioMessage, { type: "readPageLog" }>,
+): ValCanvasPageMessage {
+  try {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageLogRead",
+      requestId: message.requestId,
+      log: pageLog().read({
+        ...(message.sinceNavigation !== undefined
+          ? { sinceNavigation: message.sinceNavigation }
+          : {}),
+        ...(message.levels !== undefined ? { levels: message.levels } : {}),
+      }),
+    };
+  } catch (error) {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageLogRead",
+      requestId: message.requestId,
+      log: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 /** What `readPage` answers: the page read, or why it could not be. */
 function readPageReply(
   message: Extract<ValCanvasStudioMessage, { type: "readPage" }>,
@@ -847,14 +971,18 @@ function readPageReply(
       val: VAL_CANVAS_MESSAGE,
       type: "pageRead",
       requestId: message.requestId,
-      snapshot: readPageSnapshot(document, {
-        ...(message.selector !== undefined
-          ? { selector: message.selector }
-          : {}),
-        ...(message.maxItems !== undefined
-          ? { maxItems: message.maxItems }
-          : {}),
-      }),
+      snapshot: {
+        ...readPageSnapshot(document, {
+          ...(message.selector !== undefined
+            ? { selector: message.selector }
+            : {}),
+          ...(message.maxItems !== undefined
+            ? { maxItems: message.maxItems }
+            : {}),
+        }),
+        // So the assistant notices the page threw without asking.
+        log: pageLog().counts(),
+      },
     };
   } catch (error) {
     return {

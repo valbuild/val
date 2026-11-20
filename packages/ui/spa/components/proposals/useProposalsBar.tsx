@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { SourcePath } from "@valbuild/core";
 import type { TopBarProposals } from "../shell/TopBar";
+import { useSettledProjectSeq } from "../shell/canvas/useServedBuild";
 import {
   useCurrentAuthorId,
   useCurrentProposal,
@@ -32,6 +33,7 @@ import {
   type UpdateResolution,
   jobState,
   sameStudioPageAt,
+  siteCodeRefusalOf,
   toSummary,
   type ProposalJson,
   type UpdateConflict,
@@ -66,7 +68,7 @@ import { studioCodeUpdateDeps } from "../../proposals/studioCodeUpdate";
 import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
 import { toAdminLinks } from "../shell/shellDataMapping";
-import { useValConfig } from "../ValFieldProvider";
+import { useSaveUnsaved, useValConfig } from "../ValFieldProvider";
 import {
   restoreCodeOf,
   withRestoreCode,
@@ -81,8 +83,50 @@ import {
 import type { FloatingNoticeItem } from "../shell/FloatingNotices";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
-import { designTabUrl, siteDesignTabUrl } from "../../design/designTabUrl";
 import { MergedProposalDialog } from "./MergedProposalDialog";
+import {
+  asksForCodeMode,
+  registerCodeModeTurnOn,
+  registerSiteCodeOpen,
+  reportCodeMode,
+  reportSiteCode,
+  requestCodeModeMenu,
+  setCodeModeBusy,
+  useCodeModeState,
+  withCodeModeParam,
+  withoutCodeModeParam,
+} from "../../proposals/codeMode";
+import {
+  commitProposal,
+  publishCommitRefusalOf,
+  type CommitOutcome,
+} from "../../proposals/commitProposal";
+import { buildOnTheirPush } from "../../proposals/buildOnTheirPush";
+import { StudioPublishError } from "@valbuild/shared/publish";
+import { urlOf } from "@valbuild/shared/internal";
+import { formatRelativeTime } from "../../utils/formatRelativeTime";
+import {
+  buildIsDue,
+  previewUpdateOf,
+  type ProposalCommit,
+} from "./ProposalBar";
+import type { PreviewProblem } from "./PreviewProblemCard";
+import type { CodeModeBuild } from "./CodeModeStatus";
+import { CommitMessageDialog } from "./CommitMessageDialog";
+import {
+  CommitRefusedNotice,
+  type BuildOnPushState,
+  type CommitRefused,
+  type RebuildState,
+} from "./CommitRefusedNotice";
+import { useSettingsModuleSource } from "../../hooks/useSettingsModuleSource";
+import {
+  isCommitMessageRequired,
+  readStudioSettings,
+} from "../../hooks/studioSettings";
+import { useAIChatActions } from "../AIChatActionsContext";
+import { GitCommit } from "lucide-react";
+import type { Owner } from "../shell/planLimits/studioAccess";
 import type {
   ProposalCodeState,
   ProposalPerson,
@@ -134,6 +178,9 @@ type Dialog = "new" | "close" | "rename" | "all" | "publish" | null;
 const NO_PROPOSALS: ProposalJson[] = [];
 const NO_NOTICES: FloatingNoticeItem[] = [];
 
+/** How often a proposal is read again for who turned code mode on or off. */
+const CODE_MODE_POLL_MS = 20_000;
+
 /** How often a proposal waiting on its dependencies is read again. */
 const DEPENDENCIES_POLL_MS = 5_000;
 
@@ -151,9 +198,17 @@ export function useProposalsBar({
   unsaved,
   portalContainer,
   onCompare,
+  owners = [],
+  projectUrl = null,
 }: {
   /** Changes made since the last save: the Save button's count. */
   unsaved: number;
+  /**
+   * Who can let someone do what they are not allowed to: the project's
+   * owners and its page in Val Build (`/access`), for a refusal that says so.
+   */
+  owners?: Owner[];
+  projectUrl?: string | null;
   portalContainer?: HTMLElement | null;
   /** Compare with the site: what Publish would publish. */
   onCompare?: () => void;
@@ -178,6 +233,15 @@ export function useProposalsBar({
   upgradeSettings: UpgradeSettings | null;
   /** The site's address, once the proposals list has said it. */
   siteUrl: string | null;
+  /**
+   * Code mode's workspace, for the person whose view it is: what replaces
+   * the editor and the canvas. `null` when they see the content editor.
+   */
+  /**
+   * The proposal's code changes, while code mode is on: what Review shows
+   * beside the content changes.
+   */
+  codeChanges: { name: string; build: CodeModeBuild } | null;
 } {
   const mode = useValMode();
   const config = useValConfig();
@@ -298,9 +362,11 @@ export function useProposalsBar({
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
-  const go = useCallback((origin: string, to?: string) => {
+  const go = useCallback((origin: string, to?: string, inCodeMode = false) => {
     if (to !== undefined) setLeaving(to);
-    window.location.assign(sameStudioPageAt(origin, window.location));
+    const target = sameStudioPageAt(origin, window.location);
+    // The `</>` menu: the proposal's Studio turns code mode on there.
+    window.location.assign(inCodeMode ? withCodeModeParam(target) : target);
   }, []);
 
   const failed = useCallback(
@@ -310,13 +376,15 @@ export function useProposalsBar({
   );
 
   const openProposal = useCallback(
-    async (name: string) => {
+    async (name: string, inCodeMode = false) => {
       if (name === here?.name) return;
       const known = ready?.proposals.find((p) => p.name === name);
-      const to = known ? `Opening “${known.displayName}”…` : "Opening…";
+      const to = known
+        ? `Opening “${known.displayName}”${inCodeMode ? " in code mode" : ""}…`
+        : "Opening…";
       try {
         if (known?.address) {
-          go(known.address, to);
+          go(known.address, to, inCodeMode);
           return;
         }
         // Its address may still be being made: say so while it is.
@@ -324,7 +392,7 @@ export function useProposalsBar({
         if (known?.setup?.status === "failed") {
           await client.retrySetup(name);
         }
-        go(await waitForAddress(client, name), to);
+        go(await waitForAddress(client, name), to, inCodeMode);
       } catch (error) {
         setLeaving(null);
         failed("Could not open the proposal", error);
@@ -490,13 +558,60 @@ export function useProposalsBar({
     remembered,
   ]);
 
+  /*
+   * Code mode (`docs/plans/one-content-model.md`, "Code mode"): the
+   * proposal's, from content, and the same for everyone in it. Shared with
+   * the assistant through `codeMode.ts`.
+   */
+  const codeModeJson = here !== null ? (currentJson?.codeMode ?? null) : null;
+  const codeOn = codeModeJson?.on === true;
+  const codeModeStore = useCodeModeState();
+  /*
+   * Everyone in the proposal sees the `</>` turn: someone else's switch is
+   * read again while this tab is in front. The code tools never rely on it --
+   * they ask content before each write.
+   */
+  const inAProposal = here !== null;
+  useEffect(() => {
+    if (!inAProposal) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, CODE_MODE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [inAProposal, refresh]);
+  /*
+   * And at once when the proposal's version moves: someone else staged
+   * code (valbuild/home `patches.countStaging`) or a build was served, so
+   * code mode's status says what the preview shows ("Save to update",
+   * "Quick preview") for everyone in it, not only for whoever made the
+   * change. Once per burst of saves (`useSettledProjectSeq`).
+   */
+  const seq = useSettledProjectSeq();
+  const seqSeen = useRef(seq);
+  useEffect(() => {
+    if (seq === seqSeen.current) return;
+    seqSeen.current = seq;
+    if (inAProposal) void refresh();
+  }, [seq, inAProposal, refresh]);
+  useEffect(() => {
+    reportCodeMode(
+      here === null || currentJson === null
+        ? null
+        : { name: here.name, displayName: currentJson.displayName, on: codeOn },
+    );
+  }, [here, currentJson, codeOn]);
+
   /** Save; the reason it did not, or null when it did. */
   const save = useCallback(async (): Promise<string | null> => {
     setSaveError(null);
     const name = currentJson?.displayName ?? "the proposal";
     let failed: string | null = null;
     try {
-      const result = await publish(`Saved in ${name}`);
+      const result = await publish(
+        `Saved in ${name}`,
+        // In code mode a save takes invalid content too: see `codeMode`.
+        codeOn ? { invalidAllowed: true } : undefined,
+      );
       if (result.status === "refused" || result.status === "failed") {
         failed =
           "message" in result && typeof result.message === "string"
@@ -510,7 +625,297 @@ export function useProposalsBar({
     }
     setSaveError(failed);
     return failed;
-  }, [currentJson?.displayName, publish, refresh]);
+  }, [currentJson?.displayName, publish, refresh, codeOn]);
+
+  /**
+   * Turn code mode on or off, for everyone in the proposal: one call to Val's
+   * server, which saves every pending change before it turns it on. The
+   * reason it did not, or `null` when it did.
+   */
+  const setCodeMode = useCallback(
+    async (on: boolean): Promise<string | null> => {
+      if (here === null) return "Code mode is turned on in a proposal.";
+      setCodeModeBusy(true);
+      try {
+        await client.setCodeMode(here.name, on);
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      } finally {
+        setCodeModeBusy(false);
+        void refresh();
+      }
+    },
+    [client, here, refresh],
+  );
+  const toggleCodeMode = useCallback(
+    async (on: boolean) => {
+      const failed = await setCodeMode(on);
+      if (failed === null) return;
+      toast.error(
+        on
+          ? "Code mode could not be turned on"
+          : "Code mode could not be turned off",
+        {
+          description: failed,
+          action: {
+            label: "Try again",
+            onClick: () => void toggleCodeModeRef.current(on),
+          },
+        },
+      );
+    },
+    [setCodeMode],
+  );
+  const toggleCodeModeRef = useRef(toggleCodeMode);
+  toggleCodeModeRef.current = toggleCodeMode;
+  // The assistant's `request_code_mode` card turns it on the same way.
+  useEffect(() => {
+    if (here === null) return;
+    registerCodeModeTurnOn(() => setCodeMode(true));
+    return () => registerCodeModeTurnOn(null);
+  }, [here, setCodeMode]);
+  /*
+   * Arriving from the `</>` menu on the site: the address asks for code mode
+   * (`CODE_MODE_PARAM`). Turned on if it is off, and shown, once the
+   * proposal's own read says which; the parameter is taken out of the
+   * address so a reload does not ask again.
+   */
+  const codeModeAsked = useRef(false);
+  const ownRead = statHere !== null && currentJson !== null;
+  useEffect(() => {
+    if (!ownRead || codeModeAsked.current) return;
+    if (!asksForCodeMode(window.location.href)) return;
+    codeModeAsked.current = true;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      withoutCodeModeParam(window.location.href),
+    );
+    if (!codeOn) void toggleCodeMode(true);
+  }, [ownRead, codeOn, toggleCodeMode]);
+
+  /*
+   * Save, and update the preview: Save is the proposal's one main button,
+   * and with nothing to save it updates a preview that is behind.
+   */
+  const saveAndBuild = useCallback(async () => {
+    // A save that failed is tried again by the same press.
+    if (unsaved > 0 || saveError !== null) {
+      const failed = await save();
+      if (failed !== null) return;
+    }
+    if (buildIsDue(code)) await runBuild();
+  }, [unsaved, saveError, save, code, runBuild]);
+
+  /*
+   * Commit, in a project connected to git: the proposal as it was last
+   * saved, as one commit on its branch. Saves go there no more (content's
+   * code-mode contract, section 4), so this -- or Publish -- is how a
+   * developer finds the proposal in git.
+   */
+  const git = currentJson?.git ?? null;
+  const settingsModule = useSettingsModuleSource();
+  const messageRequired =
+    (settingsModule.moduleFilePath !== null &&
+      settingsModule.source === undefined) ||
+    isCommitMessageRequired(readStudioSettings(settingsModule.source));
+  const [committing, setCommitting] = useState(false);
+  /*
+   * Somebody pushed to the proposal's branch, so Commit -- or the commit
+   * Publish makes first -- was refused, and Build on their push is where
+   * that goes: one for both, since it is the same branch and the same push.
+   */
+  const [theirPush, setTheirPush] = useState<TheirPush | null>(null);
+  const theirPushRef = useRef(theirPush);
+  theirPushRef.current = theirPush;
+  const [askingMessage, setAskingMessage] = useState<
+    "commit" | "publish" | null
+  >(null);
+  /** Publish's commit message, where the project asks for one. */
+  const publishMessage = useRef<string | null>(null);
+  const runCommit = useCallback(
+    async (message: string) => {
+      if (here === null) return;
+      setCommitting(true);
+      const before = theirPushRef.current;
+      setTheirPush(null);
+      try {
+        // Unsaved changes are not in a commit: saved first.
+        if (unsaved > 0) {
+          const failed = await save();
+          if (failed !== null) {
+            toast.error("Nothing was committed", {
+              description: `The changes could not be saved first: ${failed}`,
+            });
+            return;
+          }
+        }
+        const outcome = await commitProposal(client, here.name, message);
+        if (outcome.status === "committed") {
+          const url = outcome.url;
+          toast.success(
+            outcome.pushed
+              ? `Committed to ${outcome.branch ?? "its branch"}`
+              : "Everything saved was committed already",
+            {
+              action: { label: "View commit", onClick: () => window.open(url) },
+            },
+          );
+          return;
+        }
+        if (outcome.status === "someone-pushed") {
+          // Pressing again would be refused the same way: see the notice.
+          setTheirPush({
+            refused: refusedOf(outcome, "commit", before),
+            buildOn: { kind: "idle" },
+            commitMessage: message,
+          });
+          return;
+        }
+        const branchUrl = outcome.branchUrl;
+        toast.error("Nothing was committed", {
+          description: outcome.message,
+          ...(outcome.canRetry
+            ? {
+                action: {
+                  label: "Try again",
+                  onClick: () => void runCommitRef.current(message),
+                },
+              }
+            : branchUrl !== null
+              ? {
+                  // Trying again cannot help: where to see why can.
+                  action: {
+                    label: "Open the branch",
+                    onClick: () => window.open(branchUrl),
+                  },
+                }
+              : {}),
+        });
+      } finally {
+        setCommitting(false);
+        void refresh();
+      }
+    },
+    [client, here, unsaved, save, refresh],
+  );
+  const runCommitRef = useRef(runCommit);
+  runCommitRef.current = runCommit;
+
+  /*
+   * Build on their push: their changes brought into the proposal, then
+   * Commit (or Publish) again. The preview is rebuilt with their code here,
+   * as after any staging -- content does not start that build itself.
+   */
+  const runBuildRef = useRef(runBuild);
+  runBuildRef.current = runBuild;
+  const runBuildOnPush = useCallback(async () => {
+    const pushed = theirPushRef.current;
+    if (here === null || pushed === null) return;
+    const during = pushed.refused.during;
+    const update = (buildOn: TheirPush["buildOn"]) =>
+      setTheirPush((now) => (now === null ? null : { ...now, buildOn }));
+    update({ kind: "building" });
+    const outcome = await buildOnTheirPush(
+      client,
+      here.name,
+      pushed.refused.commit.sha,
+    );
+    switch (outcome.status) {
+      case "taken":
+        update({
+          kind: "built",
+          kept: outcome.kept,
+          notTaken: outcome.notTaken,
+          rewritten: outcome.rewritten,
+        });
+        await refresh();
+        if (outcome.proposal.staged?.buildRequired === true) {
+          void runBuildRef.current();
+        }
+        return;
+      case "someone-pushed":
+        // Their push moved again: this is the one to build on now.
+        setTheirPush((now) =>
+          now === null
+            ? null
+            : {
+                ...now,
+                refused: refusedOf(outcome, during, now),
+                buildOn: { kind: "idle" },
+              },
+        );
+        return;
+      case "nothing-to-take":
+        update({
+          kind: "failed",
+          message: `There is nothing of theirs to bring in any more: the branch is where Val left it. ${during === "commit" ? "Commit" : "Publish"} again.`,
+          offer: { kind: "again" },
+        });
+        return;
+      case "failed":
+        update({
+          kind: "failed",
+          message: outcome.message,
+          offer:
+            outcome.offer?.kind === "sign-in"
+              ? { kind: "sign-in", url: signInUrl() }
+              : outcome.offer?.kind === "not-allowed"
+                ? { kind: "not-allowed", owners, projectUrl }
+                : outcome.offer,
+        });
+        return;
+    }
+  }, [client, here, refresh, owners, projectUrl]);
+  const defaultCommitMessage = `Changes in “${currentJson?.displayName ?? "the proposal"}”`;
+  const commit: ProposalCommit | undefined =
+    git === null || here === null
+      ? undefined
+      : {
+          branch: git.branch,
+          state: committing ? "committing" : "idle",
+          upToDate: !git.uncommitted && unsaved === 0,
+          onCommit: () => {
+            if (messageRequired) setAskingMessage("commit");
+            else void runCommit(defaultCommitMessage);
+          },
+        };
+
+  /*
+   * The preview could not be updated: what happened and the ways on, on the
+   * switcher -- never on Save. Who caused it is not known here yet.
+   */
+  const update = previewUpdateOf(code);
+  const { askAssistant } = useAIChatActions();
+  const previewProblem: PreviewProblem | null =
+    update.state !== "failed"
+      ? null
+      : {
+          error: update.error,
+          cause: null,
+          onAskAssistant: () => {
+            if (!codeOn) void toggleCodeMode(true);
+            askAssistant(
+              `The proposal's preview could not be updated with the latest code. This is the error:\n\n${update.error}\n\nFind what causes it and fix it.`,
+            );
+          },
+          ...(update.canRetry ? { onRetry: () => void runBuild() } : {}),
+        };
+  /** Where the preview is, as code mode's workspace says it. */
+  const buildPercent = proposalBuild.progress?.percent ?? null;
+  const codeBuild: CodeModeBuild =
+    update.state === "updating"
+      ? {
+          state: "updating",
+          progress: buildPercent === null ? null : buildPercent / 100,
+          step: proposalBuild.progress?.label ?? null,
+        }
+      : previewProblem !== null
+        ? { state: "failed", problem: previewProblem }
+        : update.state === "behind" || update.state === "blocked"
+          ? { state: "behind" }
+          : { state: "up-to-date" };
 
   /*
    * Publish: merging the proposal into the site (Flow F). The dialog reads
@@ -713,7 +1118,13 @@ export function useProposalsBar({
   const following = useMemo<
     | { kind: "running"; step: "building" | "publishing" }
     | { kind: "merged" }
-    | { kind: "failed"; message: string; requestId: string | null }
+    | {
+        kind: "failed";
+        message: string;
+        requestId: string | null;
+        /** Content's refusal of the press, when it was one: see `refusedPublish`. */
+        cause?: unknown;
+      }
     | null
   >(() => {
     if (pressed === null) return null;
@@ -770,6 +1181,16 @@ export function useProposalsBar({
             kind: "failed",
             message: handoffState.message,
             requestId: null,
+            // The builder tab pressed, and content refused it: why, as data.
+            ...(handoffState.refused !== undefined
+              ? {
+                  cause: new StudioPublishError(
+                    handoffState.refused.status,
+                    handoffState.refused.message,
+                    handoffState.refused.body,
+                  ),
+                }
+              : {}),
           };
         case "checking":
           return { kind: "running", step: "publishing" };
@@ -794,7 +1215,7 @@ export function useProposalsBar({
     void refresh();
     if (following.kind === "failed") {
       setFailedRequest(following.requestId);
-      setPublishState({ kind: "failed", message: following.message });
+      refusedPublishRef.current(following.message, following.cause);
       return;
     }
     setFailedRequest(null);
@@ -830,6 +1251,42 @@ export function useProposalsBar({
     };
   }, [mergedName, client, refresh]);
 
+  /*
+   * A press of Publish refused, as the dialog says it: the commit Publish
+   * makes first, refused because somebody pushed, offers Build on their
+   * push -- Try again would be refused the same way -- and one GitHub
+   * refused for good links where to see why.
+   */
+  const refusedPublish = useCallback((message: string, cause: unknown) => {
+    const refusal = publishCommitRefusalOf(cause);
+    if (refusal?.status === "someone-pushed") {
+      const before = theirPushRef.current;
+      const refused = refusedOf(refusal, "publish", before);
+      setTheirPush({ refused, buildOn: { kind: "idle" }, commitMessage: null });
+      setPublishState({
+        kind: "someone-pushed",
+        refused,
+        buildOn: { kind: "idle" },
+      });
+      return;
+    }
+    if (
+      refusal?.status === "failed" &&
+      !refusal.canRetry &&
+      refusal.branchUrl !== null
+    ) {
+      setPublishState({
+        kind: "failed",
+        message: refusal.message,
+        seeWhy: { label: "Open the branch", url: refusal.branchUrl },
+      });
+      return;
+    }
+    setPublishState({ kind: "failed", message });
+  }, []);
+  const refusedPublishRef = useRef(refusedPublish);
+  refusedPublishRef.current = refusedPublish;
+
   /** Press the merge, or press it again: then follow it. */
   const pressMerge = useCallback(
     async (press: () => Promise<ProposalPublishPress>) => {
@@ -838,12 +1295,12 @@ export function useProposalsBar({
       const answer = await press();
       if (answer.status === "error") {
         setPressed(null);
-        setPublishState({ kind: "failed", message: answer.message });
+        refusedPublish(answer.message, answer.cause);
         return;
       }
       setPressed({ since, handedOff: answer.status === "handed-off" });
     },
-    [],
+    [refusedPublish],
   );
 
   const runPublish = useCallback(async () => {
@@ -877,7 +1334,13 @@ export function useProposalsBar({
         return;
       }
     }
-    await pressMerge(() => publishProposal(name, { needsBuild }));
+    const commitMessage = publishMessage.current;
+    await pressMerge(() =>
+      publishProposal(name, {
+        needsBuild,
+        ...(commitMessage !== null ? { commitMessage } : {}),
+      }),
+    );
   }, [
     currentJson,
     currentJson?.changes,
@@ -912,18 +1375,39 @@ export function useProposalsBar({
     runPublish,
   ]);
 
+  /*
+   * Their push, while it is brought in and the preview rebuilt: the bar
+   * keeps it (`theirPush`), and Commit's notice and Publish's dialog both
+   * show it from there.
+   */
+  const takenBuilding = currentJson?.git?.takenIn?.building === true;
+  const buildOnState = (pushed: TheirPush): BuildOnPushState =>
+    pushed.buildOn.kind === "built"
+      ? { ...pushed.buildOn, rebuild: rebuildOf(code, takenBuilding) }
+      : pushed.buildOn;
+
   /* Settled is shown at once; the effect above keeps it once pressed clears. */
   const dialogState: PublishProposalState =
     following === null
       ? publishState.kind === "ready" && conflicts !== null
         ? { ...publishState, conflicts: conflicts.list }
-        : publishState
+        : publishState.kind === "someone-pushed" &&
+            theirPush !== null &&
+            theirPush.refused.during === "publish"
+          ? {
+              kind: "someone-pushed",
+              refused: theirPush.refused,
+              buildOn: buildOnState(theirPush),
+            }
+          : publishState
       : following.kind === "running"
         ? { kind: "publishing", step: following.step }
         : following.kind === "merged"
           ? { kind: "merged" }
           : { kind: "failed", message: following.message };
 
+  /** New proposal from the `</>` menu: it opens in code mode. */
+  const newInCodeMode = useRef(false);
   const create = useCallback(
     async (input: { displayName: string; description: string }) => {
       setBusy("creating");
@@ -938,6 +1422,7 @@ export function useProposalsBar({
         go(
           made.address ?? (await waitForAddress(client, made.name)),
           `Opening “${made.displayName}”…`,
+          newInCodeMode.current,
         );
       } catch (error) {
         const existing =
@@ -1039,6 +1524,80 @@ export function useProposalsBar({
   );
 
   /*
+   * `</>` on the site, where the project lets it change the site's code
+   * (valbuild/home `docs/proposals.md`, "Code mode on the site"): every
+   * local edit is saved first, since content moves only what it has; then
+   * the site-code proposal is got or made with every change pending on the
+   * site in it, and opened in code mode, which saves them there.
+   */
+  const saveUnsaved = useSaveUnsaved();
+  const siteCodeMode = onSite && ready.siteCodeMode;
+  const openSiteCode = useCallback(async () => {
+    const to = "Opening code mode…";
+    setLeaving(to);
+    const tryAgain = {
+      label: "Try again",
+      onClick: () => void openSiteCodeRef.current(),
+    };
+    try {
+      const unsaved = await saveUnsaved();
+      if (unsaved.length > 0) {
+        setLeaving(null);
+        toast.error("Code mode did not open", {
+          description:
+            "Your latest changes could not be saved yet, and code mode takes everything waiting to be published with it. Nothing was lost: they are kept here and sent again.",
+          action: tryAgain,
+        });
+        return;
+      }
+      const made = await client.openSiteCode({
+        displayName: SITE_CODE_NAME,
+        requestId: randomUUID(),
+      });
+      void refresh();
+      go(made.address ?? (await waitForAddress(client, made.name)), to, true);
+    } catch (error) {
+      setLeaving(null);
+      const refusal = siteCodeRefusalOf(error);
+      const message = error instanceof Error ? error.message : String(error);
+      if (refusal === "off") {
+        // The project changed its mind since the list was read: `</>` goes
+        // back to listing proposals, which is offered here too.
+        void refresh();
+        toast.error("Code mode on the site is turned off", {
+          description: message,
+          action: {
+            label: "Choose a proposal…",
+            onClick: () => requestCodeModeMenu(),
+          },
+        });
+        return;
+      }
+      toast.error("Code mode did not open", {
+        description:
+          refusal === "publishing"
+            ? "The site is being published right now. Try again once that is done."
+            : message,
+        action: tryAgain,
+      });
+    }
+  }, [client, go, refresh, saveUnsaved]);
+  const openSiteCodeRef = useRef(openSiteCode);
+  openSiteCodeRef.current = openSiteCode;
+  // The assistant's `request_code_mode` card opens it the same way.
+  useEffect(() => {
+    if (!siteCodeMode) return;
+    reportSiteCode(true);
+    registerSiteCodeOpen(() => void openSiteCodeRef.current());
+    // Gone with the bar: the assistant's card must not offer what nothing
+    // can open.
+    return () => {
+      reportSiteCode(false);
+      registerSiteCodeOpen(null);
+    };
+  }, [siteCodeMode]);
+
+  /*
    * "Go back to this point", arriving: the site's Studio opened this proposal
    * with the content moved in and the commit whose code to bring back in the
    * address (`RESTORE_CODE_PARAM`). Only a proposal's own server may stage
@@ -1117,20 +1676,10 @@ export function useProposalsBar({
       upgrade: null,
       upgradeSettings: null,
       siteUrl: null,
+      codeChanges: null,
     };
   }
 
-  // Where the design tab is: the site's address, never this one.
-  const designUrl =
-    location.kind !== "proposal"
-      ? null
-      : ready?.siteUrl
-        ? designTabUrl(
-            window.location.href,
-            location.proposal.name,
-            ready.siteUrl,
-          )
-        : siteDesignTabUrl(window.location.href, location.proposal.name);
   const proposals: TopBarProposals = {
     location,
     // Where this Studio is, or which proposal it is, still being read.
@@ -1160,7 +1709,10 @@ export function useProposalsBar({
       }
     },
     onOpenProposal: (name) => void openProposal(name),
-    onNewProposal: () => openDialog("new"),
+    onNewProposal: () => {
+      newInCodeMode.current = false;
+      openDialog("new");
+    },
     onShowAllProposals: () => {
       void refresh();
       openDialog("all");
@@ -1171,8 +1723,44 @@ export function useProposalsBar({
       ? { onBuild: () => void runBuild() }
       : {}),
     onPublish: () => {
+      // Publish commits first where there is git: the message is asked for
+      // first where the project requires one.
+      if (git !== null && messageRequired) {
+        setAskingMessage("publish");
+        return;
+      }
+      publishMessage.current = null;
       openDialog("publish");
       void loadChecks();
+    },
+    ...(build !== null && currentJson?.upgrade === undefined
+      ? { onSaveAndBuild: () => void saveAndBuild() }
+      : {}),
+    previewProblem,
+    ...(commit !== undefined ? { commit } : {}),
+    codeMode: {
+      on: codeOn,
+      onToggle: () => void toggleCodeMode(!codeOn),
+      busy: codeModeStore.busy,
+      turnedOn:
+        codeOn &&
+        codeModeJson?.changedBy != null &&
+        codeModeJson.changedAt != null
+          ? {
+              by:
+                codeModeJson.changedBy === viewer
+                  ? "you"
+                  : (people(codeModeJson.changedBy)?.name ?? "someone"),
+              ago: formatRelativeTime(codeModeJson.changedAt, Date.now()),
+            }
+          : null,
+      onOpenProposalInCodeMode: (name) => void openProposal(name, true),
+      ...(siteCodeMode ? { onOpenSiteCode: () => void openSiteCode() } : {}),
+      onNewProposalInCodeMode: () => {
+        newInCodeMode.current = true;
+        openDialog("new");
+      },
+      openMenuRequests: codeModeStore.menuRequests,
     },
     onRename: () => openDialog("rename"),
     onCopyLink: () => {
@@ -1181,9 +1769,6 @@ export function useProposalsBar({
       toast.success("Link copied");
     },
     onClose: () => openDialog("close"),
-    ...(designUrl !== null
-      ? { onOpenDesign: () => window.open(designUrl, "_blank") }
-      : {}),
   };
 
   const currentSummary =
@@ -1244,6 +1829,13 @@ export function useProposalsBar({
             setDecided([]);
           }}
           updating={updating}
+          onBuildOnPush={() => void runBuildOnPush()}
+          onRebuild={() => void runBuild()}
+          {...(previewProblem !== null
+            ? { onAskAssistant: previewProblem.onAskAssistant }
+            : {})}
+          onBuild={() => void runBuild().then(() => loadChecks())}
+          building={previewUpdateOf(code).state === "updating"}
           portalContainer={portalContainer}
         />
       )}
@@ -1310,6 +1902,28 @@ export function useProposalsBar({
           />
         </>
       )}
+      {git !== null && (
+        <CommitMessageDialog
+          open={askingMessage !== null}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setAskingMessage(null);
+          }}
+          purpose={askingMessage ?? "commit"}
+          branch={git.branch}
+          onCommit={(message) => {
+            const purpose = askingMessage;
+            setAskingMessage(null);
+            if (purpose === "publish") {
+              publishMessage.current = message;
+              openDialog("publish");
+              void loadChecks();
+            } else {
+              void runCommit(message);
+            }
+          }}
+          portalContainer={portalContainer}
+        />
+      )}
       <AllProposalsDialog
         open={dialog === "all"}
         onOpenChange={(isOpen) => setDialog(isOpen ? "all" : null)}
@@ -1350,7 +1964,46 @@ export function useProposalsBar({
           ),
         }
       : null;
-  const notices = [restoreNotice, upgrade.notice].filter(
+  /*
+   * A Commit refused because someone else pushed: stays until dismissed, so
+   * who pushed, the link to their commit and Build on their push are not
+   * missed -- and then what came in, and Commit again.
+   */
+  const commitPushed =
+    theirPush !== null && theirPush.refused.during === "commit"
+      ? theirPush
+      : null;
+  const commitNotice: FloatingNoticeItem | null =
+    commitPushed !== null
+      ? {
+          id: `commit-refused:${commitPushed.refused.commit.sha}`,
+          label:
+            commitPushed.buildOn.kind === "building"
+              ? "Building on their push…"
+              : commitPushed.buildOn.kind === "built"
+                ? "Their push is in"
+                : "Not committed",
+          icon: <GitCommit size={13} />,
+          content: (
+            <CommitRefusedNotice
+              refused={commitPushed.refused}
+              state={buildOnState(commitPushed)}
+              onBuildOn={() => void runBuildOnPush()}
+              onAgain={() =>
+                void runCommit(
+                  commitPushed.commitMessage ?? defaultCommitMessage,
+                )
+              }
+              onRebuild={() => void runBuild()}
+              {...(previewProblem !== null
+                ? { onAskAssistant: previewProblem.onAskAssistant }
+                : {})}
+              onDismiss={() => setTheirPush(null)}
+            />
+          ),
+        }
+      : null;
+  const notices = [commitNotice, restoreNotice, upgrade.notice].filter(
     (each): each is FloatingNoticeItem => each !== null,
   );
 
@@ -1362,9 +2015,84 @@ export function useProposalsBar({
     upgrade: upgrade.button,
     upgradeSettings: upgrade.settings,
     siteUrl,
+    codeChanges:
+      here !== null && codeOn ? { name: here.name, build: codeBuild } : null,
   };
 }
 
+/**
+ * What the site-code proposal is called where a name shows: in History, in
+ * the proposals list, and to content.
+ */
+const SITE_CODE_NAME = "Code changes to the site";
+
 function nextNewProposal(): { requestId: string; suggestedName: string } {
   return { requestId: randomUUID(), suggestedName: randomProposalName() };
+}
+
+/**
+ * Somebody's push to the proposal's branch, which refused Commit or the
+ * commit Publish makes first, and how far building on it has got. The
+ * rebuild of the preview is not kept here: it is read from the build.
+ */
+type TheirPush = {
+  refused: CommitRefused;
+  buildOn:
+    | Exclude<BuildOnPushState, { kind: "built" }>
+    | Omit<Extract<BuildOnPushState, { kind: "built" }>, "rebuild">;
+  /** The message Commit was pressed with, for Commit again. */
+  commitMessage: string | null;
+};
+
+/** The refusal as the notice shows it; `movedAgain` when it is a newer push. */
+function refusedOf(
+  outcome: Extract<CommitOutcome, { status: "someone-pushed" }>,
+  during: CommitRefused["during"],
+  before: TheirPush | null,
+): CommitRefused {
+  return {
+    branch: outcome.branch,
+    branchUrl: outcome.branchUrl,
+    who: outcome.who,
+    ago: outcome.ago,
+    commit: outcome.theirs,
+    during,
+    ...(before !== null && before.refused.commit.sha !== outcome.theirs.sha
+      ? { movedAgain: true }
+      : {}),
+  };
+}
+
+/**
+ * The preview, rebuilt with their code: what this tab's build says, and,
+ * once it is quiet, whether content has a build with their code
+ * (`git.takenIn.building`). Built here, as after any staging; Publish waits
+ * for it.
+ */
+function rebuildOf(
+  code: ProposalCodeState | null,
+  takenBuilding: boolean,
+): RebuildState {
+  const update = previewUpdateOf(code);
+  switch (update.state) {
+    case "updating":
+      return { state: "running" };
+    case "failed":
+      return {
+        state: "failed",
+        message: update.error,
+        canRetry: update.canRetry,
+      };
+    case "behind":
+    case "blocked":
+      return { state: "due" };
+    case "up-to-date":
+      // Nothing building here, and content has no build with their code.
+      return takenBuilding ? { state: "due" } : { state: "done" };
+  }
+}
+
+/** Sign in, and come back to this page. */
+function signInUrl(): string {
+  return urlOf("/api/val/authorize", { redirect_to: window.location.href });
 }

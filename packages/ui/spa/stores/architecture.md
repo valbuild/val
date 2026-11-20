@@ -11,6 +11,13 @@
 > [`openquestions.md`](./openquestions.md) holds what was undecided, and the
 > go/no-go it names has been answered: the browser measurements are in
 > [`../bench/README.md`](../bench/README.md), and the answer was yes.
+>
+> How the source store's CONTENT is loaded and versioned changed after this
+> was written (a base and chain through one engine, the server's manifest and
+> `GET /modules`, `withLocalEdits`): that is
+> [`architecture/content-versions.md`](../../../../architecture/content-versions.md),
+> and where this file says `sourcesSha`, a rebase or a replay of the chain,
+> read that page instead.
 
 ## The idea
 
@@ -247,17 +254,17 @@ so; the wiring used not to.
 
 A `.jsonValues()` record's on-disk source holds opaque `{_type:"json"}` MARKERS,
 and each entry's content lives in a separate `*.val.json` fetched on its own
-(`GET /json`). The engine being replaced keeps that content in a field beside
-source (`jsonEntryContents`) and `getPatchedSource` substitutes it in on read.
-That substitution is the right idea and it lives in the **source store** here,
-for the same reason patched source does: it is what every reader reads, and the
-host realm is where readers are.
-
-`substituteJsonEntries` is root-only and marker-guarded, matching the schema, and
-copy-on-write — so a project using no `.jsonValues()` pays a `Map` lookup and
-nothing else. `moduleSource()` caches the substituted source against the revision
-it was computed at, because every in-realm walker (search, schema validation, the
-custom-validate walk) asks for the same thing.
+(`GET /json`, without patches: the BASE entry). The source store keeps the
+base entries it has read beside the base source, and since phase 5 of
+`docs/plans/one-content-model.md` patches reach entries through THE engine
+(`applyPatchRecord` in `@valbuild/shared`, which Val's server uses too): an
+edit inside an entry is applied to its content when the chain made it, and
+held (`waiting`) when the base entry is not read yet, to apply once it is. The
+module's VIEW (`studioView.ts`, `viewOf`) is where those meet: the entries
+whose content is known stand in place of their markers. It is made once per
+version and base entries read, so every reader -- a field, search, schema
+validation, the relay -- gets the same object back while nothing moved, and a
+project using no `.jsonValues()` reads the engine's source as it is.
 
 **The read is the demand signal, and the read WAITS.** A read at a path inside an
 unloaded entry is exactly the moment the content is wanted — the same rule as a
@@ -339,16 +346,18 @@ Two things follow, and both are ordinary rather than exotic:
   landed between it and the one before.
 
 So a patch stat stops naming is _suspect_, not gone. It stays in the chain, in
-place, and `PatchStore.reconcileVanished` asks `GET /patches` about it — a request
-issued now, after the save that made it durable has already returned, so its
-answer describes a server that has seen everything this client has done. An id
-that comes back in neither the results nor the errors is genuinely deleted and is
-`drop`ped; an id the server errors on is kept, because "I could not read it" is
-not "it is gone".
+place, until the manifest decides it (`PatchStore.settleVanished`, since phase 7
+of `docs/plans/one-content-model.md`): the manifest read after the stat names the
+version of the patch's module the server has, and a patch that version does not
+have, which this client held (record received, or save confirmed) before that
+manifest was ASKED for, is genuinely gone and is `drop`ped. A manifest asked for
+earlier may predate it and decides nothing. (Until phase 7 this was a
+`GET /patches` per vanished patch, issued after the save had returned; the
+version in hand answers the same question.)
 
-This is why there is no sequence number anywhere in the chain code. A stale or
-out-of-order stat costs one round trip that answers "still there", instead of a
-protocol that has to be able to date its own responses.
+The ordering is this client's own -- `PatchStore.nextManifestEpoch`, a counter
+of manifests asked for -- so still nothing in the chain code has to date the
+server's responses.
 
 Two failure modes it closes, both of which shipped:
 

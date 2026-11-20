@@ -1,5 +1,80 @@
 # @valbuild/core
 
+## 0.153.5
+
+### Patch Changes
+
+- [#1045](https://github.com/valbuild/val/pull/1045) [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f) Thanks [@freekh](https://github.com/freekh)! - The assistant can ask you to turn on web search, when it needs it.
+
+  If **Search the web** (Settings → Assistant) has not been decided yet and a question needs something from outside your project, the assistant now asks you to turn it on. The question comes from Val, with the assistant's reason quoted.
+
+  - **Turn on web search** turns it on for the project. Searching works from your next message.
+  - **Don't turn on** turns it off, and the assistant will not ask again.
+  - Closing the card decides nothing.
+
+  If web search is off, the assistant never asks. The assistant cannot change this setting itself: only you can, from that card or in Settings.
+
+## 0.153.0
+
+### Patch Changes
+
+- [#1023](https://github.com/valbuild/val/pull/1023) [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41) Thanks [@freekh](https://github.com/freekh)! - The assistant can search the web, if you turn it on.
+
+  Settings → Assistant has a new switch, **Search the web**. It is off unless someone turns it on (`assistant.webSearch: true` in `settings.val.ts`). When it is on, the assistant can look things up online with your AI provider's own search, and each search is billed to your project's AI key. You can see each search in the chat.
+
+  Web pages can contain instructions written for AI assistants, so after the assistant has searched the web, it asks you before it changes the site's code or builds it. The question comes from Val, not from the assistant. Content edits are not affected: they stay drafts you can review and revert, as before.
+
+  Needs a Val Build version with web search. With an older one, nothing changes.
+
+## 0.151.0
+
+### Minor Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`3aff85e`](https://github.com/valbuild/val/commit/3aff85e9a40cb0879285b86fd41fa8167db1bb5e) Thanks [@freekh](https://github.com/freekh)! - **A JSON Patch `test` op now fails when it does not hold.** A `test` op is a
+  precondition: "only apply this patch if the value at this path is still
+  this". Val used to accept every `test` op without checking it, so a patch
+  that should have been refused was applied anyway.
+
+  Now a `test` op fails its patch when the path does not exist, or when the
+  value there is not deeply equal to the one given (objects and arrays are
+  compared all the way down, and `0`, `""`, `false` and `null` are all
+  different from each other). The ops after it are not applied. This holds in
+  every place Val applies a patch -- the Studio's drafts, a draft page, the
+  content tools for MCP, and Publish -- so a patch a draft shows is a patch
+  Publish accepts.
+
+  Nothing in the Studio, the CLI or the content tools writes `test` ops of
+  its own, so this only changes anything for a patch you, or an agent through
+  the MCP `create_patch` tool, wrote with a `test` op in it: one whose test
+  does not hold is now refused with `Test failed` (or, for a path that does
+  not exist, `Path refers to non-existing object/array`) instead of applied.
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563) Thanks [@freekh](https://github.com/freekh)! - **A draft page shows the right `.jsonValues()` entries, whichever reader reads them.**
+
+  - **Pending edits to an entry.** In draft mode, `fetchVal` of a whole
+    `.jsonValues()` record now shows the unpublished edits to its entries. It
+    used to show the published content of every entry, even one an editor had
+    just changed, while `fetchValKey` and `fetchValRoute` of the same entry
+    showed the edit. The entries a pending change touches are read from Val's
+    server; the others are loaded from your build, as before.
+  - **Entries published without a rebuild.** On a host that does not rebuild
+    the site after a publish, a draft page now shows the published entries
+    straight away -- in `fetchVal`, and in `useVal`, `useValKey` and
+    `useValRoute` alike. They used to show those entries as they were before
+    the publish, from the site's build, until it was rebuilt (and on TanStack
+    Start the server render showed the new content, then the page switched
+    back to the old). Val's server marks each entry a publish wrote, and the
+    readers and the Studio load a marked entry from the server.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`f5110c9`](https://github.com/valbuild/val/commit/f5110c9aa2a0a6ff0586e9f0f2a29eb1baef557d) Thanks [@freekh](https://github.com/freekh)! - A field that picks an image, file or video from a library (`s.image(imagesVal)`,
+  `s.file(filesVal)`, `s.video(videosVal)`) now gets the right url on a draft page
+  when the file was uploaded in an unpublished change. The server-rendered page
+  used to name the file at its published url, where nothing exists until the
+  change is published, so the image or video was broken until the Studio's
+  preview replaced it.
+
 ## 0.150.3
 
 ### Patch Changes

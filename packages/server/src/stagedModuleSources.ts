@@ -8,15 +8,15 @@ import { result } from "@valbuild/core/fp";
  *
  * A proposal's address serves a module's Source from what the proposal has
  * SAVED, over the site's, over the build -- never from the text. A save writes
- * both, so they agree. A staging wrote only the text, so after the design
- * tab's `create_patch` added a button to a module, its text and its build had
+ * both, so they agree. A staging wrote only the text, so after the assistant
+ * added a button to a module, its text and its build had
  * the button and the Source the server served and saved did not. The Studio,
  * lined up with that Source, could not apply an edit into the new button: the
  * canvas showed it, and then it was gone.
  *
  * Only what can be read without running anything: a `c.define(...)` whose
  * Source is a literal, a `.jsonValues()` record's entries as the markers its
- * stored Source holds (`evaluateModuleSource`) -- so an entry the design tab
+ * stored Source holds (`evaluateModuleSource`) -- so an entry the assistant
  * adds is one the proposal has. Anything else -- a Source built by code, a
  * file of shared schemas -- is left out, and content keeps the Source it has
  * for it, as before this existed.

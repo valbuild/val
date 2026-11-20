@@ -1,8 +1,17 @@
-import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpCircle,
+  ExternalLink,
+  RefreshCw,
+  ShieldAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { SettingsSection, SettingsSectionDivider } from "./SettingsPanel";
 import { Button } from "../designSystem/button";
 import { Spinner } from "../designSystem/spinner";
-import { kindsOf } from "../../upgrade/upgradeKinds";
+import { cn } from "../designSystem/cn";
+import { kindsOf, type UpgradeKindTone } from "../../upgrade/upgradeKinds";
+import type { UpgradePath } from "../../upgrade/upgradesClient";
 import type { UpgradeSettings } from "../../upgrade/useUpgrade";
 
 /**
@@ -72,13 +81,37 @@ function UpdatesFound({ upgrade }: { upgrade: UpgradeSettings }) {
   }
   return (
     <div className="flex flex-col items-start gap-3">
-      <ul className="flex flex-col gap-2 text-xs">
-        {kinds.map((kind) => (
-          <li key={kind.path}>
-            <span className="font-medium text-fg-primary">{kind.title}</span>
-            <span className="text-fg-secondary"> · {kind.detail}</span>
-          </li>
-        ))}
+      <ul className="w-full divide-y divide-border-primary overflow-hidden rounded-lg border border-border-primary">
+        {kinds.map((kind) => {
+          const Icon = KIND_ICON[kind.path];
+          return (
+            <li key={kind.path} className="flex gap-2.5 px-3 py-2.5">
+              <Icon
+                size={16}
+                aria-hidden
+                className={cn("mt-px shrink-0", ICON_TONE[kind.badge.tone])}
+              />
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-fg-primary">
+                    {kind.title}
+                  </span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4",
+                      BADGE_TONE[kind.badge.tone],
+                    )}
+                  >
+                    {kind.badge.label}
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-fg-secondary">
+                  {kind.detail}
+                </p>
+              </div>
+            </li>
+          );
+        })}
       </ul>
       {onOpen !== null && (
         <Button size="sm" onClick={onOpen}>
@@ -88,3 +121,22 @@ function UpdatesFound({ upgrade }: { upgrade: UpgradeSettings }) {
     </div>
   );
 }
+
+const KIND_ICON: Record<UpgradePath, LucideIcon> = {
+  cves: ShieldAlert,
+  latest: ArrowUpCircle,
+  majors: AlertTriangle,
+};
+
+/** The danger in red, as an alert's icon is; the others plain. */
+const ICON_TONE: Record<UpgradeKindTone, string> = {
+  danger: "text-fg-error-on-surface",
+  caution: "text-fg-secondary",
+  recommended: "text-fg-secondary",
+};
+
+const BADGE_TONE: Record<UpgradeKindTone, string> = {
+  danger: "bg-bg-error-primary text-fg-error-primary",
+  caution: "bg-bg-warning-primary text-fg-warning-primary",
+  recommended: "bg-bg-brand-primary text-fg-brand-primary",
+};

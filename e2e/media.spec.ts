@@ -117,13 +117,73 @@ function pictureRect(
   });
 }
 
-/** A gallery's entries as [ref, metadata] pairs, once the store has them. */
+/**
+ * What `entriesOf` writes in place of an entry's `patch_id` when it is the id
+ * of the patch that uploaded that entry's file.
+ */
+const UPLOADED_BY_ITS_PATCH = "<the patch that uploaded it>";
+
+/**
+ * A gallery's entries as [ref, metadata] pairs, once the store has them.
+ *
+ * An entry whose file is still in a patch carries that patch's `patch_id`: the
+ * engine marks where a file op lands, and a gallery's lands on the entry, in
+ * the Studio's view as in Val's server (`fillFromGallery` hands it to a field
+ * that picked the entry, for its draft url; see architecture/media.md). The id
+ * is a fresh UUID, so it is checked here, in the same read, against the patch
+ * whose `file` op names the ref, and written as {@link UPLOADED_BY_ITS_PATCH}:
+ * a mark from any other patch stays as it is and fails the comparison.
+ */
 async function entriesOf(
   page: Page,
   moduleFilePath: string,
 ): Promise<[string, unknown][]> {
-  const source = await moduleSource(page, moduleFilePath);
-  return source && typeof source === "object" ? Object.entries(source) : [];
+  const [source, uploads] = await Promise.all([
+    moduleSource(page, moduleFilePath),
+    uploadPatchIds(page),
+  ]);
+  if (!source || typeof source !== "object") return [];
+  return Object.entries(source).map(([ref, entry]): [string, unknown] => {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      "patch_id" in entry &&
+      entry.patch_id !== undefined &&
+      entry.patch_id === uploads[ref]
+    ) {
+      return [ref, { ...entry, patch_id: UPLOADED_BY_ITS_PATCH }];
+    }
+    return [ref, entry];
+  });
+}
+
+/** The patch that uploaded each file, by the `file` op's `filePath`. */
+function uploadPatchIds(page: Page): Promise<Record<string, string>> {
+  return page.evaluate(() => {
+    const store = (
+      window as unknown as {
+        __VAL_STORES__: {
+          system: {
+            patchStore: {
+              allRecords(): {
+                patchId: string;
+                patch: { op: string; filePath?: string; value?: unknown }[];
+              }[];
+            };
+          };
+        };
+      }
+    ).__VAL_STORES__.system.patchStore;
+    const ids: Record<string, string> = {};
+    for (const record of store.allRecords()) {
+      for (const op of record.patch) {
+        if (op.op === "file" && op.filePath && op.value !== null) {
+          ids[op.filePath] = record.patchId;
+        }
+      }
+    }
+    return ids;
+  });
 }
 
 /** Every `file` op path in the chain: where an upload decided to store itself. */
@@ -748,7 +808,13 @@ test.describe("re-encoding uploads", () => {
       .toEqual([
         [
           expect.stringMatching(/\.webp$/),
-          { width: 400, height: 300, mimeType: "image/webp", alt: null },
+          {
+            width: 400,
+            height: 300,
+            mimeType: "image/webp",
+            alt: null,
+            patch_id: UPLOADED_BY_ITS_PATCH,
+          },
         ],
       ]);
   });
@@ -793,7 +859,13 @@ test.describe("re-encoding uploads", () => {
       .toEqual([
         [
           expect.stringMatching(/\.webp$/),
-          { width: 200, height: 400, mimeType: "image/webp", alt: null },
+          {
+            width: 200,
+            height: 400,
+            mimeType: "image/webp",
+            alt: null,
+            patch_id: UPLOADED_BY_ITS_PATCH,
+          },
         ],
       ]);
   });

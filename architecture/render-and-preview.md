@@ -100,11 +100,13 @@ the answer to "what is this value called", it is just no longer asked "how is
 this value edited".
 
 `ArrayFields` reads this off the array's own schema and picks the list: an
-inline array gets `BlockList` (dense rows, each an editor, collapsible, nested
-lists behind a rail) and everything else gets `SortableList` (preview rows you
-click through to). `RecordFields` asks the same question of the record, and
-lays its entries out in place — under their keys, since a record's rows are
-labelled by key and have no order to drag.
+inline array gets `BlockList` (rows that are each an editor, collapsible, with
+nested lists indented under their label) and everything else gets
+`SortableList` (preview rows you click through to). `RecordFields` asks the
+same question of the record and gets the same `BlockList`, so an inline array
+and an inline record look and work alike: a record's rows are named by their
+key where an array's are numbered, and have no drag handle, since a record has
+no order. The number (or key) is the row's menu.
 
 ### The container declares it, never the item
 

@@ -164,3 +164,34 @@ test("a queued message keeps what was picked when it was written", () => {
   first.done();
   expect(sent[1]?.context).toEqual({ pointedAt: picked });
 });
+
+test("what the Assistant's Select picked is above the composer, and can be taken off", () => {
+  const picked = {
+    tag: "h1",
+    text: "Spring has come to Oslo",
+    classes: [],
+    selector: "main > h1",
+  };
+  const onClearPointedAt = jest.fn();
+  render(
+    <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
+      <ValPortalProvider>
+        <TooltipProvider>
+          <AIChat
+            isConnected
+            authError={false}
+            mode="http"
+            onSendMessage={() => true}
+            pointedAt={picked}
+            onClearPointedAt={onClearPointedAt}
+          />
+        </TooltipProvider>
+      </ValPortalProvider>
+    </ValThemeProvider>,
+  );
+  expect(screen.getByText("Spring has come to Oslo")).toBeTruthy();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Do not send what you pointed at" }),
+  );
+  expect(onClearPointedAt).toHaveBeenCalledTimes(1);
+});

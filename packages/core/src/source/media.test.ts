@@ -96,6 +96,38 @@ describe("fillFromGallery", () => {
     expect(filled).toEqual({ path: REMOTE_REF, ...galleryEntry });
   });
 
+  test("takes the patch_id of a gallery entry uploaded in a pending change", () => {
+    // Val's server stamps it on the gallery entry, where the file op is. The
+    // field names the same file, so without it the field's url was the
+    // published one, for a file that is not published yet.
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": { ...galleryEntry, patch_id: "p1" },
+      }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      ...galleryEntry,
+      patch_id: "p1",
+    });
+    expect(mediaUrl(filled)).toBe(
+      "/api/val/files/public/img/hero_a1b2c.png?patch_id=p1",
+    );
+  });
+
+  test("keeps the field's own patch_id", () => {
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png", patch_id: "mine" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": { ...galleryEntry, patch_id: "p1" },
+      }),
+    );
+    expect(filled.patch_id).toBe("mine");
+  });
+
   test("leaves an authored alt alone", () => {
     const filled = fillFromGallery(
       { path: "/public/img/hero_a1b2c.png", alt: "An override" },

@@ -7,6 +7,10 @@ import {
   type BuildTargetResponse,
   type SchemaError,
 } from "@valbuild/shared/internal";
+import {
+  StudioPublishError,
+  type ServerBuildProgress,
+} from "@valbuild/shared/publish";
 import type {
   ProposalJobState,
   ProposalPerson,
@@ -93,6 +97,54 @@ const TypecheckJson = z.object({
 });
 export type ProposalTypecheck = z.infer<typeof TypecheckJson>;
 
+const CodeModeJson = z.object({
+  on: z.boolean(),
+  /** Profile id of who last turned it on or off. */
+  changedBy: z.string().nullable(),
+  /** ISO time of that. */
+  changedAt: z.string().nullable(),
+});
+/** Code mode, as content keeps it on a proposal. */
+export type ProposalCodeModeJson = z.infer<typeof CodeModeJson>;
+
+const GitJson = z.object({
+  /** `val/p/<name>`. */
+  branch: z.string(),
+  branchUrl: z.string(),
+  /** The last Commit Val made to the branch; `null` before the first. */
+  committed: z
+    .object({
+      sha: z.string(),
+      url: z.string(),
+      save: z.string().nullable(),
+      by: z.string().nullable(),
+      at: z.string().nullable(),
+    })
+    .nullable(),
+  /** Its last save or staging; `null` before the first. */
+  head: z.string().nullable(),
+  /** Saved or staged since the last Commit: Commit has something to push. */
+  uncommitted: z.boolean(),
+  /**
+   * The last push of somebody else's that was taken in ("Build on their
+   * push"); `null` when none was. `building`: their files are staged and the
+   * proposal's build does not have them yet, so Publish waits for one.
+   * Absent from content older than taking a push in.
+   */
+  takenIn: z
+    .object({
+      sha: z.string(),
+      url: z.string(),
+      by: z.string().nullable(),
+      at: z.string().nullable(),
+      building: z.boolean(),
+    })
+    .nullable()
+    .optional()
+    .catch(undefined),
+});
+export type ProposalGitJson = z.infer<typeof GitJson>;
+
 const ProposalJson = z.object({
   name: z.string(),
   branch: z.string(),
@@ -156,6 +208,17 @@ const ProposalJson = z.object({
   upgrade: UpgradeJson.optional(),
   /** The last typecheck reported for it. Only on a read of one. */
   typecheck: TypecheckJson.nullable().optional(),
+  /**
+   * Code mode: the proposal's, shared by everyone in it. Who last turned it
+   * on or off, and when. Absent from older content, which has none.
+   */
+  codeMode: CodeModeJson.optional().catch(undefined),
+  /**
+   * Its git branch, in a connected project: what Val last committed there,
+   * and whether anything was saved since. `null` in a project with no
+   * repository. Only on a read of one, and absent from older content.
+   */
+  git: GitJson.nullable().optional().catch(undefined),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
 
@@ -175,8 +238,27 @@ const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
   siteUrl: z.string().nullable().optional(),
+  /**
+   * Whether `</>` on the site changes the site's code, in the project's
+   * site-code proposal (valbuild/home `docs/proposals.md`, "Code mode on the
+   * site"). Absent from content older than it, which has no such proposal:
+   * `</>` then lists proposals, as it did.
+   */
+  siteCodeMode: z.boolean().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
+const BuildProgressAnswer = z.object({
+  progress: z
+    .object({
+      inputs: z.string().nullable(),
+      queued: z.number().nullable(),
+      step: z
+        .object({ label: z.string(), index: z.number(), of: z.number() })
+        .nullable(),
+      built: z.boolean(),
+    })
+    .nullable(),
+});
 const LockfileAnswer = z.object({ dependencies: Dependencies });
 const TypecheckAnswer = z.object({ typecheck: TypecheckJson });
 const MergeCheck = z.object({
@@ -185,7 +267,7 @@ const MergeCheck = z.object({
   message: z.string(),
   /** What clears it, when something here does. Unknown actions are none. */
   action: z
-    .enum(["update-from-site", "compute-lockfile", "typecheck"])
+    .enum(["update-from-site", "compute-lockfile", "typecheck", "build"])
     .optional()
     .catch(undefined),
 });
@@ -336,6 +418,24 @@ export class ProposalsApiError extends Error {
 }
 
 /**
+ * Why content refused to open the site's code mode, by its `details.code`:
+ * `off`, the project turned it off (403); `publishing`, a publish is working
+ * on the site (409), which Try again outlasts. `null` for any other answer.
+ */
+export function siteCodeRefusalOf(error: unknown): "off" | "publishing" | null {
+  if (!(error instanceof ProposalsApiError)) return null;
+  const code = z
+    .object({ details: z.object({ code: z.string() }) })
+    .safeParse(error.body);
+  if (!code.success) return null;
+  if (error.status === 403 && code.data.details.code === "site-code-mode-off")
+    return "off";
+  if (error.status === 409 && code.data.details.code === "publishing")
+    return "publishing";
+  return null;
+}
+
+/**
  * Whether a refused content-only update is one the update with code makes:
  * Val's server says the proposal or the site changed code (`needs-build`), or
  * changed a `.jsonValues()` record in a way only the full merge reads
@@ -351,8 +451,161 @@ export function needsCodeUpdate(error: unknown): boolean {
   );
 }
 
+const CommitAnswer = z.object({
+  commit: z.object({
+    sha: z.string(),
+    url: z.string(),
+    save: z.string(),
+    /** `false`: nothing was saved since the last Commit, and nothing was pushed. */
+    pushed: z.boolean(),
+  }),
+  proposal: ProposalJson,
+});
+export type ProposalCommitAnswer = z.infer<typeof CommitAnswer>;
+
+/**
+ * Somebody else pushed to the proposal's branch since Val last did, so Val
+ * will not commit over it (content's 409 `someone-pushed`): who, when, and
+ * their commit.
+ */
+const SomeonePushed = z.object({
+  code: z.literal("someone-pushed"),
+  branch: z.string(),
+  branchUrl: z.string(),
+  theirs: z.object({
+    sha: z.string(),
+    url: z.string(),
+    message: z.string().nullable().catch(null),
+    author: z
+      .object({
+        name: z.string().nullable().catch(null),
+        login: z.string().nullable().catch(null),
+        avatarUrl: z.string().nullable().catch(null),
+      })
+      .nullable()
+      .catch(null),
+    at: z.string().nullable().catch(null),
+  }),
+});
+export type ProposalSomeonePushed = z.infer<typeof SomeonePushed>;
+
+/**
+ * Their push taken into the proposal (valbuild/home's take-push contract):
+ * what came in, what kept the proposal's version, and what a proposal cannot
+ * hold. Their commit is now what the next Commit is made on top of.
+ */
+const TakePushAnswer = z.object({
+  theirs: SomeonePushed.shape.theirs,
+  /** The staging that holds their files; `null` when nothing needed one. */
+  commit: z.string().nullable(),
+  /** Project paths their push changed that the proposal now holds. */
+  taken: z.array(
+    z.object({
+      path: z.string(),
+      change: z.enum(["added", "modified", "deleted"]).catch("modified"),
+      /** Held as their git blob: in git and in Publish, not in the preview. */
+      binary: z.boolean().catch(false),
+    }),
+  ),
+  /**
+   * Files both changed, where the proposal's version stays and the next
+   * Commit writes it over theirs. `val-content`: a `.val.ts` whose content
+   * the proposal saved.
+   */
+  keptOurs: z.array(
+    z.object({
+      path: z.string(),
+      reason: z.enum(["both-changed", "val-content"]).catch("both-changed"),
+    }),
+  ),
+  /**
+   * What their push changed that a proposal cannot hold (repository paths):
+   * the next Commit leaves these as the proposal's base has them.
+   */
+  notTaken: z.array(z.object({ path: z.string(), reason: z.string() })),
+  /** Their tip does not contain what Val expected: history was rewritten. */
+  rewritten: z.boolean(),
+  merges: z.array(z.string()),
+  /** Taken in already, by an earlier press: the lists are that one's. */
+  already: z.boolean(),
+  proposal: ProposalJson,
+});
+export type ProposalTakePushAnswer = z.infer<typeof TakePushAnswer>;
+
+/**
+ * Why content refused a Commit (or the Commit a Publish makes first), by its
+ * `details.code`, for the Studio to offer what helps: their commit to open
+ * when someone else pushed, Try again only where trying again can work.
+ * `null` for an answer that is not a refused commit.
+ *
+ * A refused Publish comes back through the publish client's error
+ * (`StudioPublishError`, `pressMerge`), with the same body: content refuses
+ * it with `/commit`'s status, code and fields.
+ */
+export function commitRefusalOf(error: unknown):
+  | { kind: "someone-pushed"; message: string; pushed: ProposalSomeonePushed }
+  | {
+      kind:
+        | "committing"
+        | "github-unavailable"
+        | "repository-refused"
+        | "no-git-root"
+        | "nothing-saved"
+        | "saved-since"
+        | "other";
+      message: string;
+      branchUrl: string | null;
+    }
+  | null {
+  const answer =
+    error instanceof ProposalsApiError
+      ? { status: error.status, body: error.body }
+      : error instanceof StudioPublishError
+        ? { status: error.statusCode, body: error.body }
+        : null;
+  if (answer === null || !(error instanceof Error)) return null;
+  if (answer.status !== 409 && answer.status !== 502) return null;
+  const details = z
+    .object({ details: z.object({ code: z.string() }).passthrough() })
+    .safeParse(answer.body);
+  if (!details.success) return null;
+  const pushed = SomeonePushed.safeParse(details.data.details);
+  if (pushed.success) {
+    return {
+      kind: "someone-pushed",
+      message: error.message,
+      pushed: pushed.data,
+    };
+  }
+  const code = details.data.details.code;
+  const branchUrl = z
+    .object({ branchUrl: z.string() })
+    .safeParse(details.data.details);
+  return {
+    kind:
+      code === "committing" ||
+      code === "github-unavailable" ||
+      code === "repository-refused" ||
+      code === "no-git-root" ||
+      code === "nothing-saved" ||
+      code === "saved-since"
+        ? code
+        : "other",
+    message: error.message,
+    // Home sends "" when it does not know the repository.
+    branchUrl:
+      branchUrl.success && branchUrl.data.branchUrl !== ""
+        ? branchUrl.data.branchUrl
+        : null,
+  };
+}
+
 export type ProposalsClient = {
-  list(): Promise<{ proposals: ProposalJson[]; siteUrl: string | null }>;
+  list(): Promise<{
+    proposals: ProposalJson[];
+    siteUrl: string | null;
+    siteCodeMode: boolean;
+  }>;
   get(name: string): Promise<ProposalJson>;
   create(input: {
     displayName: string;
@@ -376,7 +629,44 @@ export type ProposalsClient = {
     kind?: "upgrade";
     upgrade?: { path: "cves" | "latest" | "majors"; skip?: string[] };
   }): Promise<ProposalJson>;
+  /**
+   * Code mode on the site (valbuild/home `docs/proposals.md`, "Code mode on
+   * the site"): the project's site-code proposal, made if there is none,
+   * with every change pending on the site moved into it. Refused (403
+   * `site-code-mode-off`) where the project turned it off, and (409
+   * `publishing`) while a publish is working on the site.
+   */
+  openSiteCode(input: {
+    displayName: string;
+    requestId: string;
+  }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
+  /**
+   * Turn code mode on or off, for everyone in the proposal. At the
+   * proposal's own address, Val's server saves every pending change first
+   * when it is turned on. Nothing is discarded when it is turned off.
+   */
+  setCodeMode(name: string, on: boolean): Promise<ProposalJson>;
+  /**
+   * Commit the proposal as it was last saved to its git branch, as one
+   * commit, in a connected project. `save`: the last save the person saw
+   * (`git.head`); refused when there is a newer one. See
+   * {@link commitRefusalOf} for why it can be refused.
+   */
+  commit(
+    name: string,
+    input: { message: string; save?: string },
+  ): Promise<ProposalCommitAnswer>;
+  /**
+   * Build on their push: bring somebody else's push to the proposal's branch
+   * into the proposal (their changed files staged, the proposal's version
+   * kept where both changed) and make their commit the next Commit's parent.
+   * `sha` is their commit, as the `someone-pushed` refusal named it: refused
+   * with a `someone-pushed` of its own when the branch moved again since.
+   * At the proposal's own address, Val's server saves every pending change
+   * first. See `buildOnTheirPush` for every way it can be refused.
+   */
+  takePush(name: string, sha: string): Promise<ProposalTakePushAnswer>;
   close(name: string): Promise<ProposalJson>;
   reopen(name: string): Promise<ProposalJson>;
   retrySetup(name: string): Promise<ProposalJson>;
@@ -395,18 +685,6 @@ export type ProposalsClient = {
   stageFiles(
     name: string,
     files: Record<string, string | null>,
-    message?: string,
-  ): Promise<z.infer<typeof StagedAnswer>>;
-  /**
-   * A patch written into a module's FILE in the proposal and staged there
-   * with its code: the design tab's `create_patch` (valbuild/home
-   * `docs/design-tab.md`). The server writes it as a save writes a
-   * `.val.ts`, into the proposal's copy or the site's.
-   */
-  patchFile(
-    name: string,
-    moduleFilePath: string,
-    patch: unknown[],
     message?: string,
   ): Promise<z.infer<typeof StagedAnswer>>;
   /**
@@ -484,6 +762,16 @@ export type ProposalsClient = {
    * does not build yet.
    */
   askBuild(name: string, inputs: string): Promise<ProposalJson>;
+  /**
+   * How far Val Build's build of the staged files `inputs` names is
+   * (valbuild/home `GET /proposals/:name/build-progress`), or `null` when it
+   * cannot be told: no build runs, a build of other files, or content from
+   * before it said (404).
+   */
+  buildProgress(
+    name: string,
+    inputs: string,
+  ): Promise<ServerBuildProgress | null>;
   /**
    * Ask Val Build for a quick preview of its staged files `inputs` names
    * (`quickPreviewOnServer`): the browser half of their build, for the
@@ -565,11 +853,23 @@ export function createProposalsClient(options: {
   return {
     list: async () => {
       const answer = ListAnswer.parse(await call("", "GET"));
-      return { proposals: answer.proposals, siteUrl: answer.siteUrl ?? null };
+      return {
+        proposals: answer.proposals,
+        siteUrl: answer.siteUrl ?? null,
+        siteCodeMode: answer.siteCodeMode ?? false,
+      };
     },
     get: (name) => one(at(name), "GET"),
     create: (input) => one("", "POST", input),
+    openSiteCode: (input) => one("", "POST", { ...input, kind: "site-code" }),
     rename: (name, displayName) => one(at(name), "PATCH", { displayName }),
+    setCodeMode: (name, on) => one(`${at(name)}/code-mode`, "POST", { on }),
+    commit: async (name, input) =>
+      CommitAnswer.parse(await call(`${at(name)}/commit`, "POST", input)),
+    takePush: async (name, sha) =>
+      TakePushAnswer.parse(
+        await call(`${at(name)}/take-push`, "POST", { sha }),
+      ),
     close: (name) => one(`${at(name)}/close`, "POST", {}),
     reopen: (name) => one(`${at(name)}/reopen`, "POST", {}),
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
@@ -581,14 +881,6 @@ export function createProposalsClient(options: {
       StagedAnswer.parse(
         await call(`${at(name)}/files`, "POST", {
           files,
-          ...(message !== undefined ? { message } : {}),
-        }),
-      ),
-    patchFile: async (name, moduleFilePath, patch, message) =>
-      StagedAnswer.parse(
-        await call(`${at(name)}/patch-file`, "POST", {
-          moduleFilePath,
-          patch,
           ...(message !== undefined ? { message } : {}),
         }),
       ),
@@ -607,6 +899,19 @@ export function createProposalsClient(options: {
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     askBuild: (name, inputs) => one(`${at(name)}/build`, "POST", { inputs }),
+    buildProgress: async (name, inputs) => {
+      const answer = BuildProgressAnswer.safeParse(
+        await call(`${at(name)}/build-progress`, "GET").catch(() => null),
+      );
+      const progress = answer.success ? answer.data.progress : null;
+      return progress === null || progress.inputs !== inputs
+        ? null
+        : {
+            queued: progress.queued,
+            step: progress.step,
+            built: progress.built,
+          };
+    },
     quickPreview: async (name, inputs) =>
       QuickPreviewAnswer.parse(
         await call(`${at(name)}/quick-preview`, "POST", { inputs }),
@@ -669,6 +974,15 @@ export function jobState(
  * A proposal as the screens show it. `viewer` is the profile id of the person
  * looking, so lists can say "You"; `people` names the rest.
  */
+/**
+ * The proposal `</>` on the site opens (valbuild/home `docs/proposals.md`,
+ * "Code mode on the site"): the Studio shows it as the site in code mode,
+ * not as a proposal someone named.
+ */
+export function isSiteCode(json: Pick<ProposalJson, "kind">): boolean {
+  return json.kind === "site-code";
+}
+
 export function toSummary(
   json: ProposalJson,
   viewer: string | null,
@@ -694,6 +1008,7 @@ export function toSummary(
       (json.ownerIds ?? (json.ownerId ? [json.ownerId] : [])).includes(viewer),
     changes: json.changes ?? 0,
     ...(json.upgrade !== undefined ? { upgrade: true } : {}),
+    ...(isSiteCode(json) ? { siteCode: true } : {}),
     updatedAt: json.updatedAt,
     ...(json.setup !== undefined ? { setup: jobState(json.setup) } : {}),
     ...(json.closedBy ? { closedBy: people(json.closedBy) } : {}),

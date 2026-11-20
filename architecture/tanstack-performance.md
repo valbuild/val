@@ -24,7 +24,8 @@ workspace SOURCE, and the chunk names give it away (`src-*.js`, `internal-*.js`)
 **The runtime cost is zero, and that is the part that was designed for.** A
 visitor without the cookie makes no request to Val, starts no interval, mounts
 no overlay and runs no polling: `mountOverlay` is the cookie, and the refresh
-loop, the `/draft/stat` poll and the safety refresh are all behind it. The
+loop and the `/draft/stat` poll are both behind it (and the refresh loop has
+no timer of its own since phase 4 of `docs/plans/one-content-model.md`). The
 Suspense gates short-circuit on `suspend`, which stays false. `createValClient`
 — and the ~113 KB of zod it drags in — is behind a dynamic import that is only
 reached once the overlay mounts, and the measurement confirms that chunk is

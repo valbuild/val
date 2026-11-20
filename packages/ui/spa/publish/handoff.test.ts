@@ -181,6 +181,52 @@ describe("what the tab is to do", () => {
     });
   });
 
+  /*
+   * The commit message typed before the tap (`studio.commitMessage:
+   * "required"`) goes with the press: on an iPhone the tab presses, and a
+   * message left behind on the page was a merge with content's default.
+   */
+  test("a merge's typed commit message is stored with it, and only with a merge", () => {
+    const storage = memoryStorage();
+    storeHandoffIntent(
+      "h5",
+      {
+        kind: "press",
+        requestId: "r5",
+        tab: "site-tab",
+        after: null,
+        merge: "0123456789abcdef0123",
+        commitMessage: "Spring campaign, with the new hero",
+      },
+      storage,
+    );
+    expect(storedHandoffIntent("h5", storage)?.intent).toEqual({
+      kind: "press",
+      requestId: "r5",
+      tab: "site-tab",
+      after: null,
+      merge: "0123456789abcdef0123",
+      commitMessage: "Spring campaign, with the new hero",
+    });
+    storeHandoffIntent(
+      "h6",
+      {
+        kind: "press",
+        requestId: "r6",
+        tab: "site-tab",
+        after: null,
+        commitMessage: "Not a merge",
+      },
+      storage,
+    );
+    expect(storedHandoffIntent("h6", storage)?.intent).toEqual({
+      kind: "press",
+      requestId: "r6",
+      tab: "site-tab",
+      after: null,
+    });
+  });
+
   test("a link this browser's tap did not store has nothing to run", () => {
     const storage = memoryStorage();
     storeHandoffIntent(

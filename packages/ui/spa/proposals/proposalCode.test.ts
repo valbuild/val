@@ -2,11 +2,14 @@ import {
   buildProposal,
   buildProposalOnServer,
   CODE_TOOLS,
+  editText,
   isCodeTool,
+  MAX_PROJECT_INSTRUCTIONS_CHARS,
+  projectInstructionsPromptSection,
   proposalProject,
+  readLines,
+  readProjectInstructions,
   runCodeTool,
-  runReadPage,
-  runScreenshotPage,
   type BuildReport,
   type CodeToolDeps,
   type ProposalBuildControl,
@@ -352,13 +355,11 @@ describe("the code tools", () => {
     over: Partial<CodeToolDeps> = {},
   ): CodeToolDeps & {
     staged: unknown[];
-    patched: unknown[];
     formatted: unknown[];
     offered: number;
   } => {
     const record = {
       staged: [] as unknown[],
-      patched: [] as unknown[],
       formatted: [] as unknown[],
       offered: 0,
     };
@@ -375,18 +376,6 @@ describe("the code tools", () => {
           return {
             commit: "c1",
             staged: staged({ files: Object.keys(files).sort() }),
-          };
-        },
-        patchFile: async (
-          name: string,
-          moduleFilePath: string,
-          patch: unknown[],
-          message?: string,
-        ) => {
-          record.patched.push([name, moduleFilePath, patch, message]);
-          return {
-            commit: "c2",
-            staged: staged({ files: [moduleFilePath.slice(1)] }),
           };
         },
       },
@@ -412,11 +401,12 @@ describe("the code tools", () => {
     });
   };
 
-  test("are twelve, and known by name", () => {
+  test("are thirteen, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
+      "edit_file",
       "write_files",
       "format_files",
       "lint",
@@ -428,8 +418,7 @@ describe("the code tools", () => {
       "wait",
     ]);
     expect(isCodeTool("write_files")).toBe(true);
-    // The Studio's create_patch is a content tool; the design tab's is
-    // dispatched as code by the tab, not by name.
+    // create_patch is a content tool.
     expect(isCodeTool("create_patch")).toBe(false);
   });
 
@@ -486,25 +475,6 @@ describe("the code tools", () => {
     ).toBe(true);
   });
 
-  test("create_patch writes content into the module's file in the proposal, staged with its code", async () => {
-    const d = deps();
-    const patch = [{ op: "replace", path: ["title"], value: "Worn for years" }];
-    const answer = await runCodeTool(
-      "create_patch",
-      { module_file_path: "/content/home.val.ts", patch, message: "Title" },
-      d,
-    );
-    expect(d.patched).toEqual([[NAME, "/content/home.val.ts", patch, "Title"]]);
-    expect(answer).toMatchObject({
-      result: { success: true, staged: ["content/home.val.ts"] },
-      isError: false,
-    });
-    expect(
-      (await runCodeTool("create_patch", { module_file_path: "/a.val.ts" }, d))
-        .isError,
-    ).toBe(true);
-  });
-
   test("format_files formats what the proposal stages as the project does, and stages what changed", async () => {
     const d = deps({
       client: {
@@ -519,7 +489,6 @@ describe("the code tools", () => {
           d.staged.push([name, files, message]);
           return { commit: "c3", staged: staged() };
         },
-        patchFile: async () => ({ commit: "c4", staged: staged() }),
       },
     });
     const answer = await runCodeTool("format_files", {}, d);
@@ -556,7 +525,6 @@ describe("the code tools", () => {
             d.staged.push([name, written, message]);
             return { commit: "c5", staged: staged() };
           },
-          patchFile: async () => ({ commit: "c6", staged: staged() }),
         },
       });
       return d;
@@ -828,6 +796,49 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
     });
   });
 
+  test("with code mode off, the tools that change code refuse, naming who turned it off, and write nothing", async () => {
+    const d = deps({
+      codeMode: async () => ({
+        on: false,
+        by: "Kari Nordmann",
+        ago: "5 minutes ago",
+      }),
+    });
+    const written = await runCodeTool(
+      "write_files",
+      { files: { "src/a.ts": "a" } },
+      d,
+    );
+    expect(written).toEqual({
+      isError: true,
+      result: {
+        success: false,
+        error: expect.stringMatching(
+          /^Code mode is off in this proposal: Kari Nordmann turned it off 5 minutes ago, so its code cannot be changed now\. .*request_code_mode/,
+        ),
+      },
+    });
+    expect((await runCodeTool("format_files", {}, d)).isError).toBe(true);
+    expect((await runCodeTool("lint", { fix: true }, d)).isError).toBe(true);
+    expect(d.staged).toEqual([]);
+    // Reading the code changes nothing, and is not refused.
+    expect(
+      (await runCodeTool("read_file", { path: "src/components/Hero.tsx" }, d))
+        .isError,
+    ).toBe(false);
+  });
+
+  test("with code mode on, write_files stages", async () => {
+    const d = deps({ codeMode: async () => ({ on: true }) });
+    const written = await runCodeTool(
+      "write_files",
+      { files: { "src/a.ts": "a" } },
+      d,
+    );
+    expect(written.isError).toBe(false);
+    expect(d.staged).toHaveLength(1);
+  });
+
   test("ON THE SITE, NOTHING IS WRITTEN OR BUILT, and the person is offered a proposal", async () => {
     const d = deps({ proposal: null });
     const written = await runCodeTool(
@@ -841,6 +852,489 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
     expect(built.isError).toBe(true);
     expect(d.staged).toEqual([]);
     expect(d.offered).toBe(2);
+  });
+
+  describe("edit_file", () => {
+    const HERO = [
+      "export function Hero() {",
+      "  return <h1>Hi</h1>;",
+      "}",
+      "export function Footer() {",
+      "  return <p>Hi</p>;",
+      "}",
+      "",
+    ].join("\n");
+    const withHero = (over: Partial<CodeToolDeps> = {}) =>
+      deps({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async () => ({ commit: "c1", staged: staged() }),
+        },
+        ...over,
+      });
+
+    test("replaces the one match, and stages the file's whole new text as write_files does", async () => {
+      const stagedFiles: unknown[] = [];
+      const evaluated: string[] = [];
+      const d = withHero({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async (name, files, message) => {
+            stagedFiles.push([name, files, message]);
+            return { commit: "c1", staged: staged() };
+          },
+        },
+        // write_files' staging evaluates val.modules after it: so does this.
+        evaluateStaged: async () => {
+          evaluated.push("evaluated");
+          return { status: "not-here" };
+        },
+      });
+      const edited = await runCodeTool(
+        "edit_file",
+        {
+          path: "/src/components/Hero.tsx",
+          old_string: "<h1>Hi</h1>",
+          new_string: "<h1>Hello</h1>",
+          message: "Greet",
+        },
+        d,
+      );
+      expect(edited.isError).toBe(false);
+      expect(stagedFiles).toEqual([
+        [
+          NAME,
+          {
+            "src/components/Hero.tsx": HERO.replace(
+              "<h1>Hi</h1>",
+              "<h1>Hello</h1>",
+            ),
+          },
+          "Greet",
+        ],
+      ]);
+      expect(evaluated).toEqual(["evaluated"]);
+      expect(edited.result).toMatchObject({
+        success: true,
+        buildRequired: true,
+        replaced: 1,
+        line: 2,
+      });
+    });
+
+    test("a match that is not there says to copy it from read_file, and where its first line is", async () => {
+      const d = withHero();
+      const edited = await runCodeTool(
+        "edit_file",
+        {
+          path: "src/components/Hero.tsx",
+          old_string: "export function Footer() {\n    return <p>Hi</p>;",
+          new_string: "x",
+        },
+        d,
+      );
+      expect(edited.isError).toBe(true);
+      expect(JSON.stringify(edited.result)).toMatch(/read_file/);
+      expect(JSON.stringify(edited.result)).toMatch(/on line 4/);
+    });
+
+    test("several matches name their lines and the two ways on, and change nothing", async () => {
+      const staging: unknown[] = [];
+      const d = withHero({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async (_name, files) => {
+            staging.push(files);
+            return { commit: "c1", staged: staged() };
+          },
+        },
+      });
+      const twice = await runCodeTool(
+        "edit_file",
+        { path: "src/components/Hero.tsx", old_string: "Hi", new_string: "Yo" },
+        d,
+      );
+      expect(twice.isError).toBe(true);
+      expect(JSON.stringify(twice.result)).toMatch(
+        /matches 2 times \(lines 2, 5\).*replace_all/,
+      );
+      expect(staging).toEqual([]);
+      const all = await runCodeTool(
+        "edit_file",
+        {
+          path: "src/components/Hero.tsx",
+          old_string: "Hi",
+          new_string: "Yo",
+          replace_all: true,
+        },
+        d,
+      );
+      expect(all.result).toMatchObject({ success: true, replaced: 2 });
+      expect(staging).toEqual([
+        { "src/components/Hero.tsx": HERO.replace(/Hi/g, "Yo") },
+      ]);
+    });
+
+    test("a staging content refuses is answered in content's words, as write_files' is", async () => {
+      const refusing = (over: Partial<CodeToolDeps> = {}) =>
+        withHero({
+          client: {
+            files: async () => ({
+              files: { ...OWN, "src/components/Hero.tsx": HERO },
+              staged: staged(),
+            }),
+            stageFiles: async () => {
+              throw new Error("Build the proposal, then save.");
+            },
+          },
+          ...over,
+        });
+      for (const [tool, input] of [
+        [
+          "edit_file",
+          {
+            path: "src/components/Hero.tsx",
+            old_string: "<h1>Hi</h1>",
+            new_string: "<h1>Yo</h1>",
+          },
+        ],
+        ["write_files", { files: { "src/a.ts": "a" } }],
+      ] as const) {
+        expect(await runCodeTool(tool, input, refusing())).toEqual({
+          isError: true,
+          result: { success: false, error: "Build the proposal, then save." },
+        });
+      }
+    });
+
+    test("two edits of one file started together both land: code changes run one at a time", async () => {
+      // A proposal whose staging takes a moment, as content's does: both
+      // calls of one model reply arrive at once, and each must read what the
+      // one before it staged.
+      let files: Record<string, string | null> = {
+        ...OWN,
+        "src/components/Hero.tsx": HERO,
+      };
+      const d = withHero({
+        proposal: { name: "parallel-edits" },
+        client: {
+          files: async () => ({ files: { ...files }, staged: staged() }),
+          stageFiles: async (_name, written) => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            files = { ...files, ...written };
+            return { commit: "c1", staged: staged() };
+          },
+        },
+      });
+      const [first, second, read] = await Promise.all([
+        runCodeTool(
+          "edit_file",
+          {
+            path: "src/components/Hero.tsx",
+            old_string: "<h1>Hi</h1>",
+            new_string: "<h1>Hello</h1>",
+          },
+          d,
+        ),
+        runCodeTool(
+          "edit_file",
+          {
+            path: "src/components/Hero.tsx",
+            old_string: "<p>Hi</p>",
+            new_string: "<p>Bye</p>",
+          },
+          d,
+        ),
+        // Reading does not wait for the writes.
+        runCodeTool("list_files", {}, d),
+      ]);
+      expect(first.isError).toBe(false);
+      expect(second.isError).toBe(false);
+      expect(read.isError).toBe(false);
+      expect(files["src/components/Hero.tsx"]).toBe(
+        HERO.replace("<h1>Hi</h1>", "<h1>Hello</h1>").replace(
+          "<p>Hi</p>",
+          "<p>Bye</p>",
+        ),
+      );
+    });
+
+    test("a write that fails does not stop the ones after it", async () => {
+      let calls = 0;
+      const d = withHero({
+        proposal: { name: "failing-then-fine" },
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async () => {
+            calls++;
+            if (calls === 1) throw new Error("refused");
+            return { commit: "c1", staged: staged() };
+          },
+        },
+      });
+      const [failed, written] = await Promise.all([
+        runCodeTool("write_files", { files: { "src/a.ts": "a" } }, d),
+        runCodeTool("write_files", { files: { "src/b.ts": "b" } }, d),
+      ]);
+      expect(failed.isError).toBe(true);
+      expect(written.isError).toBe(false);
+    });
+
+    test("a file that does not exist is written with write_files", async () => {
+      const edited = await runCodeTool(
+        "edit_file",
+        { path: "src/new.ts", old_string: "a", new_string: "b" },
+        withHero(),
+      );
+      expect(edited.isError).toBe(true);
+      expect(JSON.stringify(edited.result)).toMatch(/write_files/);
+    });
+
+    test("ON THE SITE, NOTHING IS WRITTEN, and the person is offered a proposal", async () => {
+      const d = deps({ proposal: null });
+      const edited = await runCodeTool(
+        "edit_file",
+        { path: "src/old.ts", old_string: "old", new_string: "new" },
+        d,
+      );
+      expect(edited.isError).toBe(true);
+      expect(d.staged).toEqual([]);
+      expect(d.offered).toBe(1);
+    });
+
+    test("with code mode off, it refuses as write_files does", async () => {
+      const d = deps({
+        codeMode: async () => ({ on: false, by: null, ago: null }),
+      });
+      const edited = await runCodeTool(
+        "edit_file",
+        {
+          path: "src/components/Hero.tsx",
+          old_string: "new",
+          new_string: "newer",
+        },
+        d,
+      );
+      expect(edited.isError).toBe(true);
+      expect(JSON.stringify(edited.result)).toMatch(/request_code_mode/);
+      expect(d.staged).toEqual([]);
+    });
+
+    test("input that is not text is refused before anything is read", async () => {
+      const d = deps();
+      for (const input of [
+        { path: "src/a.ts", old_string: 1, new_string: "b" },
+        { path: 2, old_string: "a", new_string: "b" },
+        {
+          path: "src/a.ts",
+          old_string: "a",
+          new_string: "b",
+          replace_all: "yes",
+        },
+      ]) {
+        expect((await runCodeTool("edit_file", input, d)).isError).toBe(true);
+      }
+      expect(d.staged).toEqual([]);
+    });
+  });
+
+  describe("editText", () => {
+    test("an empty or unchanged old_string is refused", () => {
+      expect(editText("abc", "", "x", false).status).toBe("refused");
+      expect(editText("abc", "b", "b", false).status).toBe("refused");
+    });
+
+    test("$ in the replacement is text, not a pattern", () => {
+      expect(editText("a b", "b", "$&$1", false)).toEqual({
+        status: "edited",
+        text: "a $&$1",
+        replaced: 1,
+        line: 1,
+      });
+    });
+
+    test("a file with Windows line breaks is matched by text written with \\n, and keeps them", () => {
+      const text = "one\r\ntwo\r\nthree\r\n";
+      expect(editText(text, "one\ntwo", "1\n2", false)).toMatchObject({
+        status: "edited",
+        text: "1\r\n2\r\nthree\r\n",
+      });
+    });
+  });
+
+  describe("editText, reviewed", () => {
+    test("in a file with Windows line breaks, a new_string of several lines is written with them", () => {
+      expect(
+        editText("one\r\ntwo\r\n", "two", "two\nthree", false),
+      ).toMatchObject({ status: "edited", text: "one\r\ntwo\r\nthree\r\n" });
+    });
+
+    test("a file with Unix line breaks keeps them", () => {
+      expect(editText("one\ntwo\n", "two", "two\nthree", false)).toMatchObject({
+        status: "edited",
+        text: "one\ntwo\nthree\n",
+      });
+    });
+
+    test("overlapping matches count: 'aa' in 'aaa' is two places, not one", () => {
+      const edit = editText("aaa", "aa", "b", false);
+      expect(edit).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/matches 2 times \(line 1\)/),
+      });
+      expect(editText("aaa", "aa", "b", true)).toMatchObject({
+        status: "edited",
+        text: "ba",
+        replaced: 1,
+      });
+    });
+  });
+
+  describe("read_file with a range", () => {
+    const FILE = "one\ntwo\nthree\nfour\n";
+    const withFile = (text: string) =>
+      deps({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/f.ts": text },
+            staged: staged(),
+          }),
+          stageFiles: async () => ({ commit: "c1", staged: staged() }),
+        },
+      });
+
+    test("answers those lines exactly as in the file, with where they are", async () => {
+      const read = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts", offset: 2, limit: 2 },
+        withFile(FILE),
+      );
+      expect(read.result).toEqual({
+        path: "src/f.ts",
+        text: "two\nthree\n",
+        startLine: 2,
+        endLine: 3,
+        totalLines: 4,
+        staged: false,
+      });
+    });
+
+    test("offset alone reads to the end; the last line keeps having no line break", async () => {
+      const read = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts", offset: 3 },
+        withFile("one\ntwo\nthree"),
+      );
+      expect(read.result).toMatchObject({
+        text: "three",
+        startLine: 3,
+        endLine: 3,
+        totalLines: 3,
+      });
+    });
+
+    test("a range past the end, or not a line number, is refused", async () => {
+      const d = withFile(FILE);
+      const past = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts", offset: 9 },
+        d,
+      );
+      expect(past.isError).toBe(true);
+      expect(JSON.stringify(past.result)).toMatch(/has 4 lines/);
+      for (const range of [{ offset: 0 }, { limit: 1.5 }, { offset: "2" }]) {
+        expect(
+          (await runCodeTool("read_file", { path: "src/f.ts", ...range }, d))
+            .isError,
+        ).toBe(true);
+      }
+    });
+
+    test("a file too long for one answer is cut at a line's end, and says where to read on", async () => {
+      const line = "x".repeat(999) + "\n";
+      const long = line.repeat(300);
+      const read = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts" },
+        withFile(long),
+      );
+      const result = read.result;
+      expect(result).toMatchObject({
+        path: "src/f.ts",
+        text: line.repeat(200),
+        truncated: expect.stringMatching(/Lines 1-200 of 300.*offset: 201/),
+      });
+    });
+  });
+
+  test("readLines: every part of a file, put back together, is the file", () => {
+    const text = "a\n\nb\r\nc";
+    const parts = [1, 2, 3, 4].map((n) => readLines(text, n, 1));
+    expect(
+      parts.map((part) => (part.status === "read" ? part.text : "")).join(""),
+    ).toBe(text);
+    expect(readLines("", 1, null)).toMatchObject({
+      status: "read",
+      text: "",
+      totalLines: 0,
+    });
+  });
+
+  describe("the project's own instructions", () => {
+    const withFiles = (files: Record<string, string | null>) => ({
+      proposal: { name: NAME },
+      client: {
+        files: async () => ({ files: { ...OWN, ...files }, staged: staged() }),
+      },
+      siteSource: async () => SITE,
+    });
+
+    test("are AGENTS.md, then CLAUDE.md, at the root, as the proposal has them", async () => {
+      const text = await readProjectInstructions(
+        withFiles({
+          ".claude/CLAUDE.md": "Use pnpm.",
+          "AGENTS.md": "Run the tests.",
+          "src/AGENTS.md": "Not the root's.",
+        }),
+      );
+      expect(text).toBe(
+        "### AGENTS.md\nRun the tests.\n\n### .claude/CLAUDE.md\nUse pnpm.",
+      );
+      expect(projectInstructionsPromptSection(text)).toMatch(
+        /## The project's own instructions\n.*not Val's/,
+      );
+    });
+
+    test("none is normal, and says nothing", async () => {
+      expect(await readProjectInstructions(withFiles({}))).toBeNull();
+      expect(projectInstructionsPromptSection(null)).toBe("");
+    });
+
+    test("are cut to one bound, saying where the rest is", async () => {
+      const text = await readProjectInstructions(
+        withFiles({
+          "AGENTS.md": "a".repeat(MAX_PROJECT_INSTRUCTIONS_CHARS + 10),
+          "CLAUDE.md": "More.",
+        }),
+      );
+      expect(text?.length).toBeLessThan(MAX_PROJECT_INSTRUCTIONS_CHARS + 300);
+      expect(text).toMatch(/read_file AGENTS\.md for it/);
+      expect(text).toMatch(
+        /### CLAUDE\.md\n\(Not included: read_file CLAUDE\.md/,
+      );
+    });
   });
 
   test("a write that is not text is refused before anything is staged", async () => {
@@ -874,45 +1368,6 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
       result: { success: false, error: "Could not build: x" },
       isError: true,
     });
-  });
-
-  test("in the design tab, build_proposal builds only for a reason a quick preview cannot cover", async () => {
-    const started: number[] = [];
-    const d = deps({
-      design: true,
-      build: control(async () => {
-        started.push(1);
-        return { status: "built", hash: "b1", proposal: proposal("b1") };
-      }),
-    });
-    const refused = await runCodeTool("build_proposal", {}, d);
-    expect(refused.isError).toBe(true);
-    expect(JSON.stringify(refused.result)).toMatch(/quick preview/);
-    const made_up = await runCodeTool(
-      "build_proposal",
-      { reason: "a button moved" },
-      d,
-    );
-    expect(made_up.isError).toBe(true);
-    expect(started).toEqual([]);
-
-    const built = await runCodeTool(
-      "build_proposal",
-      { reason: "finished" },
-      d,
-    );
-    expect(built.isError).toBe(false);
-    expect(started).toEqual([1]);
-  });
-
-  test("the design tab's quick preview and content answers do not ask for a build", async () => {
-    const d = deps({ design: true });
-    const written = await runCodeTool(
-      "write_files",
-      { files: { "src/a.ts": "a" } },
-      d,
-    );
-    expect(JSON.stringify(written.result)).not.toMatch(/Call build_proposal/);
   });
 
   test("build_proposal answers with each step's time once the build ends", async () => {
@@ -1227,6 +1682,62 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     expect(new Set(steps.slice(1))).toEqual(new Set(["on-server"]));
   });
 
+  test("while it waits, it says how far Val Build says the build is", async () => {
+    const { now, sleep } = clock();
+    const said = [
+      { queued: 1, step: null, built: false },
+      {
+        queued: null,
+        step: { label: "Building the site", index: 3, of: 4 },
+        built: false,
+      },
+    ];
+    const progress: unknown[] = [];
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        get: reading([read(), pending(), pending(), served("b1")]),
+        askBuild: async () => pending(),
+        buildProgress: async (_name, inputs) => {
+          expect(inputs).toBe(INPUTS);
+          return said.shift() ?? null;
+        },
+      },
+      onStep: (step) => {
+        if (step.kind === "on-server" && step.progress)
+          progress.push(step.progress);
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+    expect(progress).toEqual([
+      { queued: 1, step: null, built: false },
+      {
+        queued: null,
+        step: { label: "Building the site", index: 3, of: 4 },
+        built: false,
+      },
+    ]);
+  });
+
+  test("a progress read that fails is no progress, and the build is still waited for", async () => {
+    const { now, sleep } = clock();
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        get: reading([read(), pending(), served("b1")]),
+        askBuild: async () => pending(),
+        buildProgress: async () => {
+          throw new Error("Val Build could not be reached.");
+        },
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+  });
+
   test("a project Val Build does not build yet is off, nothing else is asked, and no step says it built there", async () => {
     const get = jest.fn().mockResolvedValue(read());
     const steps: string[] = [];
@@ -1417,168 +1928,5 @@ describe("buildProposalOnServer: Val Build builds it", () => {
       signal: controller.signal,
     });
     expect(outcome).toMatchObject({ status: "failed", cancelled: true });
-  });
-});
-
-describe("read_page", () => {
-  const snapshot = {
-    url: "https://p1--site.valstart.dev/",
-    title: "Home",
-    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
-    outline: [],
-  };
-
-  test("says there is nothing to read before a page is showing", async () => {
-    const answer = await runReadPage({}, { readPage: null, pointedAt: null });
-    expect(answer.isError).toBe(true);
-  });
-
-  test("reads the picked element by its selector", async () => {
-    const asked: unknown[] = [];
-    const answer = await runReadPage(
-      { picked: true },
-      {
-        readPage: async (options) => {
-          asked.push(options);
-          return snapshot;
-        },
-        pointedAt: {
-          tag: "h2",
-          text: "Contact",
-          classes: [],
-          selector: "section#contact > h2",
-        },
-      },
-    );
-    expect(asked).toEqual([{ selector: "section#contact > h2" }]);
-    expect(answer).toEqual({
-      result: { success: true, ...snapshot },
-      isError: false,
-    });
-  });
-
-  test("switches the width first when asked, and refuses one it does not know", async () => {
-    const order: string[] = [];
-    const deps = {
-      readPage: async () => {
-        order.push("read");
-        return snapshot;
-      },
-      pointedAt: null,
-      setDevice: async (device: string) => {
-        order.push(device);
-      },
-    };
-    await runReadPage({ device: "mobile" }, deps);
-    expect(order).toEqual(["mobile", "read"]);
-    expect((await runReadPage({ device: "watch" }, deps)).isError).toBe(true);
-  });
-
-  test("a page that does not answer is an error the model can read", async () => {
-    const answer = await runReadPage(
-      {},
-      {
-        readPage: async () => {
-          throw new Error("The page did not answer.");
-        },
-        pointedAt: null,
-      },
-    );
-    expect(answer).toEqual({
-      result: { success: false, error: "The page did not answer." },
-      isError: true,
-    });
-  });
-});
-
-describe("screenshot_page", () => {
-  // A JPEG's first bytes, as the page's canvas would encode them.
-  const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
-  const shot = {
-    dataUrl: JPEG,
-    width: 1280,
-    height: 800,
-    fullPage: false,
-    clipped: true,
-  };
-
-  test("uploads the page's picture and hands its key over with the answer", async () => {
-    const uploaded: File[] = [];
-    const devices: string[] = [];
-    const asked: unknown[] = [];
-    const answer = await runScreenshotPage(
-      { full_page: true, device: "mobile" },
-      {
-        screenshotPage: async (options) => {
-          asked.push(options);
-          return { ...shot, fullPage: true };
-        },
-        setDevice: async (device) => {
-          devices.push(device);
-        },
-        uploadImage: async (file) => {
-          uploaded.push(file);
-          return { key: "p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg" };
-        },
-      },
-    );
-    expect(devices).toEqual(["mobile"]);
-    expect(asked).toEqual([{ fullPage: true }]);
-    expect(answer).toEqual({
-      result: {
-        success: true,
-        width: 1280,
-        height: 800,
-        full_page: true,
-        note: "The page goes on below the picture.",
-        image: "attached",
-      },
-      isError: false,
-      images: ["p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg"],
-    });
-    expect(uploaded).toHaveLength(1);
-    expect(uploaded[0].type).toBe("image/jpeg");
-    // The bytes of the data URL, decoded: a JPEG starts FF D8 FF.
-    const bytes = new Uint8Array(await uploaded[0].arrayBuffer());
-    expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
-  });
-
-  test("says there is nothing to picture before a page is showing", async () => {
-    const answer = await runScreenshotPage(
-      {},
-      {
-        screenshotPage: null,
-        uploadImage: async () => ({ key: "k" }),
-      },
-    );
-    expect(answer.isError).toBe(true);
-    expect(answer).not.toHaveProperty("images");
-  });
-
-  test("says why when the page could not be pictured, and attaches nothing", async () => {
-    const answer = await runScreenshotPage(
-      {},
-      {
-        screenshotPage: async () => {
-          throw new Error("The page did not answer.");
-        },
-        uploadImage: async () => ({ key: "k" }),
-      },
-    );
-    expect(answer).toEqual({
-      result: { success: false, error: "The page did not answer." },
-      isError: true,
-    });
-  });
-
-  test("refuses a width it does not know", async () => {
-    const answer = await runScreenshotPage(
-      { device: "watch" },
-      {
-        screenshotPage: async () => shot,
-        uploadImage: async () => ({ key: "k" }),
-      },
-    );
-    expect(answer.isError).toBe(true);
   });
 });

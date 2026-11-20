@@ -268,6 +268,18 @@ export type AssistantSettingsSource = {
    * field unset and nothing is required.
    */
   translation?: Record<string, string | null> | null;
+  /**
+   * Whether the assistant may search the web.
+   *
+   * Three states, like `enabled`. `true`: it searches, and each search is
+   * billed to the project's own AI key; after a search it asks the editor
+   * before it changes any code. `false`: it does not search, and does not ask.
+   * Unset: it does not search, but when an answer needs the web it asks the
+   * editor to turn this on, in a card the Studio words, and the answer is
+   * written here. The assistant cannot change this field any other way. See
+   * `webSearchSetting.ts` and `webSearchGate.ts` in the Studio.
+   */
+  webSearch?: boolean | null;
 };
 
 /**

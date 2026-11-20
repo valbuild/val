@@ -14,6 +14,10 @@ import { SourcePath } from "./zod/SourcePath";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
 import { ValDeployment } from "./zod/ValDeployment";
+import { ModuleVersionSchema, ProjectVersionSchema } from "./content/version";
+
+/** An `EntryVersion` on the wire. */
+const EntryVersionSchema = ModuleVersionSchema.extend({ key: z.string() });
 import {
   HistoricalCommit,
   HistoricalModule,
@@ -379,6 +383,68 @@ export type SketchpadSummaryT = z.infer<typeof SketchpadSummary>;
 const SketchErrorZ = z.object({ line: z.number(), message: z.string() });
 /** The most text a sketchpad holds, in UTF-8 bytes: a page, not a site. */
 export const SKETCHPAD_MAX_TEXT_LENGTH = 256 * 1024;
+
+/**
+ * A manifest as the server answers it: what each module IS on the server
+ * (`GET /manifest`, and the same answer on `/stat` when the Studio asks for it
+ * there -- one function on the server answers both, `manifestAnswer`).
+ */
+export const ManifestJson = z.object({
+  project: ProjectVersionSchema,
+  modules: z.record(ModuleFilePath, ModuleVersionSchema),
+  /** This answer's ETag, as the header has it. */
+  tag: z.string().optional(),
+  /**
+   * Present on a delta only: the `seq` of the manifest it is
+   * relative to, whose modules that are not named here did not
+   * move. Absent: every module is named.
+   */
+  since: z.number().optional(),
+  /**
+   * The build that answered is a previous build still answering
+   * (http mode: the content service counted a newer one live).
+   * Its versions are right for its own bases, which the site does
+   * not serve any more: a Studio does not move to them, and asks
+   * again. Optional: absent from a live build and a server of the
+   * release before.
+   */
+  superseded: z.boolean().optional(),
+  /**
+   * The answering build's `val.modules` registry, as an entry a
+   * Studio can import (`valModulesEntryPath`), and the Val it
+   * runs: where a Studio opened on another build takes this
+   * build's code in without reloading the page. Only a build the
+   * platform made and names (`publishBuild`) has one. Optional
+   * both ways: absent from any other server (local development,
+   * where HMR brings the code; a self-hosted deploy) and from a
+   * server of the release before, and ignored by a Studio of the
+   * release before.
+   */
+  registry: z.object({ entry: z.string(), core: z.string() }).optional(),
+});
+
+export type ManifestJsonT = z.infer<typeof ManifestJson>;
+
+/**
+ * The manifest a `/stat` answer carries, when the request said which one the
+ * Studio holds (`manifest` on the request): what `GET /manifest` would have
+ * answered for it, so another editor's keystroke costs no manifest request.
+ *
+ * - A manifest, whole or a delta. A delta names the ETag it is relative to
+ *   (`sinceTag`): a Studio uses it only while it holds exactly that one.
+ * - `unchanged`: the manifest the request named, at `seq`, is still the
+ *   one for this answer's `seq`. Decided by `seq` alone, and not read: a
+ *   Studio reads a manifest only for a stat whose `seq` moved. It keeps the
+ *   next request naming the same manifest.
+ *
+ * Optional: absent from a server of the release before, and from an answer
+ * to a request that did not ask, and then the Studio reads `GET /manifest`.
+ */
+export const StatManifest = z.union([
+  ManifestJson.extend({ sinceTag: z.string().optional() }),
+  z.object({ unchanged: z.literal(true), tag: z.string(), seq: z.number() }),
+]);
+export type StatManifestT = z.infer<typeof StatManifest>;
 
 export const Api = {
   "/draft/enable": {
@@ -803,13 +869,84 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * What each module IS, right now: its version (`schema`, `base`, `chain`),
+   * and the project version that is relative to. What `/stat` answers, per
+   * module; see `docs/plans/one-content-model.md`, "The Studio loads
+   * everything from one place".
+   *
+   * It has its own ETag, so a client that sends it back (`If-None-Match`)
+   * gets a 304 and no body while nothing has moved. Computed from versions
+   * kept as content changes: answering it hashes nothing.
+   *
+   * "Since `seq` N" (`?since=N`, with the ETag of the manifest the client
+   * holds, which was answered at `seq` N, as `If-None-Match`): the modules
+   * whose version moved since that manifest, and no others, with `since: N`
+   * on the answer to say it is a delta. The ETag is in the body too (`tag`),
+   * for a client that reads answers through `ValClient`, which hands over
+   * the body and not the headers. Answered whole -- no `since` -- when the server no
+   * longer holds the manifest that ETag names (another process, another
+   * build, too long ago), and by a server of the release before, which
+   * ignores the parameter. Optional both ways.
+   */
+  "/manifest": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+        headers: {
+          "if-none-match": z.string().optional(),
+        },
+        query: {
+          since: onlyOneStringQueryParam.optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: ManifestJson,
+        }),
+        /*
+         * Nothing moved since the ETag the client sent. No body on the wire;
+         * the client reads it as `json: null`.
+         */
+        z.object({
+          status: z.literal(304),
+          json: z.null().optional(),
+        }),
+      ]),
+    },
+  },
   "/stat": {
     POST: {
       req: {
         body: z
           .object({
-            sourcesSha: z.string(),
-            schemaSha: z.string(),
+            /**
+             * @deprecated Echoed by a Studio of the release that shipped the
+             * one content model, whose fs and memory long poll compared it to
+             * see another build; a Studio of the release after echoes
+             * {@link version} instead, and this only when it was sent. The
+             * request field goes once no Studio sends it (see
+             * "Release-delayed deletions" in
+             * `docs/plans/one-content-model.md`).
+             */
+            sourcesSha: z.string().optional(),
+            /** @deprecated As `sourcesSha`. */
+            schemaSha: z.string().optional(),
+            /**
+             * The `version` the last answer carried: what the fs and memory
+             * long poll compare to see another build (the build the chain is
+             * relative to, `ValOps.chainBuild`). Optional: a Studio of the
+             * release before echoes the shas.
+             */
+            version: ProjectVersionSchema.optional(),
             baseSha: z.string(),
             patches: z.array(z.string()).optional(),
             /**
@@ -819,6 +956,16 @@ export const Api = {
              * thunk that `JSON.stringify` drops.
              */
             jsonEntriesSha: z.string().optional(),
+            /**
+             * The manifest the Studio holds, by its ETag and `seq`, so the
+             * answer can carry what moved since (`manifest` on the answer):
+             * `null` when it holds none and can take one. Absent from a
+             * Studio of the release before, which reads `GET /manifest`.
+             */
+            manifest: z
+              .object({ tag: z.string(), seq: z.number() })
+              .nullable()
+              .optional(),
           })
           .nullable(),
         cookies: {
@@ -848,8 +995,17 @@ export const Api = {
                 z.literal("did-change"),
               ]),
               baseSha: z.string(),
-              schemaSha: z.string(),
-              sourcesSha: z.string(),
+              /**
+               * @deprecated Still sent, for a Studio of the release that
+               * shipped the one content model, which echoes it; a Studio of
+               * the release after reads it as optional and echoes `version`.
+               * The server stops sending it in the release after that (see
+               * "Release-delayed deletions" in
+               * `docs/plans/one-content-model.md`).
+               */
+              schemaSha: z.string().optional(),
+              /** @deprecated As `schemaSha`. */
+              sourcesSha: z.string().optional(),
               patches: z.array(PatchId),
               /**
                * Of `patches`, the ones that have already SHIPPED.
@@ -948,14 +1104,32 @@ export const Api = {
                * Absent where there is no history to show.
                */
               historyBranch: z.string().optional(),
+              /**
+               * What this answer is relative to: the build that served it
+               * and how far along the project's changes it is (`seq`). Of two
+               * answers, the higher `seq` is the newer. Optional: a server
+               * that predates versions sends none.
+               */
+              version: ProjectVersionSchema.optional(),
+              /** See {@link StatManifest}. */
+              manifest: StatManifest.optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
               url: z.string(),
               nonce: z.string(),
               baseSha: z.string(),
-              schemaSha: z.string(),
-              sourcesSha: z.string(),
+              /**
+               * @deprecated Still sent, for a Studio of the release that
+               * shipped the one content model, which echoes it; a Studio of
+               * the release after reads it as optional and echoes `version`.
+               * The server stops sending it in the release after that (see
+               * "Release-delayed deletions" in
+               * `docs/plans/one-content-model.md`).
+               */
+              schemaSha: z.string().optional(),
+              /** @deprecated As `schemaSha`. */
+              sourcesSha: z.string().optional(),
               /**
                * The commit this deployment was built from.
                *
@@ -1079,6 +1253,15 @@ export const Api = {
                * Absent where there is no history to show.
                */
               historyBranch: z.string().optional(),
+              /**
+               * What this answer is relative to: the build that served it
+               * and how far along the project's changes it is (`seq`). Of two
+               * answers, the higher `seq` is the newer. Optional: a server
+               * that predates versions sends none.
+               */
+              version: ProjectVersionSchema.optional(),
+              /** See {@link StatManifest}. */
+              manifest: StatManifest.optional(),
             }),
           ]),
         }),
@@ -1121,6 +1304,12 @@ export const Api = {
       req: {
         path: z.string().optional(),
         cookies: { val_session: z.string().optional() },
+        /*
+         * Carried to content, which answers 304 when it names the answer
+         * (`/project-source` does: valbuild/home sends its `ETag`). The
+         * `ETag` comes back as a header, and a 304 with no body.
+         */
+        headers: { "if-none-match": z.string().optional() },
       },
       /*
        * Content's status and body, carried through.
@@ -1131,7 +1320,14 @@ export const Api = {
        * `{ message }` rather than throwing, because a publish failing is
        * something the editor has to be told about in words.
        */
-      res: z.object({ status: z.number(), json: z.unknown() }),
+      res: z.union([
+        z.object({ status: z.number(), json: z.unknown() }),
+        /*
+         * Content said the caller holds the answer already (`If-None-Match`).
+         * No body on the wire: a 304 cannot carry one.
+         */
+        z.object({ status: z.literal(304), json: z.null().optional() }),
+      ]),
     },
     POST: {
       req: {
@@ -1509,6 +1705,26 @@ export const Api = {
             headVersion: z.number().optional(),
           }),
         }),
+        /*
+         * The content service failed to take a patch: it answered with a
+         * server error, or could not be reached. Not the 400 above either,
+         * because the patches are fine -- the Studio keeps them and offers
+         * to send them again. `message` is for the editor and `details` (the
+         * status line and the service's own words) for whoever they ask.
+         *
+         * As with the 403, the patches BEFORE the failed one were saved.
+         */
+        z.object({
+          status: z.literal(502),
+          json: z.object({
+            type: z.literal("service-error"),
+            message: z.string(),
+            details: z.string().optional(),
+            newPatchIds: z.array(PatchId),
+            parentRef: ParentRef,
+            headVersion: z.number().optional(),
+          }),
+        }),
         z.object({
           status: z.literal(200),
           json: z.object({
@@ -1549,6 +1765,8 @@ export const Api = {
           json: z.object({
             message: z.string(),
             error: GenericError,
+            /** What the content service said: its status line and words. */
+            details: z.string().optional(),
           }),
         }),
         z.object({
@@ -1567,6 +1785,8 @@ export const Api = {
             baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
+            /** The project version these patches were read at. See `/stat`. */
+            version: ProjectVersionSchema.optional(),
           }),
         }),
       ]),
@@ -1605,15 +1825,22 @@ export const Api = {
       ]),
     },
   },
-  "/sources/~": {
-    PUT: {
+  /**
+   * One module by version: phase 6 of `docs/plans/one-content-model.md`
+   * ("The Studio loads everything from one place"). `GET /modules/~<path>`,
+   * with `v` the version wanted as its `moduleKey` (the newest when absent;
+   * a base is a version with the empty chain) and `have` the version the
+   * caller holds: when the caller's chain is a start of the answer's under
+   * the same schema and base, the answer is the patches from it (`delta`),
+   * otherwise the whole module. An answer for an asked `v` is immutable.
+   */
+  "/modules/~": {
+    GET: {
       req: {
-        path: z.string().optional(),
+        path: z.string(),
         query: {
-          validate_sources: onlyOneBooleanQueryParam.optional(),
-          validate_binary_files: onlyOneBooleanQueryParam.optional(),
-          exclude_patches: onlyOneBooleanQueryParam.optional(),
-          apply_patches: onlyOneBooleanQueryParam.optional(),
+          v: onlyOneStringQueryParam.optional(),
+          have: onlyOneStringQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -1622,53 +1849,66 @@ export const Api = {
       res: z.union([
         unauthorizedResponse,
         z.object({
-          status: z.literal(401),
-          json: GenericError,
+          status: z.literal(404),
+          json: z.object({
+            message: z.string(),
+            /** The version held now, when the one asked for is not. */
+            current: ModuleVersionSchema.optional(),
+          }),
         }),
         z.object({
           status: z.literal(500),
-          json: z.object({
-            message: z.string(),
-            details: z.union([z.array(ModulesError), GenericError]),
-          }),
-        }),
-        z.object({
-          status: z.literal(409),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-            details: z.array(ModulesError),
-          }),
+          json: GenericError,
         }),
         z.object({
           status: z.literal(200),
-          json: z.object({
-            schemaSha: z.string(),
-            sourcesSha: z.string(),
-            modules: z.record(
-              ModuleFilePath,
-              z.object({
-                preview: z.any().optional(), // TODO: improve this type
-                source: z.any().optional(), //.optional(), // TODO: Json zod type
-                baseSource: z.any().optional(), // pre-patch source for compare view; only set when the server applies patches (apply_patches=true) and the module has pending patches
-                patches: z
-                  .object({
-                    applied: z.array(PatchId),
-                    skipped: z.array(PatchId).optional(),
-                    errors: z.record(PatchId, GenericError).optional(),
-                  })
-                  .optional(),
-                validationErrors: z
-                  .record(z.string(), z.array(ValidationError))
-                  .optional(),
-              }),
-            ),
-          }),
+          headers: z.object({ "Cache-Control": z.string() }).optional(),
+          json: z.union([
+            z.object({
+              kind: z.literal("module"),
+              version: ModuleVersionSchema,
+              source: z.any(),
+              /**
+               * The `.jsonValues()` entries the module's chain touched, read,
+               * each with its own version. Every other entry is the base's,
+               * behind its marker in `source`.
+               */
+              entries: z.record(
+                z.string(),
+                z.union([
+                  z.object({
+                    content: z.any(),
+                    version: EntryVersionSchema,
+                  }),
+                  z.object({
+                    deleted: z.literal(true),
+                    version: EntryVersionSchema,
+                  }),
+                  z.object({
+                    error: z.string(),
+                    /** The patch that made it unreadable, when known. */
+                    patchId: PatchId.optional(),
+                    version: EntryVersionSchema,
+                  }),
+                ]),
+              ),
+              /**
+               * The patch ids its chain is made of, in chain order: what a
+               * client holding this knows the server already has. Optional:
+               * a server of the release before sends none.
+               */
+              patches: z.array(PatchId).optional(),
+              failed: z
+                .object({ patchId: PatchId, message: z.string() })
+                .optional(),
+            }),
+            z.object({
+              kind: z.literal("delta"),
+              from: ModuleVersionSchema,
+              to: ModuleVersionSchema,
+              patches: z.array(z.object({ patchId: PatchId, patch: Patch })),
+            }),
+          ]),
         }),
       ]),
     },
@@ -2441,6 +2681,13 @@ export const Api = {
             key: z.string(),
             // The entry's JSON content (or null if the entry has no value).
             content: z.any(),
+            /**
+             * The version of the record module the entry was read from, with
+             * the chain that was applied (the empty chain without
+             * `apply_patches`). An entry's own version comes with entries
+             * stored as modules of their own.
+             */
+            version: ModuleVersionSchema.optional(),
           }),
         }),
         // Shapes (2) and (3): `keys` or `offset`+`limit`.
@@ -2463,6 +2710,8 @@ export const Api = {
             offset: z.number().optional(),
             limit: z.number().optional(),
             total: z.number().optional(),
+            /** As for a single `key`. */
+            version: ModuleVersionSchema.optional(),
           }),
         }),
         z.object({
@@ -2526,6 +2775,19 @@ export const Api = {
                   contextWindow: z.number().nullable().optional(),
                 }),
               )
+              .optional(),
+            /**
+             * The model a chat starts on until the editor picks one.
+             *
+             * Chosen by the content server, from `models`, so the default can
+             * change for every project at once rather than at each project's
+             * next Val upgrade. Null or absent (an older content server, or
+             * nothing it recognised) means the Studio picks from its own
+             * catalog.
+             */
+            defaultModel: z
+              .object({ provider: z.string(), model: z.string() })
+              .nullable()
               .optional(),
           }),
         }),

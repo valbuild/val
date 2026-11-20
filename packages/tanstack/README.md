@@ -509,17 +509,17 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 
 ## Differences from `@valbuild/next`
 
-| Next                                | TanStack Start                                     |
-| ----------------------------------- | -------------------------------------------------- |
-| `nextAppRouter`                     | `tanstackRouter`                                   |
-| `app/blogs/[blog]/page.val.ts`      | `src/routes/blogs.$blog.val.ts`                    |
-| `initValRsc` (`@valbuild/next/rsc`) | `initValContent` (`@valbuild/tanstack/server`)     |
-| `draftMode()` from `next/headers`   | `valDraftMode()` (a cookie this package owns)      |
-| `valNextAppRouter`                  | `valApiHandler` — a `Request` in, a `Response` out |
-| `ValImage` wraps `next/image`       | `ValImage` is an `<img>`                           |
-| `fetchVal` in a Server Component    | hooks in components; `createServerFn` for loaders  |
-| client hooks render published SSR   | `ValProvider draft` renders the draft during SSR   |
-| no content analytics yet            | `ValProvider analytics`                            |
+| Next                                                           | TanStack Start                                                  |
+| -------------------------------------------------------------- | --------------------------------------------------------------- |
+| `nextAppRouter`                                                | `tanstackRouter`                                                |
+| `app/blogs/[blog]/page.val.ts`                                 | `src/routes/blogs.$blog.val.ts`                                 |
+| `initValRsc` (`@valbuild/next/rsc`)                            | `initValContent` (`@valbuild/tanstack/server`)                  |
+| `draftMode()` from `next/headers`                              | `valDraftMode()` (a cookie this package owns)                   |
+| `valNextAppRouter`                                             | `valApiHandler` — a `Request` in, a `Response` out              |
+| `ValImage` wraps `next/image`                                  | `ValImage` is an `<img>`                                        |
+| `fetchVal` in a Server Component                               | hooks in components; `createServerFn` for loaders               |
+| `ValProvider draft={await fetchValDraft()}` in the root layout | `fetchValDraft` in a `createServerFn` the layout's loader calls |
+| no content analytics yet                                       | `ValProvider analytics`                                         |
 
 ## Schema reference
 

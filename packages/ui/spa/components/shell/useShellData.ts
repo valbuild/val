@@ -128,6 +128,25 @@ export function useShellData(): ShellDataState {
     [externalPath, mediaPaths],
   );
   const records = useShallowModulesAtPaths(recordPaths, "record");
+  const recordData = records.status === "success" ? records.data : null;
+
+  /**
+   * Every gallery's files, sorted by name: a memo of its own, moved only by
+   * the galleries' own source.
+   *
+   * It was part of the one below, which moves with the patch list and the
+   * validation errors -- so every keystroke anywhere listed and sorted every
+   * library again, 10,000 files each, and a page that only pointed at three
+   * of them froze for a tenth of a second per character.
+   */
+  const mediaFiles = useMemo(
+    () =>
+      (recordData?.slice(externalPath ? 1 : 0) ?? []).map((record) => ({
+        itemCount: countKeys(record),
+        files: toMediaFiles(record),
+      })),
+    [recordData, externalPath],
+  );
 
   // Which modules have unpublished work. Patch sets are keyed by module, so
   // one pass gives the draft marker for every row in the navigation.
@@ -204,9 +223,7 @@ export function useShellData(): ShellDataState {
       collected && collected.routes.length > 0
         ? { routes: collected.routes }
         : undefined;
-    const recordData = records.status === "success" ? records.data : null;
     const externalRecord = externalPath ? recordData?.[0] : undefined;
-    const mediaRecords = recordData?.slice(externalPath ? 1 : 0) ?? [];
 
     return {
       status: "success",
@@ -239,8 +256,8 @@ export function useShellData(): ShellDataState {
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
             ...(entry.fonts ? { fonts: true } : {}),
-            itemCount: countKeys(mediaRecords[index]),
-            files: toMediaFiles(mediaRecords[index]),
+            itemCount: mediaFiles[index]?.itemCount ?? 0,
+            files: mediaFiles[index]?.files,
           }),
         ),
         settings: navData?.settings
@@ -295,7 +312,8 @@ export function useShellData(): ShellDataState {
     filePatchIds,
     navMenu,
     navData,
-    records,
+    recordData,
+    mediaFiles,
     externalPath,
     externalRouter,
     config,

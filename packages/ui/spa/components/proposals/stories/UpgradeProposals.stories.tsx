@@ -126,7 +126,7 @@ export const InASecurityUpgrade = shell({
 /** A major version: marked on its package. */
 export const InAMajorUpgrade = shell({
   location: inUpgrade({
-    proposal: { ...upgradeProposal, displayName: "Full upgrade" },
+    proposal: { ...upgradeProposal, displayName: "Full update" },
   }),
   list: withUpgrade,
   selectionId: home,

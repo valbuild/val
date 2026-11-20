@@ -204,7 +204,7 @@ export const QUICK_PREVIEW_TAB_GONE_MESSAGE =
 
 /**
  * Bundle a quick preview in a builder tab (`HandoffQuickPreviewTab`), for a
- * design tab that cannot build itself: Safari, an iPhone. The same hand-off
+ * Studio that cannot build itself: Safari, an iPhone. The same hand-off
  * as {@link buildInTab}, and the same blocked tab -- {@link openBuilder}
  * opens it from a tap -- and the files come back over it.
  */

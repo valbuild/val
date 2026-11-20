@@ -268,6 +268,9 @@ describe("/analytics, forwarded to the ingest in http mode", () => {
     expect([...new Headers(init?.headers).keys()].sort()).toEqual([
       "authorization",
       "content-type",
+      // Which `@valbuild/server` forwarded it: about this server, not the
+      // visitor.
+      "x-val-client",
       "x-val-project",
       "x-val-visitor-country",
       "x-val-visitor-user-agent",

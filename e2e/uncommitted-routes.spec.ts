@@ -1,11 +1,17 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import {
   clearPatchChain,
   closeNavPanel,
   openNavPanel,
   openStudio,
 } from "./studio";
-import { TANSTACK_APP_URL } from "./apps";
+import { NEXT_APP_URL, TANSTACK_APP_URL } from "./apps";
 
 /**
  * A page that exists only in an uncommitted patch.
@@ -66,11 +72,14 @@ async function createPage(
  * Val Enable cookie and draft mode, which is the state an editor is in by the
  * time they create a page.
  */
-async function enablePreview(page: Page): Promise<void> {
+async function enablePreview(
+  page: Page,
+  appUrl: string = TANSTACK_APP_URL,
+): Promise<void> {
   const enabling = await page.context().newPage();
   await enabling.goto(
     "/api/val/enable?redirect_to=" +
-      encodeURIComponent(`${TANSTACK_APP_URL}/blogs/blog1`),
+      encodeURIComponent(`${appUrl}/blogs/blog1`),
   );
   await expect
     .poll(
@@ -166,55 +175,26 @@ test.describe("a route that has not been committed", () => {
    * because the unedited authors module makes it suspend long enough for draft
    * mode to become known — which is why the fix and its test have to be
    * separate things.
-   */
-  /**
-   * KNOWN FAILING — the fix needs a decision that is not mine to make.
    *
-   * `notFound()` is called on the FIRST render, and the suspend gate is switched
-   * on by an effect, which runs after it. So this render resolves against
-   * committed source no matter what the gate would have decided: the route is
-   * absent, `notFound()` is terminal, and nothing later gets a turn. The
-   * `draftMode === null` fix cannot help, because the gate is not consulted at
-   * all.
-   *
-   * Closing it means the FIRST render knowing that Val is enabled — which is
-   * what `suspend={await isValEnabled()}` did before a4c09b2e. TRIED, and it is
-   * not enough on its own: with the gate on during SSR the server suspends on
-   * `waitForLoad`, and the store it is waiting for is only ever filled from the
-   * browser, so the request hangs rather than 404s. Making it work needs the
-   * server able to supply draft sources during its own render, which is a good
-   * deal more than a prop. See architecture/quirks.md.
+   * It was `test.fixme`, because `notFound()` is called on the FIRST render —
+   * the server's, and the hydration render after it — before any gate the
+   * browser switches on can be consulted. What closes it is the server
+   * rendering the draft: the layout reads the request's draft and hands it to
+   * `<ValProvider draft>`, so the store is full before the first render
+   * (`fetchValDraft`: TanStack's in `_site.tsx`'s loader, Next's from
+   * `initValRsc` in the root layout). See architecture/quirks.md, wait 3 of
+   * "`suspend` is three waits, and a route only gets one chance". Next's copy
+   * of the case is below.
    */
-  test.fixme("renders a route whose module is the only one it reads", async ({
+  test("renders a route whose module is the only one it reads", async ({
     page,
     request,
   }) => {
-    await clearPatchChain(request);
-    await enablePreview(page);
-    await openStudio(page);
-    const studio = page.locator("#val-shadow-root");
-    await createPage(
-      page,
-      studio,
-      "/generic/[[..._splat]]",
-      "_splat",
-      "uncommitted",
-    );
-    await setTitle(studio, "Uncommitted single module");
-
-    await studio.getByRole("button", { name: /Open the canvas/ }).click();
-    await expect(studio.getByLabel("Canvas route")).toHaveValue(
-      "/generic/uncommitted",
-      { timeout: 30000 },
-    );
-
-    await expect
-      .poll(() => frameText(page, "/generic/uncommitted"), {
-        message: "the route resolved against committed source and 404ed",
-        timeout: 60000,
-      })
-      .toContain("Uncommitted single module");
-    await clearPatchChain(request);
+    await singleModuleRoute(page, request, {
+      appUrl: TANSTACK_APP_URL,
+      route: "/generic/[[..._splat]]",
+      param: "_splat",
+    });
   });
 
   test("renders in the canvas from a server component", async ({
@@ -246,3 +226,53 @@ test.describe("a route that has not been committed", () => {
     await clearPatchChain(request);
   });
 });
+
+/**
+ * The single-module case, on `examples/next`: a CLIENT component
+ * (`useValRoute`) whose route exists only in a patch, under a root layout that
+ * passes `fetchValDraft()` from `initValRsc` to `<ValProvider draft>`. Without
+ * that, the server render resolves against committed source and calls
+ * `notFound()`, which nothing later can undo.
+ */
+test.describe("a route that has not been committed, on Next", () => {
+  test.use({ baseURL: NEXT_APP_URL });
+
+  test("renders a route whose module is the only one it reads", async ({
+    page,
+    request,
+  }) => {
+    await singleModuleRoute(page, request, {
+      appUrl: NEXT_APP_URL,
+      route: "/generic/[[...path]]",
+      param: "path",
+    });
+  });
+});
+
+/** Make a page under a route whose module is the only one its page reads, and look at it. */
+async function singleModuleRoute(
+  page: Page,
+  request: APIRequestContext,
+  app: { appUrl: string; route: string; param: string },
+): Promise<void> {
+  await clearPatchChain(request);
+  await enablePreview(page, app.appUrl);
+  await openStudio(page);
+  const studio = page.locator("#val-shadow-root");
+  await createPage(page, studio, app.route, app.param, "uncommitted");
+  await setTitle(studio, "Uncommitted single module");
+
+  await studio.getByRole("button", { name: /Open the canvas/ }).click();
+  await expect(studio.getByLabel("Canvas route")).toHaveValue(
+    "/generic/uncommitted",
+    { timeout: 30000 },
+  );
+
+  await expect
+    .poll(() => frameText(page, "/generic/uncommitted"), {
+      message: "the route resolved against committed source and 404ed",
+      timeout: 60000,
+    })
+    .toContain("Uncommitted single module");
+  await clearPatchChain(request);
+}

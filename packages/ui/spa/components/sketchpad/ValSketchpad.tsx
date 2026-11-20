@@ -1,11 +1,20 @@
+import { Internal } from "@valbuild/core";
 import type { SketchpadT } from "@valbuild/shared/internal";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { parseSketch, sketchRoutes } from "@valbuild/shared/internal";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sketchpad, type SketchpadAssistantStatus } from "./Sketchpad";
+import type { SketchBlockType } from "./boxNodeView";
+import type { SketchHighlight } from "./highlights";
+import type { SketchMediaLibrary } from "./SketchpadMediaPicker";
+import { useSketchRoute } from "./useSketchRoute";
+import { blockTypesOfSchemas } from "./sketchBlockTypes";
+import { useSketchMediaLibrary } from "./sketchMediaLibrary";
 import type { SketchpadClient } from "./sketchpadClient";
 import type { SketchpadListItem } from "./SketchpadList";
 import { useSketchpadsSnapshot, type SketchpadsState } from "./SketchpadsState";
 import { SketchpadWorkspace } from "./SketchpadWorkspace";
 import { useShellBreakpoint } from "../shell/useShellBreakpoint";
+import { useFilePatchIds, useSchemas } from "../ValFieldProvider";
 import {
   SketchpadSaver,
   type SaverProblem,
@@ -26,9 +35,10 @@ export function ValSketchpad({
   client,
   sketchpads,
   onSendToAssistant,
-  onOpenAssistant,
+  onStartFromRoute,
   pageOptions,
   currentProfileId,
+  onShowRoute,
 }: {
   state: SketchpadsState;
   client: SketchpadClient;
@@ -39,16 +49,48 @@ export function ValSketchpad({
   };
   /** Opens the chat and asks it to read the sketchpad. Absent without one. */
   onSendToAssistant?: (sketchpad: SketchpadT) => void;
-  /** Opens the chat. Absent without one. */
-  onOpenAssistant?: () => void;
+  /** Asks the chat to write a page into an empty sketchpad. */
+  onStartFromRoute?: (sketchpad: SketchpadT, route: string) => void;
+  /** The site's routes: its pages, and its page types (`/blog/[slug]`). */
   pageOptions: string[];
   currentProfileId: string | null;
+  /**
+   * Show the page the sketch is about in the Studio's preview: the one
+   * preview, beside the Sketch or a tap away on a phone. The Sketchpad has
+   * none of its own. `pressed` when the person asked for it -- a route
+   * divider's "Show it in the preview" -- rather than when the sketch opened
+   * on its first page: on a phone the first is a reason to go and look.
+   */
+  onShowRoute: (route: string, how: { pressed: boolean }) => void;
 }) {
   const snapshot = useSketchpadsSnapshot(state);
+  // What a box may show, and the kinds of section the site has: read only
+  // while a sketchpad is open, since both walk the whole project.
+  const mediaLibrary = useSketchMediaLibrary(state);
+  const schemas = useSchemas();
+  const blockTypes = useMemo(
+    () =>
+      schemas.status === "success"
+        ? blockTypesOfSchemas(schemas.data)
+        : undefined,
+    [schemas],
+  );
   const id = snapshot.openId;
   const known = id !== null ? snapshot.byId[id] : undefined;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [archivedId, setArchivedId] = useState<string | null>(null);
+  const routesInSketch = useMemo(
+    () => (known ? sketchRoutes(parseSketch(known.text).blocks) : []),
+    [known],
+  );
+  // The page the sketch is about, shown in the Studio's one preview.
+  const { activeRoute, pressRoute } = useSketchRoute({
+    sketchId: id,
+    routesInSketch,
+    startedFrom: known?.page ?? null,
+    knownRoutes: pageOptions,
+    onShowRoute,
+  });
 
   // Fetched every time it is opened: what this tab has may be from before
   // someone else's change. What it has is shown meanwhile, and the newer
@@ -170,7 +212,6 @@ export function ValSketchpad({
 
   return (
     <SketchpadWorkspace
-      preview={<PagePreview page={known?.page ?? null} />}
       sketchpads={{
         sketchpads: sketchpads.items,
         currentId: id,
@@ -248,13 +289,26 @@ export function ValSketchpad({
             client={client}
             state={state}
             onSaved={sketchpads.refresh}
-            onPageChange={(page) => void change(known, { page })}
             onArchive={() => void archive(known)}
             onSendToAssistant={
               onSendToAssistant && (() => onSendToAssistant(known))
             }
-            onOpenAssistant={onOpenAssistant}
+            onStartFromRoute={
+              onStartFromRoute &&
+              ((route) => {
+                pressRoute(route);
+                onStartFromRoute(known, route);
+              })
+            }
             pageOptions={pageOptions}
+            activeRoute={activeRoute}
+            onOpenRoute={pressRoute}
+            mediaLibrary={mediaLibrary}
+            blockTypes={blockTypes}
+            highlights={snapshot.highlights[known.id]}
+            onClearHighlight={(highlightId) =>
+              state.clearHighlight(known.id, highlightId)
+            }
             currentProfileId={currentProfileId}
             assistantRead={snapshot.assistantRead[known.id]}
             problem={snapshot.problems[known.id]}
@@ -276,11 +330,16 @@ function OpenSketchpad({
   client,
   state,
   onSaved,
-  onPageChange,
   onArchive,
   onSendToAssistant,
-  onOpenAssistant,
+  onStartFromRoute,
   pageOptions,
+  activeRoute,
+  onOpenRoute,
+  mediaLibrary,
+  blockTypes,
+  highlights,
+  onClearHighlight,
   currentProfileId,
   list,
   assistantRead,
@@ -290,11 +349,16 @@ function OpenSketchpad({
   client: SketchpadClient;
   state: SketchpadsState;
   onSaved: () => void;
-  onPageChange: (page: string | null) => void;
   onArchive: () => void;
   onSendToAssistant?: () => void;
-  onOpenAssistant?: () => void;
+  onStartFromRoute?: (route: string) => void;
   pageOptions: string[];
+  activeRoute: string | null;
+  onOpenRoute: (route: string) => void;
+  mediaLibrary?: SketchMediaLibrary;
+  blockTypes?: SketchBlockType[];
+  highlights?: SketchHighlight[];
+  onClearHighlight: (id: string | null) => void;
   currentProfileId: string | null;
   list: Parameters<typeof Sketchpad>[0]["sketchpads"];
   /** The version the assistant last read or wrote, if any. */
@@ -304,9 +368,22 @@ function OpenSketchpad({
 }) {
   // What is on screen: the server's text until someone types here.
   const [text, setText] = useState(sketchpad.text);
-  // A phone has no room for the page beside the sketch, so it offers the
-  // whole screen to the two of them instead.
+  // On a phone the tools are at the bottom, by the thumb.
   const breakpoint = useShellBreakpoint();
+  // A box's image is as often the page's own content path, copied by the
+  // assistant, as a web address: shown where the Studio shows that image,
+  // with the patch id an upload that is not published yet is served by.
+  const filePatchIds = useFilePatchIds();
+  const mediaUrl = useCallback(
+    (src: string) => {
+      const patchId = filePatchIds.get(src);
+      return Internal.mediaUrl({
+        path: src,
+        ...(patchId ? { patch_id: patchId } : {}),
+      });
+    },
+    [filePatchIds],
+  );
   const [problem, setProblem] = useState<SaverProblem | null>(
     problemOnOpen ?? null,
   );
@@ -451,9 +528,15 @@ function OpenSketchpad({
         value={text}
         onChange={onChange}
         title={sketchpad.title ?? undefined}
-        page={sketchpad.page}
-        onPageChange={onPageChange}
         pageOptions={pageOptions}
+        activeRoute={activeRoute}
+        onOpenRoute={onOpenRoute}
+        onStartFromRoute={onStartFromRoute}
+        startRoute={sketchpad.page}
+        mediaLibrary={mediaLibrary}
+        blockTypes={blockTypes}
+        highlights={highlights}
+        onClearHighlight={onClearHighlight}
         status={
           status.saving
             ? "Saving…"
@@ -464,43 +547,11 @@ function OpenSketchpad({
                 : `Saved ${relative(sketchpad.updatedAt)}`
         }
         onAskAssistant={onSendToAssistant}
-        onOpenChat={onOpenAssistant}
+        mediaUrl={mediaUrl}
         assistantStatus={assistantStatus}
         onArchive={onArchive}
         sketchpads={list}
-        fullscreenPreview={
-          breakpoint === "mobile" ? (
-            <PagePreview page={sketchpad.page} />
-          ) : undefined
-        }
-      />
-    </div>
-  );
-}
-
-/** The page the sketch is about, as the site serves it now. */
-function PagePreview({ page }: { page: string | null }) {
-  if (page === null) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-sm text-fg-secondary">
-        This sketch is not about a page yet. Pick one under its title to see the
-        page beside it.
-      </div>
-    );
-  }
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-        <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs text-fg-secondary">
-          {page}
-        </span>
-      </div>
-      <iframe
-        key={page}
-        title={`The page ${page}`}
-        src={page}
-        className="min-h-0 w-full flex-1 bg-white"
+        touch={breakpoint === "mobile"}
       />
     </div>
   );

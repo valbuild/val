@@ -7,6 +7,8 @@ import type { ValServerGenericResult } from "@valbuild/shared/internal";
 import { ValServer, type ValServerConfig } from "../ValServer";
 import { createValRequestHandler } from "../ValRouterCore";
 import type { ValPatchStore } from "../ValOpsMemory";
+import type { ValServerPlatform } from "../platform";
+import type { ValRuntime } from "../valRuntime";
 import { browserPlatform } from "./browserPlatform";
 
 /** A `fetch`, as far as the Studio's client calls one. */
@@ -30,19 +32,39 @@ export type InTabFetch = (
  */
 export function createInTabValFetch(
   valModules: ValModules,
-  options: {
-    config: ValConfig;
-    /**
-     * Where edits live. Memory by default, which is what the demo wants: the
-     * edits last as long as the tab's page does, and a reload starts over.
-     */
-    patchStore?: ValPatchStore;
-    /** The path the Studio's client calls. */
-    route?: string;
-    /** The binding that started it, for the Studio's version list. */
-    framework?: ValServerConfig["framework"];
-  },
+  options: InTabValOptions,
 ): InTabFetch {
+  return createInTabVal(valModules, options).fetch;
+}
+
+export type InTabValOptions = {
+  config: ValConfig;
+  /**
+   * Where edits live. Memory by default, which is what the demo wants: the
+   * edits last as long as the tab's page does, and a reload starts over.
+   */
+  patchStore?: ValPatchStore;
+  /** The path the Studio's client calls. */
+  route?: string;
+  /** The binding that started it, for the Studio's version list. */
+  framework?: ValServerConfig["framework"];
+};
+
+/**
+ * {@link createInTabValFetch}, and the runtime behind it: the data layer the
+ * server reads through, whose head (`runtime.ops.head`) is what a draft
+ * reader reads (`serverDraftSource`). So a caller that reads in-process reads
+ * what the API serves, through the same object, as `createValRuntime` gives
+ * a server's readers. The isolate probe (`scenarios/measure/isolate/`) reads
+ * a draft page this way.
+ *
+ * `authorize` lets every session read the draft: the server is made with
+ * `unsafelyAllowUnauthenticated`, and the only caller is the page it runs in.
+ */
+export function createInTabVal(
+  valModules: ValModules,
+  options: InTabValOptions,
+): { fetch: InTabFetch; runtime: ValRuntime } {
   const route = options.route ?? "/api/val";
   const serverConfig: ValServerConfig = {
     mode: "memory",
@@ -56,6 +78,17 @@ export function createInTabValFetch(
       ? { framework: options.framework }
       : {}),
   };
+  // The server makes its ops once, when it is constructed: kept here so they
+  // can be handed out.
+  const made: { ops: ValRuntime["ops"] | null } = { ops: null };
+  const platform: ValServerPlatform = {
+    ...browserPlatform,
+    createOps: (modules, config) => {
+      const ops = browserPlatform.createOps(modules, config);
+      made.ops = ops;
+      return ops;
+    },
+  };
   const server = ValServer(
     valModules,
     serverConfig,
@@ -65,14 +98,17 @@ export function createInTabValFetch(
       onEnable: async () => {},
       onDisable: async () => {},
     },
-    browserPlatform,
+    platform,
   );
+  const ops = made.ops;
+  if (ops === null) throw new Error("the server made no data layer");
+  const runtime: ValRuntime = { ops, authorize: () => true };
   const handle = createValRequestHandler(
     route,
     Promise.resolve(server),
     toResponse,
   );
-  return (input, init) => {
+  const fetch: InTabFetch = (input, init) => {
     const base =
       typeof window === "undefined"
         ? "http://localhost"
@@ -85,6 +121,7 @@ export function createInTabValFetch(
         : new Request(new URL(String(input), base).href, init),
     );
   };
+  return { fetch, runtime };
 }
 
 /**

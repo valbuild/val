@@ -96,6 +96,40 @@ describe("attachElementPicker", () => {
     expect(picked).toHaveLength(1);
   });
 
+  test("fields only: a click inside a field picks the field, and one outside picks nothing", () => {
+    const root = page(
+      `<header><a href="/">Home</a></header><section data-val-path="/content/home.val.ts?p=&quot;title&quot;"><h1><em>Spring</em> menu</h1></section>`,
+    );
+    const field = root.querySelector("section")!;
+    const picked: Element[] = [];
+    const hovered: (Element | null)[] = [];
+    const pageClicks: Event[] = [];
+    const link = root.querySelector("a")!;
+    link.addEventListener("click", (event) => pageClicks.push(event));
+    const detach = attachElementPicker(root, {
+      modifier: "alt",
+      active: () => true,
+      fieldsOnly: () => true,
+      onHover: (element) => hovered.push(element),
+      onPick: (element) => picked.push(element),
+    });
+
+    root
+      .querySelector("em")!
+      .dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(hovered).toEqual([field]);
+    click(root.querySelector("em")!);
+    expect(picked).toEqual([field]);
+
+    // Not a field: the page keeps its click, and nothing is picked.
+    link.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(hovered).toEqual([field, null]);
+    expect(click(link)).toBe(true);
+    expect(pageClicks).toHaveLength(1);
+    expect(picked).toEqual([field]);
+    detach();
+  });
+
   /** A touch, as a phone's browser reports it: pointer events, with a type. */
   const touch = (
     element: Element,

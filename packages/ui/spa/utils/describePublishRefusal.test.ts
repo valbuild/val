@@ -20,6 +20,16 @@ describe("describePublishRefusal", () => {
     expect(said.details).toContain("/b.val.ts");
   });
 
+  test("edits held for a schema change offer the edits, where they are settled", () => {
+    const said = describePublishRefusal({
+      status: "refused",
+      reason: "held-edits",
+      patchIds: ["p1" as PatchId, "p2" as PatchId],
+    });
+    expect(said.message).toContain("2 edits do not fit");
+    expect(said.action).toBe("show-held-edits");
+  });
+
   test("a publish already running says so", () => {
     expect(
       describePublishRefusal({
@@ -51,6 +61,32 @@ describe("describePublishRefusal", () => {
     });
     expect(said.message).toContain("could not be saved");
     expect(said.details).toContain("no work is lost");
+  });
+
+  test("unsaved changes do not blame the connection", () => {
+    const said = describePublishRefusal({
+      status: "refused",
+      reason: "unsaved-changes",
+      patchIds: ["p1" as PatchId],
+    });
+    expect(said.details).not.toMatch(/connection|network/i);
+    // Nothing to press: the sync is retrying by itself.
+    expect(said.action).toBeUndefined();
+  });
+
+  test("a save the content service failed says so, and offers to save again", () => {
+    const said = describePublishRefusal({
+      status: "refused",
+      reason: "unsaved-changes",
+      patchIds: ["p1" as PatchId],
+      saveFailure:
+        "Val Build answered with an error, so Val could not save your change.",
+    });
+    expect(said.message).toContain("could not be saved");
+    expect(said.details).toContain("Val Build answered with an error");
+    expect(said.details).toContain("no work is lost");
+    expect(said.details).not.toMatch(/connection|network/i);
+    expect(said.action).toBe("retry-save");
   });
 
   test("a moved chain asks to try again", () => {

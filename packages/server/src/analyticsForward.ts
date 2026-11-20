@@ -1,5 +1,6 @@
 import { Internal } from "@valbuild/core";
 import { utf8ToBytes } from "./bytes";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 /**
  * Content analytics on a SELF-HOSTED site: handing a visitor's beacon on to
@@ -135,6 +136,7 @@ export async function forwardAnalyticsBeacon(args: {
     args.timeoutMs ?? ANALYTICS_FORWARD_TIMEOUT_MS,
   );
   const headers: Record<string, string> = {
+    ...VAL_CLIENT_HEADERS,
     authorization: `Bearer ${args.apiKey}`,
     "x-val-project": args.project,
     "x-val-visitor-user-agent": args.userAgent,

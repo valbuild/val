@@ -1,4 +1,6 @@
 import { Internal } from "@valbuild/core";
+import { resolveRedirectTo } from "./redirectTo";
+import { refuseUnsafeRequest } from "./requestGuard";
 import {
   Api,
   ApiEndpoint,
@@ -67,7 +69,7 @@ export function createValRequestHandler<Res>(
     const path = url.pathname.slice(route.length);
     if (path === QUICK_PREVIEW_SERVICE_WORKER_PATH) {
       /*
-       * The design tab's quick preview worker (`quickPreview.ts` in
+       * The quick preview worker (`quickPreview.ts` in
        * `@valbuild/shared`). `Service-Worker-Allowed: /` lets a script at
        * this path control the whole origin, which it needs: it serves the
        * page's `/_app/` files. It serves them only to a page opened as a
@@ -101,6 +103,10 @@ export function createValRequestHandler<Res>(
         Api as any;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyValServer = valServer as any;
+      const refused = refuseUnsafeRequest(valServer, req, reqApiRoutePath);
+      if (refused !== null) {
+        return refused;
+      }
       const method = req.method?.toUpperCase();
       let route = null;
       let path: string | undefined = undefined;
@@ -243,6 +249,23 @@ export function createValRequestHandler<Res>(
           );
         }
         query = queryRes.data;
+      }
+      // `redirect_to` is a URL or a path on this site: see `resolveRedirectTo`.
+      if (
+        "redirect_to" in query &&
+        typeof query.redirect_to === "string" &&
+        query.redirect_to !== ""
+      ) {
+        // Behind a proxy `url` can be an internal address: the site's own
+        // name is then in `Host` or `X-Forwarded-Host`.
+        const resolved = resolveRedirectTo(query.redirect_to, url.origin, [
+          req.headers.get("host"),
+          req.headers.get("x-forwarded-host")?.split(",")[0]?.trim(),
+        ]);
+        if (!resolved.ok) {
+          return { status: 400, json: { message: resolved.message } };
+        }
+        query = { ...query, redirect_to: resolved.href };
       }
 
       /*

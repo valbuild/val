@@ -14,18 +14,24 @@ export type { DeploymentSummary } from "./Deployments";
 export { FloatingPanel } from "./FloatingPanel";
 export {
   OverlayMenuLauncher,
-  OverlayWindow,
   OverlayCard,
-  OverlaySelectionBox,
   OverlayTooltip,
   OverlayMenuBar,
   OverlayMenuButton,
   OverlayMenuDivider,
   OverlayMenuBadge,
-  dockOrientation,
-  overlayDockClassName,
 } from "./OverlayMenu";
-export type { OverlayDock, OverlayMenuOrientation } from "./OverlayMenu";
+export { OverlayMenuDock } from "./OverlayMenuDock";
+export {
+  placementOfDock,
+  placementOrientation,
+  snapPlacement,
+} from "./overlayPlacement";
+export type {
+  OverlayDock,
+  OverlayMenuOrientation,
+  OverlayPlacement,
+} from "./overlayPlacement";
 export {
   GlobalSearch,
   collectSearchResults,
@@ -40,7 +46,6 @@ export { UtilityPanel } from "./UtilityPanel";
 export { AIChatPanel } from "./AIChatPanel";
 export { NotificationsPanel } from "./NotificationsPanel";
 export { EditorCanvas, PageEditor, CANVAS_MAX_WIDTH } from "./EditorCanvas";
-export { MobileBottomBar } from "./MobileChrome";
 export { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 export {
   useShellBreakpoint,

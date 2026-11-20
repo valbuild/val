@@ -544,6 +544,15 @@ function mockOf(target: HttpTarget) {
     },
 
     /**
+     * Make the patch endpoints answer 500 the way a throwing content service
+     * does, or stop: `save` is `POST /patches`, `read` the patches list. A key
+     * left out is left as it is. Both off at `reset()`.
+     */
+    async failPatches(fail: { save?: boolean; read?: boolean }): Promise<void> {
+      await control(target, "fail-patches", { method: "POST", body: fail });
+    },
+
+    /**
      * Whether `from-session-file` hands back each image's SHA-256. Off plays a
      * content service from before it did. Back on at `reset()`.
      */

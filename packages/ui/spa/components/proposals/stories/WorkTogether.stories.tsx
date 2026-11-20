@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { action } from "storybook/actions";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AIChat, type AIChatHandle, type ChatMessage } from "../../AIChat";
 import { Button } from "../../designSystem/button";
@@ -313,7 +314,7 @@ export const WorkTogetherWithChanges: Story = {
       <WorkTogetherOffer
         defaultName="Spring pages"
         changes={6}
-        onOpen={(o) => console.log("Open proposal", o)}
+        onOpen={action("open proposal")}
       />
     </Panel>
   ),
@@ -326,7 +327,7 @@ export const WorkTogetherNoChanges: Story = {
       <WorkTogetherOffer
         defaultName="Spring pages"
         changes={0}
-        onOpen={(o) => console.log("Open proposal", o)}
+        onOpen={action("open proposal")}
       />
     </Panel>
   ),
@@ -357,7 +358,7 @@ export const WorkTogetherFailed: Story = {
           error:
             "Val Build could not be reached. No proposal was made, and your chat is where it was.",
         }}
-        onOpen={(o) => console.log("Open proposal", o)}
+        onOpen={action("open proposal")}
       />
     </Panel>
   ),
@@ -413,7 +414,7 @@ export const ChatOnTheSite: Story = {
             <WorkTogetherButton
               defaultName="Spring pages"
               changes={6}
-              onOpen={(o) => console.log("Open proposal", o)}
+              onOpen={action("open proposal")}
             />
           ),
         }}
@@ -784,7 +785,7 @@ export const ProposalChats: Story = {
         currentSessionId="c1"
         onFetchSessions={() => {}}
         onNewSession={() => {}}
-        onLoadSession={(id) => console.log("Load", id)}
+        onLoadSession={action("load session")}
         initialMessages={PROPOSAL_CHAT}
         together={{
           viewerId: VIEWER,

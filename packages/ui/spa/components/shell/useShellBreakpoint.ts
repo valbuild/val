@@ -31,3 +31,20 @@ export function useShellBreakpoint(): ShellBreakpoint {
   }, []);
   return breakpoint;
 }
+
+/**
+ * The window's width, as the workspace's layout is decided from it
+ * (`workspaceLayout`). The breakpoint alone cannot say how many columns fit.
+ */
+export function useWindowWidth(): number {
+  const [width, setWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth,
+  );
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}

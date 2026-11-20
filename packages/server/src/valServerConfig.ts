@@ -9,6 +9,7 @@ import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { ValOpsMemory } from "./ValOpsMemory";
+import { loadTypeScriptKit } from "./patch/ts/loadTypeScriptKit";
 import { DEFAULT_ANALYTICS_INGEST_URL } from "./analyticsForward";
 import {
   getPersonalAccessTokenPath,
@@ -376,6 +377,9 @@ export async function initHandlerOptions(
       ...(opts.projectSource !== undefined
         ? { projectSource: opts.projectSource }
         : {}),
+      ...(opts.moduleDependencies !== undefined
+        ? { moduleDependencies: opts.moduleDependencies }
+        : {}),
       ...(opts.publishJob !== undefined ? { publishJob: opts.publishJob } : {}),
       ...(opts.publishBuild !== undefined
         ? { publishBuild: opts.publishBuild }
@@ -463,6 +467,9 @@ export function createValOps(
         ...(options.projectSource !== undefined
           ? { projectSource: options.projectSource }
           : {}),
+        ...(options.moduleDependencies !== undefined
+          ? { moduleDependencies: options.moduleDependencies }
+          : {}),
         ...(options.publishJob !== undefined
           ? { publishJob: options.publishJob }
           : {}),
@@ -493,6 +500,9 @@ export function createValOps(
     return new ValOpsMemory(valModules, {
       formatter: options.formatter,
       config: options.config,
+      // On Node, a memory-mode server publishes (the hosted Val app). The
+      // browser's platform builds its own and leaves this out.
+      typescript: loadTypeScriptKit,
       sourceFiles: options.sourceFiles,
       patchStore: options.patchStore,
       unsafelyAllowUnauthenticated: options.unsafelyAllowUnauthenticated,

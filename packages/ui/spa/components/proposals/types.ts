@@ -46,6 +46,12 @@ export type ProposalSummary = {
   changes: number;
   /** An upgrade of the site's dependencies: it holds no content changes. */
   upgrade?: boolean;
+  /**
+   * The site's own code mode (`</>` on the site): shown as the site in code
+   * mode rather than as a proposal. valbuild/home `docs/proposals.md`, "Code
+   * mode on the site".
+   */
+  siteCode?: boolean;
   /** ISO time of its last change. */
   updatedAt: string;
   /** Making its address. Absent on a list, where it is not read. */

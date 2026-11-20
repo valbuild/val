@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { AIChat, type AIChatHandle } from "./AIChat";
-import { useAI, type UseAIOptions } from "../hooks/useAI";
+import { useAI } from "../hooks/useAI";
 import { useAIChatActions } from "./AIChatActionsContext";
 import {
   useAIConnectionError,
@@ -14,6 +14,7 @@ import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
 import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { AiSetup } from "./shell/AiSetup";
 import { ShareChatLink } from "./proposals/ShareChatLink";
+import { useAssistantPage } from "./shell/canvas/AssistantPage";
 
 /**
  * The assistant, wired.
@@ -35,19 +36,8 @@ import { ShareChatLink } from "./proposals/ShareChatLink";
  * transcript on screen — and that is read back from the service by session id.
  * What is genuinely lost is a turn in flight, whose tool calls have nobody to
  * answer them until the panel is open again.
- *
- * NOT the on-page overlay's copy — `ValOverlay` mounts its own `useAI`, because
- * its session id is seeded from `sessionStorage` rather than from the studio's
- * URL, which is how the two hand a conversation back and forth.
  */
-export function AIChatSurface({
-  className,
-  design,
-}: {
-  className?: string;
-  /** The design tab's proposal: see `UseAIOptions.design`. */
-  design?: UseAIOptions["design"];
-}) {
+export function AIChatSurface({ className }: { className?: string }) {
   /**
    * Nobody has said whether this project has an assistant, so ask before there
    * is a conversation at all — see `EnableAssistantPrompt`. Before the hooks
@@ -62,16 +52,10 @@ export function AIChatSurface({
       </div>
     );
   }
-  return <ConnectedChat className={className} design={design} />;
+  return <ConnectedChat className={className} />;
 }
 
-function ConnectedChat({
-  className,
-  design,
-}: {
-  className?: string;
-  design?: UseAIOptions["design"];
-}) {
+function ConnectedChat({ className }: { className?: string }) {
   const chatRef = useRef<AIChatHandle | null>(null);
   const mode = useValMode();
   /**
@@ -87,6 +71,8 @@ function ConnectedChat({
   const aiModels = useAIModelSelection();
   const availableModel = useAvailableAIModel();
   const { sessionParam, setSessionParam } = useSessionParam();
+  /** The page in the Studio's preview, when there is one. */
+  const page = useAssistantPage();
   // Read once, on the first render. Later URL changes — a navigation rewriting
   // the query, a `popstate` — must not reach in and swap the conversation the
   // user is in the middle of.
@@ -106,12 +92,14 @@ function ConnectedChat({
     isLoadingSession,
     answerToolQuestions,
     cancelToolQuestion,
+    enableCodeMode,
+    declineCodeMode,
     cancel,
     shared,
     sessionModel,
   } = useAI(chatRef, {
-    ...(design ? { design } : {}),
     initialSessionId: initialSessionIdRef.current,
+    page,
     onSessionBorn: (id) => {
       setSessionParam(id, { replace: true });
       try {
@@ -173,6 +161,8 @@ function ConnectedChat({
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
       onCaptureSendContext={captureSendContext}
+      pointedAt={page?.pointedAt ?? null}
+      onClearPointedAt={page ? () => page.setPointedAt(null) : undefined}
       onCancel={cancel}
       models={aiModels.models}
       selectedModel={sessionModel ?? aiModels.selected}
@@ -196,6 +186,8 @@ function ConnectedChat({
       isLoadingSession={isLoadingSession}
       onAnswerToolQuestions={answerToolQuestions}
       onCancelToolQuestion={cancelToolQuestion}
+      onEnableCodeMode={enableCodeMode}
+      onDeclineCodeMode={declineCodeMode}
       // In a proposal its chats are everyone's on the project (valbuild/home
       // `docs/proposals.md`, Flow H): names on messages, whose question runs,
       // and who is in each chat.

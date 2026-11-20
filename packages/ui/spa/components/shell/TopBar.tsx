@@ -44,8 +44,15 @@ import {
 import {
   ProposalActionButton,
   ProposalProgress,
+  type ProposalCommit,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import {
+  CodeModeButton,
+  codeModeOnLine,
+  type TopBarCodeMode,
+} from "../proposals/CodeModeButton";
+import type { PreviewProblem } from "../proposals/PreviewProblemCard";
 import { Spinner } from "../designSystem/spinner";
 
 /**
@@ -79,6 +86,29 @@ export type TopBarProposals = {
   saveBlockedBy?: { errors: number; onShow: () => void };
   /** Build the proposal's staged files, so its address shows them. */
   onBuild?: () => void;
+  /**
+   * Save, and build too: given, Save is enabled while there is a build to
+   * make even with nothing unsaved, and pressing it saves what there is and
+   * then builds. Build is no longer a step of its own. Absent leaves Save and
+   * Build as two steps. See `ProposalActionButton`.
+   */
+  onSaveAndBuild?: () => void;
+  /**
+   * The preview could not be updated with the latest code: a dot on the
+   * switcher, and what happened -- whose change it followed, and what to do
+   * -- at the top of its menu. Never on Save. See `PreviewProblem`.
+   */
+  previewProblem?: PreviewProblem | null;
+  /**
+   * The `</>` right of the switcher. Absent outside a hosted Studio, where
+   * code is changed in an editor. See `CodeModeButton`.
+   */
+  codeMode?: TopBarCodeMode;
+  /**
+   * Commit, beside Publish in Save's menu: only in a project connected to
+   * git. See `ProposalCommit`.
+   */
+  commit?: ProposalCommit;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
   /**
@@ -89,11 +119,6 @@ export type TopBarProposals = {
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
-  /**
-   * Open the proposal's design tab, on the site's address (valbuild/home
-   * `docs/design-tab.md`). Absent while the site's address is not known.
-   */
-  onOpenDesign?: () => void;
   /** For stories. */
   defaultSwitcherOpen?: boolean;
   /** The Save/Publish button's caret menu, the proposal's acts with it. */
@@ -125,6 +150,28 @@ export type TopBarProps = {
   /** See `ShellData.studioMode`. */
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
+  /**
+   * Content | Preview | Sketch | Assistant (`PaneSwitches`), in the Preview
+   * button's place from a tablet up. Given, it is also the Sketchpad's and the
+   * assistant's switch, and their own buttons are not shown.
+   */
+  paneSwitches?: ReactNode;
+  /**
+   * On a phone, beside the account: Save or Publish and what else there is
+   * to do with the changes. The bottom bar is the workspace's panes and
+   * nothing else (`PhonePaneBar`).
+   */
+  phoneActions?: ReactNode;
+  /**
+   * Something waits in the activity behind the account's sheet, where a
+   * phone's notifications are.
+   */
+  accountDot?: boolean;
+  /**
+   * Whether the assistant is open, where it is a pane of the workspace
+   * rather than one of the panels (above a phone). Absent: `openPanel`.
+   */
+  aiOpen?: boolean;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
   onOpenMenu: () => void;
@@ -280,6 +327,10 @@ export function TopBar({
   webComponentsUrl,
   studioMode,
   openPanel,
+  aiOpen,
+  paneSwitches,
+  phoneActions,
+  accountDot,
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
@@ -339,11 +390,14 @@ export function TopBar({
       onCompare={proposals.onCompare}
       onCopyLink={proposals.onCopyLink}
       onClose={proposals.onClose}
-      {...(proposals.onOpenDesign !== undefined
-        ? { onOpenDesign: proposals.onOpenDesign }
-        : {})}
       loading={proposals.loading}
       leaving={proposals.leaving ?? null}
+      problem={proposals.previewProblem ?? null}
+      codeModeLine={
+        proposals.codeMode?.on === true
+          ? codeModeOnLine(proposals.codeMode.turnedOn ?? null)
+          : null
+      }
       defaultOpen={proposals.defaultSwitcherOpen}
     />
   );
@@ -356,8 +410,11 @@ export function TopBar({
               location={proposalLocation}
               onSave={proposals.onSave}
               onBuild={proposals.onBuild}
+              onSaveAndBuild={proposals.onSaveAndBuild}
               onPublish={proposals.onPublish}
               saveBlockedBy={proposals.saveBlockedBy}
+              codeMode={proposals.codeMode?.on === true}
+              commit={proposals.commit}
               defaultMenuOpen={proposals.defaultMenuOpen}
             />
           ),
@@ -446,6 +503,7 @@ export function TopBar({
       {layout === "phone" && proposals !== undefined && (
         <ProposalLocationChip
           location={proposals.location}
+          problem={(proposals.previewProblem ?? null) !== null}
           open={openPanel === "proposals"}
           onClick={() => onTogglePanel("proposals")}
           busy={
@@ -461,6 +519,17 @@ export function TopBar({
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
           {planStatus}
           {switcher}
+          {proposals?.codeMode !== undefined && (
+            <CodeModeButton
+              location={proposals.location}
+              proposals={proposals.open}
+              codeMode={proposals.codeMode}
+              disabled={
+                proposals.loading === true ||
+                (proposals.leaving ?? null) !== null
+              }
+            />
+          )}
           {inProposal?.progress}
         </div>
       )}
@@ -500,14 +569,16 @@ export function TopBar({
              * than `contents`: a box with no layout of its own measures zero,
              * and a spotlight on a zero-sized box is a dot.
              */}
-            <span data-val-tour="preview" className="inline-flex">
-              <PreviewButton
-                onPreview={onPreview}
-                previewHref={previewHref}
-                onToggleCanvas={onToggleCanvas}
-                isCanvasOpen={isCanvasOpen}
-              />
-            </span>
+            {paneSwitches ?? (
+              <span data-val-tour="preview" className="inline-flex">
+                <PreviewButton
+                  onPreview={onPreview}
+                  previewHref={previewHref}
+                  onToggleCanvas={onToggleCanvas}
+                  isCanvasOpen={isCanvasOpen}
+                />
+              </span>
+            )}
             <span data-val-tour="publish" className="inline-flex">
               {inProposal !== null ? (
                 // In a proposal, Save -- then Publish -- is where Publish is
@@ -605,12 +676,12 @@ export function TopBar({
           </IconButton>
         )}
         {/*
-         * Above mobile only: on a phone the assistant is in the bottom bar,
-         * where the thumb is - see `MobileBottomBar`. Two Sparkles buttons on
-         * one screen would be two places to look for the same panel, and the
+         * Above mobile only: on a phone the Sketchpad is a pane in the bottom
+         * bar, where the thumb is - see `PhonePaneBar`. Two ways to the same
+         * pane on one screen would be two places to look for it, and the
          * top right corner of a phone is the furthest point from a thumb.
          */}
-        {sketchpad && (
+        {sketchpad && !isMobile && paneSwitches === undefined && (
           <IconButton
             label={
               sketchpad.open
@@ -631,10 +702,10 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {aiEnabled && !isMobile && (
+        {aiEnabled && !isMobile && paneSwitches === undefined && (
           <IconButton
             label="AI assistant"
-            active={openPanel === "ai"}
+            active={aiOpen ?? openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
             tourTarget="ai"
           >
@@ -674,6 +745,7 @@ export function TopBar({
          * save and the deploy feed are behind it, and nothing else on a phone
          * leads to them.
          */}
+        {isMobile && phoneActions}
         {(user || accountError || isMobile) && (
           <>
             {/* On a phone there is nothing before it to divide it from. */}
@@ -698,7 +770,16 @@ export function TopBar({
                   <UserRound size={15} />
                 </span>
               )}
-              {accountError && <AccountErrorDot />}
+              {accountError ? (
+                <AccountErrorDot />
+              ) : (
+                accountDot && (
+                  <span
+                    aria-hidden
+                    className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-fg-primary ring-2 ring-bg-float"
+                  />
+                )
+              )}
             </button>
           </>
         )}
@@ -939,7 +1020,7 @@ export function PreviewButton({
   );
 }
 
-function PreviewMenuItem({
+export function PreviewMenuItem({
   icon: Icon,
   label,
   detail,

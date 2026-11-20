@@ -7,8 +7,9 @@ import { STUDIO_OUT_OF_DATE_MESSAGE } from "@valbuild/shared/publish";
  * A publish was refused because the site was updated after this Studio was
  * opened. See `publish/loadedLayer.ts`.
  *
- * Dismissable, unlike `SchemaOutOfDateDialog`: the schema is the same, so
- * editing on is safe -- it is only publishing from this version that is not.
+ * Dismissable: a new build's schema reaches an open Studio by itself
+ * (`BuildCode`), so editing on is safe -- it is only publishing from this
+ * version that is not.
  */
 export function StudioOutOfDateDialog({ onClose }: { onClose: () => void }) {
   const portalContainer = useValPortal();

@@ -1,9 +1,9 @@
 /**
  * Pointing at anything on a page, as Lovable's picker does: hover outlines
  * the element under the pointer, a click picks it, and the assistant is told
- * which (valbuild/home `docs/design-tab.md`).
+ * which.
  *
- * ANY element, not only what Val marks. The design tab changes code, and the
+ * ANY element, not only what Val marks. The assistant changes code, and the
  * thing a person wants changed is as often a wrapper, a gap or a button as a
  * field -- so a field's path is extra information when there is one
  * (`valPath`), never the condition for picking.
@@ -14,9 +14,8 @@
  *
  * Plain DOM, nothing of React's or the Studio's, and in `shared` because
  * both halves need it: the canvas bridge (`@valbuild/next`,
- * `@valbuild/tanstack`) runs it inside the proposal's page, which is another
- * origin than the design tab and the only place the page's elements can be
- * reached; the Studio's stories run it on a page of their own. Only the
+ * `@valbuild/tanstack`) runs it inside the page, the only place the page's
+ * elements can be reached; the Studio's stories run it on a page of their own. Only the
  * `PickedElement` crosses the frame (`valCanvasProtocol.ts`).
  */
 
@@ -125,6 +124,12 @@ export type ElementPickerOptions = {
   modifier: PickModifier;
   /** On without the modifier: a Select button, or a touch screen. */
   active: () => boolean;
+  /**
+   * Only what shows a Val field can be picked: the field's element is taken
+   * for anything inside it, and nothing outside one is. The Studio's
+   * assistant outside code mode, where what can be changed is content.
+   */
+  fieldsOnly?: () => boolean;
   /** The element under the pointer while picking; `null` when not picking. */
   onHover: (element: Element | null) => void;
   onPick: (element: Element) => void;
@@ -142,10 +147,14 @@ export function attachElementPicker(
   let last: { x: number; y: number } | null = null;
   const picking = (event: MouseEvent | KeyboardEvent) =>
     options.active() || held(event, options.modifier);
+  const pickable = (element: Element | null): Element | null => {
+    if (element === null || !root.contains(element)) return null;
+    if (options.fieldsOnly?.() !== true) return element;
+    const field = element.closest("[data-val-path]");
+    return field !== null && root.contains(field) ? field : null;
+  };
   const target = (event: MouseEvent): Element | null =>
-    event.target instanceof Element && root.contains(event.target)
-      ? event.target
-      : null;
+    pickable(event.target instanceof Element ? event.target : null);
 
   const onMove = (event: MouseEvent) => {
     last = { x: event.clientX, y: event.clientY };
@@ -202,8 +211,9 @@ export function attachElementPicker(
       return;
     }
     if (last === null) return;
-    const under = root.ownerDocument.elementFromPoint(last.x, last.y);
-    options.onHover(under !== null && root.contains(under) ? under : null);
+    options.onHover(
+      pickable(root.ownerDocument.elementFromPoint(last.x, last.y)),
+    );
   };
   const onLeave = () => {
     last = null;
@@ -311,7 +321,9 @@ export function createPickerOverlay(
       left: `${rect.left - 2}px`,
       width: `${rect.width + 4}px`,
       height: `${rect.height + 4}px`,
-      border: `2px ${kind === "hover" ? "solid" : "dashed"} ${color}`,
+      // Dashed, both: it is what the assistant is pointed at, and the
+      // canvas's own field outlines -- Content's Select -- are solid.
+      border: `2px dashed ${color}`,
     });
     if (kind === "hover") {
       label.textContent = elementLabel(element);
@@ -389,6 +401,8 @@ export function startElementPicking(
   options: {
     modifier: PickModifier;
     active: () => boolean;
+    /** See `ElementPickerOptions.fieldsOnly`. */
+    fieldsOnly?: () => boolean;
     color: string;
     onPick: (picked: PickedElement) => void;
     /** Esc while `active`: the Studio turns Select off. */
@@ -400,6 +414,7 @@ export function startElementPicking(
   const detach = attachElementPicker(root, {
     modifier: options.modifier,
     active: options.active,
+    fieldsOnly: options.fieldsOnly,
     onHover: (element) => overlay.show("hover", element),
     onPick: (element) => {
       overlay.show("hover", null);

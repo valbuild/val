@@ -1,16 +1,20 @@
 import * as React from "react";
 import {
+  galleryAltPatch,
+  galleryRef,
+  galleryRemovePatch,
+  galleryUploadPatch,
+  type GalleryFileMetadata,
+  type GalleryImageMetadata,
+} from "./galleryPatches";
+import {
   DEFAULT_VIDEO_ACCEPT,
-  FileMetadata,
-  ImageMetadata,
   Internal,
   SerializedFileSchema,
   SerializedImageSchema,
   SerializedVideoSchema,
   SourcePath,
 } from "@valbuild/core";
-import { array } from "@valbuild/core/fp";
-import { JSONValue, Patch } from "@valbuild/core/patch";
 import {
   useAddPatch,
   useFilePatchIds,
@@ -28,7 +32,6 @@ import {
   useProfilesByAuthorId,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import type { PendingPatch } from "../ValProvider";
 import { getRefParts } from "@valbuild/shared/internal";
 import { FieldLoading } from "../FieldLoading";
@@ -38,6 +41,7 @@ import type { MediaItem, MediaKind, MediaUpload } from "../MediaGallery/types";
 import { useNavigation } from "../ValRouter";
 import { GalleryEntryInspector } from "./GalleryEntryInspector";
 import { galleryNewEntries } from "./galleryNewEntries";
+import { validationErrorsByEntry } from "./galleryEntryErrors";
 import { filesOfChoices, toPosterUpload } from "./VideoChoices";
 import { captureFrame, defaultPosterTime } from "../../utils/video/readVideo";
 import { useRenameMediaFile } from "../useRenameMediaFile";
@@ -45,7 +49,6 @@ import { readImage, readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
-import { getFileExt } from "../../utils/getFileExt";
 import { fileMatchesAccept, inputAccept } from "../../utils/fileAccept";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useUploadRequest } from "../UploadRequest";
@@ -61,8 +64,6 @@ import {
 import { isPlaylistPath } from "../../utils/video/hlsPlaylist";
 import { readStream } from "../../utils/video/renameVideo";
 import { fetchStreamFile } from "../../utils/video/fetchStreamFile";
-
-const textEncoder = new TextEncoder();
 
 export function ModuleGallery({
   path,
@@ -90,7 +91,7 @@ export function ModuleGallery({
     useAddPatch(path);
   const allModulePatches = usePendingPatchesForModule(moduleFilePath);
   const profilesByAuthorIds = useProfilesByAuthorId();
-  const allValidationErrors = useAllValidationErrors() || {};
+  const allValidationErrors = useAllValidationErrors();
 
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
@@ -277,97 +278,65 @@ export function ModuleGallery({
   );
 
   const kind: MediaKind = videoMode ? "videos" : imageMode ? "images" : "files";
-  /** Who changed each entry, by its key: for the panel's authors and Compare. */
-  const patchesByRef: Record<string, Record<string, PendingPatch[]>> = {};
-  const items: MediaItem[] = rawSource
-    ? Object.entries(rawSource).map(([ref, meta]) => {
-        const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
-        const hotspot =
-          typeof meta.hotspot === "object" &&
-          meta.hotspot !== null &&
-          "x" in meta.hotspot &&
-          "y" in meta.hotspot &&
-          typeof meta.hotspot.x === "number" &&
-          typeof meta.hotspot.y === "number"
-            ? { x: meta.hotspot.x, y: meta.hotspot.y }
-            : undefined;
-        const poster =
-          typeof meta.poster === "object" &&
-          meta.poster !== null &&
-          "path" in meta.poster &&
-          typeof meta.poster.path === "string"
-            ? {
-                path: meta.poster.path,
-                ...("patch_id" in meta.poster &&
-                typeof meta.poster.patch_id === "string"
-                  ? { patch_id: meta.poster.patch_id }
-                  : {}),
-              }
-            : undefined;
-        const itemPath = sourcePathOfItem(path, ref);
-        const errors: string[] = [];
-        const descriptionErrors: string[] = [];
-        for (const [errPath, errs] of Object.entries(allValidationErrors)) {
-          if (!errPath.startsWith(itemPath)) {
-            continue;
-          }
-          if (errPath === Internal.createValPathOfItem(itemPath, "alt")) {
-            descriptionErrors.push(...errs.map((err) => err.message));
-          } else {
-            errors.push(...errs.map((err) => err.message));
-          }
+  /**
+   * Who changed each entry, by its key: for the panel's authors and Compare.
+   *
+   * At the entry OR INSIDE it. Only an exact match counted once, so a file
+   * whose alt text was edited -- a patch at `[ref, "alt"]`, the commonest
+   * change a gallery gets -- showed no authors and no Compare link, as though
+   * nothing about it had changed.
+   *
+   * One pass over the patches, by the key each op is under: it was every
+   * patch for every entry, on every render.
+   */
+  const patchesByRef = React.useMemo(() => {
+    const byRef: Record<string, Record<string, PendingPatch[]>> = {};
+    for (const patch of allModulePatches) {
+      const refs = new Set<string>();
+      for (const op of patch.patch) {
+        if (
+          op.path.length > patchPath.length &&
+          isPatchPathWithin(op.path, patchPath)
+        ) {
+          refs.add(op.path[patchPath.length]);
         }
-
-        /*
-         * At the entry OR INSIDE it. Only an exact match counted once, so a
-         * file whose alt text was edited — a patch at `[ref, "alt"]`, the
-         * commonest change a gallery gets — showed no authors and no Compare
-         * link, as though nothing about it had changed.
-         */
-        const filePatchPath = [...patchPath, ref];
-        const byAuthor: Record<string, PendingPatch[]> = {};
-        for (const patch of allModulePatches) {
-          if (
-            !patch.patch.some((op) => isPatchPathWithin(op.path, filePatchPath))
-          ) {
-            continue;
-          }
-          const author = patch.authorId ?? "unknown";
-          (byAuthor[author] ??= []).push(patch);
-        }
-        patchesByRef[ref] = byAuthor;
-
-        // A stream is named by its directory: every master is `master.m3u8`,
-        // and the directory is what a rename renames.
-        const isHls = videoMode && isPlaylistPath(localPathOf(ref));
-        const { filename, folder } = isHls
-          ? getRefParts(
-              localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")),
-            )
-          : getRefParts(ref);
-
-        return {
-          ref,
-          url: refToUrl(ref, filePatchIds),
-          name: filename,
-          folder,
-          mimeType,
-          ...(typeof meta.width === "number" ? { width: meta.width } : {}),
-          ...(typeof meta.height === "number" ? { height: meta.height } : {}),
-          ...(typeof meta.duration === "number"
-            ? { duration: meta.duration }
-            : {}),
-          description: typeof meta.alt === "string" ? meta.alt : null,
-          ...(hotspot ? { hotspot } : {}),
-          // The entry's poster is its thumbnail: one still per video.
-          ...(poster ? { thumbnailUrl: urlOf(poster) } : {}),
-          ...(isHls ? { isHls } : {}),
-          ...(errors.length > 0 ? { errors } : {}),
-          ...(descriptionErrors.length > 0 ? { descriptionErrors } : {}),
-          ...(newRefs.has(ref) ? { isNew: true } : {}),
-        };
-      })
-    : [];
+      }
+      const author = patch.authorId ?? "unknown";
+      for (const ref of refs) {
+        ((byRef[ref] ??= {})[author] ??= []).push(patch);
+      }
+    }
+    return byRef;
+  }, [allModulePatches, patchPath]);
+  /**
+   * The validation errors of each entry, by its key, and the ones about its
+   * description apart: one pass over the errors, where it was every error for
+   * every entry, on every render -- 10,000 entries times the project's errors.
+   */
+  const errorsByRef = React.useMemo(
+    () => validationErrorsByEntry(path, allValidationErrors),
+    [path, allValidationErrors],
+  );
+  /**
+   * Built once per change of what they are made of, not per render: the
+   * gallery re-renders on a hover, a drag and every upload's progress, and
+   * the items are one per entry.
+   */
+  const items = React.useMemo(
+    (): MediaItem[] =>
+      rawSource
+        ? Object.entries(rawSource).map(([ref, meta]) =>
+            toMediaItem(ref, meta, {
+              videoMode,
+              filePatchIds,
+              urlOf,
+              errors: errorsByRef.get(ref),
+              isNew: newRefs.has(ref),
+            }),
+          )
+        : [],
+    [rawSource, videoMode, filePatchIds, urlOf, errorsByRef, newRefs],
+  );
 
   const deleteEntry = React.useCallback(
     (ref: string) => {
@@ -401,26 +370,16 @@ export function ModuleGallery({
         // set's files, named by nothing else (a field using the entry blocks
         // the delete before it gets here).
         const entryFiles = videoMode ? filesOfChoices(rawSource[ref]) : [];
-        const patch: Patch = [
-          {
-            op: "remove",
-            path: [...patchPath, ref] as unknown as array.NonEmptyArray<string>,
-          },
-          ...filePaths.map((filePath): Patch[number] => ({
-            op: "file",
-            path: [...patchPath, ref],
+        const patch = galleryRemovePatch({
+          patchPath,
+          ref,
+          filePaths,
+          remote: isRemoteRef,
+          entryFiles: entryFiles.map((filePath) => ({
             filePath,
-            value: null,
-            remote: isRemoteRef,
-          })),
-          ...entryFiles.map((filePath): Patch[number] => ({
-            op: "file",
-            path: [...patchPath, ref],
-            filePath,
-            value: null,
             remote: Internal.isRemoteMediaPath(filePath),
           })),
-        ];
+        });
         await addAndUploadPatchWithFileOps(
           patch,
           imageMode ? "image" : "file",
@@ -510,17 +469,7 @@ export function ModuleGallery({
   const setDescription = React.useCallback(
     (ref: string, newAltText: string) => {
       if (!rawSource || !(ref in rawSource)) return;
-      const patch: Patch = [
-        {
-          // "add", not "replace": on an object key the two mean the same thing,
-          // but "add" also works when the key is absent by the time the patch is
-          // applied - e.g. the entry was re-uploaded with fresh metadata.
-          op: "add",
-          path: [...patchPath, ref, "alt"],
-          value: newAltText,
-        },
-      ];
-      addPatch(patch, "record");
+      addPatch(galleryAltPatch(patchPath, ref, newAltText), "record");
     },
     [rawSource, patchPath, addPatch],
   );
@@ -606,77 +555,16 @@ export function ModuleGallery({
 
   const computeRef = React.useCallback(
     (
-      res: {
-        fileHash: string;
-        src: string;
-        filename?: string;
-      },
+      res: { fileHash: string; src: string; filename?: string },
       syntheticSchema: SerializedImageSchema | SerializedFileSchema,
       metadata: Record<string, unknown> | undefined,
-    ):
-      | {
-          status: "success";
-          ref: string;
-          isRemote: boolean;
-        }
-      | {
-          status: "error";
-          error: string;
-        } => {
-      const newFilename = Internal.createFilename(
-        res.src,
-        res.filename ?? null,
+    ) =>
+      galleryRef(
+        { directory, requireRemote, remoteData },
+        res,
+        syntheticSchema,
         metadata,
-        res.fileHash,
-      );
-      if (!newFilename) {
-        return {
-          status: "error",
-          error: "Failed to create filename for the uploaded file.",
-        };
-      }
-      const filePath = `${directory}/${newFilename}`;
-      let ref: string;
-      let isRemote: boolean;
-      if (requireRemote) {
-        if (!remoteData) {
-          return {
-            status: "error",
-            error:
-              "Remote uploads are not available. Please try again later. This could be a temporary issue with the Val server. If the problem persists, please contact support.",
-          };
-        }
-        const remoteFileHash = Internal.remote.hashToRemoteFileHash(
-          res.fileHash,
-        );
-        const validationHash = Internal.remote.getValidationHash(
-          remoteData.coreVersion,
-          syntheticSchema,
-          getFileExt(newFilename),
-          metadata,
-          remoteFileHash,
-          textEncoder,
-        );
-        ref = Internal.remote.createRemoteRef(remoteData.remoteHost, {
-          publicProjectId: remoteData.publicProjectId,
-          coreVersion: remoteData.coreVersion,
-          bucket: remoteData.bucket,
-          validationHash,
-          fileHash: remoteFileHash,
-          filePath:
-            `${directory.slice(1)}/${newFilename}` as `public/${string}`,
-        });
-        isRemote = true;
-      } else {
-        ref = filePath;
-        isRemote = false;
-      }
-      return {
-        status: "success",
-        ref,
-        isRemote,
-      };
-    },
+      ),
     [directory, requireRemote, remoteData],
   );
 
@@ -737,7 +625,7 @@ export function ModuleGallery({
         readImage(ev, encode)
           .then(async (res) => {
             if (!res.width || !res.height || !res.mimeType) return;
-            const metadata: ImageMetadata = {
+            const metadata: GalleryImageMetadata = {
               width: res.width,
               height: res.height,
               mimeType: res.mimeType,
@@ -757,26 +645,13 @@ export function ModuleGallery({
             }
             const { ref, isRemote } = refRes;
 
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: {
-                  width: metadata.width,
-                  height: metadata.height,
-                  mimeType: metadata.mimeType,
-                  alt: null, // default alt for new uploads
-                } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "image", metadata },
+            });
             setUploading(true);
             let failed = false;
             await addAndUploadPatchWithFileOps(
@@ -801,7 +676,7 @@ export function ModuleGallery({
         readFile(ev)
           .then(async (res) => {
             if (!res.mimeType) return;
-            const metadata: FileMetadata = { mimeType: res.mimeType };
+            const metadata: GalleryFileMetadata = { mimeType: res.mimeType };
             const newFilename = Internal.createFilename(
               res.src,
               res.filename ?? null,
@@ -823,21 +698,13 @@ export function ModuleGallery({
               return;
             }
             const { ref, isRemote } = refRes;
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: { mimeType: metadata.mimeType } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "file", metadata },
+            });
             setUploading(true);
             let failed = false;
             await addAndUploadPatchWithFileOps(
@@ -916,7 +783,7 @@ export function ModuleGallery({
           } else if (imageMode) {
             const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
-            const metadata: ImageMetadata = {
+            const metadata: GalleryImageMetadata = {
               width: res.width,
               height: res.height,
               mimeType: res.mimeType,
@@ -935,26 +802,13 @@ export function ModuleGallery({
               continue;
             }
             const { ref, isRemote } = refRes;
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: {
-                  width: metadata.width,
-                  height: metadata.height,
-                  mimeType: metadata.mimeType,
-                  alt: null,
-                } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "image", metadata },
+            });
             let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
@@ -969,7 +823,7 @@ export function ModuleGallery({
           } else {
             const res = await readFileFromFile(file).catch(() => null);
             if (!res || !res.mimeType) continue;
-            const metadata: FileMetadata = { mimeType: res.mimeType };
+            const metadata: GalleryFileMetadata = { mimeType: res.mimeType };
             const refRes = computeRef(
               res,
               {
@@ -984,21 +838,13 @@ export function ModuleGallery({
               continue;
             }
             const { ref, isRemote } = refRes;
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: { mimeType: metadata.mimeType } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "file", metadata },
+            });
             let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
@@ -1198,6 +1044,75 @@ export function ModuleGallery({
       />
     </div>
   );
+}
+
+/** What `ModuleGallery` shows for one entry. */
+function toMediaItem(
+  ref: string,
+  meta: Record<string, unknown>,
+  {
+    videoMode,
+    filePatchIds,
+    urlOf,
+    errors,
+    isNew,
+  }: {
+    videoMode: boolean;
+    filePatchIds: ReadonlyMap<string, string>;
+    urlOf: (media: { path: string; patch_id?: string }) => string;
+    errors: { entry: string[]; description: string[] } | undefined;
+    isNew: boolean;
+  },
+): MediaItem {
+  const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
+  const hotspot =
+    typeof meta.hotspot === "object" &&
+    meta.hotspot !== null &&
+    "x" in meta.hotspot &&
+    "y" in meta.hotspot &&
+    typeof meta.hotspot.x === "number" &&
+    typeof meta.hotspot.y === "number"
+      ? { x: meta.hotspot.x, y: meta.hotspot.y }
+      : undefined;
+  const poster =
+    typeof meta.poster === "object" &&
+    meta.poster !== null &&
+    "path" in meta.poster &&
+    typeof meta.poster.path === "string"
+      ? {
+          path: meta.poster.path,
+          ...("patch_id" in meta.poster &&
+          typeof meta.poster.patch_id === "string"
+            ? { patch_id: meta.poster.patch_id }
+            : {}),
+        }
+      : undefined;
+  // A stream is named by its directory: every master is `master.m3u8`, and
+  // the directory is what a rename renames.
+  const isHls = videoMode && isPlaylistPath(localPathOf(ref));
+  const { filename, folder } = isHls
+    ? getRefParts(localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")))
+    : getRefParts(ref);
+  return {
+    ref,
+    url: refToUrl(ref, filePatchIds),
+    name: filename,
+    folder,
+    mimeType,
+    ...(typeof meta.width === "number" ? { width: meta.width } : {}),
+    ...(typeof meta.height === "number" ? { height: meta.height } : {}),
+    ...(typeof meta.duration === "number" ? { duration: meta.duration } : {}),
+    description: typeof meta.alt === "string" ? meta.alt : null,
+    ...(hotspot ? { hotspot } : {}),
+    // The entry's poster is its thumbnail: one still per video.
+    ...(poster ? { thumbnailUrl: urlOf(poster) } : {}),
+    ...(isHls ? { isHls } : {}),
+    ...(errors && errors.entry.length > 0 ? { errors: errors.entry } : {}),
+    ...(errors && errors.description.length > 0
+      ? { descriptionErrors: errors.description }
+      : {}),
+    ...(isNew ? { isNew: true } : {}),
+  };
 }
 
 /** Whether `path` is `prefix` or a path inside it, segment by segment. */

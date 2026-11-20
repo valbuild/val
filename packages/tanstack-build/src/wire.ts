@@ -144,6 +144,71 @@ const LEGACY_CONTROL_HOST = "platform.internal";
 const PROPOSAL_BLOCK = `/*
  * THE PROPOSAL this isolate serves the address of, when it does: its name and
  * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
+ * commit, its Source by module, its \`.val.ts\` text by path, and which
+ * modules' code is staged). Val reads that Source instead of the bundle's,
+ * commits a save to the proposal, and names the save as its position. And
+ * which staging this build was made of (\`VAL_BUILD_INPUTS\`), so Val can tell
+ * a staged module this build evaluated from one staged after it.
+ * valbuild/home \`docs/proposals.md\`, "Saving" and "Staged schemas".
+ *
+ * Parsed here rather than with \`proposalFromEnv\` from @valbuild/server,
+ * because this file is compiled against whatever @valbuild/tanstack the
+ * PROJECT installed, and one from before proposals has no such export -- it
+ * also ignores the \`proposal\` key below, and serves the base build, which
+ * is the best an old app can do. A snapshot that does not parse is thrown,
+ * not served as the base: a reviewer must not be shown the wrong content as
+ * though it were the proposal.
+ */
+const proposal = (() => {
+  const name = secret("VAL_PROPOSAL");
+  const branch = secret("VAL_BRANCH");
+  if (!name || !branch) return undefined;
+  const overlay: {
+    commit?: string | null;
+    modules?: Record<string, unknown>;
+    files?: Record<string, string>;
+    staged?: Record<string, string>;
+  } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
+  // Checked as \`proposalFromEnv\` checks them: read wrong, a save would
+  // apply to staged code as though the build had it, or the other way round.
+  const staged = overlay.staged ?? {};
+  for (const [path, version] of Object.entries(staged)) {
+    if (
+      !path.startsWith("/") ||
+      typeof version !== "string" ||
+      !version.startsWith("staged:")
+    ) {
+      throw new Error(
+        \`Val: proposal \${name}: VAL_OVERLAY's staged must name module files with staged:<inputs> versions (\${JSON.stringify(path)})\`,
+      );
+    }
+  }
+  const inputs = secret("VAL_BUILD_INPUTS");
+  if (inputs && !/^[0-9a-f]{64}$/.test(inputs)) {
+    throw new Error(
+      \`Val: proposal \${name}: VAL_BUILD_INPUTS is not a build's staged inputs (64 hex)\`,
+    );
+  }
+  return {
+    name,
+    branch,
+    commit: overlay.commit ?? null,
+    modules: overlay.modules ?? {},
+    files: overlay.files ?? {},
+    staged,
+    buildInputs: inputs || null,
+  };
+})();
+`;
+/**
+ * {@link PROPOSAL_BLOCK} as it was generated before it read which modules
+ * are staged and what the build was made of: rewritten to the current block
+ * by {@link rebakeProposal}, exactly, so a site wired before it learns both
+ * at its next build. Never generated.
+ */
+const PROPOSAL_BLOCK_V1 = `/*
+ * THE PROPOSAL this isolate serves the address of, when it does: its name and
+ * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
  * commit, its Source by module and its \`.val.ts\` text by path). Val reads
  * that Source instead of the bundle's, commits a save to the proposal, and
  * names the save as its position. valbuild/home \`docs/proposals.md\`,
@@ -268,6 +333,27 @@ const contentVersion = (() => {
   return { id, job, commit, modules, files };
 })();
 `;
+/**
+ * What each Val module depends on, as the build resolved its imports
+ * (`valModulesEntry` in this package): the build defines it as a global
+ * (`MODULE_DEPENDENCIES_GLOBAL`), and this hands it to Val's server as
+ * `moduleDependencies`. After {@link CONTENT_BLOCK}, where a rebake puts it
+ * in a file wired before it.
+ */
+const DEPENDENCIES_BLOCK = `/*
+ * WHAT EACH VAL MODULE DEPENDS ON, as this build resolved its imports.
+ *
+ * At a proposal's address it is how Val knows that a module whose own file
+ * is not staged is still of code this build was not made of, through a file
+ * it imports. Defined by the build; \`undefined\` from a builder that
+ * predates it, and then only staged module files count.
+ */
+const MODULE_DEPENDENCIES = globalThis.__VAL_MODULE_DEPENDENCIES__;
+
+`;
+/** And the option that hands it to Val, after the content version's. */
+const DEPENDENCIES_OPTION =
+  "        ...(MODULE_DEPENDENCIES !== undefined\n          ? { moduleDependencies: MODULE_DEPENDENCIES }\n          : {}),\n";
 /** Where {@link PROPOSAL_BLOCK} goes: right after this line. */
 const SERVED_BUILD_LINE = 'const servedBuild = secret("VAL_BUILD");\n';
 /** And the option that hands it to Val, after the build's. */
@@ -407,7 +493,7 @@ const valProject = secret("VAL_PROJECT");
  * Ignored by a @valbuild/tanstack that predates it.
  */
 const servedBuild = secret("VAL_BUILD");
-${PROPOSAL_BLOCK}${CONTENT_BLOCK}const valConfig = {
+${PROPOSAL_BLOCK}${CONTENT_BLOCK}${DEPENDENCIES_BLOCK}const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
 };
@@ -474,7 +560,7 @@ const http =
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
         ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
-${PROPOSAL_OPTION}${CONTENT_OPTION}      }
+${PROPOSAL_OPTION}${CONTENT_OPTION}${DEPENDENCIES_OPTION}      }
     : undefined;
 
 const { valApiHandler, draftMode } = initValServer(
@@ -674,6 +760,13 @@ declare var __PLATFORM_PROJECT_ID: string | undefined
  */
 // eslint-disable-next-line no-var
 declare var __PLATFORM_SECRETS: Record<string, string> | undefined
+/**
+ * What each Val module of this build depends on, by path, as the build
+ * resolved its imports. Defined by the platform's build; absent from a
+ * builder that predates it.
+ */
+// eslint-disable-next-line no-var
+declare var __VAL_MODULE_DEPENDENCIES__: Record<string, string[]> | undefined
 `;
 
 /**
@@ -752,6 +845,12 @@ export function bakedJob(files: Record<string, string>): string | undefined {
  * as it is, and serves a proposal's address as its base build.
  */
 function rebakeProposal(source: string): string {
+  // A block from before staged code was read: the current one in its place,
+  // where it is exactly as generated.
+  const at = source.indexOf(PROPOSAL_BLOCK_V1);
+  if (at !== -1 && source.indexOf(PROPOSAL_BLOCK_V1, at + 1) === -1) {
+    return source.replace(PROPOSAL_BLOCK_V1, () => PROPOSAL_BLOCK);
+  }
   if (source.includes("const proposal = (() => {")) return source;
   const once = (needle: string) => {
     const at = source.indexOf(needle);
@@ -790,6 +889,40 @@ function rebakeContent(source: string): string {
         PROPOSAL_OPTION,
         () => PROPOSAL_OPTION + CONTENT_OPTION,
       );
+}
+
+/**
+ * `source` handing Val each module's dependencies: {@link DEPENDENCIES_BLOCK}
+ * and its option added after the content version's, to a file wired before
+ * they existed. Idempotent, and only where both places are exactly as
+ * generated -- a file somebody edited is left as it is, and Val counts only
+ * staged module files at a proposal's address, as before.
+ */
+function rebakeDependencies(source: string): string {
+  const once = (needle: string) => {
+    const at = source.indexOf(needle);
+    return at !== -1 && source.indexOf(needle, at + 1) === -1;
+  };
+  if (!once(CONTENT_BLOCK) || !once(CONTENT_OPTION)) return source;
+  const hasBlock = source.includes(DEPENDENCIES_BLOCK);
+  const hasOption = source.includes(DEPENDENCIES_OPTION);
+  if (hasBlock && hasOption) return source;
+  // Each piece once, whatever left the other there: an option without its
+  // block names a constant that does not exist.
+  let next = source;
+  if (!hasBlock) {
+    next = next.replace(
+      CONTENT_BLOCK,
+      () => CONTENT_BLOCK + DEPENDENCIES_BLOCK,
+    );
+  }
+  if (!hasOption) {
+    next = next.replace(
+      CONTENT_OPTION,
+      () => CONTENT_OPTION + DEPENDENCIES_OPTION,
+    );
+  }
+  return next;
 }
 
 /** `source` with its job set, or `source` itself when it cannot carry one. */
@@ -885,7 +1018,7 @@ export function rebakeGit(
   const withJob = job === undefined ? withGit : rebakeJob(withGit, job);
   return {
     ...files,
-    [VAL_SERVER]: rebakeContent(rebakeProposal(withJob)),
+    [VAL_SERVER]: rebakeDependencies(rebakeContent(rebakeProposal(withJob))),
   };
 }
 
