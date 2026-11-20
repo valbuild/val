@@ -7,6 +7,7 @@ import {
   VAL_CANVAS_EDITING_ATTRIBUTE,
   VAL_CANVAS_SELECTION_PROPERTY,
   VAL_COMPONENT_ATTRIBUTE,
+  VAL_COMPONENT_DRAGGING_ATTRIBUTE,
   VAL_CANVAS_MESSAGE,
   isValCanvasFrame,
   type ValCanvasComponentEdit,
@@ -506,6 +507,7 @@ function ListControls({
     };
     const selectable = document.body.style.userSelect;
     document.body.style.userSelect = "none";
+    document.documentElement.setAttribute(VAL_COMPONENT_DRAGGING_ATTRIBUTE, "");
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", end);
@@ -513,6 +515,9 @@ function ListControls({
     return () => {
       cancelAnimationFrame(frame);
       document.body.style.userSelect = selectable;
+      document.documentElement.removeAttribute(
+        VAL_COMPONENT_DRAGGING_ATTRIBUTE,
+      );
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", end);
@@ -536,26 +541,48 @@ function ListControls({
 
   let controls: ReactNode = null;
   if (dragFrom !== null) {
-    const before = rects[dragSlot];
-    const last = rects[rects.length - 1];
-    const line: CSSProperties | null =
-      before !== undefined
-        ? horizontal
+    // The line at the start of slot `k`: before item `k`, or - past the
+    // last item - after it.
+    const lineAt = (k: number): CSSProperties | null => {
+      const before = rects[k];
+      const last = rects[rects.length - 1];
+      if (before !== undefined) {
+        return horizontal
           ? { top: before.top, left: before.left - 2, height: before.height }
-          : { top: before.top - 2, left: before.left, width: before.width }
-        : last !== undefined
-          ? horizontal
-            ? {
-                top: last.top,
-                left: last.left + last.width - 2,
-                height: last.height,
-              }
-            : {
-                top: last.top + last.height - 2,
-                left: last.left,
-                width: last.width,
-              }
-          : null;
+          : { top: before.top - 2, left: before.left, width: before.width };
+      }
+      if (last !== undefined) {
+        return horizontal
+          ? {
+              top: last.top,
+              left: last.left + last.width - 2,
+              height: last.height,
+            }
+          : {
+              top: last.top + last.height - 2,
+              left: last.left,
+              width: last.width,
+            };
+      }
+      return null;
+    };
+    const places: ReactNode[] = [];
+    for (let k = 0; k <= rects.length; k++) {
+      // The two places next to the item are where it already is
+      if (moveTarget(dragFrom, k) === null) continue;
+      const line = lineAt(k);
+      if (line === null) continue;
+      const chosen = k === dragSlot;
+      places.push(
+        <DropMarker
+          key={k}
+          chosen={chosen}
+          horizontal={horizontal}
+          color={color}
+          line={line}
+        />,
+      );
+    }
     controls = (
       <>
         {rect !== undefined && (
@@ -569,19 +596,7 @@ function ListControls({
             }}
           />
         )}
-        {line !== null && moveTarget(dragFrom, dragSlot) !== null && (
-          <div
-            data-val-component-drop=""
-            style={{
-              position: "absolute",
-              ...(horizontal ? { width: 4 } : { height: 4 }),
-              ...line,
-              background: color,
-              borderRadius: 2,
-              pointerEvents: "none",
-            }}
-          />
-        )}
+        {places}
       </>
     );
   } else if (hover !== null && rect !== undefined) {
@@ -775,6 +790,66 @@ function ToolbarButton({
     >
       {children}
     </button>
+  );
+}
+
+/** How long a place a section could go to takes to fade from full to faint. */
+const MARKER_FADE_MS = 700;
+const MARKER_FAINT = 0.35;
+
+/**
+ * One place the dragged section could land. All of them are drawn at full
+ * strength when the drag starts, so the editor sees where they are, and then
+ * settle to faint so the page can be read. The place it would land in now
+ * stays solid and carries `data-val-component-drop`.
+ *
+ * The fade runs once, when the marker appears: `animate` is the Web
+ * Animations API, so it needs no stylesheet in the customer's page and does
+ * not restart when the marker is re-rendered as the pointer moves.
+ */
+function DropMarker({
+  chosen,
+  horizontal,
+  color,
+  line,
+}: {
+  chosen: boolean;
+  horizontal: boolean;
+  color: string;
+  line: CSSProperties;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    // Not every environment has it (jsdom); the marker is simply faint then
+    if (!element || typeof element.animate !== "function") return;
+    const fade = element.animate([{ opacity: 1 }, { opacity: MARKER_FAINT }], {
+      duration: MARKER_FADE_MS,
+      easing: "ease-out",
+    });
+    return () => fade.cancel();
+  }, []);
+  return (
+    <div
+      ref={ref}
+      // Only the place it would land in is THE drop line; the rest say where
+      // else it could go.
+      {...(chosen
+        ? { "data-val-component-drop": "" }
+        : { "data-val-component-slot": "" })}
+      style={{
+        position: "absolute",
+        ...(horizontal
+          ? { width: chosen ? 4 : 2 }
+          : { height: chosen ? 4 : 2 }),
+        ...line,
+        background: color,
+        opacity: chosen ? 1 : MARKER_FAINT,
+        transition: "opacity 150ms",
+        borderRadius: 2,
+        pointerEvents: "none",
+      }}
+    />
   );
 }
 

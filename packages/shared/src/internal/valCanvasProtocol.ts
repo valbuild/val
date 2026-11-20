@@ -133,6 +133,13 @@ export const VAL_CANVAS_EDITING_ATTRIBUTE = "data-val-canvas-editing";
 export const VAL_COMPONENT_ATTRIBUTE = "data-val-component";
 
 /**
+ * On the page's root element while a section is being dragged. The canvas
+ * bridge draws no outlines around editable content then: the drag has its own
+ * markers for where the section can go, and the rest is only in the way.
+ */
+export const VAL_COMPONENT_DRAGGING_ATTRIBUTE = "data-val-component-dragging";
+
+/**
  * The Studio's selection colour, as a CSS custom property the canvas bridge
  * sets on the page's root. The controls over a list are drawn with it, so
  * they are the colour of everything else the canvas outlines, whenever they

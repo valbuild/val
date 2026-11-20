@@ -7,6 +7,7 @@ import {
   VAL_CANVAS_EDITING_ATTRIBUTE,
   VAL_CANVAS_SELECTION_PROPERTY,
   VAL_COMPONENT_ATTRIBUTE,
+  VAL_COMPONENT_DRAGGING_ATTRIBUTE,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
@@ -735,8 +736,8 @@ export function ValCanvasBridge({
           // Not around a component's item: its controls outline it, and two
           // boxes on one element is one too many.
           picking
-            ? `[data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
-[data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]):hover { outline: 2px solid ${selectionColors.selection}; }`
+            ? `:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}]) [data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
+:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}]) [data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]):hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
           highlighted
             ? highlightRule(highlighted, selectionColors.selection)
