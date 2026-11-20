@@ -346,14 +346,19 @@ export async function interactWithPage(
   log: PageLog | null,
 ): Promise<PageInteractOutcome> {
   const doc = win.document;
+  // A click or Enter/Space: the person first, before anything is dispatched.
+  // Only asking changes nothing on the page -- a card for earlier held
+  // requests may still be waiting on the person, and stays valid.
+  const firstLook = askFirst(win, request);
+  if (firstLook.kind === "answer") return firstLook.outcome;
+  // This action will run: anything still held from an action before it was
+  // not wanted. Refused FIRST, because refusing a held XHR runs the page's
+  // own handlers, which can change the page -- so the element is looked for
+  // and checked again only after, and what those handlers log or change is
+  // not counted as this action's.
+  if (request.action.kind !== "release") refuseAllHolds(win);
   const before: PageState = stateOf(win);
   const mark = log?.mark() ?? 0;
-  // Anything still held from an action before this one was not wanted: the
-  // assistant moved on without the person's answer. FIRST: refusing a held
-  // XHR runs the page's own handlers, which can change the page -- so the
-  // element is looked for, and checked, only after.
-  if (request.action.kind !== "release") refuseAllHolds(win);
-  // A click or Enter/Space: the person first, before anything is dispatched.
   const asked = askFirst(win, request);
   if (asked.kind === "answer") return asked.outcome;
   const approvedTarget = asked.kind === "approved" ? asked.target : null;
@@ -597,7 +602,8 @@ function fingerprintOf(
     request.document ?? "",
     pageLocationOf(win).path,
     action.kind,
-    "selector" in action ? (action.selector ?? "") : "",
+    // Shortened, so a fingerprint always fits the `approved` it travels in.
+    "selector" in action ? clamp(action.selector ?? "", 500) : "",
     action.kind === "press" ? action.key : "",
     target.tagName,
     labelOf(target),

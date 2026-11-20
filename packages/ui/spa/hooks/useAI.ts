@@ -1388,13 +1388,19 @@ export function useAI(
     for (const [toolCallId, held] of Array.from(gatedCallsRef.current)) {
       if (held.gate !== "page-submit") continue;
       gatedCallsRef.current.delete(toolCallId);
+      // Its card closes with the turn: an Allow left on screen would do
+      // nothing, which reads as having allowed something.
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      if (messageId !== undefined) {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
       pendingQuestionsRef.current.delete(toolCallId);
       refusePageApproval(
         pageRef.current?.interactPage() ?? null,
         held.approval,
       );
     }
-  }, []);
+  }, [chatRef]);
   // `request_web_search` cards waiting on the person, by tool call: the id of
   // the assistant message that opened each.
   const webSearchRequestsRef = useRef<Map<string, string>>(new Map());

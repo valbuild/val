@@ -734,6 +734,50 @@ describe("the canvas bridge, used from the Studio", () => {
       ).toBeUndefined();
     });
 
+    it("only asking leaves what an earlier action held waiting for the person", async () => {
+      render(
+        <main>
+          <input
+            id="q"
+            onChange={() => {
+              void fetch("/api/draft", { method: "POST" }).catch(() => {});
+            }}
+          />
+          <button id="go">Next</button>
+          <ValCanvasBridge draftMode />
+        </main>,
+      );
+      const typed = await interact({ kind: "type", selector: "#q", text: "x" });
+      const hold = String(
+        Reflect.get(Object(Reflect.get(Object(typed), "approval")), "hold"),
+      );
+      // In the same turn, a click is only asked about...
+      expect(await interact({ kind: "click", selector: "#go" })).toMatchObject({
+        status: "needs-approval",
+      });
+      // ...so the person's Allow on the first card still sends it.
+      await interact({ kind: "release", hold, allow: true });
+      expect(sent).toEqual([{ url: "/api/draft", method: "POST" }]);
+    });
+
+    it("approves a click whatever the length of its selector", async () => {
+      const clicked = jest.fn();
+      render(
+        <main>
+          <button id="go" onClick={clicked}>
+            Go
+          </button>
+          <ValCanvasBridge draftMode />
+        </main>,
+      );
+      const selector = `#go${":not(.nope)".repeat(300)}`;
+      expect(selector.length).toBeGreaterThan(2000);
+      expect(await approvedly({ kind: "click", selector })).toMatchObject({
+        status: "done",
+      });
+      expect(clicked).toHaveBeenCalledTimes(1);
+    });
+
     it("refuses an off-site link before asking, and nothing is clicked (no ping)", async () => {
       const clicks: unknown[] = [];
       render(
@@ -890,7 +934,9 @@ describe("the canvas bridge, used from the Studio", () => {
               request = xhr;
               xhr.open("PUT", "/api/item/1");
               for (const name of ["readystatechange", "error", "loadend"]) {
-                xhr.addEventListener(name, () => events.push(name));
+                xhr.addEventListener(name, () =>
+                  events.push(`${name} ${xhr.readyState}`),
+                );
               }
               xhr.send("{}");
               navigator.sendBeacon("/api/track", "typed");
@@ -915,8 +961,10 @@ describe("the canvas bridge, used from the Studio", () => {
         },
       ]);
       await interact({ kind: "release", hold, allow: false });
-      expect(events).toEqual(["readystatechange", "error", "loadend"]);
-      expect(Reflect.get(Object(request), "readyState")).toBe(4);
+      // Done, for its handlers...
+      expect(events).toEqual(["readystatechange 4", "error 4", "loadend 4"]);
+      // ...and the page's own object again after: opened, never sent.
+      expect(Reflect.get(Object(request), "readyState")).toBe(1);
       expect(beacons).toEqual([]);
     });
 

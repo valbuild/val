@@ -612,9 +612,15 @@ function failXhr(win: Win, request: XMLHttpRequest): void {
   for (const [name, value] of finished) {
     Reflect.defineProperty(request, name, { configurable: true, value });
   }
-  request.dispatchEvent(new win.Event("readystatechange"));
-  request.dispatchEvent(new win.ProgressEvent("error"));
-  request.dispatchEvent(new win.ProgressEvent("loadend"));
+  try {
+    request.dispatchEvent(new win.Event("readystatechange"));
+    request.dispatchEvent(new win.ProgressEvent("error"));
+    request.dispatchEvent(new win.ProgressEvent("loadend"));
+  } finally {
+    // Done for its handlers, and then the real object again: a page that
+    // opens it once more reads its own state, not this.
+    for (const [name] of finished) Reflect.deleteProperty(request, name);
+  }
 }
 
 // --- holds -------------------------------------------------------------------

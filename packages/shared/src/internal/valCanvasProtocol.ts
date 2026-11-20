@@ -1056,20 +1056,24 @@ export function isValCanvasStudioMessage(
     );
   }
   if (message.type === "interact") {
-    const asked = data as Record<string, unknown>;
+    const field = (key: string): unknown => Reflect.get(data, key);
+    const maxItems = field("maxItems");
+    const timeoutMs = field("timeoutMs");
+    const logFrom = field("logFrom");
+    const approved = field("approved");
     return (
-      typeof asked.requestId === "string" &&
-      isPageAction(asked.action) &&
-      (asked.maxItems === undefined || typeof asked.maxItems === "number") &&
-      (asked.timeoutMs === undefined ||
-        (typeof asked.timeoutMs === "number" &&
-          Number.isFinite(asked.timeoutMs) &&
-          asked.timeoutMs >= 0)) &&
-      (asked.logFrom === undefined ||
-        asked.logFrom === "action" ||
-        asked.logFrom === "document") &&
-      (asked.approved === undefined ||
-        (typeof asked.approved === "string" && asked.approved.length <= 2000))
+      typeof field("requestId") === "string" &&
+      isPageAction(field("action")) &&
+      (maxItems === undefined || typeof maxItems === "number") &&
+      (timeoutMs === undefined ||
+        (typeof timeoutMs === "number" &&
+          Number.isFinite(timeoutMs) &&
+          timeoutMs >= 0)) &&
+      (logFrom === undefined ||
+        logFrom === "action" ||
+        logFrom === "document") &&
+      (approved === undefined ||
+        (typeof approved === "string" && approved.length <= 2000))
     );
   }
   if (message.type === "readPage") {
