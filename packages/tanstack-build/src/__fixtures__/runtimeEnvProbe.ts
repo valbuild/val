@@ -63,6 +63,17 @@ export function read() {
     mode: MODE,
     ssr: import.meta.env.SSR,
     inlined: import.meta.env.PUBLIC_INLINED,
+    inlinedNode: process.env.PUBLIC_INLINED,
+    buildOnly: import.meta.env.PUBLIC_BUILD_ONLY,
+    buildOnlyNode: process.env.PUBLIC_BUILD_ONLY,
+    // Given at build time and not PUBLIC_: read by name, on both sides.
+    buildServerOnly: process.env.BUILD_SERVER_ONLY,
+    buildServerOnlyMeta: import.meta.env.BUILD_SERVER_ONLY,
+    // Read off the object, not by its dotted name.
+    nodeEnv: (() => {
+      const { NODE_ENV } = process.env;
+      return NODE_ENV;
+    })(),
   };
 }
 `,
@@ -82,8 +93,8 @@ type App = { atTop: unknown; read: () => Record<string, unknown> };
 
 async function run(code: string): Promise<Record<string, unknown>> {
   const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
-  const app = ((await import(url)) as { default: App }).default;
-  return { atTop: app.atTop, ...app.read() };
+  const mod: { default: App } = await import(url);
+  return { atTop: mod.default.atTop, ...mod.default.read() };
 }
 
 async function main() {
@@ -91,8 +102,11 @@ async function main() {
     files,
     target,
     // UNREAD_SERVER_ONLY is read by nothing, so it must be in nothing.
+    // PUBLIC_BUILD_ONLY is set at build time and not at runtime.
     env: {
       PUBLIC_INLINED: "from-build",
+      PUBLIC_BUILD_ONLY: "build-only",
+      BUILD_SERVER_ONLY: "build-server-secret",
       UNREAD_SERVER_ONLY: "unread-build-value",
     },
   });
@@ -100,7 +114,7 @@ async function main() {
   // The browser: the loader's `<head>` script has run, and it hands over
   // PUBLIC_ names only -- SERVER_ONLY is here to show the bundle would not
   // read it even if it were.
-  (globalThis as Record<string, unknown>)["__PLATFORM_PUBLIC_ENV"] = RUNTIME;
+  Reflect.set(globalThis, "__PLATFORM_PUBLIC_ENV", RUNTIME);
   const savedProcess = globalThis.process;
   // As in a browser, where there is no `process` at all.
   Reflect.deleteProperty(globalThis, "process");
@@ -123,7 +137,10 @@ async function main() {
       identifierLeft: /__PLATFORM_RUNTIME_ENV__/.test(
         built.clientCode + built.serverCode,
       ),
-      clientHasServerOnly: built.clientCode.includes("server-only"),
+      // A value given to the build that is not PUBLIC_: what this guards is
+      // that it is not inlined into the browser's bundle, where anything is
+      // public. (A runtime one never is: it is not in the build at all.)
+      clientHasServerOnly: built.clientCode.includes("build-server-secret"),
       unreadInlinedAnywhere: (built.clientCode + built.serverCode).includes(
         "unread-build-value",
       ),
