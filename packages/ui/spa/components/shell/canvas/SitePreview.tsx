@@ -32,6 +32,12 @@ import {
  */
 export type SitePreviewViewport = {
   device: CanvasDevice;
+  /**
+   * Show the page at another width, exactly as the toolbar's device switch
+   * does: the assistant's `interact_page` uses it, so there is one way the
+   * preview is sized. Absent where the width is chosen elsewhere (`device`).
+   */
+  setDevice?: (device: CanvasDevice) => void;
   width: number;
   height: number;
   /**
@@ -425,6 +431,9 @@ export function SitePreview({
           <div className="shadow-2xl" onClick={onPageClick}>
             {renderPage({
               device,
+              ...(chosenDevice === undefined
+                ? { setDevice: setOwnDevice }
+                : {}),
               width: pageWidth,
               height: CANVAS_DEVICE_HEIGHTS[device],
               reloadKey,

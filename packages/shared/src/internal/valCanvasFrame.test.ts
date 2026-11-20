@@ -38,4 +38,13 @@ describe("isValCanvasFrame", () => {
     expect(isValCanvasFrame("", "/valley")).toBe(false);
     expect(isValCanvasFrame("", "/blog/val")).toBe(false);
   });
+
+  test("the marker goes in the query, before a hash", () => {
+    expect(withValCanvasParam("/about#team")).toBe("/about?val_canvas=1#team");
+    expect(withValCanvasParam("/a?b=1#c")).toBe("/a?b=1&val_canvas=1#c");
+    expect(withValCanvasParam("/a?b=1")).toBe("/a?b=1&val_canvas=1");
+    const url = new URL(withValCanvasParam("/about#x?y"), "http://x");
+    expect(url.searchParams.get("val_canvas")).toBe("1");
+    expect(url.hash).toBe("#x?y");
+  });
 });
