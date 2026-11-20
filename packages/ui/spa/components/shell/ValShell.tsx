@@ -170,6 +170,7 @@ import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
+import { SiteErrors } from "./SiteErrors";
 import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
 
 /**
@@ -462,6 +463,15 @@ function ValShellBody({
       : (placement: "top-bar" | "column") => (
           <PlanStatusBar status={planStatusValue} placement={placement} />
         );
+  /**
+   * The hosted site's errors, for a project on Hosted only: Val Build sees a
+   * site's errors because it serves the site, so on any other plan the panel
+   * could only ever say there is nothing to see.
+   */
+  const renderSiteErrors =
+    studioAccess.access?.limits?.plan === "hosted"
+      ? () => <SiteErrors />
+      : undefined;
   const remoteFilesStatusNotice =
     remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
       <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
@@ -1901,6 +1911,7 @@ function ValShellBody({
                 : [saveFailedNotice, ...proposalNotices]
             }
             renderPlanStatus={planStatus}
+            renderSiteErrors={renderSiteErrors}
             statusNotice={remoteFilesStatusNotice}
             publishSlot={
               demo !== null ? <DemoPublishButton /> : <PublishButton />
