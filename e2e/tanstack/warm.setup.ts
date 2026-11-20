@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { storesReceived } from "../intake";
 import { TANSTACK_APP_PORT } from "./config";
 
 /**
@@ -30,18 +31,9 @@ test("the Studio's bundle is built and the TanStack app has compiled", async ({
 
   await page.goto(`http://localhost:${TANSTACK_APP_PORT}/val`);
   await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: 120_000,
-        message: "the Studio never took the TanStack project in",
-      },
-    )
+    .poll(() => storesReceived(page), {
+      timeout: 120_000,
+      message: "the Studio never took the TanStack project in",
+    })
     .toBe(true);
 });
