@@ -1,17 +1,23 @@
-# Editing on the page (beta)
+# Editing on the page
 
-With **Edit on the page** turned on (Account, under Workspace; one person's,
-kept in `localStorage`), a click on a text in the Studio's preview puts the
-caret in that text, on the page. Off, and for everything that is not a text, a
-click opens the field in the Studio's column, as it always has.
+Content's Select has two modes, chosen from the menu beside it and remembered
+per browser (`selectModePreference.ts`):
 
-Three parts, in three packages, and nothing else knows about it:
+- **Select** opens a picked field in the Studio's column. What a click on the
+  page has always done, and the mode it starts in.
+- **Select & edit** puts the caret in a picked TEXT where the page shows it.
+  Everything that is not a text still opens in the column.
 
-| part                                                                                                          | where                                                        | what it does                                                                 |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| `inlineEditing.ts`                                                                                            | `@valbuild/shared`, run by `ValCanvasBridge` of each binding | Makes an element typable, and reads what was typed back as the field's value |
-| `editInline`, `inlineEditStarted`, `inlineEdit`, `inlineEditEnded`, `inlineEditUnavailable`, `stopInlineEdit` | `valCanvasProtocol.ts`                                       | The conversation across the frame                                            |
-| `useCanvasInlineEdit`, `inlineEditCandidates`                                                                 | `@valbuild/ui`, `components/shell/canvas/`                   | Decides what to offer the page, and writes what comes back                   |
+This page is about the second.
+
+The parts, and nothing else knows about it:
+
+| part                                                            | where                                                        | what it does                                                                 |
+| --------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `inlineEditing.ts`                                              | `@valbuild/shared`, run by `ValCanvasBridge` of each binding | Makes an element typable, and reads what was typed back as the field's value |
+| `editInline`, `inlineEdit`, `inlineEditSelection`, and the rest | `valCanvasProtocol.ts`                                       | The conversation across the frame                                            |
+| `useCanvasInlineEdit`, `inlineEditCandidates`                   | `@valbuild/ui`, `components/shell/canvas/`                   | Decides what to offer the page, and writes what comes back                   |
+| `CanvasInlineRichTextToolbar`, `placeInlineToolbar`             | `@valbuild/ui`, `components/shell/canvas/`                   | The formatting controls floated over a richtext, and where they go           |
 
 ## One round trip, and a way back
 
@@ -31,7 +37,7 @@ A richtext is typable when the element's children are the document's nodes, tag
 for tag, which is what `ValRichText` renders unless a `transform` changes the
 structure.
 
-So the beta never takes a way of editing away. That is also what makes a
+So the mode never takes a way of editing away. That is also what makes a
 version skew harmless: `editInline` is a capability a bridge lists in `ready`,
 and a page whose `@valbuild/next` or `@valbuild/tanstack` predates it is never
 asked.
@@ -109,20 +115,88 @@ which `inlineEditing.ts` therefore does itself:
   marks the caret was inside. At the end of a heading it is a paragraph.
 - **Paste.** Text only, and a line break is a space.
 
+## Formatting: the Studio's controls, on the page's selection
+
+A richtext being typed in has the column editor's own buttons
+(`ToolbarButtons`) floating by it, for what the field's schema allows: bold,
+italic, strikethrough, links, headings, lists. They are drawn by the STUDIO,
+over the preview, not by the page: the page is the customer's document with
+none of the Studio's styles, and it may be shown at a quarter of its size.
+
+That splits the work across the frame, and each half does only what it can:
+
+- **The page says what is selected** (`inlineEditSelection`): as a place in
+  the document -- which paragraph or heading, counted in reading order, and
+  how far into it, a character as one and an image or line break as one.
+  That is how ProseMirror counts inside a text block too, so
+  `inlineSelectionMapping.ts` is a few lines and neither side knows how the
+  other holds the document.
+- **The Studio makes the change.** `CanvasInlineRichTextToolbar` keeps a
+  ProseMirror editor nobody sees (`DetachedEditorView`), its document and
+  selection whatever the page last said, and the buttons act on it. So Bold
+  here is the same transaction as Bold in the column, links come from the
+  same picker, and nothing about marks or lists is implemented twice. The
+  result is written at once -- not on the typing debounce -- and sent to the
+  page (`applyInlineEdit`).
+- **The page shows it** (`apply` in `inlineEditing.ts`), twice. At once, with
+  what it can tell of the page's look: a new node is classed as a node of
+  its kind already in the document is, and where there is none a mark gets a
+  plain inline style. Then exactly, from the hidden original, once the page
+  has rendered the very document the copy holds (`refresh`) -- the original
+  is always the page's own rendering, so it is where the theme's classes
+  come from. Never while the two differ: what the person is looking at stays.
+
+### Where the controls go
+
+Above the text, with its left edge. Where that does not fit they go below it,
+and where neither fits -- a text taller than the preview -- inside the
+preview's edge, on the side away from the caret. Never outside the part of the
+preview that is on screen (`placeInlineToolbar`, which is pure and tested), and
+not at all while the text is scrolled out of it. What opens OUT of the bar (the
+link picker) is not part of the bar's box: a bar that grew a list of pages
+would be moved away from the text to make room for it.
+
+They float, so above a text means over whatever the page has above that text.
+
+`CanvasFrame` is what knows where the text is (`onInlineEditPlace`): the frame
+is scaled and panned, and the page only knows positions inside itself. The
+layer asks every animation frame and moves the box by hand, since a zoom or a
+scroll changes the answer without anything being told.
+
+### Who ends an edit
+
+The focus leaving the page does NOT end it any more: the controls are out
+there, and a box to type a link in has to take the focus. So:
+
+- on the page, Enter (a single line), Esc, or a press anywhere outside the text
+  ends it;
+- in the Studio, a press anywhere but on the controls ends it (`CanvasFrame`
+  sends `stopInlineEdit`) -- which includes the canvas's own zoom and width
+  buttons;
+- and the Studio says when the caret should go back (`focusInlineEdit`): a
+  document that lost the focus to the one around it has forgotten which of its
+  elements had it.
+
+Not `document.hasFocus()`, which looked like the way to tell "the focus went to
+the Studio" from "a click on nothing in particular": for a document in a frame
+it goes on answering yes wherever focus is emulated, Playwright included.
+
 ## What it does not do
 
-Nothing new can be formatted on the page: no bold, no link, no image, no
-turning a paragraph into a heading. A mark's class comes from the `theme`
-passed to `ValRichText`, which only the page's renderer knows, so the copy has
-no way to draw a mark the document does not already have. A document holding a
-tag outside `p`, `h1`-`h6`, `ul`, `ol`, `li`, `span`, `a`, `br` and `img` is not
-edited on the page at all. Both are what the Studio's own editor is for, one
-click away.
-
-The way past that is a real editor on the copy -- ProseMirror, with a schema
-whose `toDOM` takes its classes from the hidden original, which is always the
-page's own rendering of the current document. It was not needed to find out
-whether editing on the page is worth having.
+- **No images from the page.** The controls have no image button: uploading
+  from here into a document shown somewhere else is its own piece of work.
+  Images a document has are kept, and can be deleted with the keyboard.
+- **A mark needs a selection.** Bold with only a caret changes nothing: the
+  editor remembers it as a mark for the next character, and that memory does
+  not cross the frame.
+- **Undo stops at a control.** The browser's own undo works while typing. A
+  control replaces what is in the copy, and the browser's history goes with
+  it, so neither the control nor what was typed before it can be undone on
+  the page.
+- **A text left empty cannot be clicked again.** It has no height on the page,
+  as before this existed. Its row in the column is still there.
+- **Other tags.** A document holding a tag outside `p`, `h1`-`h6`, `ul`, `ol`,
+  `li`, `span`, `a`, `br` and `img` is not edited on the page at all.
 
 ## Testing it
 

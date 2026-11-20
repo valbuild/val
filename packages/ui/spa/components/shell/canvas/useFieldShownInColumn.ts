@@ -5,7 +5,7 @@ import type { SourcePath } from "@valbuild/core";
  * Which field the "On this page" column shows as the selected one.
  *
  * Usually the field the editor is on. But a text typed in ON the page (the
- * beta: `useCanvasInlineEdit`) is edited without the editor going anywhere,
+ * Select & edit: `useCanvasInlineEdit`) is edited without the editor going anywhere,
  * so the column has to be told separately -- otherwise the caret is in a
  * headline and the column is still pointing at whatever was opened last,
  * three screens away.

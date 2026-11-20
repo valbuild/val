@@ -103,7 +103,7 @@ export type PageWorkspaceProps = {
   /** The path the editor is on, highlighted in the fields column to match. */
   selectedCanvasPath?: SourcePath | null;
   /**
-   * The field being typed in ON the page, while it is (the beta: see
+   * The field being typed in ON the page, while it is (Select & edit: see
    * `useCanvasInlineEdit`). The editor does not move for it, so the column
    * is told here: it turns to "On this page", scrolls to the field and
    * shows it as the selected one. See `useFieldShownInColumn`.

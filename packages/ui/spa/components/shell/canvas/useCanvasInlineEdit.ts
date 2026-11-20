@@ -23,7 +23,7 @@ export type CanvasInlineEditRequest = {
 };
 
 /**
- * Editing on the page, from the Studio's side (the beta; the page's side is
+ * Editing on the page, from the Studio's side (the page's side is
  * `inlineEditing.ts` in `@valbuild/shared`).
  *
  * A pick on the page is {@link CanvasInlineEdit.offer}ed here first. When
@@ -33,7 +33,7 @@ export type CanvasInlineEditRequest = {
  * written as the field in the column writes it -- or says it cannot, and the
  * caller opens the field in the column as a pick always has.
  *
- * So turning the beta on never takes a way of editing away: whatever cannot
+ * So choosing Select & edit never takes a way of editing away: whatever cannot
  * be typed on the page is one round trip from being opened where it always
  * was.
  */
@@ -129,7 +129,7 @@ export function useCanvasInlineEdit({
   enabled,
 }: {
   /**
-   * The beta is on, and fields may be written: not while the first load's
+   * Select is in its Select & edit mode, and fields may be written: not while the first load's
    * patches are still coming in (`PendingChangesGate`), when the column's
    * fields are read-only and a caret on the page would be a way around
    * that. Off, every pick is refused and nothing is asked.

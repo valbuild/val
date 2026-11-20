@@ -1359,7 +1359,7 @@ function ValShellBody({
          * otherwise back to being a page. Leaving the mode means leaving all of
          * it.
          *
-         * And not while a field is being typed in on the page (the beta):
+         * And not while a field is being typed in on the page (Select & edit):
          * the page outlines that one itself, and the column may have
          * another open.
          */
@@ -1379,7 +1379,7 @@ function ValShellBody({
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          // The beta first: a text is edited where it is. What the page
+          // Select & edit first: a text is edited where it is. What the page
           // cannot edit in place comes back as `onInlineEditUnavailable`,
           // and is opened as below.
           if (offerInlineEdit(paths)) return;

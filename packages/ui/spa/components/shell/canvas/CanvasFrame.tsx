@@ -163,7 +163,7 @@ export type CanvasFrameProps = {
   /** Esc on the page while `isPicking`. */
   onPickingStopped?: () => void;
   /**
-   * Editing on the page (the beta: `useCanvasInlineEdit`). A new request
+   * Editing on the page (Select & edit: `useCanvasInlineEdit`). A new request
    * asks the page to put the caret in one of these fields where it shows
    * it; `null` ends an edit that is going on. The page answers each
    * request once, with `onInlineEditStarted` or `onInlineEditUnavailable`
