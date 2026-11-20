@@ -232,6 +232,8 @@ export type MockPatchFile = {
   type: "file" | "image";
   remote: boolean;
   bytes: number;
+  /** Uploaded by the browser, or moved from an image attached in the chat. */
+  source: "upload" | "session-file";
 };
 
 export type MockCommit = {
@@ -538,6 +540,26 @@ function mockOf(target: HttpTarget) {
       await control(target, "ai-offline", {
         method: "POST",
         body: { offline },
+      });
+    },
+
+    /**
+     * Make the patch endpoints answer 500 the way a throwing content service
+     * does, or stop: `save` is `POST /patches`, `read` the patches list. A key
+     * left out is left as it is. Both off at `reset()`.
+     */
+    async failPatches(fail: { save?: boolean; read?: boolean }): Promise<void> {
+      await control(target, "fail-patches", { method: "POST", body: fail });
+    },
+
+    /**
+     * Whether `from-session-file` hands back each image's SHA-256. Off plays a
+     * content service from before it did. Back on at `reset()`.
+     */
+    async aiSessionSha256(enabled: boolean): Promise<void> {
+      await control(target, "ai-session-sha256", {
+        method: "POST",
+        body: { enabled },
       });
     },
   };

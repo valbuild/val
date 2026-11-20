@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useSyncExternalStore } from "react";
 import type {
   ModuleFilePath,
   SourcePath,
@@ -6,7 +6,6 @@ import type {
 } from "@valbuild/core";
 import { useValSystem } from "../stores/react/SystemContext";
 import { useValidationErrorsAtPath } from "../stores/react/useValidationErrors";
-import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 
 /**
  * Validation errors, for the components that show them.
@@ -66,176 +65,102 @@ export function useAllValidationErrors(): Record<
   ValidationError[]
 > {
   const val = useValSystem();
-  const [version, bump] = useVersion();
-
-  useEffect(() => {
-    if (val === null) return;
-    const offResult = val.system.validationStore.events.on(
-      "validation:result",
-      bump,
-    );
-    const offStale = val.system.validationStore.events.on(
-      "validation:invalidate",
-      bump,
-    );
-    return () => {
-      offResult();
-      offStale();
-    };
-  }, [val, bump]);
 
   /**
-   * The last answer, returned again when a recompute produces the same one.
+   * One answer for the whole Studio, not one per caller.
    *
-   * Not an optimisation — a loop fix. This hook wakes on EVERY validation event
-   * in the project, and most of them do not change what it answers: a module
-   * being invalidated and revalidated with the same errors is the common case,
-   * and loading a `.jsonValues()` record announces one per batch. Each of those
-   * used to hand back a brand-new object.
+   * `ValidationStore.surfacedErrors` works the answer out once per validation
+   * event and per module (a module is filtered only when its result is new),
+   * and hands every caller the same object while it holds -- including after a
+   * revalidation that found the same messages, which is most of them. That
+   * stability is load-bearing: the nav tree is memoised on this value, and the
+   * tree holds a Radix `ScrollArea` inside an `AccordionContent`, both of which
+   * measure and set state from a ref. A new object per event rebuilt the tree,
+   * and enough rebuilds in a row became "Maximum update depth exceeded" thrown
+   * from a ref callback that names nothing about validation.
    *
-   * The nav tree is memoised on this value, so a new object
-   * rebuilt the entire tree — and the tree contains a Radix `ScrollArea` inside
-   * an `AccordionContent`, both of which measure and set state from a ref. Enough
-   * rebuilds in a row and that becomes "Maximum update depth exceeded", thrown
-   * from inside a ref callback that names nothing about validation. It took a
-   * React component stack to find; the JS stack is pure Radix.
-   *
-   * Same rule the stores follow for anything read on a render path: recompute and
-   * compare, never trust that a wake-up means a change.
+   * It used to be a counter and a memo in each caller, each filtering every
+   * validated module on every event: eight callers on the gallery page, and
+   * loading a `.jsonValues()` record revalidates it once per batch. At 10,000
+   * posts that was the long tasks of "used by" (`scenarios/measure/results.md`,
+   * "The Studio, built"). `surfacedValidationErrors.test.tsx` counts it.
    */
-  const previous = useRef<Record<SourcePath, ValidationError[]> | null>(null);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offResult = val.system.validationStore.events.on(
+        "validation:result",
+        onChange,
+      );
+      const offStale = val.system.validationStore.events.on(
+        "validation:invalidate",
+        onChange,
+      );
+      return () => {
+        offResult();
+        offStale();
+      };
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () =>
+      val === null ? NO_ERRORS : val.system.validationStore.surfacedErrors(),
+    [val],
+  );
+  const errors = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   /**
-   * Stale modules whose last answer had errors in it, which this hook is
-   * still showing — see `peekLastKnown` below.
+   * Stale modules whose last answer SHOWS an error, which this hook is still
+   * showing -- see `peekLastKnown`.
    *
    * Showing them makes this hook a demand for them, so it asks: something has
    * to replace the old answer, or an error the editor has just fixed would
    * stay on the Publish button until a field in that module happened to be
-   * on screen. A module that was clean is shown as clean either way and is
-   * left to whoever asks for it next — this only adds work where an error
-   * would otherwise be stuck.
+   * on screen. A module that shows nothing is shown as clean either way and
+   * is left to whoever asks for it next -- this only adds work where an error
+   * would otherwise be stuck. Every caller asks; `validate` joins a pass
+   * already in flight, so eight callers are one pass.
+   *
+   * What it shows, not what it raised: a raw answer can be all markers that
+   * resolve to nothing (every post that picks an image the build's snapshot
+   * of the gallery does not have). Asking by the raw answer revalidated such
+   * a module once per batch of a `.jsonValues()` load, sending the whole
+   * module to the validation worker each time -- at 10,000 posts the largest
+   * cost left in "used by" (`scenarios/measure/results.md`).
    */
-  const staleWithErrors = useMemo((): ModuleFilePath[] => {
-    if (val === null) return [];
-    void version;
-    const modules: ModuleFilePath[] = [];
-    for (const moduleFilePath of val.system.sourceStore.loadedModules()) {
-      if (!val.system.validationStore.isStale(moduleFilePath)) continue;
-      const shown = val.system.validationStore.peekLastKnown(moduleFilePath);
-      if (shown.status === "validated" && shown.errors !== false) {
-        modules.push(moduleFilePath);
-      }
-    }
-    return modules;
-  }, [val, version]);
   useEffect(() => {
     if (val === null) return;
-    for (const moduleFilePath of staleWithErrors) {
-      void val.system.validationStore.validate(moduleFilePath);
-    }
-  }, [val, staleWithErrors]);
-
-  return useMemo(() => {
-    if (val === null) return {};
-    void version;
-    const raw: Record<SourcePath, ValidationError[]> = {};
-    for (const moduleFilePath of val.system.sourceStore.loadedModules()) {
-      /*
-       * The last answer, not only a current one.
-       *
-       * An edit makes its module stale, and skipping stale modules dropped
-       * their errors for the length of every revalidation: with an error
-       * anywhere in the module being typed into, the Publish button flipped
-       * from "Fix 1" to "Publish" and back on every pause in typing. The gate
-       * itself does not read this — `system.publish` validates for itself —
-       * so the cost of a slightly old answer is a badge that is one pass
-       * behind, which is what every other surface already shows.
-       */
-      const result = val.system.validationStore.peekLastKnown(moduleFilePath);
-      if (result.status !== "validated" || result.errors === false) {
-        continue;
-      }
-      for (const [sourcePath, errors] of Object.entries(result.errors)) {
-        if (errors && errors.length > 0) {
-          raw[sourcePath as SourcePath] = errors;
+    const store = val.system.validationStore;
+    const revalidateStaleShowingErrors = () => {
+      for (const moduleFilePath of val.system.sourceStore.loadedModules()) {
+        if (!store.isStale(moduleFilePath)) continue;
+        const shown = store.surfacedOf(store.peekLastKnown(moduleFilePath));
+        if (shown !== null && Object.keys(shown).length > 0) {
+          void store.validate(moduleFilePath);
         }
       }
-    }
-    const next = filterBlockingValidationErrors(
-      raw,
-      val.system.schemaStore.all(),
-      val.system.sourceStore.allSources(),
-    );
-    const held = previous.current;
-    if (held !== null && sameErrors(held, next)) {
-      return held;
-    }
-    previous.current = next;
-    return next;
-  }, [val, version]);
-}
-
-/**
- * Do two error maps say the same thing?
- *
- * Compared by MESSAGE rather than by object identity, because the resolving pass
- * rebuilds error objects: `resolveSchemaSourceFixes` turns a `router:check-route`
- * marker into a different error, so identity would report every recompute as a
- * change and the comparison would never hold.
- *
- * Messages are what the UI shows and what the error badges count, so two maps
- * with the same paths and the same messages are the same answer as far as every
- * consumer of this hook is concerned.
- */
-function sameErrors(
-  a: Record<SourcePath, ValidationError[]>,
-  b: Record<SourcePath, ValidationError[]>,
-): boolean {
-  const aPaths = Object.keys(a);
-  const bPaths = Object.keys(b);
-  if (aPaths.length !== bPaths.length) {
-    return false;
-  }
-  for (const path of aPaths) {
-    const left = a[path as SourcePath];
-    const right = b[path as SourcePath];
-    if (right === undefined || left.length !== right.length) {
-      return false;
-    }
-    for (let index = 0; index < left.length; index++) {
-      if (left[index].message !== right[index].message) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-/**
- * A counter and a way to move it.
- *
- * `useSyncExternalStore` is the usual shape for this and is wrong here: its
- * `getSnapshot` must be reference-stable, and the answer this hook produces is a
- * whole-project record built by two filtering passes. Building it per snapshot
- * read — which React does on every render — would either re-render forever or
- * need a cache keyed on something that does not exist. A version plus a memo
- * computes it once per change instead.
- */
-function useVersion(): [number, () => void] {
-  const [version, setVersion] = React.useState(0);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
     };
-  }, []);
-  const bump = useCallback(() => {
-    if (mounted.current) setVersion((previous) => previous + 1);
-  }, []);
-  return [version, bump];
+    revalidateStaleShowingErrors();
+    // After the event, not inside it: an invalidation is announced from
+    // inside the source store's own change, and a validation started there
+    // would read a store that is still moving.
+    let disposed = false;
+    const offStale = store.events.on("validation:invalidate", () => {
+      queueMicrotask(() => {
+        if (!disposed) revalidateStaleShowingErrors();
+      });
+    });
+    return () => {
+      disposed = true;
+      offStale();
+    };
+  }, [val]);
+
+  return errors;
 }
+
+const NO_ERRORS: Record<SourcePath, ValidationError[]> = {};
 
 /** Re-exported: several components import it from here rather than the store. */
 export type { ModuleFilePath };

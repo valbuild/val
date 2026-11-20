@@ -2,6 +2,9 @@ import { joinHandoff, storedHandoffIntent } from "../publish/handoff";
 import type { ProposalJson } from "./proposalsClient";
 import {
   buildInTab,
+  openBuilder,
+  QUICK_PREVIEW_TAB_GONE_MESSAGE,
+  quickPreviewInTab,
   NOT_STORED_BUILD_MESSAGE,
   TAB_GONE_MESSAGE,
   TAB_NEVER_HEARD_MS,
@@ -209,4 +212,121 @@ test("a browser that will not store the intent opens no tab, and says what to do
     status: "failed",
     message: NOT_STORED_BUILD_MESSAGE,
   });
+});
+
+describe("a quick preview bundled in a builder tab", () => {
+  const files = {
+    "app.js": { body: "export {}", contentType: "text/javascript" },
+  };
+  const idOf = (url: string) => {
+    const id = new URL(url, "https://site.example.com").searchParams.get(
+      "publish-handoff",
+    );
+    if (id === null) throw new Error("no hand-off id in the url");
+    return id;
+  };
+
+  test("the tab is told which proposal, and the files come back", async () => {
+    const storage = memoryStorage();
+    let url = "";
+    const bundling = quickPreviewInTab(NAME, {
+      open: (at) => {
+        url = at;
+        return {};
+      },
+      storage,
+      onTab: () => {},
+      ...manualTime(),
+    });
+    const id = idOf(url);
+    expect(storedHandoffIntent(id, storage)?.intent).toEqual({
+      kind: "quick-preview",
+      name: NAME,
+    });
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    tab.report({
+      type: "quick-preview-built",
+      outcome: { status: "built", files },
+    });
+    expect(await bundling).toEqual({ status: "built", files });
+    tab.close();
+  });
+
+  test("a tab that goes quiet is given up on, but not while it is not let open", async () => {
+    const storage = memoryStorage();
+    const time = manualTime();
+    let url = "";
+    const states: Array<{ blocked: boolean; step: string | null } | null> = [];
+    let settled = false;
+    const bundling = quickPreviewInTab(NAME, {
+      // Refused: no tap opened it.
+      open: (at) => {
+        url = at;
+        return null;
+      },
+      storage,
+      onTab: (inTab) => states.push(inTab),
+      ...time,
+    }).then((outcome) => {
+      settled = true;
+      return outcome;
+    });
+    expect(states[0]).toEqual({ blocked: true, step: null });
+    // It waits for the tap, however long.
+    await time.advance(60_000);
+    expect(settled).toBe(false);
+    // Opened from the tap, it says where it is -- and then nothing more.
+    const tab = joinHandoff(idOf(url), () => undefined, { retryMs: 10 });
+    tab.report({ type: "phase", label: "Building", elapsedMs: 0 });
+    await wait();
+    expect(states.at(-1)).toEqual({ blocked: false, step: "Building" });
+    await time.advance(30_000);
+    expect(await bundling).toEqual({
+      status: "failed",
+      message: QUICK_PREVIEW_TAB_GONE_MESSAGE,
+    });
+    tab.close();
+  });
+});
+
+test("a build stopped because it stalled says so, rather than reading as cancelled", async () => {
+  const controller = new AbortController();
+  const building = buildInTab(
+    NAME,
+    { get: async () => proposal(null, true) },
+    {
+      open: () => ({}),
+      storage: memoryStorage(),
+      onTab: () => {},
+      signal: controller.signal,
+      ...manualTime(),
+    },
+  );
+  controller.abort(new Error("The build made no progress while building."));
+  expect(await building).toEqual({
+    status: "failed",
+    message: "The build made no progress while building.",
+  });
+});
+
+test("a quick preview's tab let open late is not given up on for the wait", async () => {
+  const time = manualTime();
+  let settled = false;
+  const states: Array<{ blocked: boolean; step: string | null } | null> = [];
+  const bundling = quickPreviewInTab(NAME, {
+    open: () => null,
+    storage: memoryStorage(),
+    onTab: (inTab) => states.push(inTab),
+    ...time,
+  }).then((outcome) => {
+    settled = true;
+    return outcome;
+  });
+  await time.advance(30_000);
+  // The tap: the tab opens now, and has not said anything yet.
+  expect(openBuilder(() => ({}))).toBe(true);
+  await time.advance(2_000);
+  expect(settled).toBe(false);
+  await time.advance(30_000);
+  expect(await bundling).toMatchObject({ status: "failed" });
 });

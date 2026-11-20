@@ -15,6 +15,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  PencilRuler,
 } from "lucide-react";
 import {
   FloatingPanel,
@@ -144,15 +145,18 @@ function PageActionsButton({
   onOpenChange,
   onDuplicate,
   onRename,
+  onSketch,
 }: {
   page: ShellPage;
-  route: AvailableRoute;
+  /** Null where the page has no route to copy or rename it under. */
+  route: AvailableRoute | null;
   /** Which of this row's things is on screen, if any. */
   open: RowForm | null;
   onOpenChange: (form: RowForm | null) => void;
   /** Absent in a mode that cannot write; the menu then omits the item. */
   onDuplicate?: (toUrlPath: string) => void;
   onRename?: (toUrlPath: string) => void;
+  onSketch?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => onOpenChange(null), [onOpenChange]);
@@ -201,6 +205,20 @@ function PageActionsButton({
           role="menu"
           className="absolute right-0 top-full z-window mt-1 w-40 rounded-md border border-border-float bg-bg-float p-1 shadow-lg"
         >
+          {onSketch && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onOpenChange(null);
+                onSketch();
+              }}
+              className="flex items-center gap-2 w-full h-7 px-2 rounded text-xs text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <PencilRuler size={12} />
+              Sketch changes
+            </button>
+          )}
           {onDuplicate && (
             <button
               type="button"
@@ -225,7 +243,7 @@ function PageActionsButton({
           )}
         </div>
       )}
-      {(open === "duplicate" || open === "rename") && (
+      {route && (open === "duplicate" || open === "rename") && (
         <div className="absolute right-0 top-full z-window mt-1 w-[17rem] rounded-md border border-border-float bg-bg-float p-3 shadow-lg">
           <div className="pb-2 text-sm font-medium text-fg-primary">
             {open === "duplicate" ? "Duplicate page" : "Rename page"}
@@ -345,6 +363,12 @@ export type PagesPanelProps = {
     fromUrlPath: string,
     toUrlPath: string,
   ) => void;
+  /**
+   * Open the Sketchpad on this page: work out changes to it with the
+   * assistant before anything is changed. On every page, route or not, since
+   * any page can be sketched; absent where there is no assistant.
+   */
+  onSketchPage?: (page: ShellPage) => void;
   /**
    * Where a new page can go. Absent when nothing in the project accepts one, and
    * then there is no New button at all: a form whose only answer is "no routes
@@ -470,6 +494,7 @@ export function PagesPanel({
   onNewPage,
   onDuplicatePage,
   onRenamePage,
+  onSketchPage,
   newPage,
   onClose,
   navSwitcher,
@@ -665,7 +690,7 @@ export function PagesPanel({
           errorCount={errorCount}
           hasDraft={hasDraft}
           action={
-            actionsRoute ? (
+            actionsRoute || onSketchPage ? (
               <PageActionsButton
                 page={page}
                 route={actionsRoute}
@@ -674,15 +699,18 @@ export function PagesPanel({
                   setOpenForm(form === null ? null : rowForm(page.id, form))
                 }
                 onDuplicate={
-                  onDuplicatePage &&
-                  ((toUrlPath) =>
-                    submitDuplicatePage(actionsRoute, page, toUrlPath))
+                  actionsRoute && onDuplicatePage
+                    ? (toUrlPath) =>
+                        submitDuplicatePage(actionsRoute, page, toUrlPath)
+                    : undefined
                 }
                 onRename={
-                  onRenamePage &&
-                  ((toUrlPath) =>
-                    submitRenamePage(actionsRoute, page, toUrlPath))
+                  actionsRoute && onRenamePage
+                    ? (toUrlPath) =>
+                        submitRenamePage(actionsRoute, page, toUrlPath)
+                    : undefined
                 }
+                onSketch={onSketchPage && (() => onSketchPage(page))}
               />
             ) : undefined
           }

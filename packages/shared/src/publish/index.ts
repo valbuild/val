@@ -34,6 +34,7 @@ export {
   type StudioPublishResult,
 } from "./runStudioPublish";
 export {
+  DEPLOY_STOPPED_MESSAGE,
   carriedInto,
   runStudioDeploy,
   splitBinaryFiles,
@@ -72,13 +73,26 @@ export {
   type StudioJobResult,
 } from "./runStudioJob";
 export {
+  BUILD_CANCELLED_MESSAGE,
+  SERVER_BUILDS_OFF,
+  SERVER_BUILD_POLL_MS,
+  SERVER_BUILD_WAIT_MS,
   SERVE_POLL_MS,
   SERVE_WAIT_MS,
   buildProposal,
+  buildProposalOnServer,
   withoutLockfiles,
   type BuiltProposal,
+  type ServerBuildClient,
+  type ServerBuildStep,
+  type ServerBuildProgress,
   type ProposalBuildClient,
   type ProposalBuildOutcome,
   type ProposalBuildStep,
 } from "./buildProposal";
 export { proposalProject } from "./proposalProject";
+export {
+  buildQuickPreview,
+  clientFilesOf,
+  type QuickPreviewOutcome,
+} from "./buildQuickPreview";

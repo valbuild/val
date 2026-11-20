@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronLeft,
+  CodeXml,
   Monitor,
   PanelLeft,
   Smartphone,
@@ -125,6 +126,8 @@ export function CompareDialog({
   onRevertAll,
   tone = "calm",
   renderPage,
+  code,
+  initialView,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -165,10 +168,21 @@ export function CompareDialog({
    * is served, so a caller that cannot say draws fields alone.
    */
   renderPage?: (page: ComparePageView) => ReactNode;
+  /**
+   * A proposal's code changes, beside its content changes: an entry at the
+   * foot of the list that shows the diff where a module's fields would be.
+   */
+  code?: { label: string; render: () => ReactNode };
+  /** Open on the code changes: code mode's "Code changes" brings you here. */
+  initialView?: "code";
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   /* Null until somebody picks: until then the focus, or the first pane, stands. */
   const [picked, setPicked] = useState<string | null>(null);
+  /** The code changes are in front, instead of a module's fields. */
+  const [codeShown, setCodeShown] = useState(
+    code !== undefined && initialView === "code",
+  );
   /*
    * The selection is a PREFERENCE over the model, not a fact independent of it.
    *
@@ -231,7 +245,20 @@ export function CompareDialog({
   const pane = selectedId === null ? undefined : model.panes[selectedId];
   const selectRow = (id: string): void => {
     setPicked(id);
+    setCodeShown(false);
   };
+  const showingCode = code !== undefined && codeShown;
+  const codeEntry =
+    code === undefined ? null : (
+      <CodeEntry
+        label={code.label}
+        selected={showingCode}
+        onSelect={() => {
+          setCodeShown(true);
+          setNavOpen(false);
+        }}
+      />
+    );
   /*
    * Narrowing to a person moves the selection if it has to.
    *
@@ -541,7 +568,11 @@ export function CompareDialog({
                   {pane?.description.title ?? "Nothing selected"}
                 </span>
               </div>
-              {pane === undefined ? (
+              {showingCode ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                  {code.render()}
+                </div>
+              ) : pane === undefined ? (
                 <EmptyPane />
               ) : (
                 <CompareMobileColumns
@@ -588,21 +619,35 @@ export function CompareDialog({
                       setNavOpen(false);
                     }}
                   />
+                  {codeEntry !== null && (
+                    <div className="px-2 pb-3">{codeEntry}</div>
+                  )}
                 </div>
               )}
             </div>
           ) : (
             <div ref={setPaneNode} className="flex min-h-0 flex-1">
-              <CompareNav
-                className="w-[260px] shrink-0 border-r border-border-primary px-2 py-3"
-                sections={model.sections}
-                selectedId={selectedId}
-                authorFilter={authorFilter}
-                filterSlot={navFilter}
-                onSelect={selectRow}
-              />
+              <div className="flex w-[260px] shrink-0 flex-col border-r border-border-primary">
+                <CompareNav
+                  className="min-h-0 flex-1 px-2 py-3"
+                  sections={model.sections}
+                  selectedId={showingCode ? null : selectedId}
+                  authorFilter={authorFilter}
+                  filterSlot={navFilter}
+                  onSelect={selectRow}
+                />
+                {codeEntry !== null && (
+                  <div className="shrink-0 border-t border-border-primary px-2 py-2">
+                    {codeEntry}
+                  </div>
+                )}
+              </div>
               <div className="flex min-w-0 flex-1 flex-col px-4 py-3">
-                {pane === undefined ? (
+                {showingCode ? (
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    {code.render()}
+                  </div>
+                ) : pane === undefined ? (
                   <EmptyPane />
                 ) : (
                   <>
@@ -1074,4 +1119,32 @@ function useNarrowViewport(): boolean {
     return () => query.removeEventListener("change", onChange);
   }, []);
   return narrow;
+}
+
+/** The code changes' entry, at the foot of the list of what changed. */
+function CodeEntry({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
+        selected
+          ? "bg-bg-secondary font-medium text-fg-primary"
+          : "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+      )}
+    >
+      <CodeXml size={14} aria-hidden className="shrink-0 text-fg-proposal" />
+      {label}
+    </button>
+  );
 }

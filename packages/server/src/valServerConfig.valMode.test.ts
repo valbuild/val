@@ -537,3 +537,62 @@ describe("VAL_ENV=app and files.remote", () => {
     });
   });
 });
+
+/**
+ * Where a self-hosted site's analytics beacons are forwarded: resolved the way
+ * the content URL is -- the option, then the environment, then Val's own.
+ */
+describe("the analytics ingest URL, in http mode", () => {
+  const httpEnv = {
+    VAL_ENV: undefined,
+    VAL_MODE: undefined,
+    VAL_API_KEY: "key",
+    VAL_SECRET: "secret",
+    VAL_PROJECT: "org/project",
+    VAL_GIT_COMMIT: undefined,
+    VAL_GIT_BRANCH: undefined,
+    VAL_ANALYTICS_INGEST_URL: undefined,
+  };
+  const versions = { core: "0.0.0", next: "0.0.0" };
+
+  test("is Val's own by default", async () => {
+    await withEnv(httpEnv, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { versions },
+        config,
+      );
+      expect(resolved.valAnalyticsIngestUrl).toBe(
+        "https://platform.valstart.dev/__ingest/analytics",
+      );
+    });
+  });
+
+  test("VAL_ANALYTICS_INGEST_URL overrides it", async () => {
+    await withEnv(
+      { ...httpEnv, VAL_ANALYTICS_INGEST_URL: "https://ingest.test/a" },
+      async () => {
+        const resolved = await initHandlerOptions(
+          "/api/val",
+          { versions },
+          config,
+        );
+        expect(resolved.valAnalyticsIngestUrl).toBe("https://ingest.test/a");
+      },
+    );
+  });
+
+  test("...and the option wins over the environment", async () => {
+    await withEnv(
+      { ...httpEnv, VAL_ANALYTICS_INGEST_URL: "https://ingest.test/a" },
+      async () => {
+        const resolved = await initHandlerOptions(
+          "/api/val",
+          { versions, valAnalyticsIngestUrl: "https://ingest.test/b" },
+          config,
+        );
+        expect(resolved.valAnalyticsIngestUrl).toBe("https://ingest.test/b");
+      },
+    );
+  });
+});

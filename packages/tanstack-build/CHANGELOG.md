@@ -1,5 +1,95 @@
 # @valbuild/tanstack-build
 
+## 0.153.0
+
+### Minor Changes
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Editing content in a proposal whose code changed, before the proposal is built again:
+
+  - **A module the proposal adds** can be edited and saved right away. Its content is read from the new file and saved. Before, those edits were dropped. If the module's content is made by code (not written out in the file), the save waits and says to build the proposal first.
+  - **A module whose schema moved because a file it imports changed** (for example a shared `src/schemas/*.ts`) is no longer read with the old schema. Pages keep showing the content as built until the proposal is built again.
+  - **Edits that no longer fit the schema** can be handed to the assistant. The banner that lists them has a **Have the assistant move it** button for each one. You still discard the held edit yourself afterwards.
+
+  For this, `@valbuild/tanstack-build` records which files each Val module imports, and the `val.server.ts` it generates passes that to Val as the new optional `moduleDependencies` option of `initValServer` and `initValContent`. You do not need to set it yourself. A site built before this has no `moduleDependencies` and works as before.
+
+- [#1025](https://github.com/valbuild/val/pull/1025) [`45d5d49`](https://github.com/valbuild/val/commit/45d5d4991bddbe43ca74a245b3f1286bc3b38a3f) Thanks [@freekh](https://github.com/freekh)! - A hosted project's `PUBLIC_` variables are read when the page runs, not when it is built.
+
+  Variables set for a project in Val Build reach a published site without a rebuild, and `import.meta.env` reads them:
+
+  ```tsx
+  const api = import.meta.env.PUBLIC_API_URL; // on the server and in the browser
+  const token = process.env.STRIPE_KEY; // a secret: on the server only
+  ```
+
+  - In the browser, `import.meta.env` reads the `PUBLIC_` variables the platform writes into the page. On the server it reads them from `process.env`, at the top level of a module too.
+  - `import.meta.env` holds `PUBLIC_` names and Vite's built-ins, as in Vite. Other names are read with `process.env.NAME` on the server, and are `undefined` in the browser, where `process.env.NAME` no longer throws.
+  - Vite's built-ins (`MODE`, `DEV`, `PROD`, `SSR`, `BASE_URL`) are still inlined, so `import.meta.env.DEV && <Debug />` is still removed from a build.
+  - Values passed to `buildUserApp({ env })` are still inlined, and win over runtime values of the same name.
+
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c) Thanks [@freekh](https://github.com/freekh)! - **No more "A new version has been deployed" dialog.** A Studio that is open
+  while the site is deployed no longer stops you with a dialog you can only
+  answer by reloading. Instead:
+
+  - **On Val's hosting**, the Studio takes the new build's fields in where you
+    are, without reloading: a field the deploy added can be filled in at once,
+    and the assistant's chat, the page you were on and your unsaved edits stay
+    as they were. Each build now carries its content schemas as a small file of
+    its own beside its scripts, which the Studio loads.
+  - **Anywhere else** (a Next.js site, or a TanStack Start site hosted
+    somewhere else), the Studio reloads itself a few seconds after the deploy,
+    once everything you typed has been saved. Nothing is lost: where you were is
+    in the address, and every edit is on the server.
+  - **In local development** nothing changes: your dev server's hot reload
+    brings the new fields, as before.
+
+  When a deploy upgrades Val itself, the Studio reloads itself the same way,
+  since its own code changed too.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`be276e7`](https://github.com/valbuild/val/commit/be276e76f5849fcc421398abdb7e114f3de4d3e8) Thanks [@freekh](https://github.com/freekh)! - In a proposal in code mode, an edit to a field the assistant has just added is
+  saved with the assistant's next change, without waiting for the proposal to be
+  built.
+
+  The Studio already let you type into a field that only the assistant's staged
+  code has. But the save that runs before the assistant's next change applied
+  your edit to the content as the proposal's last build had it -- without the new
+  field -- so it failed, and the assistant's next change was refused ("the
+  changes waiting to be saved could not be saved first") until someone pressed
+  Build.
+
+  Val's server at the proposal's address now learns which staged code the build
+  it runs was made of (the platform hands it over beside the build), and saves a
+  module whose code was staged after that build from the staged `.val.ts` itself.
+  A page at the address keeps reading such a module as its build has it until a
+  build of the new code serves it, so it never shows content made for code it
+  does not have.
+
+  When the server cannot read a staged module's content without running it --
+  its content is built by code, or it is a `.jsonValues()` record -- the edit is
+  kept, and the assistant's change is refused saying the proposal has to be built
+  first, rather than failing with no reason.
+
+  `@valbuild/tanstack-build` rewrites the proposal block of a `val.server.ts`
+  generated before this, so a site picks it up at its next build.
+
+## 0.150.12
+
+### Patch Changes
+
+- [#980](https://github.com/valbuild/val/pull/980) [`46f07c7`](https://github.com/valbuild/val/commit/46f07c77f71b0d3b1f3964d648ff31eaf8e5eec3) Thanks [@freekh](https://github.com/freekh)! - Building a site in Safari (and every browser on an iPhone) no longer fails with "Cannot access '…' before initialization". The browser build loaded rolldown's bundler and its parser at the same time, and Safari could hand back the bundler before it had finished loading; they now load one after the other.
+
+## 0.150.9
+
+### Patch Changes
+
+- [#971](https://github.com/valbuild/val/pull/971) [`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279) Thanks [@freekh](https://github.com/freekh)! - The Studio's files now also ship as plain files, so a host can serve them itself instead of from your app's server.
+
+  - `@valbuild/ui` includes `static/`: every Studio file, plus a `manifest.json` that says which request path under `/api/val/static` serves which file. Binary files are copied byte for byte. `@valbuild/ui/server` is unchanged, and so is every host that uses it.
+  - `@valbuild/tanstack-build` uses it on Val Build's hosting. When the platform says it serves build assets, the site's dependency layer leaves out the Studio copy embedded in `@valbuild/ui/server` and carries the Studio's files as build assets instead. The site's server then loads about 18 MB less JavaScript and uses roughly 80-100 MB less memory. That margin is what kept a Studio from loading on a hosted site: its server ran out of memory and was restarted on almost every request.
+
 ## 0.150.1
 
 ### Patch Changes

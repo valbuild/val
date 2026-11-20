@@ -2,7 +2,7 @@ import { s, c } from "../val.config";
 
 /**
  * Single media FIELDS whose files live on Val's remote host: an image, a file
- * and a video.
+ * and a video -- and a rich text whose inline images are remote.
  *
  * The counterpart of `remoteImages.val.ts`, which is a gallery. A field builds
  * its own patch (`createFilePatch`, and the video field's poster beside it)
@@ -20,6 +20,9 @@ export default c.define(
     image: s.image().remote().nullable(),
     file: s.file().remote().nullable(),
     video: s.video().remote().nullable(),
+    // Rich text whose inline images are remote: where the assistant puts an
+    // image it was given into running text.
+    body: s.richtext({ img: s.image().remote() }),
   }),
-  { image: null, file: null, video: null },
+  { image: null, file: null, video: null, body: [] },
 );

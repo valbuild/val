@@ -8,6 +8,10 @@
  * (`platformAnalytics.tsx`); a layout that wants to decide reads them in its
  * loader with `fetchValAnalytics()`, from the `val.server.ts` the platform
  * writes, and passes them.
+ *
+ * A self-hosted site has no platform handing it anything, so its layout reads
+ * `VAL_ANALYTICS` from its own environment and passes the result: see
+ * `analytics` on `<ValProvider>`.
  */
 export type ValAnalytics = {
   /** Off unless this says so. */

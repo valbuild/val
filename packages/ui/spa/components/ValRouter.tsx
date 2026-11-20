@@ -69,8 +69,16 @@ export const VAL_REVIEW_ROUTE = "/val/review";
  */
 export const VAL_ADEPT_ROUTE = "/val/adept";
 
+/**
+ * The Studio's start: nothing selected, and the "Pick something to edit"
+ * screen. Where an editor goes when there is nothing to stay on — see
+ * `relocateForLocale`, for a language picked while on content in another one.
+ */
+export const VAL_HOME_ROUTE = "/val";
+
 /** The routes that are a whole view rather than a module being opened. */
 type ValStandaloneRoute =
+  | typeof VAL_HOME_ROUTE
   | typeof VAL_COMPARE_ROUTE
   | typeof VAL_ERRORS_ROUTE
   | typeof VAL_HISTORY_ROUTE
@@ -484,8 +492,10 @@ export function ValRouter({
       const isErrors = path === VAL_ERRORS_ROUTE;
       const isHistory = path === VAL_HISTORY_ROUTE;
       const isReview = path === VAL_REVIEW_ROUTE;
+      const isHome = path === VAL_HOME_ROUTE;
       /** A whole view, so there is no module path to append. */
-      const isStandalone = isCompare || isErrors || isHistory || isReview;
+      const isStandalone =
+        isCompare || isErrors || isHistory || isReview || isHome;
       const errorFieldsQuery =
         isErrors && params?.errorFields && params.errorFields.length > 0
           ? "?" +
@@ -501,7 +511,9 @@ export function ValRouter({
             ? VAL_HISTORY_ROUTE
             : isReview
               ? VAL_REVIEW_ROUTE
-              : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+              : isHome
+                ? VAL_HOME_ROUTE
+                : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       /**
        * Carry the studio's own state across the navigation.
        *
@@ -573,7 +585,9 @@ export function ValRouter({
       const isErrors = path === VAL_ERRORS_ROUTE;
       const isHistory = path === VAL_HISTORY_ROUTE;
       const isReview = path === VAL_REVIEW_ROUTE;
-      const isStandalone = isCompare || isErrors || isHistory || isReview;
+      const isHome = path === VAL_HOME_ROUTE;
+      const isStandalone =
+        isCompare || isErrors || isHistory || isReview || isHome;
       const finalTo = hrefOf(path, params);
       const focused =
         !isStandalone && params?.scrollToPath !== path

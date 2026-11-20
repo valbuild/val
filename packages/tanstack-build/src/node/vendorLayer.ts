@@ -29,8 +29,14 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
-import type { BuildTarget } from "../contract";
+import type { BuildAssets, BuildTarget } from "../contract";
 import { nodeShims } from "./nodeShims";
+import {
+  assetsRev,
+  studioAssetsOf,
+  studioServedByPlatform,
+  type StudioFound,
+} from "./studioAssets";
 import { ASSET_BASE } from "../assets";
 import { parseAstAsync } from "rolldown/parseAst";
 import {
@@ -351,6 +357,20 @@ export interface VendorLayer {
   worker: Record<string, string>;
   /** Browser chunks, served under `/_pvendor/<rev>/`. */
   browser: Record<string, string>;
+  /**
+   * Files the platform serves for this layer, by request path: the Studio,
+   * where the platform serves build assets (`base.buildAssets`) and the
+   * project's `@valbuild/ui` ships its files (see `studioAssets.ts`). Absent
+   * otherwise.
+   */
+  assets?: BuildAssets;
+  /**
+   * The bytes {@link assets} names, base64, by sha256: for the publisher to
+   * upload, and never stored with the layer. The platform keeps each file
+   * once, by its hash, so a publisher asks which it is missing and sends
+   * only those.
+   */
+  assetBytes?: Record<string, string>;
 }
 
 /** Digest of the dependency stylesheets, for the layer revision. */
@@ -403,6 +423,8 @@ async function buildTargets(
     browser: {},
   };
   const digest = createHash("sha256");
+  /** The Studio the worker build replaced, if it replaced one. */
+  const studio: StudioFound = { root: null };
   /** Directory -> the package it belongs to, for the pin check. */
   const packages = new Map<string, { name: string; version: string } | null>();
   /** Entry -> why it cannot be built for a browser. */
@@ -460,6 +482,10 @@ async function buildTargets(
           pinPlatformTanstack(platform),
           stubStartEntries(),
           stubServerEntries(target.name === "browser"),
+          // Before anything that could resolve `@valbuild/ui/server` itself.
+          ...(target.name === "worker" && platform.base.buildAssets
+            ? [studioServedByPlatform(studio)]
+            : []),
           ...(stubs ? [stubUnbundlable(target.name === "browser", stubs)] : []),
           // Worker only: a browser has no Node builtins to bridge to, and a
           // package reaching for one there is a real error rather than a missing
@@ -625,6 +651,7 @@ async function buildTargets(
     ...out,
     serverOnly,
     unusable,
+    studioRoot: studio.root,
     rev: digest.digest("hex").slice(0, 16),
   };
 }
@@ -1802,11 +1829,19 @@ export async function buildVendorLayer(
 
     forgetUncarried();
 
+    // The Studio's files, when the worker build replaced the module that
+    // embeds them: see studioAssets.ts.
+    const studio = built.studioRoot
+      ? await studioAssetsOf(built.studioRoot)
+      : null;
+
     // The revision covers the stylesheets too: changing one is a different
     // dependency set, and the build hash folds in the revision rather than the
-    // contents.
+    // contents. And the assets, which the code does not show: see `assetsRev`.
     return {
-      rev: `${built.rev}${cssRev(css) ? `-${cssRev(css)}` : ""}`,
+      rev:
+        `${built.rev}${cssRev(css) ? `-${cssRev(css)}` : ""}` +
+        (studio ? `-a${assetsRev(studio.assets)}` : ""),
       modules,
       worker: built.worker,
       browser: built.browser,
@@ -1814,6 +1849,7 @@ export async function buildVendorLayer(
       skipped,
       workerOnly,
       workerOnlyReasons,
+      ...(studio ? { assets: studio.assets, assetBytes: studio.files } : {}),
     };
   } finally {
     await rm(stubs, { recursive: true, force: true });

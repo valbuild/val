@@ -363,7 +363,14 @@ function DiscriminatedUnionFields({
   );
 }
 
-export function DiscriminatedUnionPreview({ path }: { path: SourcePath }) {
+export function DiscriminatedUnionPreview({
+  path,
+  maxFields,
+}: {
+  path: SourcePath;
+  /** See `ObjectLikePreview`. */
+  maxFields?: number;
+}) {
   const type = "discriminated-union";
   const sourceAtPath = useSourceAtPath(path);
   const schemaAtPath = useSchemaAtPath(path);
@@ -434,5 +441,11 @@ export function DiscriminatedUnionPreview({ path }: { path: SourcePath }) {
       />
     );
   }
-  return <ObjectLikePreview path={path} schema={actualSchema} />;
+  return (
+    <ObjectLikePreview
+      path={path}
+      schema={actualSchema}
+      maxFields={maxFields}
+    />
+  );
 }

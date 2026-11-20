@@ -8,12 +8,7 @@
  * What keeps this file out of a server-only context is that it uses hooks.
  */
 
-import {
-  DEFAULT_CONTENT_HOST,
-  ModuleFilePath,
-  ValConfig,
-  Internal,
-} from "@valbuild/core";
+import { DEFAULT_CONTENT_HOST, ValConfig, Internal } from "@valbuild/core";
 import {
   VAL_APP_PATH,
   VAL_OVERLAY_ID,
@@ -22,75 +17,55 @@ import {
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import React, { useEffect } from "react";
 import { ValScript } from "./ValScript";
-import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
+import { ValOverlayProvider } from "./ValOverlayContext";
 import {
   SET_AUTO_TAG_JSX_ENABLED,
   isReactDevelopmentBuild,
   stegaLeakMessage,
   watchStegaLeaks,
 } from "@valbuild/react/stega";
+import {
+  applyValEvent,
+  createDraftStore,
+  draftHolds,
+  draftHoldsVersions,
+  isDraft,
+  dispatchCodeChanged,
+  startRefreshLoop,
+  windowCodeChangedReporter,
+  type RefreshLoop,
+} from "@valbuild/react/internal";
 import type { ValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
-import { isValCanvasFrame } from "@valbuild/shared/client";
+import {
+  installPageLogInCanvasFrame,
+  isValCanvasFrame,
+} from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
-import { shouldSafetyRefresh } from "./safetyRefresh";
-import type { ValDraft } from "./ValDraft";
+import { isLiveSitePage, type ValDraft } from "./ValDraft";
 import type { ValAnalytics } from "./ValAnalytics";
 import { PlatformAnalytics, analyticsOfThisPage } from "./platformAnalytics";
+
+/*
+ * What goes wrong on the page, kept from now on when this document is in the
+ * Studio's canvas: the assistant's `read_page_log` (`pageLog.ts`). Here, when
+ * the module is evaluated, rather than when the bridge mounts, because that
+ * is after hydration -- and a hydration error is one of the things it is for.
+ * Only in a frame the Studio holds, and only with Val enabled in this
+ * browser, which is what mounts the bridge (`mountOverlay`): a visitor's
+ * page, a canvas URL opened in a tab of its own, and the server are left
+ * as they are. The demo, which mounts the bridge without the cookie, starts
+ * the log when the bridge mounts instead.
+ */
+installPageLogInCanvasFrame(() => hasValEnableCookie(document.cookie));
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
  */
-/**
- * The floor between server re-renders.
- *
- * `router.invalidate()` re-runs every loader of the current match tree — there
- * is no per-module invalidation — so this is about not queueing a round trip
- * per keystroke, not about batching for its own sake.
- */
-const REFRESH_INTERVAL_MS = 500;
-
-/**
- * How often the page re-reads the server on its own, without being told to.
- *
- * A safety net for a race no amount of care on this side can close. An edit is
- * applied to the client store immediately and saved to the server
- * asynchronously, so `router.invalidate()` fired on the edit can reach a server
- * that has not written the patch yet: the loaders come back with the old
- * content, the counter has already been cleared, and nothing schedules another
- * look. What you see is a canvas that flickered and did not change — which is
- * indistinguishable from an edit that did not work.
- *
- * The honest fix would be for the page to know when its patch has been
- * persisted, and it has no way to ask. So it asks again a little later instead.
- */
-const SAFETY_REFRESH_MS = 10_000;
-
-/**
- * How long after an edit the safety net keeps looking.
- *
- * The reason to stop is that this re-runs every loader on the page: in
- * development that is a server round trip and a recompile, and a preview
- * nobody is editing has nothing to catch up on. So the net is armed by editing
- * and disarms itself when the editing stops — long enough after the last
- * keystroke that any write still in flight has certainly landed.
- */
-const SAFETY_REFRESH_WINDOW_MS = 30_000;
-
-/**
- * Fired on this window when an edit has been applied to the client store.
- *
- * The refresh loop listens for it so it can start the round trip immediately
- * rather than on its next tick. A DOM event rather than state, because the
- * counter it accompanies is a ref and the loop lives in an effect that must not
- * be torn down and rebuilt per keystroke.
- */
-const VAL_EDIT_LANDED = "val-edit-landed";
-
 /**
  * How often `/draft/stat` is asked when nothing is in progress.
  *
@@ -190,6 +165,16 @@ export const ValTanStackProvider = (props: {
    * FIRST mounts during a client navigation -- a layout the visitor reached
    * from a route outside it -- has to be handed the value then too, or it
    * stays off until the next page load.
+   *
+   * A SELF-HOSTED site (Custom hosting) has no platform to hand it the
+   * setting, so the provider reads nothing there: the layout's loader reads
+   * `VAL_ANALYTICS` from the server's environment and passes it here, as
+   * the showcase's `fetchValAnalytics()` does --
+   * `{ enabled: process.env.VAL_ANALYTICS === "true" }`. Its Val server, in
+   * http mode (`VAL_API_KEY`, `VAL_SECRET` and `VAL_PROJECT` set), hands
+   * the beacons on to Val's ingest, which counts them only while analytics
+   * is switched on for the project in Val's admin; while it is off the
+   * script is told so (410) and stops sending.
    */
   analytics?: ValAnalytics | null;
   /**
@@ -248,7 +233,7 @@ export const ValTanStackProvider = (props: {
    * draft mode is on, and one that is ONLY a snapshot (`draftMode: false`) is
    * not a draft: it must not turn draft mode on or say the draft is synced.
    */
-  const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
+  const hasDraft = isDraft(initialDraft);
   /*
    * As the page was rendered. A ref, not the prop, for the reason
    * `initialDraft` is one: a later render's prop is a client navigation's
@@ -270,26 +255,34 @@ export const ValTanStackProvider = (props: {
   const analytics = analyticsSetting?.enabled === true;
   const contentVersion = analyticsSetting?.contentVersion;
   const snapshot = initialDraft?.snapshot;
-  /*
-   * The base the Studio's overlay must start from, where it is not the
-   * bundle's (`ValDraft.base`): set while rendering, not in an effect, so it
-   * is in place before the overlay -- loaded after this page hydrates -- takes
-   * its modules in. The same value every render, from a ref, so writing it
-   * again is harmless.
-   */
-  if (typeof window !== "undefined") {
-    window.__VAL_BASE__ = hasDraft ? initialDraft.base : undefined;
-  }
+  const liveSitePage = isLiveSitePage(initialDraft);
   // TODO: move below into react package
-  const valStore = React.useMemo(() => {
-    const store = new ValExternalStore();
-    if (hasDraft) {
-      for (const [path, source] of Object.entries(initialDraft.sources)) {
-        store.update(path as ModuleFilePath, source);
-      }
-    }
-    return store;
-  }, [initialDraft, hasDraft]);
+  /*
+   * Told by the hooks whether each relayed module was made with this page's
+   * schema, and says so to the overlay (`codeChangedReporter`). One for the
+   * life of the provider, so the hooks' env is not made again every render.
+   * None on the server: nothing there is relayed.
+   */
+  const [codeChanged] = React.useState(() =>
+    typeof window === "undefined" ? undefined : windowCodeChangedReporter(),
+  );
+  const valStore = React.useMemo(
+    () => createDraftStore(initialDraft),
+    [initialDraft],
+  );
+  /**
+   * What this page reports to the Studio when it connects: the modules it
+   * was rendered with a draft of (`draftHolds`). The Studio sends each of
+   * them in its catch-up, so a draft that stopped being the draft before the
+   * Studio was there -- discarded, published -- does not stay on the page.
+   */
+  const holds = React.useMemo(() => draftHolds(initialDraft), [initialDraft]);
+  // And the version of each, where the draft says: one the Studio would send
+  // at the same version is the same content, and is not sent again.
+  const holdsVersions = React.useMemo(
+    () => draftHoldsVersions(initialDraft),
+    [initialDraft],
+  );
   // Whether useValStega should actually suspend. False during SSR and the
   // hydration render. Two paths: without `draft` the server store is empty
   // (draft data arrives via browser CustomEvents only), so suspending there
@@ -330,9 +323,27 @@ export const ValTanStackProvider = (props: {
   const [isCanvas, setIsCanvas] = React.useState(false);
   // Known on the server when it read a draft: `fetchValDraft` only reads one
   // in draft mode. Otherwise unknown until `/draft/stat` answers.
-  const [draftMode, setDraftMode] = React.useState<boolean | null>(
+  const [draftMode, setDraftModeState] = React.useState<boolean | null>(
     hasDraft ? true : null,
   );
+  /**
+   * `draftMode` as last set: what an answer from `/draft/stat` is compared
+   * with, to know whether it MOVED draft mode and so whether to refresh.
+   *
+   * Compared here, and the refresh sent after `setDraftMode`, rather than in
+   * a `setDraftMode` updater: React may call an updater twice (StrictMode)
+   * or during a render, and a refresh is a side effect -- run twice it is
+   * two refreshes, and run in a render it is a `startTransition` while
+   * rendering, which React refuses with a warning.
+   */
+  const draftModeRef = React.useRef<boolean | null>(draftMode);
+  /** Set draft mode; `true` when that moved it. */
+  const setDraftMode = (next: boolean): boolean => {
+    const moved = draftModeRef.current !== next;
+    draftModeRef.current = next;
+    setDraftModeState(next);
+    return moved;
+  };
   /**
    * Resolves when `draftMode` stops being unknown.
    *
@@ -368,20 +379,15 @@ export const ValTanStackProvider = (props: {
   const router = useRouter();
   const [isRefreshing, startTransition] = React.useTransition();
   /**
-   * The same answer as `isRefreshing`, readable from the refresh effect.
-   *
-   * The effect must not be rebuilt every time a refresh starts and ends — it
-   * owns the timers and the "when did we last edit" bookkeeping, and tearing
-   * that down mid-flurry loses it. A ref updated on render is the value without
-   * the dependency.
+   * The page's refresh loop, while the overlay is up: the `val-event`
+   * listener tells it what the Studio says. A ref, so the listener's effect
+   * is not rebuilt with it.
    */
-  const isRefreshingRef = React.useRef(false);
-  const rerenderCounterRef = React.useRef(0);
+  const refreshLoopRef = React.useRef<RefreshLoop | null>(null);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  isRefreshingRef.current = isRefreshing;
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("val-provider:pathname", {
@@ -420,9 +426,12 @@ export const ValTanStackProvider = (props: {
    * `mountOverlay === false` is "known not to be an editor": no Val enable
    * cookie, so no draft mode and no canvas. A page the server rendered from a
    * draft is an editor's too, whatever the enable cookie says -- the draft
-   * mode cookie can outlive it. So is one at a proposal's address, which
-   * comes with a snapshot: its content is not published, and counting it
-   * would credit the live site with it. The Studio's own pages count nothing
+   * mode cookie can outlive it. So is one at a proposal's address
+   * (`ValDraft.atProposal`): its content is not published, and counting it
+   * would credit the live site with it. Not "one with a snapshot": a site
+   * serving a content version -- content published without a build -- gets
+   * one too, and is the live site; asking that counted no visitor of any site
+   * that had published content without a build. The Studio's own pages count nothing
    * either. Loaded with a dynamic import after hydration, so a site
    * with analytics off never downloads it, and one with it on downloads it
    * off the critical path. It imports nothing from core, shared or zod.
@@ -431,8 +440,7 @@ export const ValTanStackProvider = (props: {
     if (
       !analytics ||
       mountOverlay !== false ||
-      hasDraft ||
-      snapshot !== undefined ||
+      !liveSitePage ||
       isCanvas ||
       isValStudioPath(location.pathname)
     ) {
@@ -469,8 +477,7 @@ export const ValTanStackProvider = (props: {
     analytics,
     contentVersion,
     mountOverlay,
-    hasDraft,
-    snapshot,
+    liveSitePage,
     isCanvas,
     route,
     router,
@@ -509,7 +516,7 @@ export const ValTanStackProvider = (props: {
     // suspends — no fallback flash — and the swap to draft data commits as a
     // normal update instead of a hydration mismatch. Never deactivated:
     // components must not stop suspending across renders (the draft-mode-off
-    // release valve lives in useValStega instead).
+    // release valve lives in `overlaySource` instead).
     /*
      * Gated on `mountOverlay`, not on the cookie directly — the ORDER is the
      * point.
@@ -534,17 +541,10 @@ export const ValTanStackProvider = (props: {
   }, [props.suspend, mountOverlay]);
 
   /**
-   * Re-render the server tree when an edit lands, then at most every 500ms.
-   *
-   * Leading edge, which is the whole point. This polled every 500ms and only
-   * refreshed on the tick, so a keystroke waited up to half a second before the
-   * round trip even began — pure dead time on top of a request that is already
-   * the slow part in development. Refreshing on arrival and *then* enforcing the
-   * gap keeps the same ceiling on requests while removing the wait.
-   *
-   * Still a counter rather than a boolean: edits that arrive during the gap have
-   * to be picked up by the next refresh, and the count is what says whether
-   * there are any.
+   * Re-run the loaders when the server has the editor's changes: once per
+   * version the Studio says it has confirmed (`startRefreshLoop`), never on
+   * a timer and never when an edit merely arrives -- arrived, it raced the
+   * write and came back without the edit.
    */
   React.useEffect(() => {
     // A demo's loaders read a server that never sees the tab's edits, so
@@ -552,93 +552,30 @@ export const ValTanStackProvider = (props: {
     if (!mountOverlay || props.disableRefresh || props.demo) {
       return;
     }
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let lastRefreshAt = 0;
-    /** When an edit last landed here. 0 means this page has never been edited. */
-    let lastEditAt = 0;
-    /** Whether a safety tick was skipped because nobody was looking. */
-    let missedWhileHidden = false;
-    const refresh = () => {
-      rerenderCounterRef.current = 0;
-      lastRefreshAt = Date.now();
-      startTransition(() => {
-        /*
-         * Re-run the loaders of every match, then re-render.
-         *
-         * TanStack's equivalent of `router.refresh()`. `invalidate()` marks the
-         * current matches stale and re-runs their loaders — which is where a
-         * TanStack Start app reads Val content on the server — so this is the
-         * round trip that brings an edit across. It resolves when the loaders
-         * have settled, which is what keeps `isRefreshing` honest.
-         */
-        void router.invalidate();
-      });
-    };
-    const tick = () => {
-      timer = null;
-      if (rerenderCounterRef.current === 0) return;
-      const since = Date.now() - lastRefreshAt;
-      if (since >= REFRESH_INTERVAL_MS) {
-        refresh();
-      } else {
-        timer = setTimeout(tick, REFRESH_INTERVAL_MS - since);
-      }
-    };
-    const onEdit = () => {
-      lastEditAt = Date.now();
-      if (timer !== null) return;
-      timer = setTimeout(tick, 0);
-    };
-    window.addEventListener(VAL_EDIT_LANDED, onEdit);
-    // A backstop for the counter being bumped without the event — the two are
-    // incremented in the same places today, but the poll is what made this
-    // correct regardless of who bumped it.
-    const interval = setInterval(tick, REFRESH_INTERVAL_MS);
-
-    /**
-     * The safety net: look again, whether or not anything told us to.
-     *
-     * The reasons not to are in `shouldSafetyRefresh`, where they can be tested.
-     * `hidden` is the one this side has to remember something about: a skipped
-     * tick is worth one look when the tab comes back.
-     */
-    const safetyTick = () => {
-      if (document.hidden) {
-        missedWhileHidden = true;
-        return;
-      }
-      const go = shouldSafetyRefresh({
-        now: Date.now(),
-        lastEditAt,
-        lastRefreshAt,
-        hidden: false,
-        isRefreshing: isRefreshingRef.current,
-        windowMs: SAFETY_REFRESH_WINDOW_MS,
-        minIntervalMs: REFRESH_INTERVAL_MS,
-      });
-      if (go) refresh();
-    };
-    const safety = setInterval(safetyTick, SAFETY_REFRESH_MS);
-    /**
-     * Coming back to the tab is worth one look.
-     *
-     * Otherwise a background tab skips its ticks and then has to wait out a
-     * whole interval on return — which is exactly the moment someone is looking
-     * at the page to see whether their edit took.
-     */
-    const onVisibilityChange = () => {
-      if (document.hidden || !missedWhileHidden) return;
-      missedWhileHidden = false;
-      safetyTick();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
+    const loop = startRefreshLoop({
+      refresh: () => {
+        let done: Promise<void> | undefined;
+        startTransition(() => {
+          /*
+           * Re-run the loaders of every match, then re-render.
+           *
+           * TanStack's equivalent of `router.refresh()`. `invalidate()` marks
+           * the current matches stale and re-runs their loaders — which is
+           * where a TanStack Start app reads Val content on the server — so
+           * this is the round trip that brings an edit across. It resolves
+           * when the loaders have settled, which is what keeps `isRefreshing`
+           * honest, and what lets the loop hold a newer version until this
+           * one is in.
+           */
+          done = router.invalidate();
+        });
+        return done;
+      },
+    });
+    refreshLoopRef.current = loop;
     return () => {
-      window.removeEventListener(VAL_EDIT_LANDED, onEdit);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      clearInterval(interval);
-      clearInterval(safety);
-      if (timer !== null) clearTimeout(timer);
+      refreshLoopRef.current = null;
+      loop.stop();
     };
   }, [mountOverlay, props.disableRefresh, props.demo]);
 
@@ -746,14 +683,10 @@ export const ValTanStackProvider = (props: {
             Internal.log.error("could not get draft mode status", res);
             return;
           }
-          setDraftMode((prev) => {
-            if (prev !== res.json.draftMode) {
-              rerenderCounterRef.current++;
-              window.dispatchEvent(new Event(VAL_EDIT_LANDED));
-              return res.json.draftMode;
-            }
-            return prev;
-          });
+          if (setDraftMode(res.json.draftMode)) {
+            // What the loaders read moved with it.
+            refreshLoopRef.current?.refresh();
+          }
         })
         .catch((err) => {
           Internal.log.error("could not get draft mode status", err);
@@ -813,10 +746,20 @@ export const ValTanStackProvider = (props: {
         detail: {
           type: "draftMode",
           value: draftMode ?? false,
+          holds,
+          holdsVersions,
         },
       }),
     );
-  }, [mountOverlay, draftMode, spaReady]);
+  }, [mountOverlay, draftMode, spaReady, holds, holdsVersions]);
+
+  // What the hooks could not read for its schema, said again once the
+  // overlay listens: an announcement made before it loaded reached no one.
+  React.useEffect(() => {
+    if (!mountOverlay || !spaReady || codeChanged === undefined) return;
+    const modules = codeChanged.modules();
+    if (modules.length > 0) dispatchCodeChanged(modules);
+  }, [mountOverlay, spaReady, codeChanged]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -834,49 +777,34 @@ export const ValTanStackProvider = (props: {
         // (`useEncodesEditTags`), so this cannot reach one still hydrating.
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
-          if (event instanceof CustomEvent) {
-            if (event.detail?.type === "sources-synced") {
-              setDraftSourcesSynced(true);
-              return;
-            }
-            if (event.detail?.type === "source-update") {
-              const moduleFilePath = event.detail?.moduleFilePath;
-              const source = event.detail?.source;
-              if (typeof moduleFilePath === "string" && source !== undefined) {
-                const changed = valStore.update(
-                  moduleFilePath as ModuleFilePath,
-                  source,
-                );
-                /**
-                 * Armed by a CHANGE, not by a message.
-                 *
-                 * The editor re-sends everything it holds whenever this page
-                 * becomes a new document — a reload, or the one the dev server does
-                 * when a publish rewrites the `.val.ts` files — and most of that
-                 * snapshot is content this page already has. Counting those
-                 * bought a whole-route request per publish whether or not the
-                 * page was out of date, which with auto-save on is one per pause
-                 * in typing.
-                 *
-                 * The catch-up that MATTERS still refreshes: a page whose server
-                 * render predates the write has no value for that module, so the
-                 * first arrival counts as a change.
-                 */
-                if (changed && !props.disableRefresh) {
-                  rerenderCounterRef.current++;
-                  window.dispatchEvent(new Event(VAL_EDIT_LANDED));
-                }
-              } else {
-                Internal.log.error("invalid event detail", event.detail);
-              }
-            } else {
-              Internal.log.error(
-                "invalid custom event details (val-event)",
-                event.detail,
-              );
-            }
-          } else {
+          if (!(event instanceof CustomEvent)) {
             Internal.log.error("invalid custom event (val-event)", event);
+            return;
+          }
+          const outcome = applyValEvent(valStore, event.detail);
+          if (outcome.type === "synced") {
+            setDraftSourcesSynced(true);
+            return;
+          }
+          if (outcome.type === "confirmed") {
+            refreshLoopRef.current?.confirmed(outcome.seq);
+            return;
+          }
+          if (outcome.type === "invalid") {
+            Internal.log.error(
+              "invalid custom event details (val-event)",
+              outcome.detail,
+            );
+            return;
+          }
+          /**
+           * Not a refresh: the server may not have it yet. Only, before the
+           * Studio's first `confirmed`, that this page's render is behind
+           * what the Studio holds (`startRefreshLoop`). A module re-sent that
+           * the page already shows does not count.
+           */
+          if (outcome.changed) {
+            refreshLoopRef.current?.changed();
           }
         };
         window.addEventListener(
@@ -891,7 +819,7 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode, analytics, props.disableRefresh]);
+  }, [mountOverlay, draftMode, analytics]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -967,6 +895,7 @@ export const ValTanStackProvider = (props: {
 
   return (
     <ValOverlayProvider
+      schemaChecked={codeChanged?.schemaChecked}
       draftMode={draftMode}
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
@@ -1064,6 +993,9 @@ ${prefixStyles(commonStyles)}
         <ValCanvasBridge
           draftMode={draftMode === true}
           isRefreshing={isRefreshing}
+          holds={holds}
+          holdsVersions={holdsVersions}
+          codeChanged={codeChanged?.modules}
         />
       )}
       {/**

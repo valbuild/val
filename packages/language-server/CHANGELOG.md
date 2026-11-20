@@ -1,5 +1,207 @@
 # @valbuild/language-server
 
+## 0.153.6
+
+### Patch Changes
+
+- Updated dependencies [[`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf), [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4), [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f)]:
+  - @valbuild/shared@0.153.6
+  - @valbuild/server@0.153.6
+
+## 0.153.5
+
+### Patch Changes
+
+- Updated dependencies [[`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d), [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f)]:
+  - @valbuild/server@0.153.5
+  - @valbuild/shared@0.153.5
+  - @valbuild/core@0.153.5
+
+## 0.153.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.153.4
+
+## 0.153.3
+
+### Patch Changes
+
+- Updated dependencies [[`a5f9fb5`](https://github.com/valbuild/val/commit/a5f9fb5c96f5b675fb346232c7084926c8b07cf0)]:
+  - @valbuild/server@0.153.3
+
+## 0.153.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.153.2
+
+## 0.153.1
+
+### Patch Changes
+
+- Updated dependencies [[`6ec1a5d`](https://github.com/valbuild/val/commit/6ec1a5d244f0d6e064eca4135f167dfa79744f9a), [`b14870b`](https://github.com/valbuild/val/commit/b14870bebdc128234bb16e4ea06a0151d18c4771)]:
+  - @valbuild/shared@0.153.1
+  - @valbuild/server@0.153.1
+
+## 0.153.0
+
+### Patch Changes
+
+- Updated dependencies [[`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`27e51ba`](https://github.com/valbuild/val/commit/27e51baadce61b2cbee2d5ef227aae045ccb2e21), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c)]:
+  - @valbuild/core@0.153.0
+  - @valbuild/server@0.153.0
+  - @valbuild/shared@0.153.0
+
+## 0.152.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.152.2
+
+## 0.152.1
+
+### Patch Changes
+
+- Updated dependencies [[`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4)]:
+  - @valbuild/server@0.152.1
+  - @valbuild/shared@0.152.1
+
+## 0.152.0
+
+### Patch Changes
+
+- Updated dependencies [[`3bb76d7`](https://github.com/valbuild/val/commit/3bb76d74d82b499aa15023838d63018a70fd7ce7), [`08a3977`](https://github.com/valbuild/val/commit/08a39779dbe43702a72ae57cbf8cf29b14e64672)]:
+  - @valbuild/server@0.152.0
+  - @valbuild/shared@0.152.0
+
+## 0.151.0
+
+### Patch Changes
+
+- Updated dependencies [[`33c8b80`](https://github.com/valbuild/val/commit/33c8b80f877f1c3bec3cb61ef41dea9d2efcf908), [`59faf33`](https://github.com/valbuild/val/commit/59faf332418af836617e09150fb89007e468394e), [`abf6148`](https://github.com/valbuild/val/commit/abf6148a255abe795620fede66006462bccb8322), [`1f08b65`](https://github.com/valbuild/val/commit/1f08b6517adeac27fd9e43c7bf726976daefee3b), [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563), [`f5110c9`](https://github.com/valbuild/val/commit/f5110c9aa2a0a6ff0586e9f0f2a29eb1baef557d), [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c), [`4fd35f3`](https://github.com/valbuild/val/commit/4fd35f321fe510cfb5b9b679ca14ce2b9e852d40), [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6), [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf), [`3aff85e`](https://github.com/valbuild/val/commit/3aff85e9a40cb0879285b86fd41fa8167db1bb5e), [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56), [`560abd9`](https://github.com/valbuild/val/commit/560abd9df36e52e63b6592b03a8040396320df00), [`be276e7`](https://github.com/valbuild/val/commit/be276e76f5849fcc421398abdb7e114f3de4d3e8), [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d), [`4edd384`](https://github.com/valbuild/val/commit/4edd384cf04a25836df77aae6d88378f8750a761)]:
+  - @valbuild/server@0.151.0
+  - @valbuild/shared@0.151.0
+  - @valbuild/core@0.151.0
+
+## 0.150.23
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.150.23
+
+## 0.150.22
+
+### Patch Changes
+
+- Updated dependencies [[`14a9864`](https://github.com/valbuild/val/commit/14a986486ca921b5aa4992caf1b452671b5eb97f)]:
+  - @valbuild/server@0.150.22
+
+## 0.150.21
+
+### Patch Changes
+
+- Updated dependencies [[`0d516bf`](https://github.com/valbuild/val/commit/0d516bf5347950071444eaa07baf48d1d7fe418c)]:
+  - @valbuild/server@0.150.21
+
+## 0.150.20
+
+### Patch Changes
+
+- Updated dependencies [[`c597b3b`](https://github.com/valbuild/val/commit/c597b3bcb9f3bbda285ab6f4977d65ed7f5f161d)]:
+  - @valbuild/shared@0.150.20
+  - @valbuild/server@0.150.20
+
+## 0.150.19
+
+### Patch Changes
+
+- Updated dependencies [[`17fa9ab`](https://github.com/valbuild/val/commit/17fa9ab7d86d3dc304109b8f5222f46f22bd5770)]:
+  - @valbuild/server@0.150.19
+
+## 0.150.18
+
+### Patch Changes
+
+- Updated dependencies [[`43f72c8`](https://github.com/valbuild/val/commit/43f72c85c2114fe9a0ce536204858d2d3c05f962)]:
+  - @valbuild/shared@0.150.18
+  - @valbuild/server@0.150.18
+
+## 0.150.17
+
+### Patch Changes
+
+- Updated dependencies [[`ea3bf9b`](https://github.com/valbuild/val/commit/ea3bf9bbacd22bbb5485fd798d6b3a2d5916be81)]:
+  - @valbuild/server@0.150.17
+  - @valbuild/shared@0.150.17
+
+## 0.150.16
+
+### Patch Changes
+
+- Updated dependencies [[`3ac24d4`](https://github.com/valbuild/val/commit/3ac24d46691c646dd5d2789cf2e1d6e2734195d3), [`7db39ef`](https://github.com/valbuild/val/commit/7db39ef722b4f743e6974effd5fedfadc76e6544)]:
+  - @valbuild/shared@0.150.16
+  - @valbuild/server@0.150.16
+
+## 0.150.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.150.14
+
+## 0.150.13
+
+### Patch Changes
+
+- Updated dependencies [[`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1)]:
+  - @valbuild/shared@0.150.13
+  - @valbuild/server@0.150.13
+
+## 0.150.12
+
+### Patch Changes
+
+- Updated dependencies [[`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/server@0.150.12
+  - @valbuild/shared@0.150.12
+
+## 0.150.11
+
+### Patch Changes
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/shared@0.150.11
+  - @valbuild/server@0.150.11
+
+## 0.150.10
+
+### Patch Changes
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/shared@0.150.10
+  - @valbuild/server@0.150.10
+
+## 0.150.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.150.9
+  - @valbuild/shared@0.150.8
+
+## 0.150.8
+
+### Patch Changes
+
+- Updated dependencies [[`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028), [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2), [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a)]:
+  - @valbuild/shared@0.150.8
+  - @valbuild/server@0.150.8
+
 ## 0.150.5
 
 ### Patch Changes

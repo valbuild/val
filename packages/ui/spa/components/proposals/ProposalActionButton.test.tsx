@@ -204,3 +204,107 @@ describe("proposalProgress", () => {
     expect(progress?.detail).toMatch(/\/products returned 500/);
   });
 });
+
+/*
+ * Save that updates the preview (`onSaveAndBuild`): Save is the main half
+ * for good, and Commit and Publish are in its menu. In code mode there is no
+ * "Fix N" -- a save takes invalid content -- and Publish is still refused.
+ */
+describe("ProposalActionButton, with Save that updates the preview", () => {
+  const wired = () => ({
+    ...handlers(),
+    onSaveAndBuild: jest.fn(),
+  });
+
+  test("Save stays the main half once everything is saved, disabled with nothing to do", () => {
+    render(
+      <ProposalActionButton location={location({ unsaved: 0 })} {...wired()} />,
+    );
+    const save = screen.getByRole("button", { name: /^Save/ });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
+  });
+
+  test("with a build due and nothing to save, Save builds", () => {
+    const h = wired();
+    render(
+      <ProposalActionButton
+        location={location({ unsaved: 0, code: { state: "required" } })}
+        {...h}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    expect(h.onSaveAndBuild).toHaveBeenCalledTimes(1);
+  });
+
+  test("in code mode, validation errors do not turn Save into Fix N, and Publish is refused with them", () => {
+    const h = wired();
+    render(
+      <ProposalActionButton
+        location={location()}
+        {...h}
+        codeMode
+        saveBlockedBy={{ errors: 2, onShow: () => {} }}
+        defaultMenuOpen
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /^Fix/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    expect(h.onSaveAndBuild).toHaveBeenCalledTimes(1);
+    const publish = screen.getByRole("menuitem", {
+      name: /Publish to the site/,
+    });
+    expect(publish.hasAttribute("disabled")).toBe(true);
+    expect(publish.textContent).toMatch(/2 validation errors/);
+  });
+
+  test("Commit is in the menu where there is git, and commits", () => {
+    const onCommit = jest.fn();
+    render(
+      <ProposalActionButton
+        location={location({ unsaved: 0 })}
+        {...wired()}
+        commit={{
+          onCommit,
+          state: "idle",
+          branch: "val/p/a1b2c3d4e5f6a7b8c9d0",
+        }}
+        defaultMenuOpen
+      />,
+    );
+    const commit = screen.getByRole("menuitem", { name: /^Commit/ });
+    expect(commit.textContent).toMatch(/val\/p\/a1b2c3d4e5f6a7b8c9d0/);
+    fireEvent.click(commit);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  test("Commit with nothing new to commit says so, and does nothing", () => {
+    render(
+      <ProposalActionButton
+        location={location({ unsaved: 0 })}
+        {...wired()}
+        commit={{
+          onCommit: () => {},
+          state: "idle",
+          branch: "val/p/a1b2c3d4e5f6a7b8c9d0",
+          upToDate: true,
+        }}
+        defaultMenuOpen
+      />,
+    );
+    const commit = screen.getByRole("menuitem", { name: /^Commit/ });
+    expect(commit.hasAttribute("disabled")).toBe(true);
+    expect(commit.textContent).toMatch(/Everything saved is committed/);
+  });
+
+  test("without git there is no Commit", () => {
+    render(
+      <ProposalActionButton
+        location={location({ unsaved: 0 })}
+        {...wired()}
+        defaultMenuOpen
+      />,
+    );
+    expect(screen.queryByRole("menuitem", { name: /^Commit/ })).toBeNull();
+  });
+});

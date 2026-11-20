@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Lock } from "lucide-react";
 import { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
 import { Button } from "./designSystem/button";
 import {
@@ -44,24 +44,49 @@ export function selectedModelLabel(
  * gives it a stacking context above the overlay. The menu did open; it was just
  * invisible behind the Studio, which is what made the button look dead. Every
  * other Studio popup passes this; this one did not. See `ValPortalProvider`.
+ *
+ * `locked` once the chat has started: a chat keeps the model it began with (see
+ * `sessionModel` in `useAI`), so the model is shown but not offered, and the
+ * way to another one is a new chat — which the tooltip says.
  */
 export function AIChatModelPicker({
   models,
   selectedModel,
   onSelectModel,
   disabled,
+  locked,
   portalContainer,
 }: {
   models: AIModelInfo[];
   selectedModel: AIModel | null | undefined;
   onSelectModel: (model: AIModel) => void;
   disabled?: boolean;
+  locked?: boolean;
   portalContainer: HTMLElement | null;
 }) {
   if (models.length === 0) {
     return null;
   }
   const label = selectedModelLabel(models, selectedModel);
+  if (locked) {
+    // Not a disabled button: a disabled button takes no pointer events, so the
+    // tooltip saying how to change the model would never show.
+    const explanation =
+      label === MODEL_UNSET
+        ? "This chat keeps the model it started with. Start a new chat to use another model."
+        : `This chat uses ${label}. Start a new chat to use another model.`;
+    return (
+      <span
+        role="note"
+        aria-label={explanation}
+        title={explanation}
+        className="inline-flex h-7 items-center gap-1 px-2 text-xs text-fg-secondary"
+      >
+        <Lock className="h-3 w-3" aria-hidden />
+        {label}
+      </span>
+    );
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

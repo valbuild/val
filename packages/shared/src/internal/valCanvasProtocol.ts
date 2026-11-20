@@ -21,6 +21,11 @@
  */
 
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { PickedElement, PickModifier } from "./elementPicker";
+import type { PageLocation, PageSnapshot } from "./pageInspection";
+import type { PageScreenshot } from "./pageScreenshot";
+import type { PageLogLevel, PageLogSnapshot } from "./pageLog";
+import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -76,6 +81,64 @@ export type ValCanvasElement = {
 export const DEFAULT_CANVAS_SELECTION = "#079455";
 export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
 
+/**
+ * The requests a page can be asked, each answered with a message of its own
+ * (`readPage` with `pageRead`, and so on), and the names a bridge lists in
+ * `ready`'s `capabilities`. A capability is named after its request, so the
+ * list needs no second vocabulary: a request added later -- opening a URL in
+ * the page, clicking, typing -- is a new name here and in
+ * {@link BRIDGE_CAPABILITIES}, and nothing else about the handshake changes.
+ */
+export type CanvasRequest =
+  | "readPage"
+  | "screenshotPage"
+  | "readPageLog"
+  | "quickPreview";
+
+/**
+ * Every request a bridge of THIS release answers: what both bindings send in
+ * `ready`. A request is added here in the same change that answers it in
+ * both bridges -- `canvasBridgePageInspection.test.tsx` in each binding holds
+ * it.
+ */
+export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
+  "readPage",
+  "screenshotPage",
+  "readPageLog",
+  "quickPreview",
+];
+
+/**
+ * What a bridge answered before bridges said what they answer. A `ready`
+ * without `capabilities` is from such a bridge: it is asked these as before
+ * -- and waited for, since it may still be loading -- and never asked
+ * anything else, which it would never answer.
+ */
+export const ANSWERED_BEFORE_CAPABILITIES: readonly CanvasRequest[] = [
+  "readPage",
+  "screenshotPage",
+  "quickPreview",
+];
+
+/**
+ * Whether a page that said `ready` with these `capabilities` answers
+ * `request`. `undefined` is a bridge from before the list existed.
+ */
+export function bridgeAnswers(
+  capabilities: readonly string[] | undefined,
+  request: CanvasRequest,
+): boolean {
+  return (capabilities ?? ANSWERED_BEFORE_CAPABILITIES).includes(request);
+}
+
+/** Which binding the page's bridge is, and its version: see `ready`. */
+export type CanvasBridgeInfo = {
+  /** The package the site installed: `@valbuild/next`, `@valbuild/tanstack`. */
+  package: string;
+  /** Its version, where it knows it. */
+  version: string | null;
+};
+
 /** What the page tells the studio. */
 export type ValCanvasPageMessage =
   | {
@@ -91,6 +154,43 @@ export type ValCanvasPageMessage =
       draftMode: boolean;
       /** The URL the frame ended up on, which a redirect may have changed. */
       url: string;
+      /**
+       * The modules the page holds a draft of: what its server read for this
+       * request (`<ValProvider draft>`). The studio sends each of them in its
+       * catch-up, pending or not, so a draft that stopped being the draft
+       * before the studio was there to say so -- discarded, published -- is
+       * replaced rather than kept. Absent from a page of the release before,
+       * and from a page that read no draft.
+       */
+      holds?: ModuleFilePath[];
+      /**
+       * The version the page holds each of {@link holds} at, where its draft
+       * says (`draftHoldsVersions`): the studio does not send one it would
+       * send at the same version -- the same content. Absent from a page of
+       * the release before, which is sent everything it holds, as before.
+       */
+      holdsVersions?: Partial<
+        Record<ModuleFilePath, { schema: string; base: string; chain: string }>
+      >;
+      /**
+       * Every request this bridge answers ({@link CanvasRequest}). The Studio
+       * asks nothing that is not on it, and says at once what to update
+       * instead of waiting for an answer that will not come. Absent from a
+       * bridge of a release before it: see
+       * {@link ANSWERED_BEFORE_CAPABILITIES}. Unknown names -- a bridge
+       * newer than the Studio -- are ignored.
+       *
+       * `unknown` on purpose, like {@link bridge}: read it with
+       * {@link capabilitiesOf}. A future bridge may send it in a shape this
+       * Studio does not expect, and that must not make the whole `ready`
+       * unreadable -- which is a preview stuck on "no answer".
+       */
+      capabilities?: unknown;
+      /**
+       * Which package the bridge is, so the Studio can say what to update:
+       * a {@link CanvasBridgeInfo}, read with {@link bridgeInfoOf}.
+       */
+      bridge?: unknown;
     }
   | {
       val: typeof VAL_CANVAS_MESSAGE;
@@ -168,6 +268,93 @@ export type ValCanvasPageMessage =
        * from outside, so the page says so and the canvas can show it is working.
        */
       pending: boolean;
+    }
+  | {
+      /**
+       * Something on the page was picked while `pickElements` was on: ANY
+       * element, described (`describeElement`), since the element itself
+       * cannot leave the page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "elementPicked";
+      element: PickedElement;
+    }
+  | {
+      /**
+       * Esc on the page while Select was on. The key went to the page, which
+       * has the focus once it has been clicked, so the studio hears it only
+       * from here.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "elementPickingStopped";
+    }
+  | {
+      /**
+       * Esc on the page while picking FIELDS (`setPicking`): Content's Select
+       * turns off. Its twin for any element is `elementPickingStopped`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pickingStopped";
+    }
+  | ({
+      /**
+       * Where the page is: its path and scroll, as it moves. A new build
+       * is opened there (`scrollTo`), so a new version replaces the
+       * page in place rather than starting over at the top of the front page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "location";
+    } & PageLocation)
+  | {
+      /** What `readPage` asked for, or why it could not be read. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageRead";
+      requestId: string;
+      snapshot: PageSnapshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * What `screenshotPage` asked for: the page as a JPEG data URL, or why
+       * it could not be taken (`pageScreenshot.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageScreenshot";
+      requestId: string;
+      screenshot: PageScreenshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * What `readPageLog` asked for: what the page logged as going wrong
+       * (`pageLog.ts`), or why it could not be read.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageLogRead";
+      requestId: string;
+      log: PageLogSnapshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * A quick preview's files are stored in the page's worker, and a page
+       * opened with its id is served them (`quickPreview.ts`) -- or why not.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreviewStored";
+      id: string;
+      error?: string;
+    }
+  | {
+      /**
+       * Modules the Studio sent made with another schema than this page's
+       * build has: the page shows its bundle's content for them instead, and
+       * the Studio says the code changed, with a reload. An empty list: the
+       * page's code caught up (`CodeChangedDetail`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "codeChanged";
+      modules: ModuleFilePath[];
     };
 
 /** What the studio tells the page. */
@@ -202,10 +389,12 @@ export type ValCanvasStudioMessage =
       type: "sourceUpdate";
       moduleFilePath: ModuleFilePath;
       /**
-       * The whole module source. `unknown` because the page's own types are the
-       * ones that give it meaning; nothing in between should be interpreting it.
+       * The module as a read (`ModuleRead`: its source and version), which
+       * the page keeps as it is. `unknown` because the page's own types are
+       * the ones that give it meaning; nothing in between should be
+       * interpreting it.
        */
-      source: unknown;
+      read: unknown;
     }
   | {
       /**
@@ -224,6 +413,23 @@ export type ValCanvasStudioMessage =
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "sourcesSynced";
+    }
+  | {
+      /**
+       * The server holds the editor's changes up to this version (`seq`, the
+       * server's `ProjectVersion.seq`; `null` from a server that reports
+       * none). Sent once after `sourcesSynced`, then every time it moves.
+       *
+       * What the page re-reads its server-rendered content on (a loader, a
+       * server component): those only show an edit once the server has it,
+       * so a refresh sent when the edit was typed raced the write and came
+       * back without it -- which a ten second safety refresh used to catch.
+       * A bridge of the release before ignores it, as it ignores any type it
+       * does not know.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "confirmed";
+      seq: number | null;
     }
   | {
       /**
@@ -260,6 +466,92 @@ export type ValCanvasStudioMessage =
        * on a link should follow the link.
        */
       picking: boolean;
+    }
+  | {
+      /**
+       * Picking ANY element (`elementPicker.ts`),
+       * rather than the fields Val tagged, as `setPicking` does.
+       *
+       * While `enabled`, holding `modifier` outlines what is under the
+       * pointer and a click picks it; `active` picks without the modifier (the
+       * tab's Select). Sent whole every time, so a page that missed one
+       * message is put right by the next. A bridge that predates it ignores
+       * it, and the tab then simply never hears of a pick.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pickElements";
+      enabled: boolean;
+      active: boolean;
+      modifier: PickModifier;
+      /** Whether the studio still holds the last pick: false takes its outline down. */
+      keepPicked: boolean;
+      /**
+       * Only Val's fields can be picked (`fieldsOnly` in `elementPicker.ts`):
+       * the Studio's assistant outside code mode. Absent is any element, so
+       * a studio that predates it is answered as before.
+       */
+      fieldsOnly?: boolean;
+      /**
+       * What to outline in, instead of the `theme`'s selection colour: code
+       * mode's proposal colour. A bridge that predates it uses the theme's.
+       */
+      color?: string;
+    }
+  | {
+      /** Scroll to where the page before this one was (`location`). */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "scrollTo";
+      x: number;
+      y: number;
+    }
+  | {
+      /**
+       * Read what is on the page (`readPageSnapshot`): the assistant's
+       * `read_page`. Answered with `pageRead` and the same `requestId`. A
+       * bridge that predates it never answers, and the tab says so.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "readPage";
+      requestId: string;
+      selector?: string;
+      maxItems?: number;
+    }
+  | {
+      /**
+       * Take a picture of the page (`screenshotPage`): the assistant's
+       * `screenshot_page`. Answered with `pageScreenshot` and the same
+       * `requestId`; a bridge that predates it never answers.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "screenshotPage";
+      requestId: string;
+      fullPage?: boolean;
+    }
+  | {
+      /**
+       * Read what the page logged as going wrong (`pageLog.ts`): the
+       * assistant's `read_page_log`. Answered with `pageLogRead` and the
+       * same `requestId`. Asked only of a bridge whose `ready` lists
+       * `readPageLog`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "readPageLog";
+      requestId: string;
+      /** Only what happened since the page last navigated. Default true. */
+      sinceNavigation?: boolean;
+      /** Only these levels. Absent or empty is every level. */
+      levels?: PageLogLevel[];
+    }
+  | {
+      /**
+       * Store a quick preview's files in this origin's worker
+       * (`storeQuickPreview`): the tab cannot, being another origin.
+       * Answered with `quickPreviewStored`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreview";
+      id: string;
+      files: QuickPreviewFiles;
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -270,14 +562,101 @@ export function isValCanvasPageMessage(
   const message = data as { val?: unknown; type?: unknown };
   if (message.val !== VAL_CANVAS_MESSAGE) return false;
   return (
-    message.type === "ready" ||
+    (message.type === "ready" &&
+      isModulePathList((data as { holds?: unknown }).holds) &&
+      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions)) ||
     message.type === "elements" ||
     message.type === "clicked" ||
     message.type === "pinch" ||
     message.type === "zoom" ||
-    message.type === "refreshing"
+    message.type === "refreshing" ||
+    message.type === "elementPickingStopped" ||
+    message.type === "pickingStopped" ||
+    (message.type === "elementPicked" &&
+      isPickedElement((data as { element?: unknown }).element)) ||
+    (message.type === "location" && isPageLocation(data)) ||
+    (message.type === "pageRead" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "pageScreenshot" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "pageLogRead" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "quickPreviewStored" &&
+      typeof (data as { id?: unknown }).id === "string") ||
+    (message.type === "codeChanged" &&
+      Array.isArray((data as { modules?: unknown }).modules) &&
+      isModulePathList((data as { modules?: unknown }).modules))
   );
 }
+
+/** `holdsVersions` on `ready`: absent, or a version per module path. */
+function isHeldVersions(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every(
+    (version) =>
+      typeof version === "object" &&
+      version !== null &&
+      typeof (version as { schema?: unknown }).schema === "string" &&
+      typeof (version as { base?: unknown }).base === "string" &&
+      typeof (version as { chain?: unknown }).chain === "string",
+  );
+}
+
+/**
+ * `capabilities` on `ready`, read leniently: the names in it that are
+ * strings, or `undefined` -- a bridge from before the list -- when it is
+ * absent or not a list at all.
+ */
+export function capabilitiesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+/** `bridge` on `ready`, read leniently: a malformed one is as if absent. */
+export function bridgeInfoOf(value: unknown): CanvasBridgeInfo | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const name: unknown = Reflect.get(value, "package");
+  const version: unknown = Reflect.get(value, "version");
+  if (typeof name !== "string") return undefined;
+  return {
+    package: name,
+    version: typeof version === "string" ? version : null,
+  };
+}
+
+/** `holds` on `ready`: absent, or a list of module paths. */
+function isModulePathList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((path) => typeof path === "string"))
+  );
+}
+
+function isPageLocation(value: object): boolean {
+  const location = value as Record<string, unknown>;
+  return (
+    typeof location.path === "string" &&
+    location.path.startsWith("/") &&
+    typeof location.scrollX === "number" &&
+    typeof location.scrollY === "number"
+  );
+}
+
+function isPickedElement(value: unknown): value is PickedElement {
+  if (typeof value !== "object" || value === null) return false;
+  const element = value as Record<string, unknown>;
+  return (
+    typeof element.tag === "string" &&
+    typeof element.text === "string" &&
+    typeof element.selector === "string" &&
+    Array.isArray(element.classes) &&
+    element.classes.every((item) => typeof item === "string") &&
+    (element.valPath === undefined || typeof element.valPath === "string")
+  );
+}
+
+const PICK_MODIFIERS: readonly unknown[] = ["alt", "meta", "shift", "ctrl"];
 
 /**
  * Whether a value is a colour a `theme` message may carry.
@@ -297,7 +676,7 @@ export function isValCanvasPageMessage(
 const CANVAS_SELECTION_COLOR =
   /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
 
-function isCanvasSelectionColor(value: unknown): value is string {
+export function isCanvasSelectionColor(value: unknown): value is string {
   return typeof value === "string" && CANVAS_SELECTION_COLOR.test(value);
 }
 
@@ -321,12 +700,69 @@ export function isValCanvasStudioMessage(
       isCanvasSelectionColor(message.selectionSoft)
     );
   }
+  if (message.type === "pickElements") {
+    const pick = data as Record<string, unknown>;
+    return (
+      typeof pick.enabled === "boolean" &&
+      typeof pick.active === "boolean" &&
+      typeof pick.keepPicked === "boolean" &&
+      PICK_MODIFIERS.includes(pick.modifier) &&
+      (pick.fieldsOnly === undefined || typeof pick.fieldsOnly === "boolean") &&
+      (pick.color === undefined || isCanvasSelectionColor(pick.color))
+    );
+  }
+  if (message.type === "scrollTo") {
+    const scroll = data as Record<string, unknown>;
+    return (
+      typeof scroll.x === "number" &&
+      Number.isFinite(scroll.x) &&
+      typeof scroll.y === "number" &&
+      Number.isFinite(scroll.y)
+    );
+  }
+  if (message.type === "quickPreview") {
+    const preview = data as Record<string, unknown>;
+    return (
+      typeof preview.id === "string" &&
+      /^[A-Za-z0-9_-]{1,64}$/.test(preview.id) &&
+      isQuickPreviewFiles(preview.files)
+    );
+  }
+  if (message.type === "screenshotPage") {
+    const asked = data as Record<string, unknown>;
+    return (
+      typeof asked.requestId === "string" &&
+      (asked.fullPage === undefined || typeof asked.fullPage === "boolean")
+    );
+  }
+  if (message.type === "readPageLog") {
+    const read = data as Record<string, unknown>;
+    return (
+      typeof read.requestId === "string" &&
+      (read.sinceNavigation === undefined ||
+        typeof read.sinceNavigation === "boolean") &&
+      (read.levels === undefined ||
+        (Array.isArray(read.levels) &&
+          read.levels.every((level) => level === "error" || level === "warn")))
+    );
+  }
+  if (message.type === "readPage") {
+    const read = data as Record<string, unknown>;
+    return (
+      typeof read.requestId === "string" &&
+      (read.selector === undefined || typeof read.selector === "string") &&
+      (read.maxItems === undefined || typeof read.maxItems === "number")
+    );
+  }
   return (
     message.type === "rescan" ||
     message.type === "highlight" ||
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
-    message.type === "sourcesSynced"
+    message.type === "sourcesSynced" ||
+    (message.type === "confirmed" &&
+      ((data as { seq?: unknown }).seq === null ||
+        typeof (data as { seq?: unknown }).seq === "number"))
   );
 }
 

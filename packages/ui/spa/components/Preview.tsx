@@ -27,11 +27,17 @@ export function Preview({
   path,
   size,
   nullLabel,
+  maxFields,
 }: {
   path: SourcePath;
   size?: "compact";
   /** What an unwritten value is called here — see {@link PreviewNull}. */
   nullLabel?: string;
+  /**
+   * The most lines an object-like value may take — see `ObjectLikePreview`.
+   * Only the value's own fields are limited, not a nested value's.
+   */
+  maxFields?: number;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(
@@ -58,11 +64,11 @@ export function Preview({
   } else if (type === "number") {
     return <NumberPreview path={path} />;
   } else if (type === "discriminated-union") {
-    return <DiscriminatedUnionPreview path={path} />;
+    return <DiscriminatedUnionPreview path={path} maxFields={maxFields} />;
   } else if (type === "enum") {
     return <EnumPreview path={path} />;
   } else if (type === "object") {
-    return <ObjectPreview path={path} size={size} />;
+    return <ObjectPreview path={path} size={size} maxFields={maxFields} />;
   } else if (type === "image") {
     return <ImagePreview path={path} />;
   } else if (type === "keyOf") {
@@ -84,7 +90,7 @@ export function Preview({
   } else if (type === "record") {
     return <RecordPreview path={path} size={size} />;
   } else if (type === "settings") {
-    return <SettingsPreview path={path} size={size} />;
+    return <SettingsPreview path={path} size={size} maxFields={maxFields} />;
   } else if (type === "richtext") {
     return <RichTextPreview path={path} />;
   } else if (type === "file") {

@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-tanstack-autotag.cjs.js",
+  "module": "dist/valbuild-tanstack-autotag.esm.js"
+}

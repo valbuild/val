@@ -56,6 +56,7 @@ function renderPicker(
   models: AIModelInfo[],
   onSelectModel: (model: AIModelInfo["ref"]) => void = () => {},
   withContainer = true,
+  locked = false,
 ) {
   const portalContainer = document.createElement("div");
   document.body.appendChild(portalContainer);
@@ -66,6 +67,7 @@ function renderPicker(
       selectedModel={models[0]?.ref ?? null}
       onSelectModel={onSelectModel}
       portalContainer={withContainer ? portalContainer : null}
+      locked={locked}
     />,
   );
   // Named, not spread alongside RTL's own `container` — that one is the render
@@ -125,4 +127,13 @@ test("keeps the menu in the tree when there is no container yet", () => {
   );
   const item = screen.getByRole("menuitem", { name: "Claude Opus 5" });
   expect(container.contains(item)).toBe(true);
+});
+
+test("shows a started chat's model without offering another", () => {
+  renderPicker([SONNET, OPUS], () => {}, true, true);
+  expect(screen.queryByRole("button")).toBeNull();
+  const note = screen.getByRole("note", {
+    name: "This chat uses Claude Sonnet 5. Start a new chat to use another model.",
+  });
+  expect(note.textContent).toBe("Claude Sonnet 5");
 });

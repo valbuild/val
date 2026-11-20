@@ -1,4 +1,5 @@
 import {
+  CodeXml,
   GitBranch,
   GitCompare,
   Globe,
@@ -8,12 +9,15 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import { FloatingPanel, PanelSectionLabel } from "../shell/FloatingPanel";
 import { SheetHeading, SheetRow } from "../shell/PhoneSheet";
 import type { TopBarProposals } from "../shell/TopBar";
 import type { ShellBreakpoint } from "../shell/types";
 import { ProposalIcon, proposalChangesLabel } from "./ProposalSwitcher";
 import type { ProposalSummary } from "./types";
+import { PreviewProblemCard } from "./PreviewProblemCard";
+import { codeModeTurnedOnText } from "./CodeModeButton";
 
 /**
  * Where you are, on a phone: the sheet behind the top bar's location chip.
@@ -39,6 +43,7 @@ export function ProposalSheet({
   onClose: () => void;
 }) {
   const { location } = proposals;
+  const problem = proposals.previewProblem ?? null;
   const here = location.kind === "proposal" ? location : null;
   const choose = (action: () => void) => () => {
     onClose();
@@ -47,6 +52,20 @@ export function ProposalSheet({
   const elsewhere = proposals.open.filter(
     (proposal) => proposal.name !== here?.proposal.name,
   );
+  /*
+   * Code mode, as the `</>` beside the switcher has it above a phone
+   * (`CodeModeButton`): a switch in a proposal, and on the site a list of the
+   * proposals to open in code mode, folded until asked for.
+   */
+  const codeMode = proposals.codeMode;
+  const [choosingForCode, setChoosingForCode] = useState(false);
+  const codeCandidates = proposals.open.filter(
+    (proposal) => proposal.status === "open" && proposal.upgrade !== true,
+  );
+  const codeSwitchable =
+    here !== null &&
+    here.proposal.status === "open" &&
+    here.proposal.upgrade !== true;
   return (
     <FloatingPanel
       side="left"
@@ -88,8 +107,44 @@ export function ProposalSheet({
       }
     >
       <div className="pb-4">
-        {here !== null && (
+        {here !== null && problem !== null && (
+          <div className="px-3 pt-3">
+            <PreviewProblemCard problem={problem} onAct={onClose} />
+          </div>
+        )}
+        {codeMode !== undefined && codeSwitchable && (
           <div className="py-1">
+            <SheetRow
+              icon={<CodeXml size={16} className="text-fg-proposal" />}
+              detail={
+                codeMode.on
+                  ? `${codeModeTurnedOnText(codeMode.turnedOn ?? null) ?? "On"}. For everyone in this proposal; turning it off discards nothing.`
+                  : "Let the assistant change the code. Everything pending is saved first."
+              }
+              trailing={<SheetSwitch on={codeMode.on} />}
+              onClick={choose(codeMode.onToggle)}
+            >
+              Code mode
+            </SheetRow>
+            {codeMode.on && codeMode.onShowCode !== undefined && (
+              <SheetRow
+                icon={<CodeXml size={16} />}
+                detail="In Review, beside the content changes"
+                onClick={choose(codeMode.onShowCode)}
+              >
+                Code changes
+              </SheetRow>
+            )}
+          </div>
+        )}
+        {here !== null && (
+          <div
+            className={
+              codeMode !== undefined && codeSwitchable
+                ? "border-t border-border-float py-1"
+                : "py-1"
+            }
+          >
             {proposals.onCompare !== undefined && (
               <SheetRow
                 icon={<GitCompare size={16} />}
@@ -98,8 +153,11 @@ export function ProposalSheet({
                 Compare with the site
               </SheetRow>
             )}
-            {/* An upgrade is named after its kind, by Val Build. */}
-            {!here.proposal.upgrade && (
+            {/*
+             * An upgrade is named after its kind, by Val Build, and the
+             * site's own code mode is the site's, not a name anyone gave it.
+             */}
+            {!here.proposal.upgrade && !here.proposal.siteCode && (
               <SheetRow
                 icon={<Pencil size={16} />}
                 onClick={choose(proposals.onRename)}
@@ -122,7 +180,67 @@ export function ProposalSheet({
             </SheetRow>
           </div>
         )}
-        <PanelSectionLabel divided={here !== null}>Switch to</PanelSectionLabel>
+        {codeMode?.onOpenSiteCode !== undefined && here === null && (
+          <div className="py-1">
+            <SheetRow
+              icon={<CodeXml size={16} />}
+              detail="Let the assistant change the site's code"
+              onClick={choose(codeMode.onOpenSiteCode)}
+            >
+              Turn on code mode
+            </SheetRow>
+          </div>
+        )}
+        {codeMode !== undefined &&
+          codeMode.onOpenSiteCode === undefined &&
+          here === null && (
+            <div className="py-1">
+              <SheetRow
+                icon={<CodeXml size={16} />}
+                detail="Choose a proposal to change the code in"
+                trailing={choosingForCode ? "Hide" : undefined}
+                onClick={() => setChoosingForCode((open) => !open)}
+              >
+                Code mode…
+              </SheetRow>
+              {choosingForCode && (
+                <div className="pl-8">
+                  {codeCandidates.length === 0 && (
+                    <p className="px-4 py-2 text-xs text-fg-secondary-alt">
+                      No proposals open. Start one to change the code in.
+                    </p>
+                  )}
+                  {codeCandidates.map((proposal) => (
+                    <SheetRow
+                      key={proposal.name}
+                      icon={
+                        <ProposalIcon
+                          proposal={proposal}
+                          size={16}
+                          className="text-fg-proposal"
+                        />
+                      }
+                      detail={`${ownerLabel(proposal)} · ${proposalChangesLabel(proposal)}`}
+                      onClick={choose(() =>
+                        codeMode.onOpenProposalInCodeMode(proposal.name),
+                      )}
+                    >
+                      {proposal.displayName}
+                    </SheetRow>
+                  ))}
+                  <SheetRow
+                    icon={<Plus size={16} />}
+                    onClick={choose(codeMode.onNewProposalInCodeMode)}
+                  >
+                    New proposal in code mode…
+                  </SheetRow>
+                </div>
+              )}
+            </div>
+          )}
+        <PanelSectionLabel divided={here !== null || codeMode !== undefined}>
+          Switch to
+        </PanelSectionLabel>
         {here !== null && (
           <SheetRow
             icon={<Globe size={16} />}
@@ -173,4 +291,21 @@ export function ProposalSheet({
 
 function ownerLabel(proposal: ProposalSummary): string {
   return proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone");
+}
+
+/** On or off, at the end of a sheet row: the whole row is what is pressed. */
+function SheetSwitch({ on }: { on: boolean }) {
+  return (
+    <span
+      className={
+        on
+          ? "flex h-5 w-9 items-center justify-end rounded-full bg-bg-proposal p-0.5"
+          : "flex h-5 w-9 items-center justify-start rounded-full bg-bg-float-raised p-0.5 ring-1 ring-inset ring-border-float"
+      }
+    >
+      <span aria-hidden className="h-4 w-4 rounded-full bg-white shadow-sm" />
+      {/* What a screen reader says: the drawn switch says nothing. */}
+      <span className="sr-only">{on ? "On" : "Off"}</span>
+    </span>
+  );
 }

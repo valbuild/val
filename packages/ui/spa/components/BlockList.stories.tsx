@@ -142,7 +142,10 @@ const pagesModule = c.define(
       .array(
         s.object({
           title: s.string(),
-          subtitle: s.string().multiline(),
+          subtitle: s
+            .string()
+            .multiline()
+            .describe("One line under the title. Keep it short."),
           sections: s
             .array(
               s.object({
@@ -314,7 +317,92 @@ const sectionsModule = c.define(
   },
 );
 
+/**
+ * An inline RECORD: the same rows as an inline array, named by their key
+ * instead of numbered, with no grip (a record has no order). One entry holds
+ * an inline array, so both kinds of list nest in one view.
+ */
+const teamModule = c.define(
+  "/content/team.val.ts",
+  s.object({
+    members: s
+      .record(
+        s.object({
+          name: s.string(),
+          birthdate: s.date(),
+          bio: s.string().multiline(),
+          links: s
+            .array(s.object({ label: s.string(), url: s.string() }))
+            .render({ as: "inline" }),
+        }),
+      )
+      .render({ as: "inline" }),
+  }),
+  {
+    members: {
+      fredrik: {
+        name: "Fredrik Ekholdt",
+        birthdate: "1980-01-01",
+        bio: "Building Val.",
+        links: [{ label: "GitHub", url: "https://github.com/freekh" }],
+      },
+      erlend: {
+        name: "Erlend Hamberg",
+        birthdate: "1985-06-15",
+        bio: "Also building Val.",
+        links: [],
+      },
+    },
+  },
+);
+
+/** An inline record of strings: one line per entry, key then value. */
+const labelsModule = c.define(
+  "/content/labels.val.ts",
+  s.object({
+    labels: s.record(s.string()).render({ as: "inline" }),
+  }),
+  { labels: { save: "Save", cancel: "Cancel", delete: "Delete" } },
+);
+
+/** An inline record nested in an inline array's item. */
+const productsModule = c.define(
+  "/content/products.val.ts",
+  s.object({
+    products: s
+      .array(
+        s.object({
+          title: s.string(),
+          specs: s.record(s.string()).render({ as: "inline" }),
+        }),
+      )
+      .render({ as: "inline" }),
+  }),
+  {
+    products: [
+      {
+        title: "Kettle",
+        specs: { volume: "1.7 l", power: "2200 W" },
+      },
+      { title: "Toaster", specs: { slots: "2" } },
+    ],
+  },
+);
+
+/** A long list: moving by number has to work without scrolling a grid. */
+const manyModule = c.define(
+  "/content/many.val.ts",
+  s.object({
+    items: s.array(s.string()).render({ as: "inline" }),
+  }),
+  { items: Array.from({ length: 60 }, (_, i) => `Item ${i + 1}`) },
+);
+
 const pagesData = createMockData([pagesModule]);
+const manyData = createMockData([manyModule]);
+const teamData = createMockData([teamModule]);
+const labelsData = createMockData([labelsModule]);
+const productsData = createMockData([productsModule]);
 const sectionsData = createMockData([sectionsModule]);
 const tagsData = createMockData([tagsModule]);
 const previewRowsData = createMockData([previewRowsModule]);
@@ -385,6 +473,42 @@ export const InlineKeyOf: Story = {
   render: () => (
     <StoryProviders mockData={articlesData}>
       <BlockList path={sourcePathOf("/content/articles.val.ts", "articles")} />
+    </StoryProviders>
+  ),
+};
+
+export const InlineRecord: Story = {
+  name: "Inline record",
+  render: () => (
+    <StoryProviders mockData={teamData}>
+      <BlockList path={sourcePathOf("/content/team.val.ts", "members")} />
+    </StoryProviders>
+  ),
+};
+
+export const InlineRecordOfStrings: Story = {
+  name: "Inline record of strings",
+  render: () => (
+    <StoryProviders mockData={labelsData}>
+      <BlockList path={sourcePathOf("/content/labels.val.ts", "labels")} />
+    </StoryProviders>
+  ),
+};
+
+export const RecordInArray: Story = {
+  name: "Inline record in an inline array",
+  render: () => (
+    <StoryProviders mockData={productsData}>
+      <BlockList path={sourcePathOf("/content/products.val.ts", "products")} />
+    </StoryProviders>
+  ),
+};
+
+export const ManyItems: Story = {
+  name: "Many items (60)",
+  render: () => (
+    <StoryProviders mockData={manyData}>
+      <BlockList path={sourcePathOf("/content/many.val.ts", "items")} />
     </StoryProviders>
   ),
 };

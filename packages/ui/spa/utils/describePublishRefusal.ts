@@ -1,4 +1,5 @@
 import type { PublishResult } from "../stores/PublishSeam";
+import type { TransientErrorAction } from "../stores/StatusStore";
 
 type Refusal = Extract<PublishResult, { status: "refused" }>;
 
@@ -15,6 +16,8 @@ type Refusal = Extract<PublishResult, { status: "refused" }>;
 export function describePublishRefusal(refusal: Refusal): {
   message: string;
   details?: string;
+  /** The button beside the message, where there is something to press. */
+  action?: TransientErrorAction;
 } {
   switch (refusal.reason) {
     case "validation-errors":
@@ -34,16 +37,39 @@ export function describePublishRefusal(refusal: Refusal): {
           details: `${refusal.planRefusal}\n\nNothing was published, and your changes are kept.`,
         };
       }
+      if (refusal.saveFailure !== undefined) {
+        // The content service failed to take them, and said so: its sentence
+        // names what failed. Not "check the connection" -- it answered.
+        return {
+          message: "Cannot publish: your latest changes could not be saved.",
+          details: `${refusal.saveFailure}\n\nNothing was published, so no work is lost: your changes are kept in this tab. Save them again, then publish.`,
+          action: "retry-save",
+        };
+      }
+      // Still being retried -- a request that did not complete, a conflict, an
+      // answer that could not be read. Which one is in the status bar's
+      // report; guessing "the connection" here blamed the network for all of
+      // them.
       return {
         message: "Cannot publish: your latest changes could not be saved.",
         details:
-          "Nothing was published, so no work is lost. Check the connection and try again.",
+          "Nothing was published, so no work is lost: your changes are kept in this tab. Val keeps trying to save them; publish once the status bar says they are saved.",
       };
     case "chain-moved":
       return {
         message:
           "Cannot publish: the content changed while it was being checked.",
         details: "Nothing was published. Try again.",
+      };
+    case "held-edits":
+      return {
+        message:
+          refusal.patchIds.length === 1
+            ? "Cannot publish: an edit does not fit the new schema."
+            : `Cannot publish: ${refusal.patchIds.length} edits do not fit the new schema.`,
+        details:
+          "The code changed under them. Nothing was published. Copy what was written and make the change again where the field is now, or discard them, then publish.",
+        action: "show-held-edits",
       };
     case "head-moved":
       return {

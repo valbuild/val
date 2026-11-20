@@ -44,12 +44,21 @@ export function useRolldown(rolldown: Rolldown): void {
  */
 export function loadRolldown(): Promise<Rolldown> {
   if (chosen === null) {
-    const loading = Promise.all([
-      import("@rolldown/browser"),
-      import("@rolldown/browser/parseAst"),
-    ]).then(([bundler, parser]) => ({
+    /*
+     * One after the other, never together. Both import the WASI binding,
+     * whose top-level `await` fetches and instantiates the WebAssembly, and
+     * Safari (every iPhone browser) can settle the second import of a graph
+     * whose shared module is still awaiting before that import's own body
+     * has run. `build` is a hoisted function there and `rolldown` a `const`,
+     * so the build got a `build` it could call, which threw "Cannot access
+     * 'Ha' before initialization." (minified) on its first line -- home's
+     * upgrade page, on an iPhone, while Chrome built the same upgrade. Once
+     * the bundler has loaded, the binding has finished, and the parser's
+     * import has nothing left to wait for.
+     */
+    const loading = import("@rolldown/browser").then(async (bundler) => ({
       build: bundler.build,
-      parseAstAsync: parser.parseAstAsync,
+      parseAstAsync: (await import("@rolldown/browser/parseAst")).parseAstAsync,
     }));
     // A load that failed is tried again by the next caller, not kept.
     loading.catch(() => {

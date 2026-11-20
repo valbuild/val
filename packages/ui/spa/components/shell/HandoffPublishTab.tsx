@@ -6,6 +6,7 @@ import {
   INTENT_MAX_AGE_MS,
   storedHandoffIntent,
   type HandoffIntent,
+  type RefusedAnswer,
   type TabHandoff,
 } from "../../publish/handoff";
 import {
@@ -342,7 +343,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
     const notPressed = (
       message: string,
       details?: string,
-      options: { answer?: boolean } = {},
+      options: { answer?: boolean; refused?: RefusedAnswer } = {},
     ) => {
       ownPending.current = false;
       if (options.answer) {
@@ -362,6 +363,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         result: { status: "failed", message: details ?? message, problems: [] },
         ms: 0,
         summary: message,
+        ...(options.refused !== undefined ? { refused: options.refused } : {}),
       });
     };
 
@@ -559,6 +561,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
         }
         notPressed(outcome.message, outcome.details, {
           answer: outcome.durable,
+          ...(outcome.refused !== undefined
+            ? { refused: outcome.refused }
+            : {}),
         });
         return;
       }
@@ -604,7 +609,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
       }, NO_INTENT_TIMEOUT_MS);
     } else if (remembered !== null) {
       // Opened again: it shows how it ended, set from `remembered` above.
-    } else if (intent.kind === "build-proposal") {
+    } else if (
+      intent.kind === "build-proposal" ||
+      intent.kind === "quick-preview"
+    ) {
       // Another tab's, which `ValStudio` mounts for it instead.
       setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
     } else {

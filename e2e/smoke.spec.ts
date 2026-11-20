@@ -111,7 +111,8 @@ const ROUTES: { route: string; shape: string; expect: RegExp }[] = [
    * The three shapes that used to loop, kept apart because of what made them
    * loop: a `.jsonValues()` module whose entries arrive one request at a time.
    *
-   * `substituteJsonEntries` is copy-on-write, so the first loaded entry made
+   * `substituteJsonEntries` (gone since: the Studio's view of a module is made
+   * once per version) was copy-on-write, so the first loaded entry made
    * every subsequent read of the module's source return a fresh object. `peek`
    * compares by identity, so it reported a change on every call, and the fields
    * reading it through `useSyncExternalStore` re-rendered until React gave up.

@@ -14,6 +14,7 @@ import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { Fragment, useMemo, useState } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
+import { newLinks } from "../utils/newLinks";
 import {
   ArrowRight,
   Check,
@@ -22,6 +23,7 @@ import {
   ChevronRight,
   Equal,
   History,
+  Link2,
   Lock,
   Minus,
   Pencil,
@@ -1658,6 +1660,10 @@ function ChangeRow({
             isEqual={isEqual}
             parentMediaType={parentMediaType}
           />
+          {/* Shown collapsed too: a new link is what a review is for. */}
+          {!parentMediaType && change.changeType !== "removed" && (
+            <NewLinksNotice sourcePath={sourcePath} />
+          )}
         </div>
       )}
     </article>
@@ -1941,6 +1947,52 @@ function ChangeRowBody({
   // moved: just show after for now
   return (
     <SingleSideContent sourcePath={sourcePath} side="after" diffStyle="added" />
+  );
+}
+
+// #region NewLinksNotice
+
+/**
+ * The web addresses this change adds, each with its site: see `newLinks`.
+ *
+ * Not links themselves. Opening one from the review would send the reviewer
+ * to it, and with it whatever the address carries; the point is to read where
+ * it goes first. Nothing is shown for a change that adds none.
+ */
+function NewLinksNotice({ sourcePath }: { sourcePath: SourcePath }) {
+  const before = useServerSourceAtPath(sourcePath);
+  const after = useSourceAtPath(sourcePath);
+  const added = useMemo(() => {
+    // Only once both sides are known: a "before" still loading would make
+    // every link in the value look new for a moment.
+    if (after.status !== "success") return [];
+    if (before.status === "success") return newLinks(before.data, after.data);
+    if (before.status === "not-found") return newLinks(undefined, after.data);
+    return [];
+  }, [before, after]);
+  if (added.length === 0) return null;
+  return (
+    <div
+      className="mt-3 max-w-xl rounded border border-border-warning-primary bg-bg-warning-primary px-3 py-2 text-xs"
+      data-testid="compare-new-links"
+    >
+      <div className="flex items-center gap-1.5 font-medium text-fg-warning-primary">
+        <Link2 className="h-3.5 w-3.5 shrink-0" />
+        {added.length === 1
+          ? "This change adds a link. Check where it goes before publishing."
+          : `This change adds ${added.length} links. Check where they go before publishing.`}
+      </div>
+      <ul className="mt-1.5 space-y-1">
+        {added.map((link) => (
+          <li key={link.url} className="min-w-0">
+            <span className="font-semibold">{link.host}</span>
+            <span className="block font-mono text-fg-secondary break-all">
+              {link.url}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

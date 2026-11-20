@@ -68,6 +68,15 @@ test.describe("the leak warning", () => {
       page.getByRole("link", { name: "Share this post" }),
     ).toHaveAttribute("href", /text=Hello%20world$/);
 
+    // Content handed to the router's <Link>, which renders it with
+    // React.createElement: tagged, and its text clean.
+    const permalink = page.getByTestId("permalink");
+    await expect(permalink).toHaveAttribute(
+      "data-val-path",
+      /_site\.posts\.\$postId\.val\.ts\?p=.*"title"/,
+    );
+    expect(await permalink.evaluate((a) => a.textContent)).toBe("Hello world");
+
     // The scan runs a second after the page settles.
     await page.waitForTimeout(2_500);
     expect(warnings).toEqual([]);

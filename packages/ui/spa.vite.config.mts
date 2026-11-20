@@ -4,6 +4,7 @@ import {
   rolldownBrowserBindingPlugin,
   staticWasmPlugin,
 } from "./build/staticWasm";
+import { eslintInBrowserPlugin } from "./build/eslintInBrowser";
 
 const OUT_DIR = "./server/.tmp";
 
@@ -26,6 +27,7 @@ export default defineConfig({
   },
   plugins: [
     rolldownBrowserBindingPlugin({ root: import.meta.dirname }),
+    eslintInBrowserPlugin({ root: import.meta.dirname }),
     staticWasmPlugin({
       root: import.meta.dirname,
       host: process.env.VAL_STATIC_HOST || DEFAULT_STATIC_HOST,

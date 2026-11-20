@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   GitBranch,
+  GitCommit,
   GitCompare,
   Globe,
   Hammer,
@@ -14,8 +15,11 @@ import type { TopBarProposals } from "./TopBar";
 import { DiscardAllQuickAction, reviewChangesLabel } from "./UtilityPanel";
 import { ShellBreakpoint } from "./types";
 import {
+  buildIsDue,
   describeDependencies,
   isDependenciesState,
+  previewUpdateOf,
+  type PreviewUpdate,
 } from "../proposals/ProposalBar";
 
 /**
@@ -53,17 +57,31 @@ export function ChangesSheet({
 }) {
   const here =
     proposals?.location.kind === "proposal" ? proposals.location : null;
+  // Save updates the preview too, where the app offers it.
+  const saveAndUpdate =
+    proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
+  const update: PreviewUpdate = previewUpdateOf(here?.code ?? null);
+  const updateDue = buildIsDue(here?.code ?? null);
   const choose = (action: () => void) => () => {
     onClose();
     action();
   };
-  const blocked =
-    here !== null &&
-    here.unsaved > 0 &&
-    proposals?.saveBlockedBy !== undefined &&
-    proposals.saveBlockedBy.errors > 0
+  const errors =
+    proposals?.saveBlockedBy !== undefined && proposals.saveBlockedBy.errors > 0
       ? proposals.saveBlockedBy
       : null;
+  // In code mode a save is never refused for the content (`ProposalActionButton`).
+  const codeMode = proposals?.codeMode?.on === true;
+  const blocked =
+    here !== null && here.unsaved > 0 && !codeMode ? errors : null;
+  const commit = proposals?.commit;
+  const publishRefusedBy =
+    here === null
+      ? null
+      : (here.publishBlockedBy ??
+        (errors !== null && (codeMode || saveAndUpdate !== undefined)
+          ? `Fix the ${errors.errors === 1 ? "validation error" : `${errors.errors} validation errors`} first: only valid content is published.`
+          : null));
   return (
     <FloatingPanel
       side="right"
@@ -128,7 +146,7 @@ export function ChangesSheet({
                     ? `${here.save.error}. Press to try again.`
                     : undefined
                 }
-                onClick={choose(proposals.onSave)}
+                onClick={choose(saveAndUpdate ?? proposals.onSave)}
               >
                 {here.save.state === "saving" ? "Saving…" : "Save"}
               </SheetRow>
@@ -144,7 +162,25 @@ export function ChangesSheet({
             {reviewChangesLabel(pendingChanges, reviewCount)}
           </SheetRow>
         )}
-        {proposals?.onBuild !== undefined &&
+        {/*
+         * Save updates the preview too: one row for whatever that takes,
+         * offered on its own only while there is nothing to save first.
+         */}
+        {saveAndUpdate !== undefined &&
+          here !== null &&
+          here.unsaved === 0 &&
+          (updateDue || update.state === "updating") && (
+            <SheetRow
+              icon={<Hammer size={16} />}
+              disabled={!updateDue}
+              detail={previewUpdateDetail(update)}
+              onClick={choose(saveAndUpdate)}
+            >
+              {previewUpdateLabel(update)}
+            </SheetRow>
+          )}
+        {saveAndUpdate === undefined &&
+          proposals?.onBuild !== undefined &&
           here !== null &&
           here.code !== null &&
           isDependenciesState(here.code) && (
@@ -160,7 +196,8 @@ export function ChangesSheet({
               {describeDependencies(here.code).label}
             </SheetRow>
           )}
-        {proposals?.onBuild !== undefined &&
+        {saveAndUpdate === undefined &&
+          proposals?.onBuild !== undefined &&
           here !== null &&
           here.code !== null &&
           !isDependenciesState(here.code) && (
@@ -183,12 +220,28 @@ export function ChangesSheet({
                   : "Build"}
             </SheetRow>
           )}
+        {commit !== undefined && here !== null && (
+          <SheetRow
+            icon={<GitCommit size={16} />}
+            disabled={commit.state === "committing" || commit.upToDate === true}
+            detail={
+              commit.state === "committing"
+                ? "Committing the proposal to its branch…"
+                : commit.upToDate === true
+                  ? `Everything saved is committed to ${commit.branch}.`
+                  : `Commits the proposal to ${commit.branch}, for developers to find in git.`
+            }
+            onClick={choose(commit.onCommit)}
+          >
+            {commit.state === "committing" ? "Committing…" : "Commit"}
+          </SheetRow>
+        )}
         {proposals !== undefined && here !== null && (
           <SheetRow
             icon={<Upload size={16} />}
-            disabled={here.publishBlockedBy !== null}
+            disabled={publishRefusedBy !== null}
             detail={
-              here.publishBlockedBy ??
+              publishRefusedBy ??
               (here.unsaved > 0
                 ? "Saves the proposal, then publishes it"
                 : "Merges the proposal into the site")
@@ -213,4 +266,26 @@ export function ChangesSheet({
       </div>
     </FloatingPanel>
   );
+}
+
+function previewUpdateLabel(update: PreviewUpdate): string {
+  switch (update.state) {
+    case "updating":
+      return "Updating the preview…";
+    case "blocked":
+      return "Open the tab to update";
+    default:
+      return "Update the preview";
+  }
+}
+
+function previewUpdateDetail(update: PreviewUpdate): string {
+  switch (update.state) {
+    case "updating":
+      return "Showing the latest changes in the preview.";
+    case "blocked":
+      return "This browser updates the preview in a new tab, and did not let it open.";
+    default:
+      return "Show the latest changes in the preview.";
+  }
 }

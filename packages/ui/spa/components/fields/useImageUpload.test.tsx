@@ -17,7 +17,7 @@ jest.mock("../../utils/readImage", () => ({
   readImageFromFile: (...args: unknown[]) => mockReadImage(...args),
 }));
 const mockCreateFilePatch = jest.fn();
-jest.mock("./FileField", () => ({
+jest.mock("./createFilePatch", () => ({
   __esModule: true,
   createFilePatch: (...args: unknown[]) => mockCreateFilePatch(...args),
 }));

@@ -1,11 +1,12 @@
 import { useCallback } from "react";
 import { ModuleFilePath } from "@valbuild/core";
-import { JSONValue, Operation } from "@valbuild/core/patch";
+import { JSONValue } from "@valbuild/core/patch";
 import {
   useAddPatch,
   useShallowSourceAtPath,
 } from "../components/ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
+import { settingsSectionOps } from "../utils/settingsSectionOps";
 
 /**
  * Write settings fields, creating the section if it is absent.
@@ -42,33 +43,10 @@ export function useWriteSettingsSection<Field extends string>(
     current.status === "success" && "data" in current && !!current.data;
   return useCallback(
     (changes: Partial<Record<Field, JSONValue>>) => {
-      // Walked as `fields` rather than as the changes' own keys: it keeps the
-      // declared order, and it is what lets a field be told apart from one that
-      // is merely absent without a cast off `Object.entries`.
-      const changed = fields.filter((field) =>
-        Object.prototype.hasOwnProperty.call(changes, field),
-      );
-      if (changed.length === 0) {
-        return;
+      const ops = settingsSectionOps(section, fields, changes, hasSection);
+      if (ops.length > 0) {
+        addPatch(ops, "settings");
       }
-      if (hasSection) {
-        addPatch(
-          changed.map(
-            (field): Operation => ({
-              op: "add",
-              path: [section, field],
-              value: changes[field] ?? null,
-            }),
-          ),
-          "settings",
-        );
-        return;
-      }
-      const value: Record<string, JSONValue> = {};
-      for (const field of fields) {
-        value[field] = changes[field] ?? null;
-      }
-      addPatch([{ op: "add", path: [section], value }], "settings");
     },
     // `fields` is in here rather than assumed stable: both call sites pass a
     // module-level constant, so it costs nothing, and a caller that one day

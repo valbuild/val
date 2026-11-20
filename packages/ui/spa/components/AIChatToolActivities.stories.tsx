@@ -114,6 +114,23 @@ export const WithErrorExpanded: Story = {
   },
 };
 
+/**
+ * A code change in a proposal: the code read, a part of a file replaced
+ * (`edit_file`), then tidied. Named for what the person sees, as the
+ * whole-file `write_files` is.
+ */
+export const CodeEdit: Story = {
+  args: {
+    activities: [
+      activity("search_code", "complete", 0),
+      activity("read_file", "complete", 1),
+      activity("edit_file", "complete", 2),
+      activity("format_files", "pending", 3),
+    ],
+    defaultExpanded: true,
+  },
+};
+
 /** A tool the client does not know a label for falls back to its raw name. */
 export const UnknownTool: Story = {
   args: {

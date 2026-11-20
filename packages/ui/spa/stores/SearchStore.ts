@@ -14,6 +14,13 @@ import {
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
+import { yieldToMain } from "./yieldToMain";
+
+/**
+ * How long one slice of indexing may hold the thread: well under the 50 ms
+ * of a long task, so typing stays responsive while a big project is indexed.
+ */
+const INDEX_SLICE_MS = 12;
 
 /** What has to be cloned across the worker seam to index. */
 export type SourceSnapshot = Record<
@@ -135,7 +142,57 @@ export class SearchStore {
    * because only the host side knows what changed. See `StaleModules` in
    * `createSystem.ts`.
    */
-  async reindex(snapshot: SourceSnapshot): Promise<{
+  reindex(snapshot: SourceSnapshot): Promise<{
+    new: ModuleFilePath[];
+    all: ModuleFilePath[];
+  }> {
+    // A pass already waiting takes this snapshot too, newest per module:
+    // asked again per batch of a big record, the passes would otherwise
+    // queue up behind each other, each indexing a snapshot the next one
+    // makes old. Both callers get the one pass's answer.
+    const waiting = this.waitingReindex;
+    if (waiting !== null) {
+      Object.assign(waiting.snapshot, snapshot);
+      return waiting.result;
+    }
+    const merged: SourceSnapshot = { ...snapshot };
+    const result = this.oneAtATime(() => {
+      this.waitingReindex = null;
+      return this.reindexNow(merged);
+    });
+    this.waitingReindex = { snapshot: merged, result };
+    return result;
+  }
+  private waitingReindex: {
+    snapshot: SourceSnapshot;
+    result: Promise<{ new: ModuleFilePath[]; all: ModuleFilePath[] }>;
+  } | null = null;
+
+  /**
+   * The passes over the index, one after the other, in the order asked.
+   *
+   * A pass lets the thread go between slices, so two passes would otherwise
+   * run interleaved on one index: a search asked again as each batch of a
+   * `.jsonValues()` record lands starts a pass per batch, each with its own
+   * snapshot. A record module is indexed by entry identity, so an older
+   * snapshot's pass took out what a newer one had just indexed (the entry is
+   * a different object in each) and the newer one put it back -- unbounded,
+   * with the removals done without looking at the clock: the tab froze at
+   * 10,000 posts and the search never answered. In order, each pass starts
+   * from what the one before left, and a later pass is a later snapshot, so
+   * the index ends at the newest.
+   */
+  private oneAtATime<T>(pass: () => Promise<T>): Promise<T> {
+    const run = this.passes.then(pass);
+    this.passes = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+  private passes: Promise<void> = Promise.resolve();
+
+  private async reindexNow(snapshot: SourceSnapshot): Promise<{
     new: ModuleFilePath[];
     all: ModuleFilePath[];
   }> {
@@ -147,7 +204,22 @@ export class SearchStore {
     for (const moduleFilePath of target) {
       this.activity.work("search:index-module", moduleFilePath);
       const entry = snapshot[moduleFilePath];
-      indexModule(this.index, moduleFilePath, entry.source, entry.schema);
+      // A slice at a time, with the thread let go between: indexing a
+      // library or a record of 10,000 entries is seconds of work, and this
+      // runs on the thread the editor types on. Each slice goes on from where
+      // the last stopped (`indexModule` keeps what it walked, by entry).
+      while (
+        !indexModule(
+          this.index,
+          moduleFilePath,
+          entry.source,
+          entry.schema,
+          performance.now() + INDEX_SLICE_MS,
+        )
+      ) {
+        this.activity.work("search:index-slice", moduleFilePath);
+        await yieldToMain();
+      }
       if (!this.indexed.has(moduleFilePath)) {
         added.push(moduleFilePath);
       }
@@ -175,6 +247,9 @@ export class SearchStore {
    * path that no longer exists.
    */
   async forget(moduleFilePath: ModuleFilePath): Promise<void> {
+    // At once, not after the passes: nothing of a module that has gone may
+    // be found from here on. A pass already holding it in its snapshot is
+    // the caller's to have marked stale, as before.
     if (this.index !== null) {
       removeModule(this.index, moduleFilePath);
     }
@@ -188,19 +263,21 @@ export class SearchStore {
    * Kept for the case where the whole index is suspect — a schema-wide change,
    * or a first build. Routine change is served by {@link reindex}.
    */
-  async buildIndex(snapshot: SourceSnapshot): Promise<{
+  buildIndex(snapshot: SourceSnapshot): Promise<{
     new: ModuleFilePath[];
     all: ModuleFilePath[];
   }> {
-    this.activity.work(
-      "search:build-index",
-      undefined,
-      Object.keys(snapshot).length,
-    );
-    this.index = createSearchIndex();
-    this.indexed = new Set();
-    this.partial.clear();
-    return this.reindex(snapshot);
+    return this.oneAtATime(() => {
+      this.activity.work(
+        "search:build-index",
+        undefined,
+        Object.keys(snapshot).length,
+      );
+      this.index = createSearchIndex();
+      this.indexed = new Set();
+      this.partial.clear();
+      return this.reindexNow(snapshot);
+    });
   }
 
   async search(

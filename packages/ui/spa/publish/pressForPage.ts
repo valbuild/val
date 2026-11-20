@@ -4,7 +4,11 @@ import type {
 } from "@valbuild/shared/internal";
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import { forgetHandoffIntent, type HandoffIntent } from "./handoff";
+import {
+  forgetHandoffIntent,
+  type HandoffIntent,
+  type RefusedAnswer,
+} from "./handoff";
 import {
   type StudioJobClient,
   isTransientPublishError,
@@ -49,7 +53,10 @@ export const CHANGE_TIMEOUT_MS = 5 * 60_000;
 export const PRESS_RETRY_MS: readonly number[] = [1_000, 3_000, 9_000];
 
 /** The intents a tab presses for: everything but a proposal's build. */
-export type PressIntent = Exclude<HandoffIntent, { kind: "build-proposal" }>;
+export type PressIntent = Exclude<
+  HandoffIntent,
+  { kind: "build-proposal" } | { kind: "quick-preview" }
+>;
 /** How often a queued press asks for its job. */
 export const QUEUED_EVERY_MS = 3_000;
 
@@ -84,6 +91,8 @@ export type PressForPageOutcome =
       durable: boolean;
       /** The gate found nothing pending. */
       nothingToPublish?: true;
+      /** Content refused the merge: its answer, for the page to read. */
+      refused?: RefusedAnswer;
     };
 
 /** The message for a project that never finished loading in the tab. */
@@ -271,9 +280,18 @@ export async function pressForPage(options: {
      */
     const patchIds = () => (merge !== undefined ? [] : options.chain());
     const merging = merge !== undefined ? { merge } : {};
+    // The message typed before the tap: see `HandoffIntent`.
+    const commitMessage =
+      intent.kind === "press" ? intent.commitMessage : undefined;
     const pressDirectly = () =>
       merge !== undefined
-        ? options.client.pressMerge(merge, intent.requestId, intent.tab)
+        ? options.client.pressMerge(
+            merge,
+            intent.requestId,
+            intent.tab,
+            undefined,
+            commitMessage,
+          )
         : options.client.tryAgain(intent.requestId, intent.tab);
     try {
       let attempt = 0;
@@ -332,7 +350,20 @@ export async function pressForPage(options: {
        * check said no, or the proposal was saved since. Said as it is.
        */
       if (merge !== undefined && !isTransientPublishError(error)) {
-        return { kind: "not-pressed", message: details, durable: true };
+        return {
+          kind: "not-pressed",
+          message: details,
+          durable: true,
+          ...(error instanceof StudioPublishError
+            ? {
+                refused: {
+                  status: error.statusCode,
+                  message: error.message,
+                  body: error.body,
+                },
+              }
+            : {}),
+        };
       }
       return {
         kind: "not-pressed",

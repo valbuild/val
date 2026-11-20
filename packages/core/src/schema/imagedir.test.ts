@@ -263,6 +263,31 @@ describe("ImagesSchema", () => {
       );
       expect(result).toBeTruthy();
     });
+
+    /*
+     * An entry uploaded in a pending patch carries that patch's `patch_id`:
+     * the engine marks where the file op lands, and a library's file op lands
+     * on the entry (see architecture/media.md). Drafts are validated with the
+     * mark in place, so it must change nothing about the answer.
+     */
+    test("an entry whose file is still in a patch validates as it would without the patch_id", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const entry = {
+        width: 800,
+        height: 600,
+        mimeType: "image/webp",
+        alt: "Test",
+      };
+      const pending = { ...entry, patch_id: "p1" };
+      const without = schema["executeValidate"]("path" as SourcePath, {
+        "/public/val/test.webp": entry,
+      });
+      const withMark = schema["executeValidate"]("path" as SourcePath, {
+        "/public/val/test.webp": pending,
+      });
+      expect(filterCheckErrors(withMark)).toBe(false);
+      expect(filterCheckErrors(withMark)).toEqual(filterCheckErrors(without));
+    });
   });
 
   describe("serialization", () => {

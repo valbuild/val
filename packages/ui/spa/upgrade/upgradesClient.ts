@@ -125,6 +125,6 @@ export function upgradeDisplayName(path: UpgradePath): string {
     case "latest":
       return "Minor versions";
     case "majors":
-      return "Full upgrade";
+      return "Full update";
   }
 }

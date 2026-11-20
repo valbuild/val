@@ -29,9 +29,9 @@ export type ShellUrlState = {
   /**
    * The language being looked at, or `null` for all of them.
    *
-   * A view filter rather than a place: it changes what is LISTED and never what
-   * is reachable, so a link to a Norwegian page still opens it while the filter
-   * says English. `null` is the default and writes nothing to the URL — most
+   * A view filter rather than a place: it changes what is LISTED and where
+   * navigation leads, but a link to a Norwegian page still opens it while the
+   * filter says English. `null` is the default and writes nothing to the URL — most
    * projects have no languages at all, and they should not carry a param
    * saying so.
    */

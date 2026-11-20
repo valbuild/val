@@ -101,3 +101,18 @@ describe("before the Studio has the project's schemas", () => {
     expect(button.hasAttribute("disabled")).toBe(false);
   });
 });
+
+/*
+ * The demo's server runs in the tab and has no full check: every press of
+ * "Check everything" there stopped at the first file with a 501.
+ */
+describe("where the full check is not available", () => {
+  test("nothing offers it, and the page says why", () => {
+    view([], { status: "unavailable", reason: "Not in the demo." });
+    expect(
+      screen.queryByRole("button", { name: "Check everything" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByText("Not in the demo.")).toBeTruthy();
+  });
+});

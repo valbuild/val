@@ -159,3 +159,33 @@ function CreatableStory() {
 export const Creatable: Story = {
   render: () => <CreatableStory />,
 };
+
+/**
+ * A reference into a record of 10,000 entries, the first hundred of them
+ * named by a preview. Only the options on screen are rendered: search for
+ * `9999`, or press End, and the list goes there.
+ */
+function TenThousandKeysStory() {
+  const [value, setValue] = useState<string | null>("post-7000");
+  return (
+    <KeySelector
+      keys={manyKeys}
+      previews={manyPreviews}
+      value={value}
+      onChange={(key) => setValue(key)}
+    />
+  );
+}
+const manyKeys = Array.from({ length: 10_000 }, (_, i) => `post-${i}`);
+const manyPreviews: Record<string, KeyPreview> = Object.fromEntries(
+  manyKeys
+    .slice(0, 100)
+    .map((key, i) => [
+      key,
+      { title: `Post number ${i}`, subtitle: key, image: null },
+    ]),
+);
+
+export const TenThousandKeys: Story = {
+  render: () => <TenThousandKeysStory />,
+};

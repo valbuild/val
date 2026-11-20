@@ -340,9 +340,9 @@ function GalleryFiles({
     <div>
       {groups.map((group) => (
         <div key={group.dir}>
-          {/* Only when there is more than one: a heading repeating the
-              gallery's own directory on every row says nothing. */}
-          {groups.length > 1 && (
+          {/* Only for a subfolder. The gallery's own directory is on the
+              row above, so a heading repeating it says nothing. */}
+          {group.label !== null && (
             <p
               title={servedPath(group.dir)}
               className="truncate pl-8 pr-3 pt-1.5 pb-0.5 text-[0.625rem] uppercase tracking-wide text-fg-secondary-alt"
@@ -566,15 +566,23 @@ function UploadMenu({
  * Files grouped by the directory they are in, relative to the gallery's own.
  *
  * Relative because the gallery's directory is on the row above and repeating it
- * on every group heading pushes the part that differs off the end.
+ * on every group heading pushes the part that differs off the end. For the
+ * same reason the files directly in the gallery's directory have no heading
+ * at all: `label` is null for them.
+ *
+ * A remote file is grouped by the directory it was uploaded INTO, which its ref
+ * records after the hashes. Its ref is a URL, and grouping by that URL's own
+ * directory put every remote file under a heading of its own -- the whole URL
+ * up to the file name -- and the gallery's files under an "In this folder" one.
  */
 export function groupByDirectory(
   files: ShellMediaFile[],
   galleryDirectory: string,
-): { dir: string; label: string; files: ShellMediaFile[] }[] {
+): { dir: string; label: string | null; files: ShellMediaFile[] }[] {
   const groups = new Map<string, ShellMediaFile[]>();
   for (const file of files) {
-    const dir = file.ref.slice(0, file.ref.lastIndexOf("/")) || "/";
+    const path = localPathOf(file.ref);
+    const dir = path.slice(0, path.lastIndexOf("/")) || "/";
     const existing = groups.get(dir);
     if (existing) existing.push(file);
     else groups.set(dir, [file]);
@@ -588,12 +596,21 @@ export function groupByDirectory(
     }));
 }
 
-function relativeDirectory(dir: string, galleryDirectory: string): string {
-  if (dir === galleryDirectory) return "In this folder";
+/** Where a file sits in the project: a remote ref's own path, or the ref. */
+function localPathOf(ref: string): string {
+  const split = Internal.remote.splitRemoteRef(ref);
+  return split.status === "success" ? `/${split.filePath}` : ref;
+}
 
-  const prefix = galleryDirectory.endsWith("/")
-    ? galleryDirectory
-    : `${galleryDirectory}/`;
+function relativeDirectory(
+  dir: string,
+  galleryDirectory: string,
+): string | null {
+  // `/public/val/images/` and `/public/val/images` are one directory.
+  const own = galleryDirectory.replace(/\/+$/, "") || "/";
+  if (dir === own) return null;
+
+  const prefix = own.endsWith("/") ? own : `${own}/`;
   return dir.startsWith(prefix)
     ? dir.slice(prefix.length)
     : // Not under the gallery at all, so there is nothing to make it relative

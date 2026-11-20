@@ -399,7 +399,9 @@ test.describe("a media gallery upload", () => {
 
     // The ref is `Internal.createFilename`'s — the fixture's basename plus the
     // first five hex of its content hash — so it is stable for these bytes.
-    const tile = studio.locator('img[src*="probe-2x2_"]');
+    // The TILE's picture: the upload is opened once it is in, so the panel
+    // beside the grid shows the same file a second time.
+    const tile = studio.locator('button[aria-pressed] img[src*="probe-2x2_"]');
     await expect(tile).toHaveCount(1, { timeout: 30_000 });
 
     // The patch exists, so this is an upload and not a no-op that left the

@@ -1,9 +1,4 @@
-import {
-  Internal,
-  ModulePath,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { Internal, ModulePath, SourcePath } from "@valbuild/core";
 import { useSchemaAtPath } from "../components/ValFieldProvider";
 
 /**
@@ -63,19 +58,9 @@ export function useParent(path: SourcePath) {
   };
 }
 
-export const isParentRecord = (
-  path: SourcePath,
-  maybeParentPath: SourcePath,
-  parentSchemaAtPath: SerializedSchema | undefined,
-) => maybeParentPath !== path && parentSchemaAtPath?.type === "record";
-export const isParentArray = (
-  path: SourcePath,
-  maybeParentPath: SourcePath,
-  parentSchemaAtPath: SerializedSchema | undefined,
-) => maybeParentPath !== path && parentSchemaAtPath?.type === "array";
-// Any media collection — images, files or videos — is a gallery, not a
-// record: listing them by name was how a new kind of collection got missed.
-export const isRecord = (schema: SerializedSchema | undefined) =>
-  schema?.type === "record" && schema.mediaType === undefined;
-export const isArray = (schema: SerializedSchema | undefined) =>
-  schema?.type === "array";
+export {
+  isParentRecord,
+  isParentArray,
+  isRecord,
+  isArray,
+} from "./schemaShape";

@@ -24,6 +24,9 @@ examples/tanstack/.val/*
 
 pnpm-lock.yaml
 
+# wrangler's scratch (the isolate probe in scenarios/measure/isolate).
+**/.wrangler/
+
 # Unzipped `val debug` snapshots: customer source, not ours to format.
 debug/*/
 

@@ -1,4 +1,5 @@
 import { ModuleFilePath, SourcePath, Internal } from "@valbuild/core";
+import { recordRemovePatch } from "./recordPatches";
 import { array } from "@valbuild/core/fp";
 import { Link, Trash2 } from "lucide-react";
 import { Button } from "./designSystem/button";
@@ -150,12 +151,7 @@ function DeleteRecordButton({
       variant={variant}
       onClick={() => {
         addPatch(
-          [
-            {
-              op: "remove",
-              path: patchPath as array.NonEmptyArray<string>,
-            },
-          ],
+          recordRemovePatch(patchPath as array.NonEmptyArray<string>),
           "record",
         );
         navigate(parentPath);

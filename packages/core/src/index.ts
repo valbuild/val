@@ -163,7 +163,12 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
-import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
+import {
+  isJson,
+  isJsonFromServer,
+  getJsonImport,
+  resolveJsonValues,
+} from "./source/json";
 import { isExternal, hasInlineExternalEntries } from "./source/external";
 import {
   createExternalFileRef,
@@ -516,6 +521,7 @@ const Internal = {
   },
   isVal,
   isJson,
+  isJsonFromServer,
   getJsonImport,
   resolveJsonValues,
   isExternal,

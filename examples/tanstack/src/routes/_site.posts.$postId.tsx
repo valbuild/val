@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { ValRichText } from "@valbuild/tanstack";
 import { useVal, useValRoute } from "../val/client";
 import { NotFound } from "../components/NotFound";
@@ -51,6 +51,21 @@ function Post() {
         <a href={shareUrl} target="_blank" rel="noreferrer">
           Share this post
         </a>
+      </p>
+      {/*
+       * The router's <Link> renders its <a> with React.createElement, which
+       * takes the title as a child argument rather than in props: the one
+       * place a string reaches the page outside `jsx`, and is cleaned there.
+       */}
+      <p>
+        Permalink:{" "}
+        <Link
+          to="/posts/$postId"
+          params={Route.useParams()}
+          data-testid="permalink"
+        >
+          {post.title}
+        </Link>
       </p>
     </main>
   );

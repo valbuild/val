@@ -2,12 +2,12 @@ import {
   Check,
   ChevronDown,
   CircleArrowUp,
+  CodeXml,
   GitBranch,
   GitCompare,
   Globe,
   Link2,
   List,
-  Paintbrush,
   Pencil,
   Plus,
   X,
@@ -17,6 +17,11 @@ import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
 import { Spinner } from "../designSystem/spinner";
 import type { ProposalSummary, StudioLocation } from "./types";
+import {
+  PreviewProblemCard,
+  PreviewProblemDot,
+  type PreviewProblem,
+} from "./PreviewProblemCard";
 
 /**
  * Where you are -- the site, or one proposal -- and the way to go somewhere
@@ -47,9 +52,10 @@ export function ProposalSwitcher({
   onCompare,
   onCopyLink,
   onClose,
-  onOpenDesign,
   loading = false,
   leaving = null,
+  problem = null,
+  codeModeLine = null,
   defaultOpen = false,
 }: {
   location: StudioLocation;
@@ -70,19 +76,25 @@ export function ProposalSwitcher({
   onCopyLink?: () => void;
   /** Close it -- discard it, for an upgrade. */
   onClose?: () => void;
-  /**
-   * Its design tab, where the assistant changes its code (valbuild/home
-   * `docs/design-tab.md`). Absent: not offered.
-   */
-  onOpenDesign?: () => void;
   /** See `TopBarProposals.loading`. */
   loading?: boolean;
   /** See `TopBarProposals.leaving`: said here, and nothing more to choose. */
   leaving?: string | null;
+  /**
+   * The preview could not be updated: a dot on the button, and the card at
+   * the top of the menu. See `PreviewProblem`.
+   */
+  problem?: PreviewProblem | null;
+  /**
+   * While the proposal is in code mode: "Code mode on: turned on by Kari,
+   * 10 minutes ago", under its name. Everyone in it sees it.
+   */
+  codeModeLine?: string | null;
   /** For stories: show the menu open. */
   defaultOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const showProblem = problem !== null && location.kind === "proposal";
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setIsOpen(false), []);
   useDismissOnOutsidePointer(containerRef, isOpen, close);
@@ -116,13 +128,13 @@ export function ProposalSwitcher({
             : unknown
               ? "Finding out where this Studio is"
               : location.kind === "proposal"
-                ? `In the proposal ${location.proposal.displayName}. Switch`
+                ? `In the proposal ${location.proposal.displayName}.${showProblem ? " Its preview couldn't be updated." : ""} Switch`
                 : "On the site. Switch to a proposal"
         }
         disabled={leaving !== null || unknown}
         onClick={() => setIsOpen((open) => !open)}
         className={cn(
-          "inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+          "relative inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
           "disabled:cursor-progress",
           location.kind === "proposal"
             ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
@@ -152,6 +164,7 @@ export function ProposalSwitcher({
         {leaving === null && !unknown && (
           <ChevronDown size={13} className="shrink-0 opacity-70" />
         )}
+        {showProblem && !busy && <PreviewProblemDot />}
       </button>
       {isOpen && (
         <div
@@ -180,7 +193,20 @@ export function ProposalSwitcher({
                     .filter((part) => part !== null)
                     .join(" · ")}
                 </div>
+                {codeModeLine !== null && (
+                  <div className="mt-1 flex items-center gap-1 text-[0.6875rem] text-fg-proposal">
+                    <CodeXml size={12} className="shrink-0" />
+                    <span className="truncate">{codeModeLine}</span>
+                  </div>
+                )}
               </div>
+              {showProblem && problem !== null && (
+                <PreviewProblemCard
+                  problem={problem}
+                  onAct={() => setIsOpen(false)}
+                  className="mx-1 mb-1"
+                />
+              )}
               {onCompare !== undefined && (
                 <MenuRow
                   icon={<GitCompare size={14} />}
@@ -188,22 +214,16 @@ export function ProposalSwitcher({
                   onClick={choose(onCompare)}
                 />
               )}
-              {onOpenDesign !== undefined && (
-                <MenuRow
-                  icon={<Paintbrush size={14} />}
-                  label="Open design tab"
-                  detail="Change its code with the assistant"
-                  onClick={choose(onOpenDesign)}
-                />
-              )}
               {/* An upgrade is named by Val Build, after its kind. */}
-              {!location.proposal.upgrade && onRename !== undefined && (
-                <MenuRow
-                  icon={<Pencil size={14} />}
-                  label="Rename…"
-                  onClick={choose(onRename)}
-                />
-              )}
+              {!location.proposal.upgrade &&
+                !location.proposal.siteCode &&
+                onRename !== undefined && (
+                  <MenuRow
+                    icon={<Pencil size={14} />}
+                    label="Rename…"
+                    onClick={choose(onRename)}
+                  />
+                )}
               {onCopyLink !== undefined && (
                 <MenuRow
                   icon={<Link2 size={14} />}
@@ -331,8 +351,11 @@ export function ProposalLocationChip({
   open,
   onClick,
   busy = false,
+  problem = false,
 }: {
   location: StudioLocation;
+  /** The preview could not be updated: a dot, and the card in the sheet. */
+  problem?: boolean;
   /** Whether its sheet is the one open. */
   open: boolean;
   onClick: () => void;
@@ -351,7 +374,7 @@ export function ProposalLocationChip({
       }
       onClick={onClick}
       className={cn(
-        "inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2",
+        "relative inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2",
         location.kind === "proposal"
           ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
           : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
@@ -369,6 +392,9 @@ export function ProposalLocationChip({
         <Globe size={15} className="shrink-0" />
       )}
       <ChevronDown size={13} className="shrink-0 opacity-70" />
+      {problem && location.kind === "proposal" && !busy && (
+        <PreviewProblemDot />
+      )}
     </button>
   );
 }
@@ -383,12 +409,16 @@ export function ProposalIcon({
   size,
   className,
 }: {
-  proposal: Pick<ProposalSummary, "upgrade">;
+  proposal: Pick<ProposalSummary, "upgrade" | "siteCode">;
   size: number;
   className?: string;
 }) {
+  // The site's own code mode is the site, changed: the code it is for, not
+  // a branch someone named.
   return proposal.upgrade ? (
     <CircleArrowUp size={size} className={className} />
+  ) : proposal.siteCode ? (
+    <CodeXml size={size} className={className} />
   ) : (
     <GitBranch size={size} className={className} />
   );

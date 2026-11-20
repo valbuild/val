@@ -12,6 +12,7 @@ import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 import { VERSION } from ".";
 import { devServerFetch } from "./devServerFetch";
+import { SPA_DEV_ORIGIN } from "./spaDevServer";
 
 export function createUIRequestHandler(): ValUIRequestHandler {
   return async (path, url) => {
@@ -39,7 +40,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
     // Studio without its JavaScript, and the failure then surfaces wherever the
     // page is being waited on instead of here. See `devServerFetch`.
     const res = await devServerFetch(
-      `http://localhost:5173/api/val/static${devPath}${search}`,
+      `${SPA_DEV_ORIGIN}/api/val/static${devPath}${search}`,
       acceptType ? { Accept: acceptType } : {},
     );
     const headersObj: Record<string, string> = {};

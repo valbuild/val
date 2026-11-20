@@ -24,6 +24,9 @@ export default defineConfig({
     "process.env.VAL_E2E_REMOTE_MEDIA": JSON.stringify(
       process.env.VAL_E2E_REMOTE_MEDIA ?? "",
     ),
+    "process.env.VAL_E2E_SCALE": JSON.stringify(
+      process.env.VAL_E2E_SCALE ?? "",
+    ),
   },
   /*
    * The dependencies of `@valbuild/shared/internal`, bundled up front.

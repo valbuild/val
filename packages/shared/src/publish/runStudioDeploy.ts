@@ -234,6 +234,14 @@ export interface StudioDeployOptions {
     files: Record<string, string>,
   ) => Promise<Record<string, string>>;
   onPhase: (phase: DeployPhase) => void;
+  /**
+   * Stops the deploy between its steps: a cancelled proposal build. What is
+   * in flight is the caller's to stop -- the requests, through the client's
+   * `fetchImpl`; the builder, by stopping its worker -- and nothing after the
+   * step it was on is started, so a build stopped before its upload is never
+   * declared.
+   */
+  signal?: AbortSignal;
 }
 
 export async function runStudioDeploy(
@@ -245,6 +253,9 @@ export async function runStudioDeploy(
     message,
     problems: [],
   });
+  /** The deploy was stopped: `null` while it was not. */
+  const stopped = (): StudioDeployResult | null =>
+    options.signal?.aborted ? failed(DEPLOY_STOPPED_MESSAGE) : null;
 
   /*
    * The build content already holds under this name, published as any build
@@ -290,7 +301,7 @@ export async function runStudioDeploy(
     onPhase({ kind: "getting-ready" });
     builder = await options.loadBuilder();
   } catch (error) {
-    return failed(messageOf(error));
+    return stopped() ?? failed(messageOf(error));
   }
 
   let target: BuildTarget;
@@ -299,6 +310,8 @@ export async function runStudioDeploy(
   /** The live build's public files fetched from the site, when only paths are known. */
   let refetched: Record<string, string>;
   try {
+    const stoppedNow = stopped();
+    if (stoppedNow !== null) return stoppedNow;
     onPhase({ kind: "reading" });
     /*
      * Together, because they are one answer with two halves and neither is
@@ -384,13 +397,15 @@ export async function runStudioDeploy(
       );
     }
   } catch (error) {
-    return failed(messageOf(error));
+    return stopped() ?? failed(messageOf(error));
   }
 
   let build: BuildOutput;
   let git: { commit: string; branch: string } | null;
   let wiredSource: Record<string, string>;
   try {
+    const stoppedNow = stopped();
+    if (stoppedNow !== null) return stoppedNow;
     onPhase({ kind: "building" });
     /*
      * The branch the last build was wired at, which is the only place one can
@@ -471,6 +486,8 @@ export async function runStudioDeploy(
         layerRev: target.project.rev,
       });
       if (held !== null) return held;
+      const stoppedNow = stopped();
+      if (stoppedNow !== null) return stoppedNow;
       onPhase({ kind: "building" });
     }
     build = await builder.buildUserApp(input);
@@ -493,11 +510,13 @@ export async function runStudioDeploy(
       }
     }
   } catch (error) {
-    return failed(messageOf(error));
+    return stopped() ?? failed(messageOf(error));
   }
 
   let artifacts;
   try {
+    const stoppedNow = stopped();
+    if (stoppedNow !== null) return stoppedNow;
     /*
      * With the source it was built from, so the stored source advances with
      * the site. Without it the next publish starts from the copy before this
@@ -507,8 +526,10 @@ export async function runStudioDeploy(
       projectSource: wiredSource,
     });
   } catch (error) {
-    return failed(messageOf(error));
+    return stopped() ?? failed(messageOf(error));
   }
+  const stoppedAfterBuild = stopped();
+  if (stoppedAfterBuild !== null) return stoppedAfterBuild;
 
   if (options.target === undefined && options.liveLayer !== undefined) {
     const live = await options.liveLayer().catch(() => undefined);
@@ -656,6 +677,9 @@ export function carriedInto(
       key.startsWith(PUBLIC_PREFIX) && !produced.has(key) && !deleted.has(key),
   );
 }
+
+/** What a deploy stopped by its `signal` answers. */
+export const DEPLOY_STOPPED_MESSAGE = "The build was stopped.";
 
 const asDeployResult = (published: StudioPublishResult): StudioDeployResult => {
   switch (published.status) {

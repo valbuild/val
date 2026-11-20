@@ -1,4 +1,6 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { formatRelativeTime } from "../../utils/formatRelativeTime";
+export { formatRelativeTime };
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
@@ -43,7 +45,16 @@ import {
 export function toShellPages(
   root: SitemapItem,
   modulesWithDrafts: ReadonlySet<string>,
+  /**
+   * The language a page is in, or null for none. See `useShellData`, which
+   * asks `localeAt`; absent where nobody asked, which is every page in none.
+   */
+  localeOf: (sourcePath: SourcePath) => string | null = () => null,
 ): ShellPage[] {
+  const localeOfItem = (item: SitemapItem) => {
+    const locale = item.sourcePath ? localeOf(item.sourcePath) : null;
+    return locale !== null ? { locale } : {};
+  };
   const toPage = (item: SitemapItem): ShellPage => ({
     // The row's id is the content it opens. That makes the id and the
     // navigation target the same string, so the app can resolve the route it
@@ -61,6 +72,7 @@ export function toShellPages(
     hasDraft: item.moduleFilePath
       ? modulesWithDrafts.has(item.moduleFilePath)
       : undefined,
+    ...localeOfItem(item),
     // A row with a source path is a route Val resolves, which is exactly the
     // condition for the canvas: it can ask the running site what is on it.
     // A row without one is a path segment that only exists to hold children.
@@ -159,8 +171,14 @@ function entryPathOf(sourcePath: SourcePath): SourcePath {
 export function toDataModules(
   root: ExplorerItem,
   modulesWithDrafts: ReadonlySet<string>,
+  /** The language a whole module is in, or null — see `localeOfModuleRoot`. */
+  localeOfModule: (moduleFilePath: string) => string | null = () => null,
 ): ShellDataModule[] {
   const modules: ShellDataModule[] = [];
+  const localeOfModuleItem = (moduleFilePath: string) => {
+    const locale = localeOfModule(moduleFilePath);
+    return locale !== null ? { locale } : {};
+  };
   const walk = (item: ExplorerItem) => {
     if (item.isDirectory) {
       item.children.forEach(walk);
@@ -174,6 +192,7 @@ export function toDataModules(
       moduleFilePath: item.fullPath,
       errorCount: item.errors?.ownCount,
       hasDraft: modulesWithDrafts.has(item.fullPath),
+      ...localeOfModuleItem(item.fullPath),
     });
   };
   walk(root);
@@ -437,42 +456,6 @@ export function withStudioPublish(
   return deployments.map((deployment) =>
     deployment.commitSha === commit ? { ...deployment, publish } : deployment,
   );
-}
-
-const MINUTE = 60;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/**
- * An ISO timestamp as the relative string the shell's lists render.
- *
- * `now` is a parameter rather than a call to `Date.now()` so the result is a
- * function of its inputs and can be tested.
- */
-export function formatRelativeTime(iso: string, now: number): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) {
-    // Better to show the raw value than to claim a time we could not read.
-    return iso;
-  }
-  const seconds = Math.round((now - then) / 1000);
-  if (seconds < 0) {
-    return "just now";
-  }
-  if (seconds < 45) {
-    return "just now";
-  }
-  if (seconds < HOUR) {
-    return plural(Math.round(seconds / MINUTE), "minute");
-  }
-  if (seconds < DAY) {
-    return plural(Math.round(seconds / HOUR), "hour");
-  }
-  return plural(Math.round(seconds / DAY), "day");
-}
-
-function plural(count: number, unit: string): string {
-  return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
 }
 
 /**

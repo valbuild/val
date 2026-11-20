@@ -3,6 +3,7 @@ import http from "http";
 import os from "os";
 import path from "path";
 import { resolvePublishCredential } from "./credentials";
+import { VERSION } from "../version";
 
 /**
  * A fake content service.
@@ -167,6 +168,8 @@ describe("the publish credential", () => {
       // further: what publishes is the ten minute token that came back.
       expect(request.headers["x-val-pat"]).toBe(A_PAT);
       expect(request.headers.authorization).toBeUndefined();
+      // Which `val` asked, so Val Build can tell old CLIs from new ones.
+      expect(request.headers["x-val-client"]).toBe(`@valbuild/cli@${VERSION}`);
     } finally {
       await content.close();
     }

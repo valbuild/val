@@ -70,6 +70,7 @@ import {
   SharedValConfig,
   ValClient,
   getPageRouterSourceFolder,
+  type ModuleVersion,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
@@ -92,10 +93,10 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
 import { StudioOutOfDateDialog } from "./StudioOutOfDateDialog";
 import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
+import { HeldEditsBanner } from "./HeldEditsBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
@@ -118,6 +119,7 @@ import {
   type UseSiteHandoff,
 } from "../publish/useSiteHandoff";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
+import { directFileUploadSettings } from "../stores/react/directFileUploadSettings";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
@@ -177,7 +179,23 @@ export type AIContentBlock =
 export type AIMessageContent = string | AIContentBlock[];
 
 export type AIMessagesResponse = {
-  messages: { role: string; content: AIMessageContent }[];
+  messages: {
+    role: string;
+    content: AIMessageContent;
+    /** Who asked, on a user message in a proposal's chat. */
+    authorId?: string | null;
+    /**
+     * On a user message: the tools called in the turn it asked for, as the
+     * content server kept them (valbuild/home `docs/proposals.md`, Flow H).
+     */
+    toolCalls?: {
+      toolCallId: string;
+      name: string;
+      isError: boolean;
+      questions?: unknown[];
+      answers?: unknown[];
+    }[];
+  }[];
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
@@ -345,6 +363,8 @@ type ValContextValue = {
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
+    /** In a proposal: its chats, everyone's, instead of your own. */
+    proposal?: string;
   }) => Promise<AISessionsResponse>;
   aiGetSessionMessages: (
     sessionId: string,
@@ -365,7 +385,7 @@ type ValContextValue = {
     files: { filePath: string; key: string; isRemote?: boolean }[];
   }) => Promise<{
     patchId: PatchId;
-    files: { filePath: string; metadata: ImageMetadata }[];
+    files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
   }>;
 };
 /**
@@ -404,6 +424,8 @@ export function ValProvider({
   config: _config,
   valModules,
   dispatchValEvents,
+  pageHolds,
+  pageHoldsVersions,
   theme,
   setTheme,
   handsOffPublish = false,
@@ -413,6 +435,13 @@ export function ValProvider({
   config: SharedValConfig | null;
   valModules?: ValModules | null;
   dispatchValEvents: boolean;
+  /**
+   * The overlay's: what the page behind it holds a draft of, as it reported
+   * it. See `ValOverlayEmitter`.
+   */
+  pageHolds?: readonly ModuleFilePath[];
+  /** The version the page holds each at, where it said. */
+  pageHoldsVersions?: Readonly<Partial<Record<ModuleFilePath, ModuleVersion>>>;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
   /**
@@ -435,6 +464,13 @@ export function ValProvider({
   // config parameter is unused but kept for API compatibility
   void _config;
   const demo = useValDemo();
+  /*
+   * Said to the stores as each `/stat` is sent (`StatStore.asked`), so the
+   * manifest its answer carries is decided at that moment. A ref: the system
+   * is built below, from what this hook's answers configure.
+   */
+  const statAskedRef = useRef<() => void>(() => {});
+  const statAsked = useCallback(() => statAskedRef.current(), []);
   const [
     stat,
     _setStat,
@@ -448,7 +484,7 @@ export function ValProvider({
     contentHolds,
     contentHoldsAt,
     refreshStat,
-  ] = useStatus(client);
+  ] = useStatus(client, statAsked);
 
   const isStatConnected = "data" in stat && !!stat.data;
   /**
@@ -499,10 +535,12 @@ export function ValProvider({
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
+      proposal?: string;
     }): Promise<AISessionsResponse> => {
       const res = await client("/ai/sessions", "GET", {
         query: {
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          proposal: opts?.proposal,
           cursor_updatedAt: opts?.cursor?.updatedAt,
           cursor_id: opts?.cursor?.id,
         },
@@ -560,7 +598,7 @@ export function ValProvider({
       files: { filePath: string; key: string; isRemote?: boolean }[];
     }): Promise<{
       patchId: PatchId;
-      files: { filePath: string; metadata: ImageMetadata }[];
+      files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
     }> => {
       const res = await client("/ai/session-image-to-patch-file", "POST", {
         body: args,
@@ -614,8 +652,8 @@ export function ValProvider({
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
    * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
-   * which build answered and `schemaSha` which schema it runs;
-   * `jsonEntriesSha` is an input to a refetch it does not do yet.
+   * which build answered (read by nothing any more); `jsonEntriesSha` is an
+   * input to a refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -661,13 +699,12 @@ export function ValProvider({
     "data" in stat && stat.data ? stat.data.headVersion : undefined;
   /**
    * Which build answered: its chain is relative to the source with this sha.
-   * See `BaseAlignment`.
+   * Carried onto the snapshot and read by nothing since the manifest names
+   * each module's base (`ManifestSource`); goes with `/stat`'s `sourcesSha`
+   * (see "Release-delayed deletions" in `docs/plans/one-content-model.md`).
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
-  /** Which schema that build runs. See `SchemaFreshnessWatch`. */
-  const statSchemaSha =
-    "data" in stat && stat.data ? stat.data.schemaSha : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -680,7 +717,6 @@ export function ValProvider({
             headPatchId: statPatchHead,
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
-            schemaSha: statSchemaSha,
           }
         : null,
     [
@@ -692,7 +728,6 @@ export function ValProvider({
       statPatchHead,
       statHeadVersion,
       statSourcesSha,
-      statSchemaSha,
     ],
   );
 
@@ -711,24 +746,7 @@ export function ValProvider({
         error: string;
       }
   > => {
-    let res = await client("/direct-file-upload-settings", "POST", {});
-    let retries = 0;
-    while (res.status === null && retries < 5) {
-      Internal.log.debug(
-        "Failed to get direct file upload settings, retrying...",
-        res,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
-      res = await client("/direct-file-upload-settings", "POST", {});
-      retries++;
-    }
-    if (res.status === 200) {
-      return { status: "success", data: res.json };
-    }
-    return {
-      status: "error",
-      error: "Could not get direct file upload settings",
-    };
+    return directFileUploadSettings(client);
   }, [client]);
 
   /**
@@ -772,6 +790,13 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings, demo],
   );
+
+  useEffect(() => {
+    statAskedRef.current = () => system.stat.asked();
+    return () => {
+      statAskedRef.current = () => {};
+    };
+  }, [system]);
 
   /** See {@link ValContextValue.serverPublishingPatchIds}. */
   const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
@@ -1649,12 +1674,16 @@ export function ValProvider({
                           customer's own components behind the Studio show the
                           edit rather than the committed value.
                         */}
-                          <ValOverlayEmitter enabled={dispatchValEvents} />
+                          <ValOverlayEmitter
+                            enabled={dispatchValEvents}
+                            pageHolds={pageHolds}
+                            pageHoldsVersions={pageHoldsVersions}
+                          />
                           <LocalModulesErrorBanner />
+                          <HeldEditsBanner />
                           <ProjectLocalesProvider>
                             {children}
                           </ProjectLocalesProvider>
-                          <SchemaOutOfDateGate />
                           <StudioOutOfDateGate />
                         </ValFieldProvider>
                       </ValRemoteProvider>
@@ -1696,21 +1725,7 @@ function StudioOutOfDateGate() {
 }
 
 /**
- * The schema on the server no longer matches the one this Studio holds.
- *
- * Once true it stays true — see `SchemaFreshness` in `StatusStore`. There is no
- * way back without a reload, because every open field was resolved against a
- * schema that has been replaced, and a gate that could flicker off would let the
- * user keep editing against one that is gone.
- */
-function SchemaOutOfDateGate() {
-  const status = useValStatus();
-  if (status.schema !== "out-of-date") return null;
-  return <SchemaOutOfDateDialog />;
-}
-
-/**
- * Everything the editor is TOLD: errors, the network, the schema's freshness.
+ * Everything the editor is TOLD: errors, the network, held edits.
  *
  * One subscription for all of them, because `StatusStore` emits one event for
  * all of them — a UI shows them together, and splitting them into four
@@ -1736,7 +1751,7 @@ const EMPTY_STATUS: StatusSnapshot = {
   errors: [],
   networkErrorSince: null,
   schemaError: null,
-  schema: "current",
+  held: [],
 };
 
 /**
@@ -2969,7 +2984,16 @@ type PagePublishResult =
 export type ProposalPublishPress =
   | { status: "requested" }
   | { status: "handed-off" }
-  | { status: "error"; message: string };
+  | {
+      status: "error";
+      message: string;
+      /**
+       * What content answered, when it refused the press: a Publish whose
+       * commit was refused carries `/commit`'s code and fields
+       * (`commitRefusalOf`), and the dialog offers what helps.
+       */
+      cause?: unknown;
+    };
 
 /**
  * The newest publish of `proposal` this tab follows -- pressed here, by the
@@ -3071,7 +3095,11 @@ export function usePublishSummary() {
     val === null ||
     pendingNeedsBuild(val.system.patchStore);
   const publish = useCallback(
-    async (summary: string): Promise<PagePublishResult> => {
+    async (
+      summary: string,
+      /** See `PublishOptions.invalidAllowed`: a save in code mode. */
+      saveOptions?: { invalidAllowed?: boolean },
+    ): Promise<PagePublishResult> => {
       /*
        * A page that cannot build hands the publish to a Studio tab. The press
        * that opened the summary normally prepared it already -- that is the
@@ -3142,7 +3170,12 @@ export function usePublishSummary() {
        * job"). A connected project on a host of its own commits, and its host
        * picks the commit up.
        */
-      const publishOptions = publishesAsJobs ? { request: true } : undefined;
+      const publishOptions = {
+        ...(publishesAsJobs ? { request: true } : {}),
+        ...(saveOptions?.invalidAllowed === true
+          ? { invalidAllowed: true }
+          : {}),
+      };
       /**
        * One retry for `chain-moved`, and no more.
        *
@@ -3199,7 +3232,11 @@ export function usePublishSummary() {
             // work has shipped.
             const said = describePublishRefusal(res);
             handoff.cancel(said.message);
-            val.system.status.reportError(said.message, said.details);
+            val.system.status.reportError(
+              said.message,
+              said.details,
+              said.action,
+            );
           } else if (res.status === "failed") {
             handoff.cancel("Could not publish");
             val.system.status.reportError(
@@ -3260,13 +3297,23 @@ export function usePublishSummary() {
        * One that needs a build after all asks for the tab with another tap
        * (`onNeedsBuilder`).
        */
-      options: { needsBuild: boolean } = { needsBuild: true },
+      options: { needsBuild: boolean; commitMessage?: string } = {
+        needsBuild: true,
+      },
     ): Promise<ProposalPublishPress> => {
       /*
        * Not `buildsInTab`: this address's own saves are commits, and build
        * nothing, but a merge is a managed publish of the site.
        */
-      if (handoff.prepare(options.needsBuild, { merge: proposalName })) {
+      if (
+        handoff.prepare(options.needsBuild, {
+          merge: proposalName,
+          // Typed before the tap: the tab's press carries it.
+          ...(options.commitMessage !== undefined
+            ? { commitMessage: options.commitMessage }
+            : {}),
+        })
+      ) {
         return { status: "handed-off" };
       }
       const lock = beginSiteOperation("publish");
@@ -3285,6 +3332,8 @@ export function usePublishSummary() {
             proposalName,
             requestId,
             PUBLISH_TAB_ID,
+            undefined,
+            options.commitMessage,
           );
           publishJobs.track({
             requestId,
@@ -3315,6 +3364,7 @@ export function usePublishSummary() {
           return {
             status: "error",
             message: error instanceof Error ? error.message : String(error),
+            cause: error,
           };
         }
       } finally {
@@ -3546,6 +3596,15 @@ export type ShallowSource = EnsureAllTypes<{
   literal: string;
   richtext: unknown[];
 }>;
+
+/**
+ * The signed-in person's profile id, or null where nobody is: local dev
+ * without `val login`, the demo. What a write's `updatedBy` is compared with
+ * to tell one's own changes from somebody else's.
+ */
+export function useCurrentProfileId(): string | null {
+  return useContext(ValContext).profileId;
+}
 
 export function useCurrentProfile() {
   const { profileId, profiles, mode } = useContext(ValContext);
@@ -4075,6 +4134,17 @@ export function useShallowModulesAtPaths<
   const val = useValSystem();
   const initializedAt = useInitialized();
   const sourcesVersion = useSourcesVersion();
+  const previous = useRef<ShallowSourcesOf<SchemaType> | null>(null);
+  const mapped = useRef(
+    new Map<
+      ModuleFilePath,
+      {
+        source: Json;
+        type: SchemaType;
+        mapped: ReturnType<typeof mapSource<SchemaType>>;
+      }
+    >(),
+  );
   const sourcesRes = useMemo(() => {
     if (val === null) return null;
     void sourcesVersion;
@@ -4086,7 +4156,7 @@ export function useShallowModulesAtPaths<
       val.system.sourceStore.moduleSource(moduleFilePath),
     );
   }, [val, sourcesVersion, moduleFilePaths]);
-  return useMemo((): ShallowSourcesOf<SchemaType> => {
+  const result = useMemo((): ShallowSourcesOf<SchemaType> => {
     if (initializedAt === null) {
       return { status: "loading" };
     }
@@ -4122,12 +4192,18 @@ export function useShallowModulesAtPaths<
         notFoundPaths.push(moduleFilePath);
         continue;
       }
-      const mappedSource = mapSource(
-        moduleFilePath,
-        "" as ModulePath,
-        type,
+      // Mapped again only when the module moved: one keystroke moves
+      // `sourcesVersion` for every module, and a library is 10,000 keys.
+      const kept = mapped.current.get(moduleFilePath);
+      const mappedSource =
+        kept !== undefined && kept.source === source && kept.type === type
+          ? kept.mapped
+          : mapSource(moduleFilePath, "" as ModulePath, type, source);
+      mapped.current.set(moduleFilePath, {
         source,
-      );
+        type,
+        mapped: mappedSource,
+      });
 
       if (mappedSource.status === "success") {
         allSources.push(mappedSource.data as ShallowSource[SchemaType]);
@@ -4141,11 +4217,25 @@ export function useShallowModulesAtPaths<
     if (errors.length > 0) {
       return { status: "error", data: allSources, errors };
     }
+    // The answer before, while every module in it is the one it was: a
+    // keystroke anywhere moves `sourcesVersion`, and the callers (the shell's
+    // media lists, a record of 10,000 files each) recompute on a new answer.
+    const before = previous.current;
+    if (
+      before?.status === "success" &&
+      before.data !== null &&
+      before.data.length === allSources.length &&
+      before.data.every((data, i) => data === allSources[i])
+    ) {
+      return before;
+    }
     return {
       status: "success",
       data: allSources,
     };
   }, [sourcesRes, type, initializedAt, moduleFilePaths]);
+  previous.current = result;
+  return result;
 }
 
 /**

@@ -112,6 +112,12 @@ export type FixState =
 
 export type FullCheckState =
   | { status: "not-run" }
+  /**
+   * This Studio cannot run the full check at all -- a demo, whose server runs
+   * in the tab without the project's files or Val's file hosts. Nothing
+   * offers it, and `reason` says so where it would have been.
+   */
+  | { status: "unavailable"; reason: string }
   | {
       status: "running";
       checked: number;
@@ -168,7 +174,8 @@ export function ValidatePageView({
               <Button variant="secondary" size="sm" onClick={onStop}>
                 Stop
               </Button>
-            ) : fullCheck.status === "failed" ? null : ( // **Try again**; a second button doing the same thing is noise. // The banner below carries
+            ) : fullCheck.status === "failed" ||
+              fullCheck.status === "unavailable" ? null : ( // **Try again**; a second button doing the same thing is noise. // The banner below carries
               <Button
                 variant={
                   fullCheck.status === "not-run" ? "default" : "secondary"
@@ -233,6 +240,11 @@ export function ValidatePageView({
           checks them on the server. It can take a minute.
         </div>
       )}
+      {fullCheck.status === "unavailable" && (
+        <div className="border-t border-dashed border-border-primary pt-4 text-sm text-fg-secondary">
+          {fullCheck.reason}
+        </div>
+      )}
     </div>
   );
 }
@@ -256,6 +268,7 @@ function Summary({
         }`;
   switch (fullCheck.status) {
     case "not-run":
+    case "unavailable":
       return (
         <p className="text-sm text-fg-secondary">
           {counts} · from the Studio&rsquo;s own check

@@ -11,6 +11,7 @@ const {
   assertNoPlaceholdersLeft,
   RECORD_MARKER,
 } = require("./buildPlaceholders");
+const { writeStatic } = require("./buildStatic");
 
 const serverFiles = [
   "server/dist/valbuild-ui-server.esm.js",
@@ -62,3 +63,14 @@ for (const serverFile of serverFiles) {
   fs.writeFileSync(filePath, result, "utf-8");
   console.log(`Replaced script in ${serverFile} with contents of build!`);
 }
+
+// The same files again, as files: for a host that serves the Studio itself
+// rather than from the embedded record above. See buildStatic.js.
+const manifest = writeStatic({
+  inputDir: path.join(__dirname, inputDir),
+  outDir: path.join(__dirname, "static"),
+  version,
+});
+console.log(
+  `Wrote ${Object.keys(manifest.files).length} Studio files to static/ for hosts that serve them!`,
+);

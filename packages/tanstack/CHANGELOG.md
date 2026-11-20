@@ -1,5 +1,586 @@
 # @valbuild/tanstack
 
+## 0.153.6
+
+### Patch Changes
+
+- [#1047](https://github.com/valbuild/val/pull/1047) [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf) Thanks [@freekh](https://github.com/freekh)! - The assistant can now see what went wrong on the page in the preview. A new `read_page_log` tool reads the page's console errors and warnings, uncaught exceptions, unhandled promise rejections, images, scripts and stylesheets that did not load, and `fetch` requests that failed or answered 400 or more, so a section that is blank because its component threw no longer looks like a section with nothing in it. Every `read_page` answer also counts them, and names the Val modules the page read. The log is kept only in the Studio's preview, never on a visitor's page, and leaves Val's own requests and log lines out.
+
+  The preview now says which requests it answers. When the site runs an older `@valbuild/next` or `@valbuild/tanstack` than the Studio, a page tool it cannot answer fails at once with which package to update, and to which version, instead of waiting for an answer that never comes. Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `read_page_log`.
+
+- Updated dependencies [[`a561665`](https://github.com/valbuild/val/commit/a5616659c202eaa5ad61e1a035c9b9ca2a007e9a), [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf), [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4), [`3944e3e`](https://github.com/valbuild/val/commit/3944e3e3c33678bca2a0aa46fcc0f4adbf8c2ba5), [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f), [`2c98fcc`](https://github.com/valbuild/val/commit/2c98fcc776f15c979dae74a1a86ca91cad70e7de), [`0dd664f`](https://github.com/valbuild/val/commit/0dd664f7bde9bfb552ecd643b2345998c69d5914)]:
+  - @valbuild/ui@0.153.6
+  - @valbuild/shared@0.153.6
+  - @valbuild/server@0.153.6
+  - @valbuild/mcp@0.153.6
+  - @valbuild/react@0.153.6
+  - @valbuild/language-server@0.153.6
+
+## 0.153.5
+
+### Patch Changes
+
+- Updated dependencies [[`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d), [`aa26301`](https://github.com/valbuild/val/commit/aa26301afae68d31f37341b84ee3fd23ee532b45), [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f), [`f488c90`](https://github.com/valbuild/val/commit/f488c907fc3f22a33d64ea7ac36f513c405389a2)]:
+  - @valbuild/ui@0.153.5
+  - @valbuild/server@0.153.5
+  - @valbuild/shared@0.153.5
+  - @valbuild/core@0.153.5
+  - @valbuild/react@0.153.5
+  - @valbuild/language-server@0.153.5
+  - @valbuild/mcp@0.153.5
+
+## 0.153.4
+
+### Patch Changes
+
+- Updated dependencies [[`9ab3038`](https://github.com/valbuild/val/commit/9ab30383bcc137cb69b17256fe23eb81bfec225f)]:
+  - @valbuild/ui@0.153.4
+  - @valbuild/react@0.153.4
+  - @valbuild/server@0.153.4
+  - @valbuild/language-server@0.153.4
+  - @valbuild/mcp@0.153.4
+
+## 0.153.3
+
+### Patch Changes
+
+- Updated dependencies [[`c957eb5`](https://github.com/valbuild/val/commit/c957eb5c5b010938b57fa475febdeae169b8831a), [`a5f9fb5`](https://github.com/valbuild/val/commit/a5f9fb5c96f5b675fb346232c7084926c8b07cf0)]:
+  - @valbuild/ui@0.153.3
+  - @valbuild/server@0.153.3
+  - @valbuild/react@0.153.3
+  - @valbuild/language-server@0.153.3
+  - @valbuild/mcp@0.153.3
+
+## 0.153.2
+
+### Patch Changes
+
+- Updated dependencies [[`75877d7`](https://github.com/valbuild/val/commit/75877d704582abdc1bfb14902b311a857066261a)]:
+  - @valbuild/ui@0.153.2
+  - @valbuild/react@0.153.2
+  - @valbuild/server@0.153.2
+  - @valbuild/language-server@0.153.2
+  - @valbuild/mcp@0.153.2
+
+## 0.153.1
+
+### Patch Changes
+
+- [#1031](https://github.com/valbuild/val/pull/1031) [`6ec1a5d`](https://github.com/valbuild/val/commit/6ec1a5d244f0d6e064eca4135f167dfa79744f9a) Thanks [@freekh](https://github.com/freekh)! - A page no longer shows content made for code it does not have yet. When the Studio is ahead of the page (it picked up a code change first, or the browser is still running the previous build), the page keeps showing its own content for the modules whose schema changed, and says "The code changed" with a **Reload** button — in the overlay on your site, and above the page in the Studio. In local development the page usually catches up a moment later by itself, and the notice goes away without a reload.
+- Updated dependencies [[`6ec1a5d`](https://github.com/valbuild/val/commit/6ec1a5d244f0d6e064eca4135f167dfa79744f9a), [`f1048d9`](https://github.com/valbuild/val/commit/f1048d93a76138d031b30d059c444a8f754b484d), [`b14870b`](https://github.com/valbuild/val/commit/b14870bebdc128234bb16e4ea06a0151d18c4771)]:
+  - @valbuild/react@0.153.1
+  - @valbuild/shared@0.153.1
+  - @valbuild/ui@0.153.1
+  - @valbuild/server@0.153.1
+  - @valbuild/language-server@0.153.1
+  - @valbuild/mcp@0.153.1
+
+## 0.153.0
+
+### Minor Changes
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Editing content in a proposal whose code changed, before the proposal is built again:
+
+  - **A module the proposal adds** can be edited and saved right away. Its content is read from the new file and saved. Before, those edits were dropped. If the module's content is made by code (not written out in the file), the save waits and says to build the proposal first.
+  - **A module whose schema moved because a file it imports changed** (for example a shared `src/schemas/*.ts`) is no longer read with the old schema. Pages keep showing the content as built until the proposal is built again.
+  - **Edits that no longer fit the schema** can be handed to the assistant. The banner that lists them has a **Have the assistant move it** button for each one. You still discard the held edit yourself afterwards.
+
+  For this, `@valbuild/tanstack-build` records which files each Val module imports, and the `val.server.ts` it generates passes that to Val as the new optional `moduleDependencies` option of `initValServer` and `initValContent`. You do not need to set it yourself. A site built before this has no `moduleDependencies` and works as before.
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Removed what 0.151.0 kept only so that a Studio, a page and a server from the release before could still talk to each other during a deploy:
+
+  - **`PUT /api/val/sources/~`** is gone. Nothing in 0.151.0 asked it: the Studio reads modules through `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and `fetchVal`, `useVal` and the MCP tools read the server's content in-process. If a script or test of yours read content through it, read one module with `GET /api/val/modules/~<path>` instead. Its answer has the module's `source` and `version`, and an `entries` map holding the `.jsonValues()` entries pending changes touched.
+  - **`ValDraft.base`** is gone from the type. It has not been sent or read since 0.151.0, so a `draft` you pass to `ValProvider` is not affected.
+  - **A page no longer accepts edits relayed by a Studio from before 0.151.0.** Such a Studio sent each module as a bare `source`. After the upgrade, the Studio and your pages come from the same deploy, so this only matters while an older Studio is still open in a tab during a rollout. Reloading that tab fixes it.
+  - **`/api/val/stat`** no longer needs `sourcesSha` and `schemaSha`. The Studio now tells your local server which version it last saw, and the server still sends both fields for a Studio of 0.151.0. They stop being sent in the next release.
+
+### Patch Changes
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **Point the assistant at something on the page.** With the preview open, the assistant has a **Select** in its header: press it, click a field on the page, and what you picked shows above the message box and goes with your next message, so "make this shorter" means that field. In code mode it can pick any element, outlined in the proposal's colour. Press the × on it to take it off.
+
+  - Selecting a field to edit has moved from the preview's toolbar to the top of the editor column, beside **Structure | On page**. Esc turns it off, from the Studio or from the page.
+  - On a desktop the assistant now sits beside the preview instead of over it, so it never covers what you point it at.
+  - The assistant can read the page in the preview, and take a picture of it, to see what you see.
+
+- Updated dependencies [[`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`27e51ba`](https://github.com/valbuild/val/commit/27e51baadce61b2cbee2d5ef227aae045ccb2e21), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`56ab7d5`](https://github.com/valbuild/val/commit/56ab7d5818772a9e310a561ebdb798b27ee704c9)]:
+  - @valbuild/ui@0.153.0
+  - @valbuild/core@0.153.0
+  - @valbuild/server@0.153.0
+  - @valbuild/shared@0.153.0
+  - @valbuild/react@0.153.0
+  - @valbuild/language-server@0.153.0
+  - @valbuild/mcp@0.153.0
+
+## 0.152.2
+
+### Patch Changes
+
+- Updated dependencies [[`077ab3e`](https://github.com/valbuild/val/commit/077ab3eeccc2ab75b1b6fd4a5cf14b71c9ee8344)]:
+  - @valbuild/ui@0.152.2
+  - @valbuild/react@0.152.2
+  - @valbuild/server@0.152.2
+  - @valbuild/language-server@0.152.2
+  - @valbuild/mcp@0.152.2
+
+## 0.152.1
+
+### Patch Changes
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **What the design tab needed is removed with it.** The page's canvas bridge
+  now answers `read_page`, `screenshot_page` and a quick preview only to the
+  Studio at the page's own origin, and no longer asks the server whether another
+  origin is the site's design tab. The site's server no longer writes a
+  proposal's files or offers the `patch-file` route: code and content are
+  changed in the proposal's own Studio. The assistant's `build_proposal` no
+  longer takes a `reason`.
+- Updated dependencies [[`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4), [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4), [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4), [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4)]:
+  - @valbuild/ui@0.152.1
+  - @valbuild/server@0.152.1
+  - @valbuild/shared@0.152.1
+  - @valbuild/react@0.152.1
+  - @valbuild/language-server@0.152.1
+  - @valbuild/mcp@0.152.1
+
+## 0.152.0
+
+### Patch Changes
+
+- Updated dependencies [[`f4e0660`](https://github.com/valbuild/val/commit/f4e06601495dbee680a4b9000344f84cd3af717f), [`3bb76d7`](https://github.com/valbuild/val/commit/3bb76d74d82b499aa15023838d63018a70fd7ce7), [`08a3977`](https://github.com/valbuild/val/commit/08a39779dbe43702a72ae57cbf8cf29b14e64672)]:
+  - @valbuild/ui@0.152.0
+  - @valbuild/server@0.152.0
+  - @valbuild/shared@0.152.0
+  - @valbuild/mcp@0.152.0
+  - @valbuild/react@0.152.0
+  - @valbuild/language-server@0.152.0
+
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563) Thanks [@freekh](https://github.com/freekh)! - **A draft page shows the right `.jsonValues()` entries, whichever reader reads them.**
+
+  - **Pending edits to an entry.** In draft mode, `fetchVal` of a whole
+    `.jsonValues()` record now shows the unpublished edits to its entries. It
+    used to show the published content of every entry, even one an editor had
+    just changed, while `fetchValKey` and `fetchValRoute` of the same entry
+    showed the edit. The entries a pending change touches are read from Val's
+    server; the others are loaded from your build, as before.
+  - **Entries published without a rebuild.** On a host that does not rebuild
+    the site after a publish, a draft page now shows the published entries
+    straight away -- in `fetchVal`, and in `useVal`, `useValKey` and
+    `useValRoute` alike. They used to show those entries as they were before
+    the publish, from the site's build, until it was rebuilt (and on TanStack
+    Start the server render showed the new content, then the page switched
+    back to the old). Val's server marks each entry a publish wrote, and the
+    readers and the Studio load a marked entry from the server.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6) Thanks [@freekh](https://github.com/freekh)! - **Draft pages read what was edited, not the whole site.** A page in draft
+  mode used to make Val's server read every module, apply every pending
+  change, and preview and validate the whole project on every request -- and
+  then ask again for each `.jsonValues()` entry it showed. Now there is one
+  copy of the draft per process, made once per change and shared by every
+  editor and every request:
+
+  - A module nobody edited costs nothing: the page reads its own build, as a
+    visitor's does.
+  - A request asks one cheap question -- has anything changed? -- once, and
+    the draft is only re-read when it has. An edit is applied once, to the
+    version before it, however many pages read it afterwards.
+  - `fetchVal`, `fetchValKey`, `fetchValRoute`, `fetchValRouteUrl` and
+    `fetchValDraft` (Next.js and TanStack Start alike) and Val's API routes
+    read that one copy, so a save through the API is seen by every reader at
+    once. Before, each kept its own, and a publish moved only the copy of the
+    server that handled it: in a host that keeps its content in memory, a
+    draft page read through `fetchValKey` or `fetchValRoute` went on showing
+    the content from before the publish.
+  - The MCP tools (`initValMcp`) read the same copy in local development and
+    on Val's hosting, where Val's options come from your config and the
+    environment. `initValMcp` takes no patch store or source files of its
+    own, so in a host that keeps its content in memory it keeps a copy of its
+    own, as before.
+  - If `initValServer` and `initValContent` (or `initValRsc`) are given
+    different options for the same `val.modules` (a different patch store,
+    say), they keep separate copies, and Val logs a warning saying which
+    options differ.
+
+  On a site of 20 MB of content a draft read went from about half a second per
+  request to well under a millisecond once the draft is in memory, and the
+  memory it holds grows with what was edited rather than with the size of the
+  site. Hosted sites in proxy mode ask the content service one small question
+  per request instead of reading every pending change; with a content service
+  that predates it, Val reads the pending changes as before.
+
+  `ValDraft` (what `fetchValDraft` returns and `<ValProvider draft>` takes)
+  has a new optional `versions` field, filled in by the server: the page uses
+  it to tell that what the Studio sends is what it already shows, without
+  comparing the content. Nothing to change in your app.
+
+  **Changed:** `PUT /api/val/sources/~` no longer computes previews or
+  validates the content (the Studio does both itself, and `/api/val/validate`
+  checks a module on request); its `validate_sources` and
+  `validate_binary_files` flags are accepted and ignored.
+
+  **Deprecated, and removed in the next release.** These stay for one release
+  only so that a Studio, a page or a server of the previous release keeps
+  working while a deploy rolls out. Nothing in this release uses them; if
+  your own code calls any of them, move off it now:
+
+  - `PUT /api/val/sources/~`, the whole route. This release's Studio reads
+    `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and the draft
+    readers and MCP read in-process.
+  - The `source` field of the overlay's `source-update` event and the canvas's
+    `sourceUpdate` message, and a page's support for an event that carries
+    only `source` (this release sends `read` beside it).
+  - `ValDraft.base`: not sent and not read; the type stays one release so
+    code written against the previous one still compiles.
+  - `/api/val/stat`'s `sourcesSha` and `schemaSha`: the next release's Studio
+    stops depending on them, and the release after it stops sending them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf) Thanks [@freekh](https://github.com/freekh)! - A draft page now catches up with an edit as soon as the server has it, instead
+  of on a timer.
+
+  - **The page settles faster, and without the 10 second fallback.** Content your
+    page reads on the server (a TanStack Start loader, a Next.js server component)
+    is refreshed when the editor's change has been saved, once per saved change.
+    It used to be refreshed the moment you typed — before the change was saved,
+    so the refresh often came back without it — and then again every 10 seconds
+    for half a minute in case it had. That safety refresh is gone, and so are the
+    extra requests it made while you edited. Another editor's change refreshes
+    the page too, once the server has it. While a deploy rolls out, a Studio of
+    the previous release (which never says it has saved) still refreshes the
+    page as each change arrives, as before.
+  - **Next.js: `ValProvider` takes an optional `draft` prop**, as
+    `@valbuild/tanstack`'s does: the editor's draft, read on the server for the
+    request. With it, the server renders the draft and the browser hydrates the
+    same thing, so a draft page no longer shows the published text first, and a
+    page that exists only as an unpublished change is found on the first render
+    instead of answering 404. Without it, nothing changes. See "The `draft` prop"
+    in the `@valbuild/next` README.
+  - **Next.js: `initValRsc` returns `fetchValDraft`**, which reads that draft:
+    pass `draft={await fetchValDraft()}` to `ValProvider` in your root layout. It
+    returns `null` unless the request is in draft mode, after one `draftMode()`
+    lookup and no other work, so visitors pay nothing and a static page stays
+    static. It reads the draft the way `@valbuild/tanstack/server`'s
+    `fetchValDraft` does and returns the same type, `ValDraft | null`, which
+    is now exported from `@valbuild/next` and `@valbuild/next/rsc` too.
+  - **`suspend` waits for the editor's changes properly.** With `suspend` on
+    `ValProvider`, a page could be told it had everything before the editor had
+    sent the pending change it needed, and render the published content first —
+    for a page that exists only as an unpublished change, a 404. It now waits
+    until the change is there.
+  - A draft page whose draft was discarded or published before the editor's
+    overlay or canvas connected now shows what the editor has, instead of keeping
+    the draft it was rendered with -- an edit inside a `.jsonValues()` entry
+    included.
+  - Turning draft mode on or off refreshes the page once. In development (React's
+    `StrictMode`) it could refresh twice, and Next.js could log "Cannot call
+    startTransition while rendering" while the page refreshed.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56) Thanks [@freekh](https://github.com/freekh)! - Every content reader in `@valbuild/next` and `@valbuild/tanstack` — `fetchVal`,
+  `useVal`, the key and route readers, on the server and in the browser — now
+  loads content the same way, so they can no longer disagree about which content
+  wins. Nothing you call changes. What you may notice:
+
+  - `useValRoute` on a `.jsonValues()` router loads only the entry for the
+    current route. It used to load every entry of the record first.
+    `useValRouteUrl` and `fetchValRouteUrl` load none at all: a URL does not need
+    them.
+  - In development, an edited `*.val.json` entry shows its new content after a
+    hot reload. The hooks kept the entry they had loaded before it.
+  - Next.js: `useValKey` no longer shows the published entry of a nullable
+    `.jsonValues()` record that a draft has set to `null`, nor anything for an
+    entry named like a built-in object property (such as `toString`) that the
+    draft does not have.
+  - With `suspend` on `ValProvider`, `useValKey` now waits for draft mode and the
+    editor's changes too, as `useVal` and `useValRoute` already did.
+  - When one entry of a `.jsonValues()` record cannot be loaded, `useVal` logs
+    the error and renders the others, as `fetchVal` already did, instead of
+    failing the whole component.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`be276e7`](https://github.com/valbuild/val/commit/be276e76f5849fcc421398abdb7e114f3de4d3e8) Thanks [@freekh](https://github.com/freekh)! - In a proposal in code mode, an edit to a field the assistant has just added is
+  saved with the assistant's next change, without waiting for the proposal to be
+  built.
+
+  The Studio already let you type into a field that only the assistant's staged
+  code has. But the save that runs before the assistant's next change applied
+  your edit to the content as the proposal's last build had it -- without the new
+  field -- so it failed, and the assistant's next change was refused ("the
+  changes waiting to be saved could not be saved first") until someone pressed
+  Build.
+
+  Val's server at the proposal's address now learns which staged code the build
+  it runs was made of (the platform hands it over beside the build), and saves a
+  module whose code was staged after that build from the staged `.val.ts` itself.
+  A page at the address keeps reading such a module as its build has it until a
+  build of the new code serves it, so it never shows content made for code it
+  does not have.
+
+  When the server cannot read a staged module's content without running it --
+  its content is built by code, or it is a `.jsonValues()` record -- the edit is
+  kept, and the assistant's change is refused saying the proposal has to be built
+  first, rather than failing with no reason.
+
+  `@valbuild/tanstack-build` rewrites the proposal block of a `val.server.ts`
+  generated before this, so a site picks it up at its next build.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows each module as your server has it, by version, with only your own unsaved edits on top.
+
+  - **Publishing is faster.** After a publish, or when your site serves content published without a build, the Studio used to download every module's content before it showed anything new. It now reads only the modules that changed, one at a time: in our measurements with a 1,000-entry `.jsonValues()` record, the Studio was ready again after a publish in about 35 ms instead of 300–800 ms.
+  - **No flicker of old content on a draft page.** For up to a minute after a deploy, a request can still reach the build before it; that build now says it has been replaced (when Val's content service can tell it), and the Studio asks again rather than taking its content for the current one. In local development the same holds after you change a `.val.ts`: an answer from the code before the change is no longer taken for the new code's, so a page in draft mode no longer shows the new text, then the old, then the new again.
+  - **Another editor's change appears as your server has it.** The Studio no longer replays other people's changes on top of the content it loaded with, so a change made against a newer deployment can no longer show up twice or out of order.
+  - **Less sent with every draft page.** A page in draft mode no longer embeds the whole published content of a site served without a rebuild for the Studio to start from; `ValDraft.base` is deprecated and no longer filled in.
+  - **When the editor opens on a page that already shows your changes,** the Studio no longer sends them to the page again.
+
+- Updated dependencies [[`33c8b80`](https://github.com/valbuild/val/commit/33c8b80f877f1c3bec3cb61ef41dea9d2efcf908), [`213d635`](https://github.com/valbuild/val/commit/213d6359a1ec09cba1596ef03f415d3b5c0f2710), [`59faf33`](https://github.com/valbuild/val/commit/59faf332418af836617e09150fb89007e468394e), [`abf6148`](https://github.com/valbuild/val/commit/abf6148a255abe795620fede66006462bccb8322), [`04ed1f1`](https://github.com/valbuild/val/commit/04ed1f10b597a52822d32017597692f0e1062b7b), [`01772a5`](https://github.com/valbuild/val/commit/01772a5b36549d71f6b438ff17803dfcb64ce645), [`1f08b65`](https://github.com/valbuild/val/commit/1f08b6517adeac27fd9e43c7bf726976daefee3b), [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563), [`b682509`](https://github.com/valbuild/val/commit/b682509b91dcd6e6aa2e1dfcedab0f259634c73e), [`f5110c9`](https://github.com/valbuild/val/commit/f5110c9aa2a0a6ff0586e9f0f2a29eb1baef557d), [`a806f7d`](https://github.com/valbuild/val/commit/a806f7de0c605145163c7f0babf389a5b5bf3ef3), [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c), [`4fd35f3`](https://github.com/valbuild/val/commit/4fd35f321fe510cfb5b9b679ca14ce2b9e852d40), [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6), [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf), [`3aff85e`](https://github.com/valbuild/val/commit/3aff85e9a40cb0879285b86fd41fa8167db1bb5e), [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56), [`b41da31`](https://github.com/valbuild/val/commit/b41da31a26b3236ccd55c02108c56422d8d91f5e), [`560abd9`](https://github.com/valbuild/val/commit/560abd9df36e52e63b6592b03a8040396320df00), [`be276e7`](https://github.com/valbuild/val/commit/be276e76f5849fcc421398abdb7e114f3de4d3e8), [`e30da7d`](https://github.com/valbuild/val/commit/e30da7d9bca5d5773aa287e8b4c16a01e757ff9a), [`66d487f`](https://github.com/valbuild/val/commit/66d487f3662164a9a167ec660afc6d12b441aa22), [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d), [`4edd384`](https://github.com/valbuild/val/commit/4edd384cf04a25836df77aae6d88378f8750a761)]:
+  - @valbuild/ui@0.151.0
+  - @valbuild/server@0.151.0
+  - @valbuild/shared@0.151.0
+  - @valbuild/core@0.151.0
+  - @valbuild/react@0.151.0
+  - @valbuild/mcp@0.151.0
+  - @valbuild/language-server@0.151.0
+
+## 0.150.23
+
+### Patch Changes
+
+- Updated dependencies [[`41b73af`](https://github.com/valbuild/val/commit/41b73af5db02ec2fef3f8b3884be453712d9ada3), [`e46c34a`](https://github.com/valbuild/val/commit/e46c34a7eb6080e2286a85cc70f1e98d3989b8a9), [`1970507`](https://github.com/valbuild/val/commit/19705071884f8dddabd0a1319a8a4bdb4b9cdfed)]:
+  - @valbuild/ui@0.150.23
+  - @valbuild/react@0.150.23
+  - @valbuild/server@0.150.23
+  - @valbuild/language-server@0.150.23
+  - @valbuild/mcp@0.150.23
+
+## 0.150.22
+
+### Patch Changes
+
+- Updated dependencies [[`14a9864`](https://github.com/valbuild/val/commit/14a986486ca921b5aa4992caf1b452671b5eb97f)]:
+  - @valbuild/server@0.150.22
+  - @valbuild/ui@0.150.22
+  - @valbuild/language-server@0.150.22
+  - @valbuild/mcp@0.150.22
+  - @valbuild/react@0.150.22
+
+## 0.150.21
+
+### Patch Changes
+
+- Updated dependencies [[`0d516bf`](https://github.com/valbuild/val/commit/0d516bf5347950071444eaa07baf48d1d7fe418c), [`0d516bf`](https://github.com/valbuild/val/commit/0d516bf5347950071444eaa07baf48d1d7fe418c)]:
+  - @valbuild/server@0.150.21
+  - @valbuild/ui@0.150.21
+  - @valbuild/language-server@0.150.21
+  - @valbuild/mcp@0.150.21
+  - @valbuild/react@0.150.21
+
+## 0.150.20
+
+### Patch Changes
+
+- Updated dependencies [[`c597b3b`](https://github.com/valbuild/val/commit/c597b3bcb9f3bbda285ab6f4977d65ed7f5f161d)]:
+  - @valbuild/shared@0.150.20
+  - @valbuild/ui@0.150.20
+  - @valbuild/language-server@0.150.20
+  - @valbuild/mcp@0.150.20
+  - @valbuild/react@0.150.20
+  - @valbuild/server@0.150.20
+
+## 0.150.19
+
+### Patch Changes
+
+- Updated dependencies [[`17fa9ab`](https://github.com/valbuild/val/commit/17fa9ab7d86d3dc304109b8f5222f46f22bd5770)]:
+  - @valbuild/ui@0.150.19
+  - @valbuild/server@0.150.19
+  - @valbuild/react@0.150.19
+  - @valbuild/language-server@0.150.19
+  - @valbuild/mcp@0.150.19
+
+## 0.150.18
+
+### Patch Changes
+
+- Updated dependencies [[`43f72c8`](https://github.com/valbuild/val/commit/43f72c85c2114fe9a0ce536204858d2d3c05f962)]:
+  - @valbuild/shared@0.150.18
+  - @valbuild/ui@0.150.18
+  - @valbuild/language-server@0.150.18
+  - @valbuild/mcp@0.150.18
+  - @valbuild/react@0.150.18
+  - @valbuild/server@0.150.18
+
+## 0.150.17
+
+### Patch Changes
+
+- [#992](https://github.com/valbuild/val/pull/992) [`ea3bf9b`](https://github.com/valbuild/val/commit/ea3bf9bbacd22bbb5485fd798d6b3a2d5916be81) Thanks [@freekh](https://github.com/freekh)! - Content analytics now counts on self-hosted sites (Custom hosting), not only on sites Val hosts.
+
+  A self-hosted app's own Val server now hands each analytics beacon on to Val's ingest, which counts it. To turn it on:
+
+  - Run the app with Val's content service: `VAL_API_KEY`, `VAL_SECRET` and `VAL_PROJECT` set. Most deployed apps already do.
+  - Set `VAL_ANALYTICS=true`. In TanStack Start, read it in your layout's loader (`{ enabled: process.env.VAL_ANALYTICS === "true" }`) and pass the result to `<ValProvider analytics>`. A self-hosted site has no platform to pass it for you.
+  - Switch analytics on for the project in Val's admin. While it is off there, the script on your pages is told so and stops sending.
+
+  The server forwards only same-origin beacons from a browser. It passes on the visitor's User-Agent and, where your host provides one (Vercel, Cloudflare or CloudFront), their country. It never passes on their IP address. If the api key is not accepted, the server logs one warning naming `VAL_API_KEY` and `VAL_PROJECT`. Local development (fs mode) works as before and counts nothing.
+
+  `VAL_ANALYTICS_INGEST_URL` overrides where beacons are sent. You will normally not need it.
+
+- Updated dependencies [[`ea3bf9b`](https://github.com/valbuild/val/commit/ea3bf9bbacd22bbb5485fd798d6b3a2d5916be81)]:
+  - @valbuild/server@0.150.17
+  - @valbuild/shared@0.150.17
+  - @valbuild/language-server@0.150.17
+  - @valbuild/mcp@0.150.17
+  - @valbuild/react@0.150.17
+  - @valbuild/ui@0.150.16
+
+## 0.150.16
+
+### Patch Changes
+
+- Updated dependencies [[`c0abcde`](https://github.com/valbuild/val/commit/c0abcde887fa61edb2dd542b9cfd707237a74daf), [`3ac24d4`](https://github.com/valbuild/val/commit/3ac24d46691c646dd5d2789cf2e1d6e2734195d3), [`7db39ef`](https://github.com/valbuild/val/commit/7db39ef722b4f743e6974effd5fedfadc76e6544)]:
+  - @valbuild/ui@0.150.16
+  - @valbuild/shared@0.150.16
+  - @valbuild/server@0.150.16
+  - @valbuild/react@0.150.16
+  - @valbuild/language-server@0.150.16
+  - @valbuild/mcp@0.150.16
+
+## 0.150.15
+
+### Patch Changes
+
+- [#986](https://github.com/valbuild/val/pull/986) [`afe3998`](https://github.com/valbuild/val/commit/afe399890afc056961992319254045389e498257) Thanks [@freekh](https://github.com/freekh)! - Content analytics now counts the visitors of a hosted site that has published content without a build. Such a site serves its content as a snapshot, and the analytics script took any snapshot for a proposal's address and never started, so those sites counted nothing even though their content was tagged.
+
+## 0.150.14
+
+### Patch Changes
+
+- Updated dependencies [[`e8d2fd3`](https://github.com/valbuild/val/commit/e8d2fd371d8732e4bb140760aeb1ac5227c0a51c)]:
+  - @valbuild/ui@0.150.14
+  - @valbuild/react@0.150.14
+  - @valbuild/server@0.150.14
+  - @valbuild/language-server@0.150.14
+  - @valbuild/mcp@0.150.14
+
+## 0.150.13
+
+### Patch Changes
+
+- [#985](https://github.com/valbuild/val/pull/985) [`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1) Thanks [@freekh](https://github.com/freekh)! - The design tab's assistant can check its work two more ways.
+
+  - **`lint`** runs Val's own eslint rules -- the ones `@valbuild/eslint-plugin` runs in an editor -- over the proposal's files: a `c.define` path that is not the file's own, a module missing from `val.modules.ts`, `c.define` content that is a variable (which validates, then fails at publish), an import a `.val` file may not make. With `fix: true` it stages the fixes the rules can make themselves.
+  - **`screenshot_page`** shows the assistant a picture of the page in the preview, at desktop, tablet or phone width, on screen or the whole page. The page draws itself, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for it. The picture is drawn from the page's HTML and CSS: images from other sites, videos, canvases and embeds may come out blank.
+
+  `@valbuild/eslint-plugin` has a new entry, `@valbuild/eslint-plugin/rules`, with the same rules over a project that is not on a disk (`createRules(host)`). The plugin itself behaves as before.
+
+- Updated dependencies [[`295a925`](https://github.com/valbuild/val/commit/295a92513fe0356fafc78978bd0a6d32866f1dbe), [`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1), [`0e490a9`](https://github.com/valbuild/val/commit/0e490a9b6e44b1e3d70e914d2b16009335124c4b)]:
+  - @valbuild/ui@0.150.13
+  - @valbuild/shared@0.150.13
+  - @valbuild/react@0.150.13
+  - @valbuild/server@0.150.13
+  - @valbuild/language-server@0.150.13
+  - @valbuild/mcp@0.150.13
+
+## 0.150.12
+
+### Patch Changes
+
+- [#977](https://github.com/valbuild/val/pull/977) [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows which versions of Val it runs. Open the Account panel (the button at the foot of the left rail) and click the grey line at the bottom, for example `TanStack · Val 0.150.8`, to see:
+
+  - what your app's server runs: `@valbuild/next` or `@valbuild/tanstack`, `@valbuild/core` and `@valbuild/server`
+  - what the Studio in your browser loaded: `@valbuild/ui`, and the `@valbuild/core` bundled into it
+
+  **Copy all** puts the list on the clipboard, ready to paste into a bug report. The server's half comes from a new `GET /api/val/versions` route, which needs the same sign-in as the rest of the Studio. If your server's Val is older than the Studio, the list says so and still shows the Studio's half.
+
+- Updated dependencies [[`e39a373`](https://github.com/valbuild/val/commit/e39a3730624cbf3a5434d4fb0d13be26f44280db), [`d47537a`](https://github.com/valbuild/val/commit/d47537a40ca7ca0c6a5e7b80f1dfb18791fc5bc1), [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/ui@0.150.12
+  - @valbuild/server@0.150.12
+  - @valbuild/shared@0.150.12
+  - @valbuild/react@0.150.12
+  - @valbuild/language-server@0.150.12
+  - @valbuild/mcp@0.150.12
+
+## 0.150.11
+
+### Patch Changes
+
+- [#974](https://github.com/valbuild/val/pull/974) [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78) Thanks [@freekh](https://github.com/freekh)! - The design tab no longer makes you wait.
+
+  - **Quick preview.** A change to components, layout or styles is shown in seconds, without a build: the proposal's browser code is bundled in the tab and the page in the preview runs it. What runs on the server (loaders, server functions, the page's first render) stays the last build's, and the tab says so, with a button to build. The assistant has it too (`quick_preview`).
+  - **Cancel and Try again.** A build can be cancelled from the tab, and a build that stops making progress for three minutes is stopped, saying at which step, so it never spins until a reload. The assistant waits for a build with `wait` instead of holding its turn, and has `build_status` and `cancel_build`.
+  - **Each step of a build is timed**, and the Build check lists where the time went.
+  - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
+  - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+  - **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
+  - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
+
+  The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/ui@0.150.11
+  - @valbuild/shared@0.150.11
+  - @valbuild/server@0.150.11
+  - @valbuild/react@0.150.11
+  - @valbuild/language-server@0.150.11
+  - @valbuild/mcp@0.150.11
+
+## 0.150.10
+
+### Patch Changes
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/ui@0.150.10
+  - @valbuild/shared@0.150.10
+  - @valbuild/server@0.150.10
+  - @valbuild/react@0.150.10
+  - @valbuild/language-server@0.150.10
+  - @valbuild/mcp@0.150.10
+
+## 0.150.9
+
+### Patch Changes
+
+- Updated dependencies [[`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279)]:
+  - @valbuild/ui@0.150.9
+  - @valbuild/react@0.150.9
+  - @valbuild/server@0.150.9
+  - @valbuild/shared@0.150.8
+  - @valbuild/language-server@0.150.9
+  - @valbuild/mcp@0.150.9
+
+## 0.150.8
+
+### Patch Changes
+
+- [#960](https://github.com/valbuild/val/pull/960) [`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028) Thanks [@freekh](https://github.com/freekh)! - The design tab can point the assistant at anything on the page. Hold ⌥ (Alt) and click any element in the preview, or press **Select** first: the element under the pointer is outlined and named, and the one picked is shown above the assistant and sent with the next message. A **Pages** menu shows any of the site's pages in the preview, and **Publish** publishes the proposal from the tab, the same way its own Studio does. The checks are now a single quiet status beside the proposal's name, the history is behind a button, and the changed files are listed in the Changes view instead of a panel of their own.
+
+  The picking runs in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for picking to work in its design tab.
+
+- Updated dependencies [[`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028), [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2), [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a)]:
+  - @valbuild/shared@0.150.8
+  - @valbuild/ui@0.150.8
+  - @valbuild/server@0.150.8
+  - @valbuild/language-server@0.150.8
+  - @valbuild/mcp@0.150.8
+  - @valbuild/react@0.150.8
+
+## 0.150.7
+
+### Patch Changes
+
+- Updated dependencies [[`2d5ad2e`](https://github.com/valbuild/val/commit/2d5ad2e90f2a2bdd6ad8af98b21e19bc0bf6dbcc)]:
+  - @valbuild/react@0.150.7
+
+## 0.150.6
+
+### Patch Changes
+
+- [#962](https://github.com/valbuild/val/pull/962) [`f84222b`](https://github.com/valbuild/val/commit/f84222b2c902d8725b1da96f79481060fb8b9842) Thanks [@freekh](https://github.com/freekh)! - Text rendered through `React.createElement` no longer keeps Val's invisible edit tag. TanStack Router's `<Link>` renders its link that way, so with content analytics on, the text of a link built from content carried the tag on every visitor's page.
+
+  New: `import "@valbuild/tanstack/autotag"` as the first import of `src/router.tsx`. Under `vite dev`, components whose modules ran before `@valbuild/tanstack` was imported were not click-to-edit, and the leak warning named their text as leaked. A production build was not affected.
+
+- Updated dependencies [[`f84222b`](https://github.com/valbuild/val/commit/f84222b2c902d8725b1da96f79481060fb8b9842)]:
+  - @valbuild/react@0.150.6
+
 ## 0.150.5
 
 ### Patch Changes

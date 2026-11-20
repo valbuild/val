@@ -25,6 +25,11 @@ export type ProposalsState =
       /** Where "The site" goes. `null` when the project has not said. */
       siteUrl: string | null;
       /**
+       * Whether `</>` on the site opens the site's own code mode (the
+       * site-code proposal), rather than a list of proposals.
+       */
+      siteCodeMode: boolean;
+      /**
        * The proposal this Studio is in, read on its own: only that answer
        * carries its overlay and render check.
        */
@@ -99,6 +104,10 @@ export function useProposals({
           list.status === "fulfilled"
             ? list.value.siteUrl
             : (previous?.siteUrl ?? null),
+        siteCodeMode:
+          list.status === "fulfilled"
+            ? list.value.siteCodeMode
+            : (previous?.siteCodeMode ?? false),
         current:
           one.status === "fulfilled" ? one.value : (previous?.current ?? null),
         error:

@@ -12,7 +12,22 @@ export type AIChatPanelProps = {
    * only thing that can answer the model's tool calls.
    */
   hidden: boolean;
+  /** Beside the work area rather than over it. See `FloatingPanel`. */
+  docked?: boolean;
+  /** Its column's width, where the layout placed it; else `AI_PANEL_WIDTH`. */
+  width?: number;
+  /** On a phone, its place on the strip of panes. See `FloatingPanel`. */
+  phoneOffset?: number;
+  phoneAnimate?: boolean;
   onClose: () => void;
+  /** Before the title: the Assistant's Select, toward the preview. */
+  headerStart?: ReactNode;
+  /** `false`: no scrim, so a click outside does not close it. */
+  modal?: boolean;
+  /** After the title: the tabs, when it shares its column with Sketch. */
+  headerEnd?: ReactNode;
+  /** It was used: a click or a key in it. Decides what keeps a column. */
+  onUse?: () => void;
   /**
    * The assistant itself.
    *
@@ -29,32 +44,58 @@ export type AIChatPanelProps = {
   children: ReactNode;
 };
 
+/** The assistant panel's width, which a docked panel takes from the work area. */
+export const AI_PANEL_WIDTH = 420;
+
 /**
- * The assistant panel: a floating surface holding the chat.
+ * The assistant panel: a surface holding the chat, floating over the work
+ * area, or docked beside it on a desktop (see `ShellProps`'s `workspaceOverride`
+ * and the shell's own `chatDocked`).
  */
 export function AIChatPanel({
   breakpoint,
   hidden,
+  docked,
+  width = AI_PANEL_WIDTH,
+  phoneOffset,
+  phoneAnimate,
   onClose,
+  headerStart,
+  modal,
+  headerEnd,
+  onUse,
   children,
 }: AIChatPanelProps) {
   return (
     <FloatingPanel
       side="right"
-      width={420}
+      width={width}
       title="AI assistant"
-      mobileVariant="bottom-sheet"
+      // On a phone, one of the workspace's panes (`PhonePaneBar`).
+      mobileVariant="pane"
       // The chat is a transcript above a pinned composer, so the sheet has to
       // have a height for that column to fill. See `FloatingPanel`'s `fill`.
       fill
       breakpoint={breakpoint}
       hidden={hidden}
+      phoneOffset={phoneOffset}
+      phoneAnimate={phoneAnimate}
+      docked={docked}
       onClose={onClose}
+      headerStart={headerStart}
+      modal={modal}
+      headerAction={headerEnd}
     >
       {/* `h-full` and no scrolling of its own: the chat is a column with its
           own scroll area for the transcript and a composer pinned under it, so
           a second scroller here would move the composer off screen. */}
-      <div className="h-full overflow-hidden">{children}</div>
+      <div
+        className="h-full overflow-hidden"
+        onPointerDownCapture={onUse}
+        onFocusCapture={onUse}
+      >
+        {children}
+      </div>
     </FloatingPanel>
   );
 }

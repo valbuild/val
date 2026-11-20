@@ -106,9 +106,16 @@ describe("cost of one keystroke", () => {
 
     expect(activity.count("patch:create", { since: before })).toBe(1);
     expect(activity.count("source:apply-patch", { since: before })).toBe(1);
-    // The module is cloned once to apply the patch to. Not once per mounted
-    // field — that per-field clone is defect #3 in the old engine's diagnosis.
-    expect(activity.count("source:clone-module", { since: before })).toBe(1);
+    // No module is cloned: the engine copies along the patch's path (the
+    // root, for a title) and shares the rest. It used to clone the module
+    // once per patch, and once per mounted field before that (defect #3 in
+    // the old engine's diagnosis).
+    expect(activity.count("source:clone-module", { since: before })).toBe(0);
+    expect(activity.total("engine:clone-bytes", { since: before })).toBe(
+      8 * 2, // the root: `title` and `body`
+    );
+    // One version hashed: the chain, one link longer.
+    expect(activity.total("version:hash", { since: before })).toBe(1);
     // The registry is walked once, and exactly the one affected field is woken.
     expect(activity.count("source:scan-listeners", { since: before })).toBe(1);
     expect(activity.count("source:wake-listener", { since: before })).toBe(1);
@@ -226,7 +233,13 @@ describe("cost of one keystroke", () => {
     }
 
     expect(activity.count("source:apply-patch", { since: before })).toBe(40);
-    expect(activity.count("source:clone-module", { since: before })).toBe(40);
+    // The same copy for each, however long the chain has grown: each
+    // keystroke extends the version before it (risk 2 in the content plan).
+    expect(activity.count("source:clone-module", { since: before })).toBe(0);
+    expect(activity.total("engine:clone-bytes", { since: before })).toBe(
+      40 * 8 * 2,
+    );
+    expect(activity.total("version:hash", { since: before })).toBe(40);
     expect(activity.count("source:wake-listener", { since: before })).toBe(40);
     // The whole point of lazy: 40 keystrokes, zero previews, zero validations.
     expect(activity.count("host:execute-preview", { since: before })).toBe(0);
