@@ -68,10 +68,6 @@ import {
 } from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
-  chatDocumentToHtmlText,
-  collectImageNodesFromDoc,
-} from "../components/AIChatEditor";
-import {
   type AITool,
   SessionImageToPatchError,
   useAIModelSelection,
@@ -104,9 +100,10 @@ import type {
   AISession,
   AIServerMessage,
   AIToolCallMessage,
-  AIMessageContentBlock,
   AIPromptMessage,
+  AISteerMessage,
 } from "./useAIWebSocket";
+import { promptContentBlocks, routeSteerStatus } from "./steerWire";
 import {
   AssistantSettings,
   assistantSettingsPromptSection,
@@ -159,7 +156,6 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
-  pickedElementPrompt,
   isCodeTool,
   projectInstructionsPromptSection,
   QUICK_PREVIEW_TOOL,
@@ -1410,8 +1406,41 @@ export function useAI(
     ((message: AIServerMessage) => void) | null
   >(null);
 
+  /**
+   * The messages this chat steered into its running turn, by `steerId`. A
+   * status for one is the chat's whatever the turn has done since: `too_late`
+   * comes after the turn's answer, when the prompt is no longer owned.
+   */
+  const ownSteerIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      if (message.type === "ai_steer_status") {
+        const route = routeSteerStatus(
+          message,
+          ownSteerIdsRef.current,
+          watchedSessionIdRef.current !== null &&
+            watchedSessionIdRef.current === sessionIdRef.current,
+        );
+        if (route.to === "chat") {
+          chatRef.current?.steerStatus(
+            message.steerId,
+            route.status,
+            message.reason,
+          );
+        } else if (route.to === "watched") {
+          applyWatchedEvent(message, {
+            chat: chatRef.current,
+            activeId: watchedActiveIdRef,
+            started: watchedStartedRef.current,
+            participantOf: participantOfRef.current,
+            setTurnBy,
+            // Not the end of a turn: nothing to read again yet.
+            turnEnded: () => {},
+          });
+        }
+        return;
+      }
       if (message.type === "ai_watching") {
         if (message.sessionId !== sessionIdRef.current) return;
         watchedSessionIdRef.current = message.sessionId;
@@ -3543,54 +3572,13 @@ export function useAI(
       }
       const model = sessionModelRef.current ?? chatModel;
       if (sessionModelRef.current === null) lockModel(model);
-      const baseText =
-        typeof content === "string" ? content : chatDocumentToHtmlText(content);
-      // Pull inline image nodes out of the rich document so their keys are
-      // registered as `image_key` content blocks (the protocol the server
-      // expects), not buried in the HTML text. Drop any still-pending keys —
-      // the editor should already block Send while uploads are in flight, but
-      // this is a defence-in-depth check.
-      const inlineImages =
-        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
-      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
-        .filter((n) => n.key && !n.key.startsWith("pending:"))
-        .map((n) => ({
-          key: n.key,
-          name: n.alt || "inline image",
-          mimeType: n.mimeType,
-          previewUrl: n.previewUrl,
-        }));
-      const mergedAttachments: ChatMessageAttachment[] = [];
-      const seenKeys = new Set<string>();
-      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
-        if (seenKeys.has(a.key)) continue;
-        seenKeys.add(a.key);
-        mergedAttachments.push(a);
-      }
-      let augmentedText = baseText;
-      if (mergedAttachments.length > 0) {
-        const lines = mergedAttachments.map(
-          (a) => `- ${a.name}: image_key="${a.key}"`,
-        );
-        augmentedText =
-          baseText +
-          "\n\n[Attached images — when calling convert_session_image_to_patch, " +
-          "use the exact image_key string from this list (NOT any vision-system file id):\n" +
-          lines.join("\n") +
-          "]";
-      }
       const pointedAt = takePointedAt(context, pageRef.current);
       lastPointedAtRef.current = pointedAt;
-      if (pointedAt !== null) {
-        augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
-      }
-      const contentBlocks: AIMessageContentBlock[] = [
-        { type: "text", text: augmentedText },
-        ...mergedAttachments.map((attachment) => ({
-          type: "image_key" as const,
-          key: attachment.key,
-        })),
-      ];
+      const contentBlocks = promptContentBlocks(
+        content,
+        attachments,
+        pointedAt,
+      );
       // Only where the Studio can show one, and its server has them: the
       // Studio's shell, once a list came back. Anywhere else the assistant
       // would offer something that fails, or that nobody can open.
@@ -3772,6 +3760,37 @@ Do not describe what you will do unless you do it for clarification — just do 
       return sent;
     },
     [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
+  );
+
+  /**
+   * Send a message into this chat's running turn (`ai_steer`): the agent
+   * reads it at its next step. False when there is no turn of this chat's to
+   * send it into, or no socket: the chat queues it instead. What becomes of
+   * it comes back as `ai_steer_status`, to `AIChatHandle.steerStatus`.
+   */
+  const steerMessage = useCallback(
+    (
+      content: string | ChatDocument,
+      attachments: ChatMessageAttachment[] | undefined,
+      context: SendContext | undefined,
+      steerId: string,
+    ): boolean => {
+      const promptId = inFlightPromptIdRef.current;
+      const sessionId = sessionIdRef.current;
+      if (promptId === null || sessionId === null) return false;
+      const pointedAt = takePointedAt(context, pageRef.current);
+      const message: AISteerMessage = {
+        type: "ai_steer",
+        id: promptId,
+        sessionId,
+        steerId,
+        message: promptContentBlocks(content, attachments, pointedAt),
+      };
+      const sent = sendWsMessage(message);
+      if (sent) ownSteerIdsRef.current.add(steerId);
+      return sent;
+    },
+    [sendWsMessage],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -4343,6 +4362,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    steerMessage,
     captureSendContext,
     uploadAiImage,
     isStreaming,

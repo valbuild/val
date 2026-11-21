@@ -34,7 +34,18 @@ import {
   ArrowUp,
   Clock,
 } from "lucide-react";
-import type { AISession } from "../hooks/useAIWebSocket";
+import type { AISession, AISteerStatus } from "../hooks/useAIWebSocket";
+import {
+  applySteerStatus,
+  emptyOutbox,
+  isWaitingSteer,
+  nextSteerDeadline,
+  steerSent,
+  steerTimedOut,
+  steersTurnEnded,
+  type Outbox,
+  type Steer,
+} from "./aiSteer";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
 import { randomUUID } from "../utils/randomUUID";
@@ -143,6 +154,12 @@ export type ChatMessage = {
    * `AIChatTogether`.
    */
   author?: ProposalParticipant;
+  /**
+   * The assistant message this is the earlier part of: a message the person
+   * steered into the turn was delivered after it, so the answer goes on in a
+   * message of its own below. Its tool rows still belong to that turn.
+   */
+  segmentOf?: string;
 };
 
 /**
@@ -204,6 +221,13 @@ type AttachedFile = {
 type QueuedMessage = {
   /** Stable across edits of the queue, for its rows' keys. */
   id: string;
+  /** When it was written, among every message: see `enqueueInOrder`. */
+  seq: number;
+  /**
+   * Set once it was steered into a running turn and came back to the queue:
+   * a late `ai_steer_status` still finds it. See `aiSteer.ts`.
+   */
+  steerId?: string;
   outgoing: string | ChatDocument;
   displayText: string;
   doc?: ChatDocument;
@@ -323,6 +347,15 @@ export type AIChatHandle = {
    * question in a shared chat, as it is asked (see `AIChatTogether`).
    */
   appendMessage: (message: ChatMessage) => void;
+  /**
+   * What the server says about a message steered into the running turn
+   * (`onSteerMessage`). See `aiSteer.ts`.
+   */
+  steerStatus: (
+    steerId: string,
+    status: AISteerStatus,
+    reason?: string,
+  ) => void;
 };
 
 export type AIChatProps = {
@@ -350,6 +383,20 @@ export type AIChatProps = {
     content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
     context?: SendContext,
+  ) => boolean;
+  /**
+   * Send a message into this person's own running turn, for the assistant to
+   * read at its next step, rather than queueing it for after the turn.
+   * `steerId` is what the server's `ai_steer_status` names it by, which comes
+   * back through `AIChatHandle.steerStatus`. False when it could not be sent:
+   * it is queued instead. Without it, everything written during a turn is
+   * queued, as before.
+   */
+  onSteerMessage?: (
+    content: string | ChatDocument,
+    attachments: ChatMessageAttachment[] | undefined,
+    context: SendContext | undefined,
+    steerId: string,
   ) => boolean;
   /**
    * Take what goes with a message that is QUEUED rather than sent -- an
@@ -796,6 +843,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onSelectModel,
     modelLocked,
     onSendMessage,
+    onSteerMessage,
     onCaptureSendContext,
     pointedAt,
     onClearPointedAt,
@@ -832,6 +880,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  /** Who is writing, for messages made outside a render. */
+  const viewerRef = useRef<ProposalParticipant | null>(null);
   const [hasPendingInlineImage, setHasPendingInlineImage] = useState(false);
   /**
    * When the prompt now waiting for its first reply was sent, or `null`.
@@ -1005,9 +1055,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       // The message may already have been moved to completedMessages (e.g. by
       // an ai_error) while the question card was still open, in which case the
       // card renders from there and needs the same update.
+      // Or into the part of the turn above a steered message.
+      const ofTurn = (m: ChatMessage) =>
+        m.id === messageId || m.segmentOf === messageId;
       setCompletedMessages((prev) =>
-        prev.some((m) => m.id === messageId)
-          ? prev.map((m) => (m.id === messageId ? mapMessage(m) : m))
+        prev.some(ofTurn)
+          ? prev.map((m) => (ofTurn(m) ? mapMessage(m) : m))
           : prev,
       );
     },
@@ -1038,6 +1091,121 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       }));
     },
     [updateToolActivity],
+  );
+
+  // ---- What is on its way: the queue, and messages steered into a turn ----
+
+  /**
+   * What was written while a turn ran: sent one per turn, in order, once the
+   * turn before has ended (`queue`); and what was sent into this person's own
+   * running turn, for the assistant to read at its next step (`steers`, see
+   * `aiSteer.ts`). One state, because a steer moves into the queue and back.
+   *
+   * Written through `updateOutbox` only, which keeps `outboxRef` current at
+   * once: statuses from the socket can arrive several to a render, and each
+   * must see what the one before it did.
+   */
+  const [outbox, setOutbox] = useState<Outbox<QueuedMessage>>(emptyOutbox);
+  const outboxRef = useRef(outbox);
+  const updateOutbox = useCallback(
+    (update: (prev: Outbox<QueuedMessage>) => Outbox<QueuedMessage>) => {
+      const next = update(outboxRef.current);
+      outboxRef.current = next;
+      setOutbox(next);
+    },
+    [],
+  );
+  const setQueue = useCallback(
+    (update: (prev: QueuedMessage[]) => QueuedMessage[]) =>
+      updateOutbox((prev) => ({ ...prev, queue: update(prev.queue) })),
+    [updateOutbox],
+  );
+  const queue = outbox.queue;
+  /** Numbers messages as they are written, for `QueuedMessage.seq`. */
+  const seqRef = useRef(0);
+  /** Why a steered message came back to the composer, until the next send. */
+  const [steerNotice, setSteerNotice] = useState<string | null>(null);
+
+  /** A message as it is shown in the transcript, once it is sent. */
+  const userMessageOf = useCallback(
+    (message: QueuedMessage, id: string): ChatMessage => ({
+      id,
+      role: "user",
+      content: message.displayText,
+      status: "complete",
+      attachments: message.attachments,
+      userDoc: message.doc,
+      ...(viewerRef.current ? { author: viewerRef.current } : {}),
+    }),
+    [],
+  );
+
+  /**
+   * "Edit": a message goes back into the composer, files and all. Only into
+   * an empty composer, so nothing being written is overwritten.
+   */
+  const putBackInComposer = useCallback(
+    (message: QueuedMessage) => {
+      editorRef.current?.setDocument(
+        message.doc ?? [{ tag: "p", children: [message.displayText] }],
+      );
+      setIsEditorEmpty(false);
+      setAttachedFiles((prev) => [...message.files, ...prev]);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [editorRef],
+  );
+
+  /**
+   * A steered message reached the assistant: it goes where the turn has got
+   * to, between its steps. What the assistant said before it stays above it,
+   * and the answer goes on below it, in the same turn.
+   */
+  const placeDelivered = useCallback(
+    (message: QueuedMessage, steerId: string) => {
+      const userMsg = userMessageOf(message, `steer-${steerId}`);
+      const append = (added: ChatMessage[]) =>
+        setCompletedMessages((msgs) => {
+          const fresh = added.filter(
+            (msg) => !msgs.some((existing) => existing.id === msg.id),
+          );
+          return fresh.length === 0 ? msgs : [...msgs, ...fresh];
+        });
+      setCurrentMessage((prev) => {
+        if (!prev) {
+          append([userMsg]);
+          return prev;
+        }
+        const before = prev.message;
+        const said =
+          getTextContent(before.content).length > 0 ||
+          (before.toolActivities?.length ?? 0) > 0;
+        // From inside the updater, as `retireCurrentMessage` does and for
+        // the same reason; appending by id keeps a second call harmless.
+        append(
+          said
+            ? [
+                {
+                  ...before,
+                  id: `${before.id}~before~${steerId}`,
+                  segmentOf: before.id,
+                  status: "complete",
+                  // The turn's clock goes on in the part below.
+                  turnStats: undefined,
+                },
+                userMsg,
+              ]
+            : [userMsg],
+        );
+        if (!said) return prev;
+        const { toolActivities: _shown, ...rest } = before;
+        return {
+          lastActivityAt: Date.now(),
+          message: { ...rest, content: "" },
+        };
+      });
+    },
+    [userMessageOf],
   );
 
   // ---- Imperative handle for WebSocket layer ----
@@ -1190,9 +1358,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       });
       // A card answered after its turn ended is in the transcript by then.
       setCompletedMessages((prev) =>
-        prev.some((message) => message.id === messageId)
+        prev.some(
+          (message) =>
+            message.id === messageId || message.segmentOf === messageId,
+        )
           ? prev.map((message) =>
-              message.id === messageId
+              message.id === messageId || message.segmentOf === messageId
                 ? {
                     ...message,
                     toolActivities: withRequest(message.toolActivities),
@@ -1272,6 +1443,29 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     appendMessage(message: ChatMessage) {
       setCompletedMessages((prev) => [...prev, message]);
     },
+    steerStatus(steerId: string, status: AISteerStatus, reason?: string) {
+      const { outbox: next, effect } = applySteerStatus(
+        outboxRef.current,
+        steerId,
+        status,
+        reason,
+      );
+      if (next !== outboxRef.current) updateOutbox(() => next);
+      if (effect.type === "delivered") {
+        placeDelivered(effect.message, steerId);
+      } else if (effect.type === "rejected") {
+        // Back into the composer to edit, when nothing is being written
+        // there; otherwise it waits in the chat, with Edit, for it to be.
+        if (editorRef.current?.isEmpty() ?? false) {
+          updateOutbox((prev) => ({
+            ...prev,
+            steers: prev.steers.filter((s) => s.steerId !== steerId),
+          }));
+          putBackInComposer(effect.message);
+          setSteerNotice(effect.reason);
+        }
+      }
+    },
   }));
 
   // ---- Derived state ----
@@ -1286,6 +1480,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     (models?.length ?? 0) > 1;
   const viewerId = together?.viewerId ?? null;
   const viewer = together?.people.find((p) => p.id === viewerId) ?? null;
+  viewerRef.current = viewer;
   const turnBy = together?.turnBy ?? null;
   /**
    * Someone else asked the turn that is running. It streams here as it does
@@ -1297,11 +1492,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const showAuthors = (together?.people.length ?? 0) > 1;
   /** This tab's own turn is the one running. */
   const ownTurnRunning = isStreaming && !othersTurn;
-  /**
-   * What was written while a turn ran: sent one per turn, in order, once the
-   * turn before has ended. Writing is never blocked by a turn.
-   */
-  const [queue, setQueue] = useState<QueuedMessage[]>([]);
   /**
    * The queue waits for the person: they pressed Stop, or the turn before
    * failed. Sending the next one into whatever went wrong would only repeat
@@ -1383,15 +1573,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     (message: QueuedMessage) => {
       const { attachments } = message;
       const msgId = nextId();
-      const userMsg: ChatMessage = {
-        id: msgId,
-        role: "user",
-        content: message.displayText,
-        status: "complete",
-        attachments,
-        userDoc: message.doc,
-        ...(viewer ? { author: viewer } : {}),
-      };
+      const userMsg = userMessageOf(message, msgId);
       setCompletedMessages((prev) => [...prev, userMsg]);
 
       const sent = onSendMessage
@@ -1414,7 +1596,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         armForSend();
       }
     },
-    [viewer, onSendMessage, setAwaitingSince, armForSend],
+    [userMessageOf, onSendMessage, setAwaitingSince, armForSend],
   );
 
   /**
@@ -1428,6 +1610,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const lastFailed =
     lastMessage !== undefined && lastMessage.status === "error" && !busy;
   const queuePaused = queueStopped || lastFailed;
+
+  /**
+   * This person's own turn is running (or their prompt is on its way to it):
+   * what they write now can be steered into it.
+   */
+  const ownTurnBusy = !othersTurn && (isStreaming || awaitingSince !== null);
+  /**
+   * What is written now goes into the running turn rather than the queue.
+   * Not while anything is queued: it would overtake what was written first.
+   */
+  const willSteer =
+    onSteerMessage !== undefined && ownTurnBusy && queue.length === 0;
 
   const handleSend = useCallback(
     (suggestion?: string) => {
@@ -1472,8 +1666,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         setIsEditorEmpty(true);
       }
 
+      setSteerNotice(null);
       const message: QueuedMessage = {
         id: randomUUID(),
+        seq: ++seqRef.current,
         outgoing,
         displayText,
         doc: outgoingDoc,
@@ -1495,10 +1691,29 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       // wants sent, and it goes straight away.
       if (busy || (queue.length > 0 && !queuePaused)) {
         // Taken here, at the press, not in the updater: taking it clears
-        // the pick, which is another component's state.
+        // the pick, which is another component's state. A steer takes it
+        // too: if it comes back to the queue, it carries what it was about.
         const queued: QueuedMessage = onCaptureSendContext
           ? { ...message, context: onCaptureSendContext() }
           : message;
+        if (willSteer) {
+          const steerId = randomUUID();
+          if (
+            onSteerMessage(
+              queued.outgoing,
+              queued.attachments,
+              queued.context,
+              steerId,
+            )
+          ) {
+            updateOutbox((prev) =>
+              steerSent(prev, queued, steerId, Date.now()),
+            );
+            requestAnimationFrame(() => editorRef.current?.focus());
+            return;
+          }
+          // Could not be sent into the turn: it waits, as it always did.
+        }
         setQueue((prev) => [...prev, queued]);
         requestAnimationFrame(() => editorRef.current?.focus());
         return;
@@ -1515,9 +1730,38 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       editorRef,
       deliver,
       onCaptureSendContext,
+      willSteer,
+      onSteerMessage,
+      updateOutbox,
+      setQueue,
     ],
   );
   handleSendRef.current = handleSend;
+
+  /**
+   * A steer the server has said nothing about in time is queued, as before
+   * steering existed: the server may predate it. See `aiSteer.ts`.
+   */
+  useEffect(() => {
+    const next = nextSteerDeadline(outbox);
+    if (next === null) return;
+    const timer = setTimeout(
+      () => updateOutbox((prev) => steerTimedOut(prev, next.steerId)),
+      Math.max(0, next.at - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [outbox, updateOutbox]);
+
+  /**
+   * The turn is over -- answered, failed or stopped -- with steers still
+   * waiting for its next step: they go into the queue, in order, as
+   * `too_late` would put them. Before the queue's own effect, below, so
+   * they are in it when it looks.
+   */
+  useEffect(() => {
+    if (ownTurnBusy || !outbox.steers.some(isWaitingSteer)) return;
+    updateOutbox(steersTurnEnded);
+  }, [ownTurnBusy, outbox, updateOutbox]);
 
   /**
    * Send the next queued message once the turn before has ended. Never
@@ -1526,44 +1770,54 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   useEffect(() => {
     if (queue.length === 0 || busy || queuePaused || !isConnected) return;
     const [next, ...rest] = queue;
-    setQueue(rest);
+    setQueue(() => rest);
     deliver(next);
-  }, [queue, busy, queuePaused, isConnected, deliver]);
+  }, [queue, busy, queuePaused, isConnected, deliver, setQueue]);
 
   /** Send the next queued message now: after a Stop or a failed turn. */
   const sendNext = useCallback(() => {
     if (queue.length === 0 || busy) return;
     setQueueStopped(false);
     const [next, ...rest] = queue;
-    setQueue(rest);
+    setQueue(() => rest);
     deliver(next);
-  }, [queue, busy, deliver]);
+  }, [queue, busy, deliver, setQueue]);
 
   const clearQueue = useCallback(() => {
-    setQueue([]);
+    setQueue(() => []);
     setQueueStopped(false);
-  }, []);
+  }, [setQueue]);
 
   const stopTurn = useCallback(() => {
     // What was queued behind the turn waits: Stop is "not like that", and
-    // the next message was written before the person saw why.
-    if (queue.length > 0) setQueueStopped(true);
+    // the next message was written before the person saw why. So does what
+    // was steered into it and not read yet: it goes back into the queue when
+    // the turn ends, and waits there.
+    if (queue.length > 0 || outbox.steers.some(isWaitingSteer)) {
+      setQueueStopped(true);
+    }
     onCancel?.();
-  }, [queue.length, onCancel]);
+  }, [queue.length, outbox.steers, onCancel]);
 
-  const removeQueued = useCallback((id: string) => {
-    setQueue((prev) => prev.filter((m) => m.id !== id));
-  }, []);
+  const removeQueued = useCallback(
+    (id: string) => {
+      setQueue((prev) => prev.filter((m) => m.id !== id));
+    },
+    [setQueue],
+  );
 
-  const moveQueuedUp = useCallback((id: string) => {
-    setQueue((prev) => {
-      const index = prev.findIndex((m) => m.id === id);
-      if (index <= 0) return prev;
-      const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      return next;
-    });
-  }, []);
+  const moveQueuedUp = useCallback(
+    (id: string) => {
+      setQueue((prev) => {
+        const index = prev.findIndex((m) => m.id === id);
+        if (index <= 0) return prev;
+        const next = [...prev];
+        [next[index - 1], next[index]] = [next[index], next[index - 1]];
+        return next;
+      });
+    },
+    [setQueue],
+  );
 
   /**
    * "Edit": the message comes out of the queue and back into the composer,
@@ -1575,14 +1829,32 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const message = queue.find((m) => m.id === id);
       if (message === undefined || !isEditorEmpty) return;
       setQueue((prev) => prev.filter((m) => m.id !== id));
-      editorRef.current?.setDocument(
-        message.doc ?? [{ tag: "p", children: [message.displayText] }],
-      );
-      setIsEditorEmpty(false);
-      setAttachedFiles((prev) => [...message.files, ...prev]);
-      requestAnimationFrame(() => editorRef.current?.focus());
+      putBackInComposer(message);
     },
-    [queue, isEditorEmpty, editorRef],
+    [queue, isEditorEmpty, setQueue, putBackInComposer],
+  );
+
+  /** A steer the server would not take: back to edit, or dropped. */
+  const editRejectedSteer = useCallback(
+    (steerId: string) => {
+      const steer = outbox.steers.find((s) => s.steerId === steerId);
+      if (steer === undefined || !isEditorEmpty) return;
+      updateOutbox((prev) => ({
+        ...prev,
+        steers: prev.steers.filter((s) => s.steerId !== steerId),
+      }));
+      putBackInComposer(steer.message);
+    },
+    [outbox.steers, isEditorEmpty, updateOutbox, putBackInComposer],
+  );
+  const removeRejectedSteer = useCallback(
+    (steerId: string) => {
+      updateOutbox((prev) => ({
+        ...prev,
+        steers: prev.steers.filter((s) => s.steerId !== steerId),
+      }));
+    },
+    [updateOutbox],
   );
 
   const handleRetry = useCallback(
@@ -1599,6 +1871,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         setCompletedMessages((prev) => prev.filter((m) => m.id !== removeId));
         const message: QueuedMessage = {
           id: randomUUID(),
+          seq: ++seqRef.current,
           outgoing: source.userDoc ?? getTextContent(source.content),
           displayText: getTextContent(source.content),
           doc: source.userDoc,
@@ -1666,7 +1939,15 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
       if (sent) setAwaitingSince(Date.now());
     },
-    [messages, onSendMessage, setAwaitingSince, othersTurn, deliver, viewerId],
+    [
+      messages,
+      onSendMessage,
+      setAwaitingSince,
+      othersTurn,
+      deliver,
+      viewerId,
+      setQueue,
+    ],
   );
 
   // ---- Render ----
@@ -1887,6 +2168,28 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               />
             ))
           )}
+          {outbox.steers.map((steer) => (
+            <MessageBubble
+              key={steer.steerId}
+              message={userMessageOf(steer.message, `steer-${steer.steerId}`)}
+              author={
+                showAuthors && viewer
+                  ? { person: viewer, isViewer: true }
+                  : undefined
+              }
+              onRetry={() => {}}
+              onSubmitToolAnswers={() => {}}
+              onCancelToolQuestion={() => {}}
+              footer={
+                <SteerNote
+                  steer={steer}
+                  canEdit={isEditorEmpty}
+                  onEdit={editRejectedSteer}
+                  onRemove={removeRejectedSteer}
+                />
+              }
+            />
+          ))}
           {awaitingSince !== null && !currentMessage && (
             <TurnStatsLine
               className="px-1"
@@ -1941,6 +2244,26 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 }}
                 onCancel={() => setStaged(null)}
               />
+            )}
+            {steerNotice !== null && (
+              <div
+                role="status"
+                className="mb-2 flex items-start gap-2 rounded-md border border-border-error-primary bg-bg-secondary px-2 py-1.5 text-xs touch:text-sm text-fg-secondary"
+              >
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-fg-error-primary" />
+                <span className="min-w-0 flex-1">
+                  The assistant did not take your message: {steerNotice} It is
+                  back here to edit and send again.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSteerNotice(null)}
+                  aria-label="Dismiss"
+                  className="shrink-0 text-fg-secondary hover:text-fg-primary"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             )}
             {queue.length > 0 && (
               <QueuedMessages
@@ -2088,17 +2411,21 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                       }
                       onClick={() => handleSend()}
                       aria-label={
-                        busy || queue.length > 0
-                          ? "Send when the answer is done"
-                          : "Send message"
+                        willSteer
+                          ? "Send now, for the assistant's next step"
+                          : busy || queue.length > 0
+                            ? "Send when the answer is done"
+                            : "Send message"
                       }
                       title={
-                        busy || queue.length > 0
-                          ? "Send when the answer is done"
-                          : undefined
+                        willSteer
+                          ? "Send now: the assistant reads it at its next step"
+                          : busy || queue.length > 0
+                            ? "Send when the answer is done"
+                            : undefined
                       }
                     >
-                      {busy || queue.length > 0 ? (
+                      {!willSteer && (busy || queue.length > 0) ? (
                         <Clock className="h-4 w-4" />
                       ) : (
                         <Send className="h-4 w-4" />
@@ -2490,10 +2817,13 @@ function MessageBubble({
   onCancelToolQuestion,
   onEnableCodeMode,
   onDeclineCodeMode,
+  footer,
 }: {
   message: ChatMessage;
   /** Who wrote it, in a chat several people write in. */
   author?: { person: ProposalParticipant; isViewer: boolean };
+  /** Under the message: where a steered one has got to. */
+  footer?: ReactNode;
   onRetry: (id: string) => void;
   onSubmitToolAnswers: (
     toolCallId: string,
@@ -2715,7 +3045,72 @@ function MessageBubble({
           })}
         />
       )}
+      {footer}
     </div>
+  );
+}
+
+/**
+ * Under a message sent into the running turn, until the assistant has it:
+ * that it is on its way and cannot be taken back, or why it was not taken,
+ * with the queue's Edit and Remove.
+ */
+function SteerNote({
+  steer,
+  canEdit,
+  onEdit,
+  onRemove,
+}: {
+  steer: Steer<QueuedMessage>;
+  /** Edit puts it back into the composer: only into an empty one. */
+  canEdit: boolean;
+  onEdit: (steerId: string) => void;
+  onRemove: (steerId: string) => void;
+}) {
+  if (steer.state !== "rejected") {
+    return (
+      <span
+        data-steer-state={steer.state}
+        className="flex items-center gap-1 px-1 text-xs text-fg-secondary"
+      >
+        <Clock className="h-3 w-3 shrink-0" />
+        {steer.state === "accepted"
+          ? "Sent; the assistant will read it at its next step. It can no longer be edited."
+          : "Sent; the assistant will read it at its next step."}
+      </span>
+    );
+  }
+  return (
+    <span
+      data-steer-state="rejected"
+      role="status"
+      className="flex max-w-[80%] flex-wrap items-center gap-1 px-1 text-xs text-fg-secondary"
+    >
+      <AlertTriangle className="h-3 w-3 shrink-0 text-fg-error-primary" />
+      <span className="min-w-0">Not sent: {steer.reason}</span>
+      <button
+        type="button"
+        onClick={() => onEdit(steer.steerId)}
+        disabled={!canEdit}
+        title={
+          canEdit
+            ? "Take it back to edit"
+            : "Send or clear what you are writing first"
+        }
+        className="shrink-0 rounded px-1 text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary disabled:text-fg-disabled"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        onClick={() => onRemove(steer.steerId)}
+        aria-label="Remove"
+        title="Remove"
+        className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
   );
 }
 

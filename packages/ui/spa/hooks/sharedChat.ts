@@ -136,6 +136,11 @@ export function applyWatchedEvent(
   } else if (event.type === "ai_error") {
     openAnswer(event.id);
     chat?.errorAssistantMessage(event.id, event.message, event.code);
+  } else if (event.type === "ai_steer_status") {
+    // The asker sent a message into their running turn, and the agent has
+    // it. Its text is the asker's alone, so it is not here to show: the turn
+    // is read again whole when it ends, which puts it where it was delivered.
+    if (event.status === "delivered") watched.started.delete(event.id);
   } else if (event.type === "ai_turn_ended") {
     if (activeId.current === event.id) activeId.current = null;
     const joinedMidway = !watched.started.delete(event.id);

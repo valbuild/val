@@ -1197,3 +1197,122 @@ function LiveTurnStatsDemo() {
     />
   );
 }
+
+// ---------------------------------------------------------------------------
+// Steering: a message sent into the person's own running turn
+// ---------------------------------------------------------------------------
+
+type SteerOutcome =
+  | "accepted"
+  | "delivered"
+  | "too_late"
+  | "rejected"
+  | "fallback";
+
+/**
+ * A turn runs, the person writes "Only the blog posts, not the pages", and
+ * the server answers the steer with `outcome` -- or, for `fallback`, says
+ * nothing, as a server that predates steering would: after a few seconds it
+ * waits in the queue instead.
+ */
+function SteerDemo({ outcome }: { outcome: SteerOutcome }) {
+  const chatRef = useRef<AIChatHandle>(null);
+  const steerIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const chat = chatRef.current;
+    if (!chat) return;
+    const turnId = `steer-turn-${outcome}`;
+    chat.startAssistantMessage(turnId);
+    chat.addToolCall(turnId, "call-1", "search_content");
+    chat.completeToolCall(turnId, "call-1");
+    chat.appendAssistantChunk(turnId, "Found 12 pages with typos. Fixing them");
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const later = (ms: number, run: () => void) =>
+      timers.push(setTimeout(run, ms));
+    const status = (
+      value: "accepted" | "delivered" | "too_late" | "rejected",
+      reason?: string,
+    ) => {
+      const steerId = steerIdRef.current;
+      if (steerId) chatRef.current?.steerStatus(steerId, value, reason);
+    };
+    // Once the turn is on screen: written while it runs.
+    later(100, () =>
+      chatRef.current?.sendUserMessage("Only the blog posts, not the pages"),
+    );
+    if (outcome === "fallback") return () => timers.forEach(clearTimeout);
+    later(300, () => status("accepted"));
+    if (outcome === "delivered") {
+      later(1200, () => {
+        status("delivered");
+        chatRef.current?.addToolCall(turnId, "call-2", "create_patch");
+        chatRef.current?.appendAssistantChunk(
+          turnId,
+          "Fixed the typos in the 4 blog posts, and left the pages as they were.",
+        );
+        chatRef.current?.completeToolCall(turnId, "call-2");
+        chatRef.current?.completeAssistantMessage(turnId);
+      });
+    } else if (outcome === "too_late") {
+      later(1200, () => {
+        chatRef.current?.appendAssistantChunk(turnId, ". Done.");
+        chatRef.current?.completeAssistantMessage(turnId);
+        status("too_late");
+      });
+    } else if (outcome === "rejected") {
+      later(800, () =>
+        status("rejected", "Only the person who asked can add to this answer."),
+      );
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [outcome]);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      onCancel={() => {}}
+      onSendMessage={() => true}
+      onSteerMessage={(_content, _attachments, _context, steerId) => {
+        steerIdRef.current = steerId;
+        return true;
+      }}
+      initialMessages={[
+        {
+          id: `steer-user-${outcome}`,
+          role: "user",
+          content: "Fix the typos on the site",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}
+
+/** Sent, and the server has it for the turn: it can no longer be edited. */
+export const SteerAccepted: Story = {
+  render: () => <SteerDemo outcome="accepted" />,
+};
+
+/** Read at the next step: shown between the assistant's steps. */
+export const SteerDelivered: Story = {
+  render: () => <SteerDemo outcome="delivered" />,
+};
+
+/** The turn ended first: sent as the next prompt, through the queue. */
+export const SteerTooLate: Story = {
+  render: () => <SteerDemo outcome="too_late" />,
+};
+
+/** Not taken: back in the box to edit, with why. */
+export const SteerRejected: Story = {
+  render: () => <SteerDemo outcome="rejected" />,
+};
+
+/** No answer from the server (one that predates steering): queued instead. */
+export const SteerFallback: Story = {
+  render: () => <SteerDemo outcome="fallback" />,
+};
