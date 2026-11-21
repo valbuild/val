@@ -15,9 +15,10 @@ import type { ProposalStaged } from "./proposalsClient";
  * proposal's files, counts what it is asked, and moves a `seq` the test
  * hands to the tab when it says the tab has heard.
  *
- * `codeToolRequests.scenario.test.ts` counts the same against Val's real
- * server; here the order of events is the test's, which a real server's is
- * not.
+ * What each tool asks when nothing ends the snapshot is counted in
+ * `codeToolRequests.test.ts`, and against Val's real server in
+ * `codeToolRequests.scenario.test.ts`. Here is what ENDS it, with the order
+ * of events the test's, which a real server's is not.
  */
 
 const NAME = "0123456789abcdef0123";
@@ -190,21 +191,6 @@ const textOf = (answer: { result: unknown }): unknown =>
     : answer.result;
 
 describe("the project the code tools read, held in the tab", () => {
-  test("in a proposal: asked for once, both parts beside each other, then read from the tab", async () => {
-    const s = service();
-    expect(textOf(await s.run("read_file", { path: HERO }))).toBe(
-      "one two three",
-    );
-    expect(s.asked().sort()).toEqual([`GET ${FILES}`, `GET ${SOURCE}`]);
-
-    await s.run("read_file", { path: "src/site.ts" });
-    await s.run("search_code", { query: "two" });
-    await s.run("list_files", {});
-    await s.run("lint", {});
-    await s.run("format_files", { write: false });
-    expect(s.asked()).toEqual([]);
-  });
-
   test("the project's instructions are read from it too", async () => {
     const s = service();
     await s.run("list_files", {});
@@ -243,31 +229,6 @@ describe("the project the code tools read, held in the tab", () => {
     const written = await s.run("edit_file", edit("one", "1"), "site");
     expect(written.isError).toBe(true);
     expect(s.offered.times).toBe(1);
-    expect(s.asked()).toEqual([]);
-  });
-
-  test("an edit is one request, and three in one reply are three: each reads what the one before wrote", async () => {
-    const s = service();
-    await s.run("list_files", {});
-    s.asked();
-
-    const answers = await Promise.all([
-      s.run("edit_file", edit("one", "1")),
-      s.run("edit_file", edit("two", "2")),
-      s.run("edit_file", edit("three", "3")),
-    ]);
-    expect(answers.map((answer) => answer.isError)).toEqual([
-      false,
-      false,
-      false,
-    ]);
-    expect(s.asked()).toEqual([
-      `POST ${FILES}`,
-      `POST ${FILES}`,
-      `POST ${FILES}`,
-    ]);
-    expect(s.state.own[HERO]).toBe("1 2 3");
-    expect(textOf(await s.run("read_file", { path: HERO }))).toBe("1 2 3");
     expect(s.asked()).toEqual([]);
   });
 
@@ -313,20 +274,6 @@ describe("the project the code tools read, held in the tab", () => {
     expect(asked).toContain(`GET ${FILES}`);
     expect(asked[asked.length - 1]).toBe(`POST ${FILES}`);
     expect(s.state.own[HERO]).toBe("1 two three, and theirs");
-  });
-
-  test("an edit long after the last read asks what is staged first (before: the whole project, twice)", async () => {
-    const s = service();
-    await s.run("read_file", { path: HERO });
-    s.asked();
-    // The model thought for a while.
-    s.state.now += OWN_STAGING_GRACE_MS;
-    expect((await s.run("edit_file", edit("one", "1"))).isError).toBe(false);
-    expect(s.asked()).toEqual([`GET ${ONE}`, `POST ${FILES}`]);
-    // Reading is never checked: it costs nothing.
-    s.state.now += OWN_STAGING_GRACE_MS;
-    await s.run("read_file", { path: HERO });
-    expect(s.asked()).toEqual([]);
   });
 
   test("SOMEONE ELSE'S STAGING THE TAB NEVER HEARS OF is not overwritten either: the edit asks what is staged, and is made from their text", async () => {

@@ -2,6 +2,7 @@ import { Internal } from "@valbuild/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
+import { studioAITurnTrace } from "./aiTurnTrace";
 import {
   resolvePreferredModel,
   writePreferredModel,
@@ -380,6 +381,46 @@ export const AIMessageContentBlock = z.union([
 ]);
 export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
 
+// --- Steering a running turn ---
+
+/**
+ * What became of a message sent into a running turn (`ai_steer`).
+ *
+ * - `accepted`: queued for the running turn.
+ * - `delivered`: the agent has it, at a step boundary. Watchers get this too.
+ * - `too_late`: the turn ended without another step; send it as the next
+ *   prompt.
+ * - `rejected`: not taken; `reason` says why.
+ */
+export const AISteerStatus = z.enum([
+  "accepted",
+  "delivered",
+  "too_late",
+  "rejected",
+]);
+export type AISteerStatus = z.infer<typeof AISteerStatus>;
+
+/**
+ * `status` is a plain string here, and narrowed to `AISteerStatus` where it is
+ * read: a status the server has and this client does not is ignored, rather
+ * than failing the parse of the whole message.
+ */
+export const AISteerStatusMessage = z.object({
+  type: z.literal("ai_steer_status"),
+  /** The running prompt's id. */
+  id: z.string(),
+  steerId: z.string(),
+  status: z.string(),
+  reason: z.string().optional(),
+  /**
+   * On `delivered`: what was sent, so a watcher (or the asker's other tab)
+   * can show it where it was read. Optional; without it, the chat is read
+   * again when the turn ends.
+   */
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]).optional(),
+});
+export type AISteerStatusMessage = z.infer<typeof AISteerStatusMessage>;
+
 // --- A shared chat, watched (valbuild/home docs/proposals.md, Flow H) ---
 
 /** Someone else asked in a watched chat: their question, as they sent it. */
@@ -426,6 +467,7 @@ export const AIWatchedMessage = z.object({
     AICancelledMessage,
     AIErrorMessage,
     AITurnEndedEvent,
+    AISteerStatusMessage,
   ]),
 });
 export type AIWatchedMessage = z.infer<typeof AIWatchedMessage>;
@@ -449,6 +491,7 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIUsageMessage,
   AIWatchedMessage,
   AIWatchingMessage,
+  AISteerStatusMessage,
 ]);
 
 export type AIServerMessage = z.infer<typeof AIServerMessage>;
@@ -531,6 +574,20 @@ export type AIGetSessionsWithMessagesMessage = z.infer<
   typeof AIGetSessionsWithMessagesMessage
 >;
 
+/**
+ * A message for the turn that is running: the agent reads it at its next
+ * step, instead of after the turn. `id` is the running `ai_prompt`'s id,
+ * `steerId` the client's own, which every `ai_steer_status` carries back.
+ */
+export const AISteerMessage = z.object({
+  type: z.literal("ai_steer"),
+  id: z.string(),
+  sessionId: z.string(),
+  steerId: z.string(),
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]),
+});
+export type AISteerMessage = z.infer<typeof AISteerMessage>;
+
 /** Stop an in-flight prompt. `id` is the id of the `ai_prompt` to stop. */
 export const AICancelMessage = z.object({
   type: z.literal("ai_cancel"),
@@ -550,6 +607,11 @@ export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
 export const AIWatchSessionMessage = z.object({
   type: z.literal("ai_watch_session"),
   sessionId: z.string(),
+  /**
+   * Relay `ai_steer_status` inside `ai_watched` too. Opt-in, because a
+   * Studio released before steering would fail to parse it.
+   */
+  steering: z.boolean().optional(),
 });
 export type AIWatchSessionMessage = z.infer<typeof AIWatchSessionMessage>;
 
@@ -561,6 +623,7 @@ export type AIUnwatchSessionMessage = z.infer<typeof AIUnwatchSessionMessage>;
 
 export type AIClientMessage =
   | AIPromptMessage
+  | AISteerMessage
   | AIToolResultMessage
   | AICancelMessage
   | AIUnhideSessionMessage
@@ -761,6 +824,8 @@ export function useAIWebSocket(
             );
             return;
           }
+          // Before the handlers: one of them may answer a tool call at once.
+          studioAITurnTrace.received(parsed.data);
           for (const handler of handlersRef.current) {
             handler(parsed.data);
           }
@@ -770,6 +835,7 @@ export function useAIWebSocket(
       };
 
       ws.onclose = () => {
+        studioAITurnTrace.disconnected();
         setIsConnected(false);
         if (wsRef.current === ws) {
           wsRef.current = null;
@@ -843,6 +909,8 @@ export function useAIWebSocket(
   const send = useCallback((message: AIClientMessage): boolean => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
+      // Where every prompt and every tool result leaves: see `aiTurnTrace.ts`.
+      studioAITurnTrace.sent(message);
       return true;
     }
     Internal.log.debug("AI WebSocket not open, cannot send");

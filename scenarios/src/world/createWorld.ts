@@ -1815,6 +1815,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             typecheck: notThisTool,
             offerProposal: notThisTool,
             codeMode: () => readCodeMode(clients.proposals, name, () => null),
+            // `studioCodeToolDeps` is what the Studio makes these with, and
+            // cannot be loaded here: it brings the browser's builder.
+            // `codeToolRequests.test.ts` in `@valbuild/ui` counts through it.
             codeModeHere: () => codeModeHeldFor(name),
             nameOf: () => null,
             ...(options?.formatCode !== undefined

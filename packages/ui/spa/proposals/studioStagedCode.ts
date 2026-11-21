@@ -1,7 +1,7 @@
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import { canBuildHere } from "../publish/handoff";
 import { loadBuilder } from "../publish/loadBuilder";
-import type { System } from "../stores/createSystem";
+import type { HostStore } from "../stores/HostStore";
 import { evaluateTree } from "./evaluateTree";
 import type { ProjectSnapshot } from "./projectSnapshot";
 import {
@@ -25,7 +25,8 @@ import {
 export function studioStagedCodeDeps(
   name: string,
   snapshot: Pick<ProjectSnapshot, "read">,
-  system: System,
+  /** The Studio's system, of which only the host is used: it takes the code. */
+  system: { host: Pick<HostStore, "reloadCode"> },
 ): StagedCodeDeps {
   const publish = createStudioPublishClient({ api: "/api/val" });
   const project = stagedProject(name, snapshot);

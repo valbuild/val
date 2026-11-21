@@ -595,7 +595,10 @@ const STAGED_CODE_WAIT_SECONDS = 20;
  * The tools that change the proposal's code: refused while code mode is off.
  * Reading it, typechecking it and building what is staged change nothing.
  */
-function changesCode(name: string, input: Record<string, unknown>): boolean {
+export function changesCode(
+  name: string,
+  input: Record<string, unknown>,
+): boolean {
   if (name === "write_files" || name === "edit_file") return true;
   if (name === "format_files") return input["write"] !== false;
   if (name === "lint") return input["fix"] === true;

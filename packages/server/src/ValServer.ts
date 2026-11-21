@@ -2746,12 +2746,20 @@ export const ValServer = (
           );
           if (result.isErr(createPatchRes)) {
             if (createPatchRes.error.errorType === "patch-head-conflict") {
+              /*
+               * The patches before this one in the batch ARE saved: each is
+               * its own write, and someone else's can land between two of
+               * ours. Reported as a 200 would report them, so the client does
+               * not send them again -- the content service refuses a patch it
+               * already has.
+               */
               return {
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
                   message:
                     "The change was written against a different starting point than the server has.",
+                  ...savedSoFar(),
                 },
               };
             } else if (createPatchRes.error.errorType === "plan-refused") {
@@ -2928,6 +2936,25 @@ export const ValServer = (
         }
         const ids = query.id;
         const deleteRes = await serverOps.deletePatches(ids);
+        if ("error" in deleteRes && deleteRes.error !== undefined) {
+          /*
+           * The store failed -- the content service, or in fs mode the patch
+           * store's lock or log -- so nothing is known to be deleted.
+           * Answered as a failure, never as the 200 below: that names every
+           * id as deleted, and the Studio forgets patches that still exist --
+           * a reload brings the change back, and the next publish ships it.
+           */
+          Internal.log.error("Failed to delete patches", deleteRes.error);
+          return {
+            status: 502,
+            json: {
+              message: deleteRes.error.message,
+              ...(typeof deleteRes.error.details === "string"
+                ? { details: deleteRes.error.details }
+                : {}),
+            },
+          };
+        }
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           Internal.log.error("Failed to delete patches", deleteRes.errors);
           return {
