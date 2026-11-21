@@ -1,4 +1,5 @@
 import { Internal } from "@valbuild/core";
+import { changesCode as toolChangesCode } from "../proposals/proposalCode";
 import type { AIClientMessage, AIServerMessage } from "./useAIWebSocket";
 
 /**
@@ -29,11 +30,12 @@ import type { AIClientMessage, AIServerMessage } from "./useAIWebSocket";
  * (requests are counted in `codeToolRequests.test.tsx`), and how the model's
  * time splits between the provider and the content service.
  *
- * Read from the console: `__VAL_AI_TURNS__.turns` holds the last few turns,
- * `copy(__VAL_AI_TURNS__.text())` copies the last one as text and
- * `copy(__VAL_AI_TURNS__.json())` as JSON, timeline included. Each turn is
- * also printed with `Internal.log.debug` as it ends
- * (`localStorage["val:debug"] = "1"`).
+ * Recorded only while debug is on (`localStorage["val:debug"] = "1"`),
+ * decided when a prompt is sent: with it off nothing is recorded, nothing is
+ * kept and `__VAL_AI_TURNS__` does not exist. With it on, each turn is
+ * printed with `Internal.log.debug` as it ends, `__VAL_AI_TURNS__.turns`
+ * holds the last few, `copy(__VAL_AI_TURNS__.text())` copies the last one as
+ * text and `copy(__VAL_AI_TURNS__.json())` as JSON, timeline included.
  */
 export type AITurnTrace = {
   /** The prompt's id. */
@@ -70,6 +72,8 @@ export type AITurnTrace = {
   /** By tool name. `ms` adds every call up, so calls that overlap count twice here and once in `toolMs`. */
   tools: Record<string, AITurnToolStats>;
   webSearches: number;
+  /** Messages the person sent into the turn while it ran (`ai_steer`). */
+  steers: number;
   outputTokens: number | null;
   /** The turn in order, adjacent moments of one kind joined. */
   timeline: AITurnSegment[];
@@ -78,11 +82,18 @@ export type AITurnTrace = {
   /** Quick previews that ended after the turn's first write, in order. */
   previews: AITurnPreview[];
   /**
-   * Prompt sent to the change being visible: the last quick preview shown
-   * after the last write. `null` while none was, which is also the answer
-   * where the quick preview is off and only a build shows the change.
+   * Prompt sent to the change being visible: the first quick preview shown
+   * that was started after the last write. `null` while none was, which is
+   * also the answer where the quick preview is off and only a build shows
+   * the change.
    */
   changeVisibleMs: number | null;
+  /**
+   * That preview started while the last write's tool call was still running,
+   * and none started after it: it may have read the proposal just before the
+   * files were staged, and then shows the files before the write.
+   */
+  changeVisibleUncertain: boolean;
   /** The last write's result going out, to that preview being shown. */
   lastWriteToPreviewMs: number | null;
 };
@@ -117,6 +128,8 @@ export type AITurnPreview = {
    * shows what was staged before it.
    */
   sinceLastWriteMs: number | null;
+  /** It started while the last write's tool call was still running. */
+  duringLastWrite: boolean;
   /** How long it ran. */
   ms: number;
   steps: { step: string; ms: number }[];
@@ -246,29 +259,39 @@ export function createAITurnTrace(options: {
    * A quick preview shows the last write when it STARTED after that write's
    * call arrived: it reads what is staged as it starts, and the staging is
    * made inside the call. One started before the call shows what was staged
-   * before it. One that started inside the call but read before the staging
-   * landed is of the old files too, and is counted here until the next one,
-   * which the staging itself starts, replaces it. Counted from the write's
-   * result, and 0 when it was on screen before the tool had answered.
+   * before it. One started inside the call may have read just before the
+   * staging landed: it is believed only until one started after the answer
+   * is shown, and the trace says so (`changeVisibleUncertain`). Whoever
+   * caused a preview, one started after the write shows the write, so the
+   * first such one is when the change was visible.
    */
   const placePreviews = (turn: OpenTurn) => {
     const { trace, lastWriteAt, lastWriteCallAt } = turn;
-    trace.changeVisibleMs = null;
-    trace.lastWriteToPreviewMs = null;
-    trace.previews.forEach((preview, index) => {
+    let sure: AITurnPreview | null = null;
+    let unsure: AITurnPreview | null = null;
+    for (const [index, preview] of trace.previews.entries()) {
       const times = turn.previewTimes[index];
-      preview.sinceLastWriteMs =
+      const ofLastWrite =
         times !== undefined &&
         lastWriteAt !== null &&
         lastWriteCallAt !== null &&
-        times.startedAt >= lastWriteCallAt
+        times.startedAt >= lastWriteCallAt;
+      preview.sinceLastWriteMs =
+        ofLastWrite && lastWriteAt !== null
           ? Math.max(0, times.at - lastWriteAt)
           : null;
-      if (preview.status === "shown" && preview.sinceLastWriteMs !== null) {
-        trace.changeVisibleMs = preview.atMs;
-        trace.lastWriteToPreviewMs = preview.sinceLastWriteMs;
-      }
-    });
+      preview.duringLastWrite =
+        ofLastWrite && lastWriteAt !== null && times.startedAt < lastWriteAt;
+      if (preview.status !== "shown" || !ofLastWrite) continue;
+      if (preview.duringLastWrite) unsure ??= preview;
+      else sure ??= preview;
+    }
+    // One started after the write was answered is of it for certain. One
+    // started during it is believed only while no such one was shown.
+    const shown: AITurnPreview | null = sure ?? unsure;
+    trace.changeVisibleMs = shown?.atMs ?? null;
+    trace.lastWriteToPreviewMs = shown?.sinceLastWriteMs ?? null;
+    trace.changeVisibleUncertain = shown !== null && sure === null;
   };
 
   const end = (turn: OpenTurn, how: NonNullable<AITurnTrace["end"]>) => {
@@ -311,11 +334,13 @@ export function createAITurnTrace(options: {
             toolCalls: 0,
             tools: {},
             webSearches: 0,
+            steers: 0,
             outputTokens: null,
             timeline: [],
             lastWriteMs: null,
             previews: [],
             changeVisibleMs: null,
+            changeVisibleUncertain: false,
             lastWriteToPreviewMs: null,
           },
           start: at,
@@ -329,7 +354,21 @@ export function createAITurnTrace(options: {
         };
         running.set(message.id, turn);
         kept.push(turn);
-        if (kept.length > KEPT_TURNS) kept.shift();
+        if (kept.length > KEPT_TURNS) {
+          // One that never ended is let go with its calls.
+          const dropped = kept.shift();
+          if (dropped !== undefined && dropped.endedAt === null) {
+            running.delete(dropped.trace.id);
+            for (const toolCallId of Array.from(dropped.open.keys())) {
+              calls.delete(toolCallId);
+            }
+          }
+        }
+        return;
+      }
+      if (message.type === "ai_steer") {
+        const turn = running.get(message.id);
+        if (turn !== undefined) turn.trace.steers += 1;
         return;
       }
       if (message.type === "ai_tool_result") {
@@ -369,6 +408,8 @@ export function createAITurnTrace(options: {
 
     received(message) {
       if (!("id" in message)) return;
+      // The service saying what became of a steer is not the model answering.
+      if (message.type === "ai_steer_status") return;
       const turn = running.get(message.id);
       if (turn === undefined) return;
       const at = now();
@@ -432,23 +473,32 @@ export function createAITurnTrace(options: {
       if (turn === undefined) return;
       const writing = Array.from(turn.open.values()).some((c) => c.write);
       if (turn.lastWriteAt === null && !writing) return;
-      if (turn.endedAt !== null && at - turn.endedAt > PREVIEW_AFTER_END_MS) {
-        return;
-      }
       const trace = turn.trace;
+      if (turn.endedAt !== null) {
+        if (at - turn.endedAt > PREVIEW_AFTER_END_MS) return;
+        // The turn is over and its change is on screen: a later quick
+        // preview is somebody else's change, not more of this turn.
+        if (trace.changeVisibleMs !== null && !trace.changeVisibleUncertain) {
+          return;
+        }
+      }
       trace.previews.push({
         status: report.status,
         auto: report.auto,
         atMs: at - turn.start,
         sinceLastWriteMs: null,
+        duringLastWrite: false,
         ms: report.ms,
         steps: report.steps,
       });
       turn.previewTimes.push({ startedAt: at - report.ms, at });
-      const before = trace.changeVisibleMs;
+      const before = `${trace.changeVisibleMs} ${trace.changeVisibleUncertain}`;
       placePreviews(turn);
       // Told again when the turn is over: its line was printed without this.
-      if (turn.endedAt !== null && trace.changeVisibleMs !== before) {
+      if (
+        turn.endedAt !== null &&
+        before !== `${trace.changeVisibleMs} ${trace.changeVisibleUncertain}`
+      ) {
         onTurn?.(trace);
       }
     },
@@ -470,7 +520,9 @@ export function formatAITurnTrace(trace: AITurnTrace): string {
       ([name, stats]) =>
         `    ${name}: ${stats.calls} call${stats.calls === 1 ? "" : "s"}, ${seconds(stats.ms)} (max ${seconds(stats.maxMs)})` +
         (stats.errors > 0 ? `, ${stats.errors} failed` : "") +
-        (stats.person ? ", waited on the person" : ""),
+        (stats.person
+          ? ", waited on the person (all of a held call counts as theirs, what ran after they answered included)"
+          : ""),
     );
   const previews = trace.previews.map(
     (preview) =>
@@ -493,11 +545,15 @@ export function formatAITurnTrace(trace: AITurnTrace): string {
     `  tools ${seconds(trace.toolMs)} over ${trace.toolCalls} call${trace.toolCalls === 1 ? "" : "s"}` +
       (trace.personMs > 0
         ? `, waiting on the person ${seconds(trace.personMs)}`
-        : ""),
+        : "") +
+      (trace.steers > 0 ? `, ${trace.steers} steered in` : ""),
     ...tools,
     trace.lastWriteMs === null
       ? "  no code written"
-      : `  last write at ${seconds(trace.lastWriteMs)}, change visible at ${seconds(trace.changeVisibleMs)} (${seconds(trace.lastWriteToPreviewMs)} after it)`,
+      : `  last write at ${seconds(trace.lastWriteMs)}, change visible at ${seconds(trace.changeVisibleMs)} (${seconds(trace.lastWriteToPreviewMs)} after it)` +
+        (trace.changeVisibleUncertain
+          ? " -- UNCERTAIN: that preview started while the write was being staged, and may show the files before it"
+          : ""),
     ...previews,
   ].join("\n");
 }
@@ -515,22 +571,14 @@ export type AITurnTraceConsole = {
 
 let studioTrace: AITurnTraceRecorder | null = null;
 
-/**
- * The Studio's own trace: one per page, since one socket carries every turn
- * of it. Made on first use, so that importing this file does nothing.
- */
-export function studioAITurnTrace(
-  changesCode: (name: string, args: Record<string, unknown>) => boolean,
-): AITurnTraceRecorder {
-  if (studioTrace !== null) return studioTrace;
+function startStudioTrace(): AITurnTraceRecorder {
   const recorder = createAITurnTrace({
     now: () => performance.now(),
-    changesCode,
+    changesCode: toolChangesCode,
     onTurn: (trace) => {
       Internal.log.debug(formatAITurnTrace(trace), trace);
     },
   });
-  studioTrace = recorder;
   const nth = (fromEnd = 0): AITurnTrace | null => {
     const turns = recorder.turns();
     return turns[turns.length - 1 - fromEnd] ?? null;
@@ -557,9 +605,49 @@ export function studioAITurnTrace(
   return recorder;
 }
 
+function stopStudioTrace(): void {
+  studioTrace = null;
+  if (typeof window !== "undefined" && "__VAL_AI_TURNS__" in window) {
+    delete window.__VAL_AI_TURNS__;
+  }
+}
+
+declare global {
+  interface Window {
+    __VAL_AI_TURNS__?: AITurnTraceConsole;
+  }
+}
+
+/**
+ * The Studio's own trace, as the assistant's socket feeds it: one per page,
+ * since one socket carries every turn of it.
+ *
+ * Whether to record is decided when a prompt is sent, by whether debug is
+ * on. Off: what was kept is let go, `__VAL_AI_TURNS__` is removed, and every
+ * message until the next prompt costs one `null` check.
+ */
+export const studioAITurnTrace = {
+  /** A message the socket sent. */
+  sent(message: AIClientMessage): void {
+    if (message.type === "ai_prompt") {
+      if (!Internal.isDebugEnabled()) stopStudioTrace();
+      else studioTrace ??= startStudioTrace();
+    }
+    studioTrace?.sent(message);
+  },
+  /** A message the socket received. */
+  received(message: AIServerMessage): void {
+    studioTrace?.received(message);
+  },
+  /** The socket closed. */
+  disconnected(): void {
+    studioTrace?.disconnected();
+  },
+};
+
 /**
  * A quick preview ended: told from `useQuickPreview`, which is not on the
- * socket. Nothing when no turn was ever sent.
+ * socket. Nothing while no turn is being recorded.
  */
 export function reportQuickPreviewToTurnTrace(
   report: AITurnPreviewReport,

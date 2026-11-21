@@ -2,7 +2,6 @@ import { Internal } from "@valbuild/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
-import { changesCode } from "../proposals/proposalCode";
 import { studioAITurnTrace } from "./aiTurnTrace";
 import {
   resolvePreferredModel,
@@ -826,7 +825,7 @@ export function useAIWebSocket(
             return;
           }
           // Before the handlers: one of them may answer a tool call at once.
-          studioAITurnTrace(changesCode).received(parsed.data);
+          studioAITurnTrace.received(parsed.data);
           for (const handler of handlersRef.current) {
             handler(parsed.data);
           }
@@ -836,7 +835,7 @@ export function useAIWebSocket(
       };
 
       ws.onclose = () => {
-        studioAITurnTrace(changesCode).disconnected();
+        studioAITurnTrace.disconnected();
         setIsConnected(false);
         if (wsRef.current === ws) {
           wsRef.current = null;
@@ -911,7 +910,7 @@ export function useAIWebSocket(
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
       // Where every prompt and every tool result leaves: see `aiTurnTrace.ts`.
-      studioAITurnTrace(changesCode).sent(message);
+      studioAITurnTrace.sent(message);
       return true;
     }
     Internal.log.debug("AI WebSocket not open, cannot send");

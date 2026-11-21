@@ -307,6 +307,17 @@ describe("an assistant turn's trace", () => {
     expect(last().lastWriteMs).toBe(7500);
     expect(last().changeVisibleMs).toBe(3500);
     expect(last().lastWriteToPreviewMs).toBe(0);
+    // It started inside the write's call: believed, and said to be unsure.
+    expect(last().changeVisibleUncertain).toBe(true);
+    expect(formatAITurnTrace(last())).toContain("UNCERTAIN");
+    // One started after the answer settles it, and is the turn's last.
+    after(1000);
+    recorder.preview({ status: "shown", auto: true, ms: 900, steps: [] });
+    expect(last().changeVisibleUncertain).toBe(false);
+    expect(last().changeVisibleMs).toBe(8600);
+    after(5000);
+    recorder.preview({ status: "shown", auto: false, ms: 900, steps: [] });
+    expect(last().previews).toHaveLength(3);
   });
 
   test("a quick preview is not a turn's when the turn wrote nothing, or a later turn was asked", () => {
@@ -321,6 +332,30 @@ describe("an assistant turn's trace", () => {
     expect(last().previews).toEqual([]);
     expect(last().lastWriteMs).toBeNull();
     expect(formatAITurnTrace(last())).toContain("no code written");
+  });
+
+  test("a message steered into the turn is counted, and what became of it is not the model answering", () => {
+    const { recorder, after, last } = trace();
+    recorder.sent(prompt("p1"));
+    after(500);
+    recorder.sent({
+      type: "ai_steer",
+      id: "p1",
+      sessionId: "s1",
+      steerId: "x",
+      message: "Blue, not red",
+    });
+    recorder.received({
+      type: "ai_steer_status",
+      id: "p1",
+      steerId: "x",
+      status: "accepted",
+    });
+    after(500);
+    recorder.received(response("p1"));
+    expect(last().steers).toBe(1);
+    expect(last().firstMessageMs).toBe(1000);
+    expect(last().modelWaitMs).toBe(1000);
   });
 
   test("only the last few turns are kept", () => {
