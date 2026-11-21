@@ -8,10 +8,10 @@ measured, what was changed, and what it costs now.
 
 ## How it is measured
 
-Two scripts, the same typing: the TanStack showcase's `/landing` in the
+Three scripts, the same field: the TanStack showcase's `/landing` in the
 canvas, Edit on, the hero title picked on the page so the cursor is in its
 field in "On this page", then characters typed 120 ms apart. How to run them
-is at the top of each file. Neither is a test: they type into real content
+is at the top of each file. None is a test: they type into real content
 and discard every unsaved patch, so no Playwright project picks them up.
 
 - `e2e/measure/studioWriteLag.measure.ts` takes a CPU profile of the
@@ -26,6 +26,10 @@ and discard every unsaved patch, so no Playwright project picks them up.
   twice, because the first write to a page is also when the page gets its
   draft marker and Publish becomes possible; the second is what every write
   after it costs.
+
+- `e2e/measure/studioTypingLatency.measure.ts` types 59 keys without a
+  pause, so the field writes in the middle of the typing, and reports how
+  long each key took to reach the screen. It says whether any of it is FELT.
 
 Development build. React's development build renders several times slower
 than production, so the milliseconds are high; the shape is what matters.
@@ -147,6 +151,21 @@ page about 130 ms and the confirmation about 120 ms.
 | The server's confirmation        | 303, 269, 292     | 10, 8, 9      |
 | Long tasks in the run            | 6 or 7, 63 to 200 | 1, about 95   |
 | While typing, per quarter second | under 50          | under 50      |
+
+Typing 59 keys without a pause, from `studioTypingLatency.measure.ts`, three
+runs each, base and fix measured one after the other in the same container:
+
+|                                                | Before           | After         |
+| ---------------------------------------------- | ---------------- | ------------- |
+| Keys that took over 100 ms to reach the screen | 7, 8, 9          | 0, 0, 0       |
+| The slowest key (ms)                           | 312, 264, 256    | 40, 80, 80    |
+| The longest a key waited to be handled (ms)    | 137, 120, 148    | 5, 65, 64     |
+| Long tasks while typing                        | 19 to 21         | 1 or 2        |
+| Their total (ms)                               | 2349, 2314, 2376 | 158, 128, 138 |
+
+Before, a third of the seven seconds of typing was spent in long tasks, and
+a key in eight landed in one. This is the stutter: the rest of this document
+is why.
 
 About 100 ms of what is left of the write is the page in the canvas reading
 the module again (`routeRead`, `autoTagJSX`, the route's components): the

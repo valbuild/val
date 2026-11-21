@@ -294,11 +294,13 @@ function installCensus() {
     typeof value === "object" && value !== null;
 
   /** A component function's name: the one it was given, else its own. */
-  function functionName(fn: (...args: never[]) => unknown): string {
+  function functionName(fn: object): string {
     const displayName: unknown = Reflect.get(fn, "displayName");
-    return typeof displayName === "string" && displayName !== ""
-      ? displayName
-      : fn.name || "(anonymous)";
+    if (typeof displayName === "string" && displayName !== "") {
+      return displayName;
+    }
+    const name: unknown = Reflect.get(fn, "name");
+    return typeof name === "string" && name !== "" ? name : "(anonymous)";
   }
 
   function nameOf(fiber: Fiber): string {
