@@ -1,4 +1,7 @@
-import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+import {
+  valCredentialHeaders,
+  getErrorMessageFromUnknownJson,
+} from "@valbuild/shared/internal";
 import { VAL_CLIENT_HEADERS } from "./valClient";
 
 export async function uploadRemoteFile(
@@ -24,20 +27,7 @@ export async function uploadRemoteFile(
       error: string;
     }
 > {
-  const authHeader:
-    | {
-        Authorization: string;
-      }
-    | {
-        "x-val-pat": string;
-      } =
-    "apiKey" in auth
-      ? {
-          Authorization: `Bearer ${auth.apiKey}`,
-        }
-      : {
-          "x-val-pat": auth.pat,
-        };
+  const authHeader = valCredentialHeaders(auth);
   const res = await fetch(
     `${contentHost}/v1/${project}/remote/files/b/${bucket}/f/${fileHash}.${fileExt}`,
     {

@@ -1,4 +1,11 @@
 import {
+  valCredentialHeaders,
+  Patch,
+  ParentRef,
+  ValCommit,
+  type ProjectVersion,
+} from "@valbuild/shared/internal";
+import {
   isMediaFilePath,
   isPublicFilePath,
   isSafePatchId,
@@ -41,12 +48,6 @@ import { z } from "zod";
 import fs from "fs";
 import nodePath from "path";
 import { fromError } from "zod-validation-error";
-import {
-  Patch,
-  ParentRef,
-  ValCommit,
-  type ProjectVersion,
-} from "@valbuild/shared/internal";
 import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -206,10 +207,7 @@ export class ValOpsFS extends ValOps {
       }
     | { status: "error"; statusCode: 401 | 500; error: GenericErrorMessage }
   > {
-    const authHeader: Record<string, string> =
-      "pat" in auth
-        ? { "x-val-pat": auth.pat }
-        : { Authorization: `Bearer ${auth.apiKey}` };
+    const authHeader = valCredentialHeaders(auth);
     try {
       const res = await fetch(
         `${this.contentUrl}/v1/${project}/presigned-auth-nonce`,

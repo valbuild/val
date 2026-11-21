@@ -1,4 +1,4 @@
-import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import { Internal } from "@valbuild/core";
 import { valClientHeaders } from "@valbuild/shared/internal";
 import { VERSION } from "../version";
 
@@ -12,16 +12,11 @@ import { VERSION } from "../version";
  * and a second place for a credential to go.
  *
  * `VAL_CONTENT_URL` overrides it, as it does everywhere else in Val, so a
- * test can point the CLI at a fake and a developer at a local content service.
+ * test can point the CLI at a fake and a developer at a local content service;
+ * a self-hosted installation sets `VAL_HOST` (see `valHosts.ts` in core).
  */
 export function getContentHost(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env.VAL_CONTENT_URL;
-  if (!configured) {
-    return DEFAULT_CONTENT_HOST;
-  }
-  // A trailing slash turns every path below into a double slash, which some
-  // routers answer with a redirect and others with a 404.
-  return configured.replace(/\/+$/, "");
+  return Internal.valHostsOf(env).content;
 }
 
 /**

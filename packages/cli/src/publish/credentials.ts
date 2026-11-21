@@ -7,6 +7,7 @@ import { ContentHostError, getContentHost, postJson } from "./contentHost";
 import {
   PublishProtocolError,
   parsePublishToken,
+  valCredentialHeaders,
 } from "@valbuild/shared/internal";
 
 /**
@@ -174,7 +175,7 @@ async function exchangePersonalAccessToken(options: {
   try {
     body = await postJson({
       url,
-      headers: { "x-val-pat": options.pat },
+      headers: valCredentialHeaders({ pat: options.pat }),
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     });
   } catch (err) {
@@ -231,9 +232,12 @@ function exchangeFailureMessage(
   );
 }
 
-/** A personal access token is 32 random bytes as hex, and carries no prefix. */
+/**
+ * A personal access token is 32 random bytes as hex, after `val_pat_`. Tokens
+ * from before the prefix are the hex alone, and last until they expire.
+ */
 function looksLikePersonalAccessToken(token: string): boolean {
-  return /^[0-9a-f]{64}$/i.test(token);
+  return /^(val_pat_)?[0-9a-f]{64}$/i.test(token);
 }
 
 function readPersonalAccessToken(

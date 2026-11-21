@@ -1,3 +1,4 @@
+import { valCredentialHeaders } from "@valbuild/shared/internal";
 /**
  * Forwarding for `/admin/proxy/*`: Val Build's Studio API, `/v1/studio/*` on
  * the content server, called on the editor's behalf with the token from their
@@ -73,10 +74,7 @@ export async function forwardToStudioApi({
       method,
       headers: {
         ...VAL_CLIENT_HEADERS,
-        // `x-val-pat` is the header the rest of Val Build reads a PAT from.
-        ...("pat" in credential
-          ? { "x-val-pat": credential.pat }
-          : { authorization: `Bearer ${credential.bearer}` }),
+        ...valCredentialHeaders(credential),
         accept: "application/json",
         ...(sendsBody ? { "content-type": "application/json" } : {}),
       },

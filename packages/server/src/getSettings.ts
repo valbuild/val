@@ -1,4 +1,5 @@
-import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import { valCredentialHeaders } from "@valbuild/shared/internal";
+import { Internal } from "@valbuild/core";
 import { z } from "zod";
 import { VAL_CLIENT_HEADERS } from "./valClient";
 
@@ -16,9 +17,7 @@ import { VAL_CLIENT_HEADERS } from "./valClient";
  * server, `@valbuild/server/browser`): a bundler that does not replace
  * `process.env` leaves a `process` that is not defined there.
  */
-const defaultHost =
-  (typeof process === "undefined" ? undefined : process.env.VAL_CONTENT_URL) ||
-  DEFAULT_CONTENT_HOST;
+const defaultHost = Internal.valHosts().content;
 
 const SettingsSchema = z.object({
   publicProjectId: z.string(),
@@ -51,18 +50,11 @@ export async function getSettings(
   try {
     const host = contentUrl || defaultHost;
     const response = await fetch(`${host}/v1/${projectName}/settings`, {
-      headers:
-        "pat" in auth
-          ? {
-              ...VAL_CLIENT_HEADERS,
-              "x-val-pat": auth.pat,
-              "Content-Type": "application/json",
-            }
-          : {
-              ...VAL_CLIENT_HEADERS,
-              Authorization: `Bearer ${auth.apiKey}`,
-              "Content-Type": "application/json",
-            },
+      headers: {
+        ...VAL_CLIENT_HEADERS,
+        ...valCredentialHeaders(auth),
+        "Content-Type": "application/json",
+      },
     });
     if (response.status === 404) {
       return {

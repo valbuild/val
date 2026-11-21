@@ -3,8 +3,9 @@ import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
 import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
+import { Internal } from "@valbuild/core";
 
-const host = process.env.VAL_BUILD_URL || "https://admin.val.build";
+const host = Internal.valHostsOf(process.env).admin;
 
 /**
  * `val connect`: opens admin's `/new` on "your own hosting", with what it can

@@ -1,9 +1,4 @@
-import {
-  DEFAULT_CONTENT_HOST,
-  ValConfig,
-  ValModules,
-  Internal,
-} from "@valbuild/core";
+import { ValConfig, ValModules, Internal } from "@valbuild/core";
 import type { ValServerConfig } from "./ValServer";
 import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
@@ -135,9 +130,9 @@ export async function initHandlerOptions(
    */
   if (opts.sourceFiles !== undefined) {
     const valContentUrl =
-      opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+      opts.valContentUrl || Internal.valHostsOf(process.env).content;
     const valBuildUrl =
-      opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL;
+      opts.valBuildUrl || Internal.valHostsOf(process.env).admin;
     /*
      * The same warning the other two modes get, and for the same reason.
      *
@@ -242,9 +237,9 @@ export async function initHandlerOptions(
 
   const maybeValProject = opts.project || process.env.VAL_PROJECT;
   const valBuildUrl =
-    opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL;
+    opts.valBuildUrl || Internal.valHostsOf(process.env).admin;
   const valContentUrl =
-    opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+    opts.valContentUrl || Internal.valHostsOf(process.env).content;
   warnIfInsecureUrls({ valBuildUrl, valContentUrl });
   if (isProxyMode) {
     /*
@@ -399,7 +394,7 @@ export async function initHandlerOptions(
   } else {
     const cwd = process.cwd();
     const valBuildUrl =
-      opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL;
+      opts.valBuildUrl || Internal.valHostsOf(process.env).admin;
     return {
       mode: "fs",
       cwd,

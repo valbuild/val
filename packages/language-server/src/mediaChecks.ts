@@ -35,7 +35,6 @@ import {
   type SourcePath,
   type ValidationError,
   type ValidationFix,
-  DEFAULT_VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import { createFixPatch } from "@valbuild/server";
 import type { ValModuleContent } from "./ValProject";
@@ -215,7 +214,7 @@ export async function resolveMediaChecks({
   validation,
   content,
   valRoot,
-  remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+  remoteHost = Internal.valHostsOf(process.env).remote,
 }: {
   validation: Record<SourcePath, ValidationError[]>;
   content: ValModuleContent;

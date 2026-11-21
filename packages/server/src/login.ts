@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { Internal } from "@valbuild/core";
 import { getPersonalAccessTokenPath } from "./personalAccessTokens";
 import { VAL_CLIENT_HEADERS } from "./valClient";
 
@@ -28,7 +29,7 @@ import { VAL_CLIENT_HEADERS } from "./valClient";
 export const DEFAULT_LOGIN_HOST = "https://admin.val.build";
 
 function defaultHost(): string {
-  return process.env.VAL_BUILD_URL || DEFAULT_LOGIN_HOST;
+  return Internal.valHostsOf(process.env).admin;
 }
 
 /**

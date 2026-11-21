@@ -1,3 +1,4 @@
+import { valHeaders } from "@valbuild/shared/internal";
 import { Internal } from "@valbuild/core";
 import { utf8ToBytes } from "./bytes";
 import { VAL_CLIENT_HEADERS } from "./valClient";
@@ -138,12 +139,12 @@ export async function forwardAnalyticsBeacon(args: {
   const headers: Record<string, string> = {
     ...VAL_CLIENT_HEADERS,
     authorization: `Bearer ${args.apiKey}`,
-    "x-val-project": args.project,
-    "x-val-visitor-user-agent": args.userAgent,
+    ...valHeaders("project", args.project),
+    ...valHeaders("visitor-user-agent", args.userAgent),
     "content-type": "text/plain;charset=UTF-8",
   };
   if (args.country !== undefined) {
-    headers["x-val-visitor-country"] = args.country;
+    Object.assign(headers, valHeaders("visitor-country", args.country));
   }
   try {
     const res = await fetch(args.ingestUrl, {

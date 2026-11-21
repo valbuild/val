@@ -268,8 +268,15 @@ describe("/analytics, forwarded to the ingest in http mode", () => {
     expect([...new Headers(init?.headers).keys()].sort()).toEqual([
       "authorization",
       "content-type",
-      // Which `@valbuild/server` forwarded it: about this server, not the
-      // visitor.
+      // Which `@valbuild/server` forwarded it, and for which version of the
+      // API: about this server, not the visitor.
+      "val-client",
+      "val-project",
+      "val-version",
+      // The same two facts about the visitor, under both spellings of the
+      // header (the ingest reads `val-*` first).
+      "val-visitor-country",
+      "val-visitor-user-agent",
       "x-val-client",
       "x-val-project",
       "x-val-visitor-country",
