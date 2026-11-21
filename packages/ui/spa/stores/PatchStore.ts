@@ -1668,6 +1668,37 @@ export class PatchStore {
    * over what looks like a stale value produces a "fix" for something that was
    * never wrong, and the patch lands underneath it a moment later.
    */
+  /**
+   * Resolves `true` once {@link chainSettled} is, at once if it already is;
+   * `false` if `signal` aborts first.
+   *
+   * For something that ACTS on the chain rather than showing it: "Check
+   * everything" names the patches this Studio shows, and pressed in the
+   * moment after a load -- before they have arrived -- it named none, had
+   * the server check the published content, and said it had checked
+   * everything.
+   */
+  whenChainSettled(signal?: AbortSignal): Promise<boolean> {
+    if (this.chainSettled()) return Promise.resolve(true);
+    if (signal?.aborted) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const done = (settled: boolean) => {
+        offChain();
+        offHead();
+        signal?.removeEventListener("abort", onAbort);
+        resolve(settled);
+      };
+      const check = () => {
+        if (this.chainSettled()) done(true);
+      };
+      const onAbort = () => done(false);
+      // The two events `useInitialPatchesApplied` hears it move on.
+      const offChain = this.events.on("patch:chain", check);
+      const offHead = this.events.on("patch:head", check);
+      signal?.addEventListener("abort", onAbort);
+    });
+  }
+
   chainSettled(): boolean {
     if (!this.statSeen) return false;
     for (const patchId of this.ordered) {
