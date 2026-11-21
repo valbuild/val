@@ -4,6 +4,8 @@ import {
   validateInitializers,
   evaluateExpression,
   findObjectPropertyAssignment,
+  hasSpreadAssignment,
+  ValSyntaxError,
   ValSyntaxErrorTree,
   shallowValidateExpression,
 } from "./syntax";
@@ -573,6 +575,14 @@ function removeFromNode(
       result.map((index: number) => removeAt(document, node.elements, index)),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
+    if (hasSpreadAssignment(node)) {
+      return result.err(
+        new ValSyntaxError(
+          `Cannot remove "${key}" from an object that spreads another into it: the spread may have a "${key}" of its own, and removing this one would bring it back`,
+          node,
+        ),
+      );
+    }
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.flatMap(

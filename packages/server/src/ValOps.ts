@@ -71,6 +71,7 @@ import {
   type RemoteNetwork,
 } from "./remoteFileCheck";
 import type { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
+import type ts from "typescript";
 import sizeOf from "image-size";
 import { base64ToBytes, bytesToBase64 } from "./bytes";
 import { ParentPatchId } from "@valbuild/core";
@@ -2496,15 +2497,34 @@ export abstract class ValOps {
         patchId: PatchId,
         op: unknown,
       ) => {
+        /*
+         * A `ValSyntaxError` holds the TypeScript node it is about, and a
+         * node's `parent` points back up the tree: it is a cycle, so it must
+         * never reach `JSON.stringify` - here, in the response, or in the
+         * caller's own logging. Turn it into the message and the place in the
+         * file it was about, which is all anyone downstream can use anyway.
+         */
+        const reported: PatchSourceError[] =
+          err instanceof PatchError
+            ? [err]
+            : flattenSyntaxErrors(err).map((syntaxError) => ({
+                message: formatSyntaxErrorAt(path, tsSourceFile, syntaxError),
+                filePath: path,
+              }));
         Internal.log.error(
           "Could not patch",
-          JSON.stringify({ path, patchId, error: err, op }, null, 2),
+          JSON.stringify(
+            {
+              path,
+              patchId,
+              errors: reported.map(formatPatchSourceError),
+              op,
+            },
+            null,
+            2,
+          ),
         );
-        if (Array.isArray(err)) {
-          errors.push(...err);
-        } else {
-          errors.push(err);
-        }
+        errors.push(...reported);
       };
 
       const appliedPatches: PatchId[] = [];
@@ -3811,6 +3831,30 @@ export type PatchSourceError =
   | PatchError
   | ValSyntaxError
   | ValSyntaxErrorTree;
+
+function flattenSyntaxErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
+  return Array.isArray(tree) ? tree.flatMap(flattenSyntaxErrors) : [tree];
+}
+
+/**
+ * `formatSyntaxError` without importing `./patch/ts/syntax`, which imports
+ * `typescript` - this file has to bundle for a browser (see demo mode).
+ * The node's own methods are all it needs.
+ */
+function formatSyntaxErrorAt(
+  path: string,
+  sourceFile: ts.SourceFile,
+  error: ValSyntaxError,
+): string {
+  if (error.node.pos < 0) {
+    // A node made by a factory has no place in the file.
+    return `${path}: ${error.message}`;
+  }
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+    error.node.getStart(sourceFile),
+  );
+  return `${path}:${line + 1}:${character + 1} ${error.message}`;
+}
 
 export function formatPatchSourceError(error: PatchSourceError): string {
   if ("message" in error) {
