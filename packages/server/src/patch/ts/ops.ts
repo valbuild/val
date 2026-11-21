@@ -4,8 +4,7 @@ import {
   validateInitializers,
   evaluateExpression,
   findObjectPropertyAssignment,
-  hasSpreadAssignment,
-  ValSyntaxError,
+  findObjectPropertyAssignmentToRemove,
   ValSyntaxErrorTree,
   shallowValidateExpression,
 } from "./syntax";
@@ -169,7 +168,7 @@ export function removeValJsonEntry(
         );
       }
       return pipe(
-        findObjectPropertyAssignment(recordNode, key),
+        findObjectPropertyAssignmentToRemove(recordNode, key),
         result.flatMap(
           (
             assignment: ts.PropertyAssignment | undefined,
@@ -575,16 +574,8 @@ function removeFromNode(
       result.map((index: number) => removeAt(document, node.elements, index)),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
-    if (hasSpreadAssignment(node)) {
-      return result.err(
-        new ValSyntaxError(
-          `Cannot remove "${key}" from an object that spreads another into it: the spread may have a "${key}" of its own, and removing this one would bring it back`,
-          node,
-        ),
-      );
-    }
     return pipe(
-      findObjectPropertyAssignment(node, key),
+      findObjectPropertyAssignmentToRemove(node, key),
       result.flatMap(
         (
           assignment: ts.PropertyAssignment | undefined,

@@ -150,4 +150,20 @@ describe("prepare a module whose objects use spreads", () => {
       prepared.sourceFilePatchErrors[MODULE_PATH].map(formatPatchSourceError),
     ).toEqual([expect.stringContaining(`"...noMedia" comes after it`)]);
   });
+  test("a remove from an object with a spread is refused, even of a key written after it", async () => {
+    const { prepareWith } = await createProject();
+
+    const prepared = await prepareWith([
+      { op: "remove", path: ["0", "learnMore"] },
+    ]);
+
+    expect(prepared.hasErrors).toBe(true);
+    expect(
+      prepared.sourceFilePatchErrors[MODULE_PATH].map(formatPatchSourceError),
+    ).toEqual([
+      expect.stringContaining(
+        `Cannot remove "learnMore" from an object that spreads another into it: "...noMedia"`,
+      ),
+    ]);
+  });
 });

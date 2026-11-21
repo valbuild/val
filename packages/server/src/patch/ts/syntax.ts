@@ -276,12 +276,29 @@ export function findObjectPropertyAssignment(
 }
 
 /**
- * Whether an object literal spreads anything into itself. Removing a key from
- * one is refused: the key's own property may be all that hides a value the
- * spread supplies, and removing it would bring that value back.
+ * Finds the property `key` is written as, for a REMOVE: stricter than
+ * {@link findObjectPropertyAssignment}, because removing a key from an object
+ * that spreads another into it is refused outright. The key's own property may
+ * be all that hides a value the spread supplies, and removing it would bring
+ * that value back - and for a `.jsonValues()` entry, delete its file as well.
+ *
+ * Every remove goes through this, so the two that exist (a value, and a
+ * `.jsonValues()` entry) cannot disagree about it.
  */
-export function hasSpreadAssignment(value: ts.ObjectLiteralExpression) {
-  return value.properties.some(ts.isSpreadAssignment);
+export function findObjectPropertyAssignmentToRemove(
+  value: ts.ObjectLiteralExpression,
+  key: string,
+): result.Result<LiteralPropertyAssignment | undefined, ValSyntaxErrorTree> {
+  const spreads = value.properties.filter(ts.isSpreadAssignment);
+  if (spreads.length > 0) {
+    return result.err(
+      new ValSyntaxError(
+        `Cannot remove "${key}" from an object that spreads another into it: ${spreadNames(spreads)} may have a "${key}" of its own, and removing this one would bring it back`,
+        value,
+      ),
+    );
+  }
+  return findObjectPropertyAssignment(value, key);
 }
 
 function spreadNames(spreads: readonly ts.SpreadAssignment[]): string {
