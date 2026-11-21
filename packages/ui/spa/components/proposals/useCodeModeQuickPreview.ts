@@ -3,7 +3,10 @@ import { useCurrentProposal } from "../ValProvider";
 import { createProposalsClient } from "../../proposals/proposalsClient";
 import { useProposalBuild } from "../../proposals/useProposalBuild";
 import { setQuickPreviewRunner } from "../../proposals/quickPreviewControl";
-import { useSettledProjectSeq } from "../shell/canvas/useServedBuild";
+import {
+  SEQ_SETTLE_MS,
+  useSettledProjectSeq,
+} from "../shell/canvas/useServedBuild";
 import type { QuickPreviewStorer } from "../shell/canvas/CanvasFrame";
 import type { CodeModeBuild } from "./CodeModeStatus";
 import { useQuickPreview, type QuickPreviewState } from "./useQuickPreview";
@@ -68,7 +71,8 @@ export function useCodeModeQuickPreview({
    * build does not have.
    */
   const changed = useProposalBuild(proposals).state.changed;
-  const seq = useSettledProjectSeq();
+  // Followed only in a proposal: see `useProposalsBar`.
+  const seq = useSettledProjectSeq(SEQ_SETTLE_MS, name !== null);
   const [staged, setStaged] = useState<{
     inputs: string;
     buildRequired: boolean;

@@ -3,7 +3,7 @@ import type { Json, ModuleFilePath } from "@valbuild/core";
 import { z } from "zod";
 import {
   useModuleSourcesNowAndBase,
-  usePatchSets,
+  useModulesWithPatches,
 } from "../components/ValProvider";
 import { useSchemas } from "../components/ValFieldProvider";
 import type { ChangeTreeNode } from "../utils/computeChangedSourcePaths";
@@ -91,15 +91,16 @@ export function useSiteChanges(inProposal: boolean): SiteChanges {
 
   // The modules to compare: those the proposal saved, and those with edits
   // that are not saved yet.
-  const patchSets = usePatchSets();
+  // Followed only in a proposal: outside one there is nothing to compare,
+  // and the chain moves with every field write, which rendered the shell
+  // (this is called from it) for each.
+  const edited = useModulesWithPatches(inProposal);
   const moduleFilePaths = useMemo<ModuleFilePath[]>(() => {
-    if (fetched.status !== "ready") return [];
+    if (fetched.status !== "ready") return NO_MODULES;
     const paths = new Set<string>(Object.keys(fetched.modules));
-    if (patchSets.status === "success") {
-      for (const patchSet of patchSets.data) paths.add(patchSet.moduleFilePath);
-    }
+    for (const moduleFilePath of edited) paths.add(moduleFilePath);
     return [...paths].sort().map(asModuleFilePath);
-  }, [fetched, patchSets]);
+  }, [fetched, edited]);
   const sources = useModuleSourcesNowAndBase(moduleFilePaths);
   const schemas = useSchemas();
 
@@ -141,6 +142,8 @@ export function useSiteChanges(inProposal: boolean): SiteChanges {
     return { status: "ready", trees, siteSources, changeCount };
   }, [inProposal, fetched, sources, schemas, moduleFilePaths, retry]);
 }
+
+const NO_MODULES: ModuleFilePath[] = [];
 
 function asModuleFilePath(path: string): ModuleFilePath {
   // Keys of a module map ARE module file paths: the server sends them by one.

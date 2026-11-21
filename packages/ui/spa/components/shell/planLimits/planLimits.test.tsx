@@ -14,7 +14,11 @@ import {
   reportPlanRefusal,
 } from "../../../utils/planRefusal";
 import { parseStudioAccess, type FetchAnswer } from "./studioAccess";
-import { planNoticesOf, type PlanNotice } from "./planNotices";
+import {
+  noticeCountsChanges,
+  planNoticesOf,
+  type PlanNotice,
+} from "./planNotices";
 import { planStatusOf, planStatusParts } from "./planStatus";
 import { formatWhen, isRefusalText, planToastAction } from "./planCopy";
 import {
@@ -1272,5 +1276,34 @@ describe("the second review's cases", () => {
     );
     hook.rerender({ errors: [{ id: "a", message: "Could not save" }] });
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The shell counts the waiting changes only while a notice that shows the
+ * count can be up: the count moves with every field write, and the shell
+ * renders everything. So this has to be true for EVERY way that notice comes
+ * about, or it says "used" and leaves out how much is waiting.
+ */
+describe("whether the shell counts the changes waiting", () => {
+  test("it does where /access says a publish would be refused, before anyone has pressed", () => {
+    const access = accessOf("access-hosted-trial-publishes-used", "owner");
+    expect(noticeCountsChanges(access, null)).toBe(true);
+    // And that is the notice the count is for.
+    expect(
+      planNoticesOf(access, null, { ...CTX, changesWaiting: 4 })[0]?.aside,
+    ).toBe("4 changes waiting");
+  });
+
+  test("it does not where nothing is refused", () => {
+    expect(noticeCountsChanges(null, null)).toBe(false);
+    // A project in good standing: every field write would otherwise move
+    // the count, and with it the shell.
+    expect(noticeCountsChanges(accessOf("access-pro", "owner"), null)).toBe(
+      false,
+    );
+    expect(
+      noticeCountsChanges(accessOf("access-hosted-trial", "owner"), null),
+    ).toBe(false);
   });
 });

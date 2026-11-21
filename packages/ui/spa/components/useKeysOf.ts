@@ -1,10 +1,6 @@
 import { ModuleFilePath } from "@valbuild/core";
 import { useMemo } from "react";
-import {
-  useAllSources,
-  useSchemas,
-  useLoadingStatus,
-} from "./ValFieldProvider";
+import { useAllSourcesWhen, useSchemas } from "./ValFieldProvider";
 import { getKeysOf } from "./getKeysOf";
 import {
   ReferencesResult,
@@ -26,8 +22,14 @@ export function useKeysOf(
   keyValue?: string,
 ): ReferencesResult {
   const schemas = useSchemas();
-  const loadingStatus = useLoadingStatus();
-  const allSources = useAllSources();
+  /*
+   * Every module's source only where there is a record to scan for: this is
+   * called by `ArrayAndRecordTools`, which every field mounts, and for most
+   * of them -- a string in an object -- there is nothing to scan. Read
+   * unconditionally, with the write queue's status beside it, each of those
+   * fields rendered for every write anywhere and again when it was saved.
+   */
+  const allSources = useAllSourcesWhen(parentPath !== undefined);
   const query = useMemo(
     () =>
       parentPath === undefined
@@ -46,13 +48,7 @@ export function useKeysOf(
       return getKeysOf(schemas.data, allSources, parentPath, keyValue);
     }
     return [];
-  }, [
-    loadingStatus,
-    allSources,
-    "data" in schemas && schemas.data,
-    parentPath,
-    keyValue,
-  ]);
+  }, [allSources, "data" in schemas && schemas.data, parentPath, keyValue]);
   // Memoised: this flows into components that put it in effect dependencies,
   // so a fresh object per render is a render loop. See `useJsonValuesLoad`.
   return useMemo(

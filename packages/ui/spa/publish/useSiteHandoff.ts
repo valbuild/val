@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type {
   PublishRequestStatus,
   PublishTabJob,
@@ -542,14 +542,19 @@ export function useSiteHandoff(
     window.open("/val", "_blank");
   }, []);
 
-  return {
-    state,
-    prepare,
-    active,
-    runJob,
-    settled,
-    cancel,
-    dismiss,
-    openStudio,
-  };
+  // One object while nothing in it moved: it is a field of `ValProvider`'s
+  // context, where a new one is a render of every reader of that context.
+  return useMemo(
+    () => ({
+      state,
+      prepare,
+      active,
+      runJob,
+      settled,
+      cancel,
+      dismiss,
+      openStudio,
+    }),
+    [state, prepare, active, runJob, settled, cancel, dismiss, openStudio],
+  );
 }
