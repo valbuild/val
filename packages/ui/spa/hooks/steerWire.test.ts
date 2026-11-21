@@ -1,8 +1,16 @@
 /**
  * @jest-environment jsdom
  */
-import { promptContentBlocks, routeSteerStatus } from "./steerWire";
-import { AIServerMessage, AISteerMessage } from "./useAIWebSocket";
+import {
+  promptContentBlocks,
+  routeSteerStatus,
+  steerContentBlocks,
+} from "./steerWire";
+import {
+  AIServerMessage,
+  AISteerMessage,
+  AIWatchSessionMessage,
+} from "./useAIWebSocket";
 
 /**
  * The wire side of steering: what the Studio sends (`ai_steer`), what it
@@ -101,5 +109,38 @@ describe("ai_steer", () => {
     expect(text.text).toContain('image_key="img-1"');
     expect(text.text).toContain("Hello");
     expect(image).toEqual({ type: "image_key", key: "img-1" });
+  });
+});
+
+describe("the final server's details", () => {
+  test("a watch asks for steer statuses", () => {
+    expect(
+      AIWatchSessionMessage.parse({
+        type: "ai_watch_session",
+        sessionId: "chat-1",
+        steering: true,
+      }).steering,
+    ).toBe(true);
+  });
+
+  test("delivered may carry what was sent", () => {
+    const parsed = AIServerMessage.parse({
+      ...status("s1", "delivered"),
+      message: [{ type: "text", text: "Only the blog posts" }],
+    });
+    expect(parsed).toMatchObject({ message: [{ type: "text" }] });
+  });
+
+  test("a steer's text is trimmed, a blank text block is dropped, and nothing left is nothing sent", () => {
+    expect(
+      steerContentBlocks([{ type: "text", text: "  Only the posts \n" }]),
+    ).toEqual([{ type: "text", text: "Only the posts" }]);
+    expect(
+      steerContentBlocks([
+        { type: "text", text: "   " },
+        { type: "image_key", key: "img-1" },
+      ]),
+    ).toEqual([{ type: "image_key", key: "img-1" }]);
+    expect(steerContentBlocks([{ type: "text", text: " \n " }])).toBeNull();
   });
 });

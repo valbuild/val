@@ -356,6 +356,11 @@ export type AIChatHandle = {
     status: AISteerStatus,
     reason?: string,
   ) => void;
+  /**
+   * Someone's steered message, delivered in a turn shown here: a watched
+   * one. Shown where the turn has got to, once however often it is reported.
+   */
+  showSteer: (steerId: string, message: ChatMessage) => void;
 };
 
 export type AIChatProps = {
@@ -499,6 +504,11 @@ const DEFAULT_SUGGESTIONS = [
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** A steer's message in the transcript: one id per steer, so it shows once. */
+function steerIdMessageId(steerId: string): string {
+  return `steer-${steerId}`;
+}
 
 let _msgId = 0;
 function nextId(): string {
@@ -876,6 +886,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [completedMessages, setCompletedMessages] = useState<ChatMessage[]>(
     initialMessages ?? [],
   );
+  const completedMessagesRef = useRef(completedMessages);
+  completedMessagesRef.current = completedMessages;
   const [currentMessage, setCurrentMessage] = useState<CurrentMessage | null>(
     null,
   );
@@ -1161,52 +1173,53 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
    * to, between its steps. What the assistant said before it stays above it,
    * and the answer goes on below it, in the same turn.
    */
-  const placeDelivered = useCallback(
-    (message: QueuedMessage, steerId: string) => {
-      const userMsg = userMessageOf(message, `steer-${steerId}`);
-      const append = (added: ChatMessage[]) =>
-        setCompletedMessages((msgs) => {
-          const fresh = added.filter(
-            (msg) => !msgs.some((existing) => existing.id === msg.id),
-          );
-          return fresh.length === 0 ? msgs : [...msgs, ...fresh];
-        });
-      setCurrentMessage((prev) => {
-        if (!prev) {
-          append([userMsg]);
-          return prev;
-        }
-        const before = prev.message;
-        const said =
-          getTextContent(before.content).length > 0 ||
-          (before.toolActivities?.length ?? 0) > 0;
-        // From inside the updater, as `retireCurrentMessage` does and for
-        // the same reason; appending by id keeps a second call harmless.
-        append(
-          said
-            ? [
-                {
-                  ...before,
-                  id: `${before.id}~before~${steerId}`,
-                  segmentOf: before.id,
-                  status: "complete",
-                  // The turn's clock goes on in the part below.
-                  turnStats: undefined,
-                },
-                userMsg,
-              ]
-            : [userMsg],
+  const placeDelivered = useCallback((userMsg: ChatMessage) => {
+    const steerId = userMsg.id;
+    const append = (added: ChatMessage[]) =>
+      setCompletedMessages((msgs) => {
+        const fresh = added.filter(
+          (msg) => !msgs.some((existing) => existing.id === msg.id),
         );
-        if (!said) return prev;
-        const { toolActivities: _shown, ...rest } = before;
-        return {
-          lastActivityAt: Date.now(),
-          message: { ...rest, content: "" },
-        };
+        return fresh.length === 0 ? msgs : [...msgs, ...fresh];
       });
-    },
-    [userMessageOf],
-  );
+    setCurrentMessage((prev) => {
+      if (!prev) {
+        append([userMsg]);
+        return prev;
+      }
+      // Shown already: the same `delivered`, by another route.
+      if (completedMessagesRef.current.some((m) => m.id === userMsg.id)) {
+        return prev;
+      }
+      const before = prev.message;
+      const said =
+        getTextContent(before.content).length > 0 ||
+        (before.toolActivities?.length ?? 0) > 0;
+      // From inside the updater, as `retireCurrentMessage` does and for
+      // the same reason; appending by id keeps a second call harmless.
+      append(
+        said
+          ? [
+              {
+                ...before,
+                id: `${before.id}~before~${steerId}`,
+                segmentOf: before.id,
+                status: "complete",
+                // The turn's clock goes on in the part below.
+                turnStats: undefined,
+              },
+              userMsg,
+            ]
+          : [userMsg],
+      );
+      if (!said) return prev;
+      const { toolActivities: _shown, ...rest } = before;
+      return {
+        lastActivityAt: Date.now(),
+        message: { ...rest, content: "" },
+      };
+    });
+  }, []);
 
   // ---- Imperative handle for WebSocket layer ----
 
@@ -1443,6 +1456,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     appendMessage(message: ChatMessage) {
       setCompletedMessages((prev) => [...prev, message]);
     },
+    showSteer(steerId: string, message: ChatMessage) {
+      placeDelivered({ ...message, id: steerIdMessageId(steerId) });
+    },
     steerStatus(steerId: string, status: AISteerStatus, reason?: string) {
       const { outbox: next, effect } = applySteerStatus(
         outboxRef.current,
@@ -1452,7 +1468,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       );
       if (next !== outboxRef.current) updateOutbox(() => next);
       if (effect.type === "delivered") {
-        placeDelivered(effect.message, steerId);
+        placeDelivered(
+          userMessageOf(effect.message, steerIdMessageId(steerId)),
+        );
       } else if (effect.type === "rejected") {
         // Back into the composer to edit, when nothing is being written
         // there; otherwise it waits in the chat, with Edit, for it to be.
@@ -1654,6 +1672,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         (f): f is AttachedFile & { key: string } =>
           f.status === "done" && f.key !== undefined,
       );
+
+      // Only spaces: nothing to send, and the composer keeps it.
+      if (
+        displayText.trim() === "" &&
+        doneFiles.length === 0 &&
+        (outgoingDoc === undefined ||
+          collectImageKeysFromDoc(outgoingDoc).length === 0)
+      ) {
+        return;
+      }
 
       attachedFiles.forEach((f) => {
         if (f.previewUrl && f.status !== "done")
@@ -2171,7 +2199,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           {outbox.steers.map((steer) => (
             <MessageBubble
               key={steer.steerId}
-              message={userMessageOf(steer.message, `steer-${steer.steerId}`)}
+              message={userMessageOf(
+                steer.message,
+                steerIdMessageId(steer.steerId),
+              )}
               author={
                 showAuthors && viewer
                   ? { person: viewer, isViewer: true }

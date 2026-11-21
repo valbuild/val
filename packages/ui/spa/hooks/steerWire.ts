@@ -103,3 +103,18 @@ export function routeSteerStatus(
   // when it ends, with what they sent where it was delivered.
   return watching ? { to: "watched" } : { to: "nobody" };
 }
+
+/**
+ * A steer's blocks, trimmed: the server refuses a text block that is only
+ * whitespace, so one is dropped. `null` when nothing is left to send.
+ */
+export function steerContentBlocks(
+  blocks: AIMessageContentBlock[],
+): AIMessageContentBlock[] | null {
+  const kept = blocks.flatMap((block): AIMessageContentBlock[] => {
+    if (block.type !== "text") return [block];
+    const text = block.text.trim();
+    return text === "" ? [] : [{ type: "text", text }];
+  });
+  return kept.length === 0 ? null : kept;
+}

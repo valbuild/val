@@ -315,3 +315,57 @@ test("when it cannot be steered, it waits in the queue as before", () => {
   turn.done();
   expect(prompts[1]).toContain("Second");
 });
+
+test("delivered for the same steer again, or by another route, shows it once", () => {
+  const { write, answering, steered, status, chatRef } = setup();
+  write("First");
+  const turn = answering();
+  turn.say("Working");
+  write("Second");
+  status(steered[0].steerId, "accepted");
+  status(steered[0].steerId, "delivered");
+  turn.say(" on it");
+  // The server answers a re-sent steerId with `delivered` again, and a tab
+  // can hear of it raw and from a watch.
+  status(steered[0].steerId, "delivered");
+  act(() =>
+    chatRef.current?.showSteer(steered[0].steerId, {
+      id: "x",
+      role: "user",
+      content: "Second",
+      status: "complete",
+    }),
+  );
+  turn.done();
+  expect(screen.getAllByText("Second")).toHaveLength(1);
+});
+
+test("someone else's delivered steer goes where the watched turn has got to", () => {
+  const { answering, chatRef, transcript } = setup();
+  const turn = answering();
+  turn.say("Found 12 pages.");
+  act(() =>
+    chatRef.current?.showSteer("theirs", {
+      id: "theirs",
+      role: "user",
+      content: "Only the blog posts",
+      status: "complete",
+    }),
+  );
+  turn.say("Fixed the 4 posts.");
+  turn.done();
+  const shown = transcript();
+  const at = (text: string) => shown.findIndex((t) => t.includes(text));
+  expect(at("Found 12 pages.")).toBeLessThan(at("Only the blog posts"));
+  expect(at("Only the blog posts")).toBeLessThan(at("Fixed the 4 posts."));
+});
+
+test("a message of only spaces is not sent, and is not steered", () => {
+  const { write, answering, steered, prompts } = setup();
+  write("First");
+  answering();
+  write("   ");
+  expect(steered).toHaveLength(0);
+  expect(prompts).toHaveLength(1);
+  expect(queueRegion()).toBeNull();
+});

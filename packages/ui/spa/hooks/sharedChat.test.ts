@@ -4,6 +4,7 @@ import {
   runningAsker,
   someoneElseAdded,
   storedToolActivities,
+  toChatMessages,
   watchedQuestionText,
   type WatchedChat,
 } from "./sharedChat";
@@ -80,9 +81,11 @@ describe("applyWatchedEvent", () => {
         addToolCall: record("tool"),
         completeToolCall: record("toolDone"),
         errorToolCall: record("toolFailed"),
+        showSteer: record("showSteer"),
       },
       activeId: { current: null },
       started: new Set(),
+      askers: new Map(),
       participantOf: (id) => (id === KARI ? KARI_P : { id, name: "?" }),
       setTurnBy: (by) => turnBy.push(by),
       turnEnded: (joinedMidway) => ended.push(joinedMidway),
@@ -163,6 +166,39 @@ describe("applyWatchedEvent", () => {
     // Its text is not relayed, so the chat is read again, which has it in
     // the place it was delivered.
     expect(ended).toEqual([true]);
+  });
+
+  test("a delivered steer that says what was sent is shown at once, in Kari's name", () => {
+    const { calls, ended, send } = watching();
+    send({
+      type: "ai_turn_started",
+      id: "q1",
+      sessionId: "chat-1",
+      authorId: KARI,
+      message: "Fix the typos",
+    });
+    send({ type: "ai_streaming", id: "q1", chunk: "Looking" });
+    send({
+      type: "ai_steer_status",
+      id: "q1",
+      steerId: "s1",
+      status: "delivered",
+      message: [{ type: "text", text: "Only the blog posts" }],
+    });
+    expect(calls[calls.length - 1]).toEqual([
+      "showSteer",
+      "s1",
+      {
+        id: "s1",
+        role: "user",
+        content: "Only the blog posts",
+        status: "complete",
+        author: KARI_P,
+      },
+    ]);
+    send({ type: "ai_turn_ended", id: "q1", sessionId: "chat-1" });
+    // Shown already: no need to read the chat again.
+    expect(ended).toEqual([false]);
   });
 
   test("each tool the turn runs is a row, and says how it went", () => {
@@ -386,6 +422,46 @@ describe("storedToolActivities", () => {
       ]),
     ).toEqual([
       { toolCallId: "t1", name: "ask_user_question", status: "complete" },
+    ]);
+  });
+});
+
+describe("toChatMessages", () => {
+  test("a steered message sits between the parts of the answer, with the tools of each part", () => {
+    const call = (name: string) => ({
+      toolCallId: `call-${name}`,
+      name,
+      isError: false,
+    });
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: "Fix the typos",
+          toolCalls: [call("search_content")],
+        },
+        { role: "assistant", content: "Found 12 pages." },
+        {
+          role: "user",
+          content: "Only the blog posts",
+          toolCalls: [call("create_patch")],
+        },
+        { role: "assistant", content: "Fixed the 4 posts." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => [m.role, m.content])).toEqual([
+      ["user", "Fix the typos"],
+      ["assistant", "Found 12 pages."],
+      ["user", "Only the blog posts"],
+      ["assistant", "Fixed the 4 posts."],
+    ]);
+    expect(chat[1].toolActivities?.map((t) => t.name)).toEqual([
+      "search_content",
+    ]);
+    expect(chat[3].toolActivities?.map((t) => t.name)).toEqual([
+      "create_patch",
     ]);
   });
 });

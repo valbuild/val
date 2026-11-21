@@ -411,6 +411,12 @@ export const AISteerStatusMessage = z.object({
   steerId: z.string(),
   status: z.string(),
   reason: z.string().optional(),
+  /**
+   * On `delivered`: what was sent, so a watcher (or the asker's other tab)
+   * can show it where it was read. Optional; without it, the chat is read
+   * again when the turn ends.
+   */
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]).optional(),
 });
 export type AISteerStatusMessage = z.infer<typeof AISteerStatusMessage>;
 
@@ -600,6 +606,11 @@ export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
 export const AIWatchSessionMessage = z.object({
   type: z.literal("ai_watch_session"),
   sessionId: z.string(),
+  /**
+   * Relay `ai_steer_status` inside `ai_watched` too. Opt-in, because a
+   * Studio released before steering would fail to parse it.
+   */
+  steering: z.boolean().optional(),
 });
 export type AIWatchSessionMessage = z.infer<typeof AIWatchSessionMessage>;
 

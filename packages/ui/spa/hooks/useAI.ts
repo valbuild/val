@@ -29,17 +29,15 @@ import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
-  ChatMessage,
   ChatMessageAttachment,
   SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
-import type { ToolActivity } from "../components/AIChatToolActivities";
 import {
   applyWatchedEvent,
+  toChatMessages,
   runningAsker,
   someoneElseAdded,
-  storedToolActivities,
 } from "./sharedChat";
 import { AskUserQuestionArgs } from "./askUserQuestion";
 import {
@@ -103,7 +101,11 @@ import type {
   AIPromptMessage,
   AISteerMessage,
 } from "./useAIWebSocket";
-import { promptContentBlocks, routeSteerStatus } from "./steerWire";
+import {
+  promptContentBlocks,
+  routeSteerStatus,
+  steerContentBlocks,
+} from "./steerWire";
 import {
   AssistantSettings,
   assistantSettingsPromptSection,
@@ -1306,6 +1308,8 @@ export function useAI(
   const watchedActiveIdRef = useRef<string | null>(null);
   /** Watched turns whose question was seen asked, rather than joined midway. */
   const watchedStartedRef = useRef<Set<string>>(new Set());
+  /** Who asked each watched turn: see `WatchedChat.askers`. */
+  const watchedAskersRef = useRef<Map<string, ProposalParticipant>>(new Map());
   /** Remember the open chat as the server has it, and whose turn is running. */
   const takeServerMessages = useCallback(
     (sessionId: string, messages: ServerMessage[]) => {
@@ -1433,6 +1437,7 @@ export function useAI(
             chat: chatRef.current,
             activeId: watchedActiveIdRef,
             started: watchedStartedRef.current,
+            askers: watchedAskersRef.current,
             participantOf: participantOfRef.current,
             setTurnBy,
             // Not the end of a turn: nothing to read again yet.
@@ -1461,6 +1466,7 @@ export function useAI(
           chat: chatRef.current,
           activeId: watchedActiveIdRef,
           started: watchedStartedRef.current,
+          askers: watchedAskersRef.current,
           participantOf: participantOfRef.current,
           setTurnBy,
           turnEnded: (joinedMidway) => {
@@ -3778,13 +3784,21 @@ Do not describe what you will do unless you do it for clarification — just do 
       const promptId = inFlightPromptIdRef.current;
       const sessionId = sessionIdRef.current;
       if (promptId === null || sessionId === null) return false;
-      const pointedAt = takePointedAt(context, pageRef.current);
+      const blocks = steerContentBlocks(
+        promptContentBlocks(
+          content,
+          attachments,
+          takePointedAt(context, pageRef.current),
+        ),
+      );
+      // Nothing to say: the server refuses an empty steer.
+      if (blocks === null) return false;
       const message: AISteerMessage = {
         type: "ai_steer",
         id: promptId,
         sessionId,
         steerId,
-        message: promptContentBlocks(content, attachments, pointedAt),
+        message: blocks,
       };
       const sent = sendWsMessage(message);
       if (sent) ownSteerIdsRef.current.add(steerId);
@@ -4239,7 +4253,8 @@ Do not describe what you will do unless you do it for clarification — just do 
       return;
     }
     const sessionId = currentSessionId;
-    sendWsMessage({ type: "ai_watch_session", sessionId });
+    // `steering`: this Studio reads `ai_steer_status` inside `ai_watched`.
+    sendWsMessage({ type: "ai_watch_session", sessionId, steering: true });
     return () => {
       sendWsMessage({ type: "ai_unwatch_session", sessionId });
       if (watchedSessionIdRef.current === sessionId) {
@@ -4424,38 +4439,3 @@ const SHARED_CHAT_POLL_MS = 4000;
  * refused send, never two turns at once.
  */
 const STALE_TURN_MS = 2 * 60 * 1000;
-
-function toChatMessages(
-  sessionId: string,
-  messages: ServerMessage[],
-  participantOf: (id: string) => ProposalParticipant,
-): ChatMessage[] {
-  const chat: ChatMessage[] = [];
-  /** The tools the last question's turn called: they go on its answer. */
-  let toolActivities: ToolActivity[] = [];
-  for (const m of messages) {
-    if (m.role !== "user" && m.role !== "assistant") continue;
-    // Numbered among the messages shown, as they always were.
-    const id = `history-${sessionId}-${chat.length}`;
-    if (m.role === "user") {
-      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
-      chat.push({
-        id,
-        role: "user",
-        content: m.content,
-        status: "complete",
-        ...(m.authorId ? { author: participantOf(m.authorId) } : {}),
-      });
-      continue;
-    }
-    chat.push({
-      id,
-      role: "assistant",
-      content: m.content,
-      status: "complete",
-      ...(toolActivities.length > 0 ? { toolActivities } : {}),
-    });
-    toolActivities = [];
-  }
-  return chat;
-}
