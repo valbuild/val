@@ -1,4 +1,5 @@
 import { initVal, type PatchId } from "@valbuild/core";
+import { PatchId as PatchIdSchema } from "@valbuild/shared/internal";
 import { createSystem } from "./createSystem";
 import type { SaveResult } from "./PatchSync";
 import { mfp } from "./testSystem";
@@ -30,7 +31,7 @@ function rig(firstAnswer: (ids: PatchId[]) => SaveResult) {
     fetchPatches: async () => ({ patches: [] }),
     createPatchId: (() => {
       let next = 0;
-      return () => `p-${++next}` as PatchId;
+      return () => PatchIdSchema.parse(`p-${++next}`);
     })(),
     savePatches: async ({ patches }) => {
       const ids = patches.map((entry) => entry.patchId);
@@ -66,7 +67,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("a conflict after part of a batch was saved", () => {
   it("does not send the saved part again", async () => {
-    const takes = "p-1" as PatchId;
+    const takes = PatchIdSchema.parse("p-1");
     const { system, requests, edit } = rig((ids) => ({
       status: "conflict",
       message: "Conflict",
@@ -77,6 +78,10 @@ describe("a conflict after part of a batch was saved", () => {
       },
     }));
     // Two edits before the first save goes, so they travel as one batch.
+    const conflicts: PatchId[][] = [];
+    system.patchSync.events.on("patch:save-conflict", (event) => {
+      conflicts.push(event.patches);
+    });
     const one = await edit("one");
     const two = await edit("two");
     expect(one).toBe(takes);
@@ -87,6 +92,8 @@ describe("a conflict after part of a batch was saved", () => {
     expect(requests[0]).toEqual([one, two]);
     // Only what the conflict did not take is sent again.
     expect(requests.slice(1)).toEqual([[two]]);
+    // The saved part is not reported as retrying.
+    expect(conflicts).toEqual([[two]]);
     expect(system.patchStore.isPending(one)).toBe(false);
     expect(system.patchStore.isPending(two)).toBe(false);
   });

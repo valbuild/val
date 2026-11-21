@@ -91,13 +91,14 @@ describe("/patches when the content service fails part of the way", () => {
   /** The content service answers the n-th request with `answers[n]`. */
   function contentAnswers(answers: { status: number; body: unknown }[]) {
     let n = 0;
-    global.fetch = (async () => {
+    const content: typeof fetch = async () => {
       const answer = answers[Math.min(n++, answers.length - 1)];
       return new Response(JSON.stringify(answer.body), {
         status: answer.status,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    };
+    global.fetch = content;
   }
 
   const FIRST = "11111111-1111-4111-8111-111111111111";
@@ -130,9 +131,10 @@ describe("/patches when the content service fails part of the way", () => {
     });
 
     test("a content service that cannot be reached deleted nothing", async () => {
-      global.fetch = (async () => {
+      const unreachable: typeof fetch = async () => {
         throw new TypeError("fetch failed");
-      }) as typeof fetch;
+      };
+      global.fetch = unreachable;
       const res = await discard();
       expect(res.status).toBe(502);
     });

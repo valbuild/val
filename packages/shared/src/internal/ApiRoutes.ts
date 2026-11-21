@@ -1625,9 +1625,10 @@ export const Api = {
           }),
         }),
         /*
-         * The content service failed: it answered with an error, or could not
-         * be reached. Nothing is known to be deleted, so the client keeps
-         * every patch it asked about.
+         * The store behind the server failed: the content service answered
+         * with an error or could not be reached, or in fs mode the patch
+         * store's lock or log failed. Nothing is known to be deleted, so the
+         * client keeps every patch it asked about.
          */
         z.object({
           status: z.literal(502),

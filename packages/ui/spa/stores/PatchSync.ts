@@ -863,9 +863,16 @@ export class PatchSync {
        * below forgets `savedNotInStat`, so they are marked saved without
        * becoming the parent the retry names -- the re-sync decides that.
        */
-      if (result.saved !== undefined && result.saved.newPatchIds.length > 0) {
+      const savedIds = new Set(result.saved?.newPatchIds ?? []);
+      if (result.saved !== undefined && savedIds.size > 0) {
         this.recordSaved(result.saved, parentRef);
+        // Progress, not a chain this client cannot get onto: two editors
+        // typing at once conflict on most saves while every save takes some.
+        this.attempt = 1;
+        this.reportedStuck = false;
       }
+      // What is still held: the saved part is not retrying, and not stuck.
+      const held = sent.filter((patchId) => !savedIds.has(patchId));
       // Our idea of the head was wrong, so every id we were holding on that
       // basis is suspect. Dropped rather than kept: the re-sync below replaces
       // them with what the server actually has, and a stale entry here would
@@ -873,14 +880,14 @@ export class PatchSync {
       this.savedNotInStat = [];
       this.setState({
         status: "retrying",
-        patches: sent,
+        patches: held,
         reason: "conflict",
         message: result.message,
         attempt: this.attempt,
       });
       this.events.emit({
         type: "patch:save-conflict",
-        patches: sent,
+        patches: held,
         message: result.message,
       });
       // Re-sync BEFORE the retry, and before the backoff: a conflict means our
@@ -891,7 +898,7 @@ export class PatchSync {
       // A conflict that survives a re-sync is no longer someone else being
       // quicker; it is a chain this client cannot get onto.
       if (this.attempt >= SAVE_STUCK_AFTER_ATTEMPTS) {
-        this.reportStuck(sent, "conflict", result.message);
+        this.reportStuck(held, "conflict", result.message);
       }
       await this.sleep(this.backoffMs(this.attempt));
       return this.stopped;
