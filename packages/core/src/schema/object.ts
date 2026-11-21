@@ -470,6 +470,7 @@ export class ObjectSchema<
       component: load,
       ...(options?.props !== undefined ? { props: options.props } : {}),
       ...(options?.example !== undefined ? { example: options.example } : {}),
+      ...(options?.name !== undefined ? { name: options.name } : {}),
     };
     return new ObjectSchema<Props, LinkedToComponent<Src>>(
       this.items,
@@ -528,6 +529,9 @@ export class ObjectSchema<
               as: "component",
               example:
                 this.renderInput.example !== undefined ? true : undefined,
+              ...(this.renderInput.name !== undefined
+                ? { name: this.renderInput.name }
+                : {}),
             },
           }
         : {}),

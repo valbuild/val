@@ -226,6 +226,13 @@ export type ComponentRender<Src> = {
    */
   props?: (value: never) => unknown;
   example?: Src;
+  /**
+   * What the Studio calls the component (its Components view, and what it
+   * tells the assistant). Without one the Studio names it after the
+   * object's literal field (`type: s.literal("hero")` is "Hero"), or where
+   * it is used.
+   */
+  name?: string;
 };
 
 /**
@@ -234,6 +241,7 @@ export type ComponentRender<Src> = {
  */
 export type ComponentOptions<Src> = {
   example?: Src;
+  name?: string;
 };
 
 /** {@link ComponentOptions} for a component whose props ARE the read value. */
@@ -278,11 +286,14 @@ export type ComponentArgs<Src, Read, C> = [Read] extends [ComponentPropsOf<C>]
 
 /**
  * What a {@link ComponentRender} serializes to. The component is a closure and
- * cannot travel; `example` says whether there is one to preview with.
+ * cannot travel; `example` says whether there is one to preview with, and
+ * `name`, being plain data, travels as it is.
  */
 export type SerializedComponentRender = {
   as: "component";
   example?: true;
+  /** The render's `name`: plain data, unlike the rest of it. */
+  name?: string;
 };
 
 /**

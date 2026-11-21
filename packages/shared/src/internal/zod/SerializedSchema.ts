@@ -52,6 +52,7 @@ const ComponentRender = z
   .object({
     as: z.literal("component"),
     example: z.literal(true).optional(),
+    name: z.string().optional(),
   })
   .optional();
 

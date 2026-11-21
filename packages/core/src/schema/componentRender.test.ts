@@ -40,6 +40,20 @@ describe("s.object(...).component(...)", () => {
     });
   });
 
+  test("serialize: the name travels, being plain data", () => {
+    const named = s
+      .object({ title: s.string() })
+      .component(() => Promise.resolve({ default: Hero }), { name: "Hero" })
+      .describe("A hero");
+    const serialized = named["executeSerialize"]();
+    expect(serialized.type === "object" && serialized.render).toEqual({
+      as: "component",
+      example: undefined,
+      name: "Hero",
+    });
+    expect(getComponentRender(named, null)?.name).toBe("Hero");
+  });
+
   test("serialize: no render by default", () => {
     const serialized = s.object({ a: s.string() })["executeSerialize"]();
     expect(serialized.type === "object" && serialized.render).toBe(undefined);
