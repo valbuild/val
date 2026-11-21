@@ -1,7 +1,7 @@
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { SourcePath } from "@valbuild/core";
 import { useValSystem } from "../../../stores/react/SystemContext";
-import { useChainVersion } from "../../ValProvider";
+import { useStoreValue } from "../../../stores/react/useStoreValue";
 import { mergeRetainedPaths } from "./retainedCanvasPaths";
 
 type RetainedCanvasPaths = {
@@ -54,16 +54,55 @@ export function useRetainedCanvasPaths(
   },
 ): RetainedCanvasPaths {
   const val = useValSystem();
+  const memory = useRef<Memory>({ resetKey, listed: [], workedOn: new Set() });
   /*
    * Re-checked on every edit, which is when a kept path can stop existing: an
    * item removed in the editor is gone from the content before the page has
    * re-rendered and reported anything.
+   *
+   * Checked, not rendered for: what an edit can change here is whether a
+   * path that was worked on still exists, so that is what is read off the
+   * stores -- the worked-on paths that are gone -- and this hook's caller,
+   * the workspace around the page and every field on it, renders when one
+   * goes rather than for every write.
+   *
+   * Looked at twice per move of the chain: when it moves, and again once the
+   * write that moved it has finished. `PatchStore` announces the chain
+   * BEFORE the patch is applied to source (`bump`, then `patch:create`), so
+   * at the first look an item the patch removes is still there. Both are
+   * cheap, and React hears of neither unless the answer moved.
    */
-  const chainVersion = useChainVersion();
-  const memory = useRef<Memory>({ resetKey, listed: [], workedOn: new Set() });
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      let listening = true;
+      const off = val.system.patchStore.events.on("patch:chain", () => {
+        onChange();
+        queueMicrotask(() => {
+          if (listening) onChange();
+        });
+      });
+      return () => {
+        listening = false;
+        off();
+      };
+    },
+    [val],
+  );
+  const readGone = useCallback(() => {
+    if (val === null) return "";
+    let gone = "";
+    for (const path of memory.current.workedOn) {
+      if (val.system.sourceStore.peek(path).status === "absent") {
+        gone += `${path}\n`;
+      }
+    }
+    return gone;
+  }, [val]);
+  const gone = useStoreValue(subscribe, readGone);
 
   const paths = useMemo(() => {
-    void chainVersion;
+    void gone;
     if (memory.current.resetKey !== resetKey) {
       memory.current = { resetKey, listed: [], workedOn: new Set() };
     }
@@ -83,7 +122,7 @@ export function useRetainedCanvasPaths(
     );
     current.listed = listed;
     return listed;
-  }, [val, chainVersion, reported, selected, resetKey]);
+  }, [val, gone, reported, selected, resetKey]);
 
   const offPage = useMemo(() => {
     const shown = new Set(reported);

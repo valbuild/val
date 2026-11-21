@@ -9,7 +9,10 @@ expensive to re-derive from the code:
 
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
-  reference stability is load-bearing.
+  reference stability is load-bearing. **Read "A reader renders when its
+  answer moves" before adding a hook to `ValShell`, `useShellData` or a
+  field**: one that renders its caller for every field write renders the
+  whole Studio there.
 - [`architecture/content-versions.md`](../architecture/content-versions.md) —
   the one content model every reader goes through: a module's base plus its
   chain of patches through one engine, versions (`{ schema, base, chain }`)
