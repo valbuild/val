@@ -2421,6 +2421,7 @@ async function playAiTurn(
     sessionId?: string;
     message?: unknown;
     reportUsage?: boolean;
+    reportTimings?: boolean;
   },
 ): Promise<void> {
   /**
@@ -2467,6 +2468,7 @@ async function playAiTurn(
     steps: [],
     response: "No script was queued for this turn.",
   };
+  let timedSteps = 0;
   for (const step of script.steps) {
     if (step.type === "text") {
       send({ type: "ai_streaming", id: messageId, chunk: step.text });
@@ -2504,6 +2506,7 @@ async function playAiTurn(
         }
       },
     );
+    const calledAt = Date.now();
     send({
       type: "ai_tool_call",
       id: messageId,
@@ -2512,6 +2515,37 @@ async function playAiTurn(
       arguments: args,
     });
     const answer = await answered;
+    /*
+     * The service's own timings (valbuild/home, `ai_step_timing`), only when
+     * the prompt asked: a reply that made this call, then the round of tools.
+     * The reply's numbers are made up, since no model ran; the round's is the
+     * real wait for the Studio's answer.
+     */
+    if (prompt.reportTimings) {
+      timedSteps += 1;
+      send({
+        type: "ai_step_timing",
+        id: messageId,
+        kind: "reply",
+        step: timedSteps,
+        totalMs: 0,
+        firstByteMs: 0,
+        firstOutputMs: 0,
+        inputTokens: 1000,
+        cacheReadTokens: 900,
+        outputTokens: 10,
+        toolCalls: [step.name],
+      });
+      send({
+        type: "ai_step_timing",
+        id: messageId,
+        kind: "tools",
+        step: timedSteps,
+        totalMs: Date.now() - calledAt,
+        afterMs: 0,
+        toolCalls: [step.name],
+      });
+    }
     state.aiToolCalls.push({
       name: step.name,
       arguments: args,
