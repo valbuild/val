@@ -42,6 +42,10 @@ Run from `scenarios/`.
 | `isolateProbe.ts`       | A draft read in a Cloudflare Worker, stepped up until the isolate is killed; joins the runs with `wrangler tail`      | See "The deployed isolate probe" below                                    |
 | `scale.ts`              | The Studio's surfaces (phase 10) with 1k, 10k and 100k entries and files: time per surface, heap after each           | `pnpm exec tsx measure/scale.ts all` (`VAL_SCALE=1000,10000` to narrow)   |
 
+An assistant turn in code mode is measured in the Studio itself, not by a
+script here: the trace, the request counts CI asserts and the baseline are in
+[`assistantTurn.md`](assistantTurn.md).
+
 `scaleWork.ts` is phase 10's: the project at size (a `.jsonValues()` router
 of N posts, image, file and video libraries of N entries, local or remote
 refs, and a page that picks from them) and the Studio's surfaces as the store

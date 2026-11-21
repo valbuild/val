@@ -101,6 +101,7 @@ import type {
   AIPromptMessage,
   AISteerMessage,
 } from "./useAIWebSocket";
+import { reportWaitingOnPerson } from "./aiTurnTrace";
 import {
   promptContentBlocks,
   routeSteerStatus,
@@ -1646,6 +1647,7 @@ export function useAI(
           gate: "web-search",
         });
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
+        reportWaitingOnPerson(message.toolCallId);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -2666,6 +2668,7 @@ export function useAI(
                       approval,
                     });
                     pendingQuestionsRef.current.set(toolCallId, messageId);
+                    reportWaitingOnPerson(toolCallId);
                   },
             answer: ({ result, isError }) => {
               sendWsMessage({
