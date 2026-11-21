@@ -135,6 +135,36 @@ describe("applyWatchedEvent", () => {
     expect(ended).toEqual([false]);
   });
 
+  test("a message the asker steered into their turn shows the turn whole when it ends", () => {
+    const { calls, ended, send } = watching();
+    send({
+      type: "ai_turn_started",
+      id: "q1",
+      sessionId: "chat-1",
+      authorId: KARI,
+      message: "Shorter title?",
+    });
+    send({ type: "ai_streaming", id: "q1", chunk: "Looking" });
+    send({
+      type: "ai_steer_status",
+      id: "q1",
+      steerId: "s1",
+      status: "accepted",
+    });
+    // Accepted is the asker's business; nothing to show for it.
+    expect(calls).toHaveLength(3);
+    send({
+      type: "ai_steer_status",
+      id: "q1",
+      steerId: "s1",
+      status: "delivered",
+    });
+    send({ type: "ai_turn_ended", id: "q1", sessionId: "chat-1" });
+    // Its text is not relayed, so the chat is read again, which has it in
+    // the place it was delivered.
+    expect(ended).toEqual([true]);
+  });
+
   test("each tool the turn runs is a row, and says how it went", () => {
     const { calls, send } = watching();
     const tool = (

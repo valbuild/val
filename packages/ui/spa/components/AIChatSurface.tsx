@@ -80,6 +80,7 @@ function ConnectedChat({ className }: { className?: string }) {
   const {
     sendMessage,
     captureSendContext,
+    steerMessage,
     uploadAiImage,
     isConnected,
     authError,
@@ -160,6 +161,7 @@ function ConnectedChat({ className }: { className?: string }) {
       className={className}
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
+      onSteerMessage={steerMessage}
       onCaptureSendContext={captureSendContext}
       pointedAt={page?.pointedAt ?? null}
       onClearPointedAt={page ? () => page.setPointedAt(null) : undefined}
