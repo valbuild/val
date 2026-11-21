@@ -146,6 +146,51 @@ That splits the work across the frame, and each half does only what it can:
   is always the page's own rendering, so it is where the theme's classes
   come from. Never while the two differ: what the person is looking at stays.
 
+### Bold with only a caret
+
+Pressed with nothing selected, a mark control changes no document: the
+editor stores the mark for the next text typed (ProseMirror's `storedMarks`),
+and the next text is typed on the page. So the Studio says so
+(`markInlineEdit`: the marks as a span's `styles`, `[]` for none, and where
+the caret was), and the page types the next text into a mark of exactly
+those styles, out of the one the caret is in where it is in one -- classed
+as a word of that kind on the page is, or styled as `apply` styles one --
+and `refresh` draws it again from the page once the page has rendered it.
+Typing then goes on inside it, as the browser's own.
+
+Both sides forget the marks when the caret moves: the page when its
+selection changes, the editor when the page reports a different selection
+or document (the toolbar keeps `storedMarks` across a report that says the
+same again). The message carries the selection it was meant for because it
+crosses the frame after keys that may have moved the caret already.
+
+Not done for an IME's composed text, which the browser types as it composes.
+
+## Undo is the page's, for a richtext
+
+The browser's history cannot follow a richtext here: Enter and a join are
+made by hand, and `apply` and `refresh` replace what is in the copy, which
+throws away the history of the nodes it was about. So for a richtext the
+copy takes Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y (and `historyUndo` /
+`historyRedo`, from a menu) and never lets the browser's undo run: half a
+history is worse than none.
+
+A step is a snapshot of the copy -- its nodes cloned, the document nodes
+they carry the index of, and the selection -- taken on `report`, so after
+every change however it was made. Restoring nodes rather than building the
+document again puts back exactly what was on the screen: the page's
+classes, and images, which `apply` cannot make. What the restored copy
+reads as is reported like a keystroke, so an undo is written as the field,
+and the page's rendering is drawn in once it arrives (`refresh`).
+
+Typing without a pause of `INLINE_UNDO_PAUSE_MS` is one step; a pause, the
+caret moving, or switching between typing and deleting starts the next, and
+Enter, a join, a paste and a control are each a step of their own. The
+history lasts as long as the edit: the next click on the text starts a new
+one.
+
+A string keeps the browser's own undo, which follows typing in one text.
+
 ### Where the controls go
 
 Above the text, with its left edge. Where that does not fit they go below it,
@@ -186,13 +231,6 @@ it goes on answering yes wherever focus is emulated, Playwright included.
 - **No images from the page.** The controls have no image button: uploading
   from here into a document shown somewhere else is its own piece of work.
   Images a document has are kept, and can be deleted with the keyboard.
-- **A mark needs a selection.** Bold with only a caret changes nothing: the
-  editor remembers it as a mark for the next character, and that memory does
-  not cross the frame.
-- **Undo stops at a control.** The browser's own undo works while typing. A
-  control replaces what is in the copy, and the browser's history goes with
-  it, so neither the control nor what was typed before it can be undone on
-  the page.
 - **A text left empty cannot be clicked again.** It has no height on the page,
   as before this existed. Its row in the column is still there.
 - **Other tags.** A document holding a tag outside `p`, `h1`-`h6`, `ul`, `ol`,

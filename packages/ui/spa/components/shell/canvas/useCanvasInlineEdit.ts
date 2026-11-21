@@ -69,6 +69,14 @@ export type CanvasInlineEdit = {
   ) => void;
   /** For `CanvasFrame`'s `inlineEditApply`. */
   applied: CanvasInlineEditApplied | null;
+  /**
+   * A control pressed with only a caret: the marks the next text typed on
+   * the page has. Nothing is written -- nothing changed yet -- and it is
+   * handed to `CanvasFrame` (`marked`) for the page to type with.
+   */
+  mark: (styles: string[] | null, selection: InlineSelection | null) => void;
+  /** For `CanvasFrame`'s `inlineEditMarks`. */
+  marked: CanvasInlineEditMarked | null;
   onSelection: (path: SourcePath, selection: InlineSelection | null) => void;
   onStarted: (requestId: string, path: SourcePath) => void;
   onEdit: (path: SourcePath, value: InlineEditValue) => void;
@@ -91,6 +99,14 @@ export type CanvasInlineEditApplied = {
   id: number;
   path: SourcePath;
   value: InlineRichTextNode[];
+  selection: InlineSelection | null;
+};
+
+export type CanvasInlineEditMarked = {
+  id: number;
+  path: SourcePath;
+  styles: string[] | null;
+  /** Where the caret was: see `markInlineEdit`. */
   selection: InlineSelection | null;
 };
 
@@ -150,6 +166,7 @@ export function useCanvasInlineEdit({
   const [richText, setRichText] = useState<CanvasInlineRichText | null>(null);
   const [applied, setApplied] = useState<CanvasInlineEditApplied | null>(null);
   const applyCount = useRef(0);
+  const [marked, setMarked] = useState<CanvasInlineEditMarked | null>(null);
   const requestCount = useRef(0);
 
   /*
@@ -271,6 +288,21 @@ export function useCanvasInlineEdit({
     [write],
   );
 
+  const mark = useCallback(
+    (styles: string[] | null, selection: InlineSelection | null) => {
+      const candidate = active.current;
+      if (candidate === null || candidate.kind !== "richtext") return;
+      applyCount.current += 1;
+      setMarked({
+        id: applyCount.current,
+        path: candidate.path,
+        styles,
+        selection,
+      });
+    },
+    [],
+  );
+
   const onEnded = useCallback(
     (path: SourcePath) => {
       const candidate = active.current;
@@ -279,6 +311,7 @@ export function useCanvasInlineEdit({
       setEditingPath(null);
       setRichText(null);
       setApplied(null);
+      setMarked(null);
       // Written now rather than on the pause: the page is waiting to show
       // its own element again, and shows the old words until this lands.
       write.flush();
@@ -309,6 +342,8 @@ export function useCanvasInlineEdit({
     richText,
     apply,
     applied,
+    mark,
+    marked,
     onSelection,
     onStarted,
     onEdit,

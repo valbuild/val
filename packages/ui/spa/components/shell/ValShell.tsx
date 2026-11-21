@@ -1255,6 +1255,7 @@ function ValShellBody({
   const inlineEditRequest = inlineEdit.request;
   const inlineEditingPath = inlineEdit.editingPath;
   const inlineEditApplied = inlineEdit.applied;
+  const inlineEditMarked = inlineEdit.marked;
   const onInlineEditSelection = inlineEdit.onSelection;
   /**
    * Where the text being typed in is, and how to get back to it: the
@@ -1389,6 +1390,7 @@ function ValShellBody({
         onPickingStopped={onPickingStopped}
         inlineEdit={inlineEditRequest}
         inlineEditApply={inlineEditApplied}
+        inlineEditMarks={inlineEditMarked}
         onInlineEditSelection={onInlineEditSelection}
         onInlineEditPlace={onInlineEditPlace}
         onInlineEditStarted={onInlineEditStarted}
@@ -1465,6 +1467,7 @@ function ValShellBody({
     inlineEditRequest,
     inlineEditingPath,
     inlineEditApplied,
+    inlineEditMarked,
     onInlineEditSelection,
     onInlineEditPlace,
     onInlineEditStarted,
@@ -2132,6 +2135,7 @@ function ValShellBody({
                   value={inlineEdit.richText.value}
                   selection={inlineEdit.richText.selection}
                   onApply={inlineEdit.apply}
+                  onMarks={inlineEdit.mark}
                   onRefocus={refocusInlineEdit}
                 />
               </CanvasInlineToolbarLayer>,

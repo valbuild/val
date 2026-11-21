@@ -222,6 +222,7 @@ export function ToolbarButtons({
             variant="ghost"
             size="icon-sm"
             title={btn.title}
+            aria-pressed={active}
             disabled={readOnly}
             className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
               "text-accent": active,
@@ -252,6 +253,7 @@ export function ToolbarButtons({
             variant="ghost"
             size="icon-sm"
             title={btn.title}
+            aria-pressed={active}
             disabled={readOnly}
             className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
               "text-accent": active,
@@ -282,6 +284,7 @@ export function ToolbarButtons({
             variant="ghost"
             size="icon-sm"
             title={btn.title}
+            aria-pressed={active}
             disabled={readOnly}
             className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
               "text-accent": active,
