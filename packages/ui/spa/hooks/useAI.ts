@@ -49,6 +49,11 @@ import {
   withWebSearchWaits,
 } from "./webSearchGate";
 import {
+  pageSubmitConfirmationOf,
+  refusePageApproval,
+  runGatedInteractPage,
+} from "./pageSubmitGate";
+import {
   patchChangesWebSearchSetting,
   readWebSearchSetting,
   REQUEST_WEB_SEARCH_TOOL_NAME,
@@ -168,6 +173,7 @@ import {
   NO_PREVIEW,
   PAGE_PROMPT_SECTION,
   READ_PAGE_LOG_TOOL,
+  INTERACT_PAGE_TOOL,
   READ_PAGE_TOOL,
   runReadPage,
   runReadPageLog,
@@ -177,7 +183,7 @@ import {
   takePointedAt,
   type AssistantPage,
 } from "../components/shell/canvas/AssistantPage";
-import type { PickedElement } from "@valbuild/shared/internal";
+import type { PageApproval, PickedElement } from "@valbuild/shared/internal";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
@@ -189,6 +195,7 @@ import {
   proposalCodeChanged,
   requestProposal,
   proposalBuildControl,
+  setAssistantWorking,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
@@ -1210,6 +1217,12 @@ export function useAI(
   const defaultModel = useAvailableAIModel();
   const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
+  // The one bit of the turn the preview needs: while the assistant works,
+  // more writes may follow the last one (`useCodeModeQuickPreview`).
+  useEffect(() => {
+    setAssistantWorking(isStreaming);
+    return () => setAssistantWorking(false);
+  }, [isStreaming]);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -1351,10 +1364,50 @@ export function useAI(
   const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
   // Prompts whose turn has searched the web: see `webSearchGate.ts`.
   const webSearchedPromptsRef = useRef<Set<string>>(new Set());
-  // Tool calls waiting on the person after a web search, by tool call, and
-  // the ones they allowed, which run without asking again.
-  const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
-  const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // Tool calls held for the person, by tool call, and which gate holds each:
+  // after a web search (`webSearchGate.ts`), or a form `interact_page` would
+  // submit (`pageSubmitGate.ts`). And the ones they allowed, which run again
+  // without asking -- an allowed `interact_page` may submit.
+  const gatedCallsRef = useRef<
+    Map<
+      string,
+      | { call: AIToolCallMessage; gate: "web-search" }
+      // What the page held, which the answer sends or refuses.
+      | { call: AIToolCallMessage; gate: "page-submit"; approval: PageApproval }
+    >
+  >(new Map());
+  const allowedCallsRef = useRef<Set<string>>(new Set());
+  // `interact_page` calls the person answered, to run again as exactly that
+  // answer: send (or refuse) what the page held (`pageSubmitGate.ts`).
+  const pageReleasesRef = useRef<
+    Map<string, { approval: PageApproval; allow: boolean }>
+  >(new Map());
+  // Bumped when a turn is stopped or the session changes: an `interact_page`
+  // still running from before neither asks nor answers (`isCurrent`).
+  const turnStopsRef = useRef(0);
+  /**
+   * Drop every `interact_page` waiting on the person, and tell its page to
+   * refuse what it held: the turn that asked is gone.
+   */
+  const refuseHeldPageRequests = useCallback(() => {
+    turnStopsRef.current += 1;
+    pageReleasesRef.current.clear();
+    for (const [toolCallId, held] of Array.from(gatedCallsRef.current)) {
+      if (held.gate !== "page-submit") continue;
+      gatedCallsRef.current.delete(toolCallId);
+      // Its card closes with the turn: an Allow left on screen would do
+      // nothing, which reads as having allowed something.
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      if (messageId !== undefined) {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+      pendingQuestionsRef.current.delete(toolCallId);
+      refusePageApproval(
+        pageRef.current?.interactPage() ?? null,
+        held.approval,
+      );
+    }
+  }, [chatRef]);
   // `request_web_search` cards waiting on the person, by tool call: the id of
   // the assistant message that opened each.
   const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
@@ -1524,7 +1577,7 @@ export function useAI(
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (
         message.type === "ai_tool_call" &&
-        !webAllowedCallsRef.current.has(message.toolCallId) &&
+        !allowedCallsRef.current.has(message.toolCallId) &&
         needsWebSearchConfirmation(
           message.name,
           webSearchedPromptsRef.current.has(message.id),
@@ -1556,7 +1609,10 @@ export function useAI(
           message.name,
           webSearchConfirmationQuestions(message.name),
         );
-        webGatedCallsRef.current.set(message.toolCallId, message);
+        gatedCallsRef.current.set(message.toolCallId, {
+          call: message,
+          gate: "web-search",
+        });
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
@@ -1597,7 +1653,7 @@ export function useAI(
         // A call the person allowed after a web search has its row already.
         if (
           chatRef.current &&
-          !webAllowedCallsRef.current.has(message.toolCallId)
+          !allowedCallsRef.current.has(message.toolCallId)
         ) {
           if (activeIdRef.current !== message.id) {
             activeIdRef.current = message.id;
@@ -2552,6 +2608,47 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
           });
+        } else if (message.name === INTERACT_PAGE_TOOL.name) {
+          const { toolCallId, id: messageId } = message;
+          const chat = chatRef.current;
+          const turn = turnStopsRef.current;
+          // The person's answer about what an earlier run held, if this is
+          // that call again (`answerGatedCall`).
+          const release = pageReleasesRef.current.get(toolCallId);
+          pageReleasesRef.current.delete(toolCallId);
+          void runGatedInteractPage(message.arguments, {
+            interactPage: pageRef.current?.interactPage() ?? null,
+            ...(release !== undefined ? { answered: release } : {}),
+            noPage: NO_PREVIEW,
+            isCurrent: () => turnStopsRef.current === turn,
+            // The page tried to send something: the Studio's own question
+            // on the tool's row, and the call held until it is answered.
+            ask:
+              chat === null
+                ? null
+                : (questions, approval) => {
+                    chat.askToolQuestions(messageId, toolCallId, questions);
+                    gatedCallsRef.current.set(toolCallId, {
+                      call: message,
+                      gate: "page-submit",
+                      approval,
+                    });
+                    pendingQuestionsRef.current.set(toolCallId, messageId);
+                  },
+            answer: ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            },
+          });
         } else if (message.name === READ_PAGE_LOG_TOOL.name) {
           const { toolCallId, id: messageId } = message;
           void runReadPageLog(message.arguments, {
@@ -3247,6 +3344,7 @@ export function useAI(
         ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
       } else if (message.type === "ai_cancelled") {
+        refuseHeldPageRequests();
         // The user asked for this, so it settles rather than fails: whatever
         // arrived before the stop stays in the transcript, and a stop before
         // any text says so instead of leaving an empty bubble behind.
@@ -3650,7 +3748,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                   // In the Studio: the page in its preview. Without
                   // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.
                   ...(pageRef.current !== null
-                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL]
+                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL, INTERACT_PAGE_TOOL]
                     : []),
                   // Hosted only: see `hostedRef`.
                   ...(hostedRef.current
@@ -3711,6 +3809,8 @@ Do not describe what you will do unless you do it for clarification — just do 
    * connection cannot leave the chat wedged mid-turn with no way out.
    */
   const cancel = useCallback((): boolean => {
+    // Whatever the page holds for this turn is refused with it.
+    refuseHeldPageRequests();
     const id = inFlightPromptIdRef.current;
     // Nothing is running as far as we know, but the composer is showing a stop
     // button, so something is out of step. Settle locally rather than leaving
@@ -3741,24 +3841,43 @@ Do not describe what you will do unless you do it for clarification — just do 
       setIsStreaming(false);
     }
     return true;
-  }, [sendWsMessage, chatRef]);
+  }, [sendWsMessage, chatRef, refuseHeldPageRequests]);
 
   /**
-   * The person answered the Studio's question about a call after a web search
-   * (or closed it, `null`): run the call, or tell the model they said no.
+   * The person answered the Studio's question about a call it held -- after
+   * a web search, or before a form submit -- or closed it (`null`): run the
+   * call again, allowed, or tell the model they said no.
    */
-  const answerWebSearchConfirmation = useCallback(
+  const answerGatedCall = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
-      const call = webGatedCallsRef.current.get(toolCallId);
-      if (call === undefined) return false;
-      webGatedCallsRef.current.delete(toolCallId);
+      const held = gatedCallsRef.current.get(toolCallId);
+      if (held === undefined) return false;
+      gatedCallsRef.current.delete(toolCallId);
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
-      const confirmation = webSearchConfirmationOf(answers);
+      const confirmation =
+        held.gate === "page-submit"
+          ? pageSubmitConfirmationOf(answers)
+          : webSearchConfirmationOf(answers);
       if (confirmation.allow) {
-        webAllowedCallsRef.current.add(toolCallId);
-        handleServerMessageRef.current?.(call);
+        allowedCallsRef.current.add(toolCallId);
+        if (held.gate === "page-submit") {
+          // As that answer: the action on exactly the element shown, or
+          // exactly the requests shown, sent.
+          pageReleasesRef.current.set(toolCallId, {
+            approval: held.approval,
+            allow: true,
+          });
+        }
+        handleServerMessageRef.current?.(held.call);
         return true;
+      }
+      if (held.gate === "page-submit") {
+        // The page drops what it held, and its request fails as an abort.
+        refusePageApproval(
+          pageRef.current?.interactPage() ?? null,
+          held.approval,
+        );
       }
       if (messageId !== undefined) {
         chatRef.current?.errorToolCall(messageId, toolCallId);
@@ -3851,7 +3970,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
       if (answerWebSearchRequest(toolCallId, answers)) return;
-      if (answerWebSearchConfirmation(toolCallId, answers)) return;
+      if (answerGatedCall(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3866,7 +3985,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     [
       sendWsMessage,
       failUndeliveredQuestion,
-      answerWebSearchConfirmation,
+      answerGatedCall,
       answerWebSearchRequest,
     ],
   );
@@ -3874,7 +3993,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
       if (answerWebSearchRequest(toolCallId, null)) return;
-      if (answerWebSearchConfirmation(toolCallId, null)) return;
+      if (answerGatedCall(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3890,7 +4009,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     [
       sendWsMessage,
       failUndeliveredQuestion,
-      answerWebSearchConfirmation,
+      answerGatedCall,
       answerWebSearchRequest,
     ],
   );
@@ -4009,12 +4128,13 @@ Do not describe what you will do unless you do it for clarification — just do 
           isError: true,
         });
       }
+      refuseHeldPageRequests();
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
-      webGatedCallsRef.current.clear();
+      gatedCallsRef.current.clear();
       webSearchRequestsRef.current.clear();
     },
-    [sendWsMessage],
+    [sendWsMessage, refuseHeldPageRequests],
   );
 
   const newSession = useCallback(() => {

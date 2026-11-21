@@ -32,6 +32,15 @@ const minor: ProposalUpgrade = {
       kind: "minor",
     },
     { name: "vite", from: "7.1.2", to: "7.1.5", kind: "patch" },
+    // pnpm moved the range up to what was installed: no new version.
+    {
+      name: "typescript",
+      from: "6.0.3",
+      to: "6.0.3",
+      fromRange: "^6.0.2",
+      toRange: "^6.0.3",
+      kind: null,
+    },
   ],
   vulnerableBefore: 0,
   vulnerableAfter: 0,

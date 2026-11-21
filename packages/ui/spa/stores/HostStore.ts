@@ -585,6 +585,27 @@ export class HostStore implements HostBridge {
       adoptedAt[index] ??= kept;
       failure.kept = true;
     }
+    /*
+     * Whether this intake brought anything the last one did not: another
+     * module, schema or source, or another failure. A registry that is the
+     * same code again -- the staged code evaluated after a write that touched
+     * no `.val.ts`, which is most of what the assistant writes -- hands over
+     * the very objects the last one did, and is not a new intake to anything
+     * that keys on `initializedAt`.
+     */
+    const before = this.adoptedAt;
+    const moved =
+      this.receivedAt === null ||
+      adoptedAt.length !== before.length ||
+      adoptedAt.some((now, index) => {
+        const was = before[index];
+        return (
+          now?.moduleFilePath !== was?.moduleFilePath ||
+          now?.serializedSchema !== was?.serializedSchema ||
+          now?.source !== was?.source
+        );
+      }) ||
+      JSON.stringify(failures) !== JSON.stringify(this.moduleFailures);
     this.moduleFailures = failures;
     this.adoptedAt = adoptedAt;
 
@@ -593,7 +614,12 @@ export class HostStore implements HostBridge {
     // was just told about, not the one before it. Setting it after would make the
     // first `host:receive` of a session arrive with `initializedAt` still null,
     // which is exactly the state every readiness gate treats as "not ready".
-    this.receivedAt = Date.now();
+    //
+    // Left where it was when nothing moved: every read hook re-renders on a
+    // new timestamp, which was the whole editor, once per file the assistant
+    // wrote. The event is still sent -- its listeners read failures, which
+    // they compare themselves.
+    if (moved) this.receivedAt = Date.now();
     this.events.emit({ type: "host:receive", modules: adopted });
     // Schemas before source: `SourceStore.get` refuses to answer `absent` for a
     // module whose schema is unknown, so the other order would make the first

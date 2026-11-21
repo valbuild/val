@@ -1,5 +1,4 @@
-import { execFileSync } from "child_process";
-import path from "path";
+import { runProbe } from "./__fixtures__/runProbe";
 
 /**
  * A hosted project's variables are read at RUNTIME, not built in.
@@ -26,19 +25,7 @@ type Probe = {
 let probe: Probe;
 
 beforeAll(() => {
-  const out = execFileSync(
-    path.join(__dirname, "..", "node_modules", ".bin", "tsx"),
-    [path.join(__dirname, "__fixtures__", "runtimeEnvProbe.ts")],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  // tsx's WASI warnings share stdout's stream in some shells; take the last
-  // line that parses rather than assuming the output is only JSON.
-  const line = out
-    .trim()
-    .split("\n")
-    .reverse()
-    .find((candidate) => candidate.startsWith("{"));
-  probe = JSON.parse(line!) as Probe;
+  probe = runProbe<Probe>("runtimeEnvProbe.ts");
 }, 300_000);
 
 test("every read was given something to read", () => {
@@ -46,7 +33,9 @@ test("every read was given something to read", () => {
   expect(probe.identifierLeft).toBe(false);
 });
 
-describe.each(["client", "server"] as const)("the %s bundle", (side) => {
+const sides: Array<"client" | "server"> = ["client", "server"];
+
+describe.each(sides)("the %s bundle", (side) => {
   const read = () => probe[side];
 
   test("reads a PUBLIC_ variable at runtime, however it is spelled", () => {
@@ -64,13 +53,32 @@ describe.each(["client", "server"] as const)("the %s bundle", (side) => {
     expect(read().ssr).toBe(side === "server");
   });
 
-  test("lets a value inlined at build time win", () => {
-    expect(read().inlined).toBe("from-build");
+  test("lets a value set at runtime win over one given at build time", () => {
+    // Changing a variable in Val Build changes what the site reads, even
+    // where the build was also given it.
+    expect(read().inlined).toBe("from-runtime");
+    expect(read().inlinedNode).toBe("from-runtime");
+  });
+
+  test("falls back to a value given at build time that is not set at runtime", () => {
+    expect(read().buildOnly).toBe("build-only");
+    expect(read().buildOnlyNode).toBe("build-only");
   });
 
   test("reads no other name through import.meta.env, as in Vite", () => {
     expect(read().notPublic).toBeUndefined();
   });
+});
+
+test("a name given at build time that is not PUBLIC_ is the server's alone", () => {
+  expect(probe.server.buildServerOnly).toBe("build-server-secret");
+  expect(probe.server.buildServerOnlyMeta).toBe("build-server-secret");
+  expect(probe.client.buildServerOnly).toBeUndefined();
+  expect(probe.client.buildServerOnlyMeta).toBeUndefined();
+});
+
+test("NODE_ENV is production however it is read", () => {
+  expect(probe.client.nodeEnv).toBe("production");
 });
 
 test("the server reads any name through process.env", () => {

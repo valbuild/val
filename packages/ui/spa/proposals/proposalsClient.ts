@@ -16,6 +16,7 @@ import type {
   ProposalPerson,
   ProposalSummary,
 } from "../components/proposals/types";
+import { proposalStaged } from "./proposalBuildStore";
 
 /**
  * Proposals, as a Studio tab speaks them: through this deployment's
@@ -66,6 +67,11 @@ const UpgradeJson = z.object({
       name: z.string(),
       from: z.string().nullable(),
       to: z.string().nullable(),
+      // The specifier, before and after: pnpm moves a range up to the
+      // version already installed, a change with no new version. Absent
+      // from a Val Build that does not send them yet.
+      fromRange: z.string().nullish(),
+      toRange: z.string().nullish(),
       kind: z.enum(["major", "minor", "patch"]).nullable().catch(null),
     }),
   ),
@@ -877,13 +883,18 @@ export function createProposalsClient(options: {
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
     files: async (name) =>
       FilesAnswer.parse(await call(`${at(name)}/files`, "GET")),
-    stageFiles: async (name, files, message) =>
-      StagedAnswer.parse(
+    stageFiles: async (name, files, message) => {
+      const answer = StagedAnswer.parse(
         await call(`${at(name)}/files`, "POST", {
           files,
           ...(message !== undefined ? { message } : {}),
         }),
-      ),
+      );
+      // Announced from here, so every staging this Studio makes is: what
+      // shows the change starts from this answer, not from another read.
+      proposalStaged(name, answer.staged);
+      return answer;
+    },
     buildTarget: async (name) => {
       const answer = await call(`${at(name)}/build-target`, "GET");
       return {

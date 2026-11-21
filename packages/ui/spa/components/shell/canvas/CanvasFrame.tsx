@@ -4,8 +4,16 @@ import {
   capabilitiesOf,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  INTERACT_SETTLE_TIMEOUT_MS,
+  interactCapability,
+  interactOutcomeOf,
   isValCanvasPageMessage,
   type CanvasRequest,
+  type PageAction,
+  type PageInteraction,
+  type PageInteractOutcome,
+  type PageApproval,
+  type PageState,
   type PageLocation,
   type PageLogLevel,
   type PageLogSnapshot,
@@ -24,8 +32,15 @@ import { useValSystem } from "../../../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
-import { CanvasPoint } from "./types";
+import { CANVAS_DEVICE_WIDTHS, CanvasDevice, CanvasPoint } from "./types";
 import {
+  INTERACT_ANSWER_MARGIN_MS,
+  PageRefusedError,
+  sitePathOf,
+  trustedApproval,
+} from "./canvasInteraction";
+import {
+  frameHasContent,
   frameHasFocus,
   sameDocument,
   withQuickPreview,
@@ -71,6 +86,20 @@ type FrameState =
  * it is telling someone to enable a mode that is already on.
  */
 export const ANSWER_TIMEOUT_MS = 8000;
+
+/**
+ * How often a document swapped in is looked at, once it has said it is
+ * there, for something rendered in it: the one it replaces is taken off the
+ * screen when there is, and never before one look.
+ */
+export const SWAP_PAINT_MS = 50;
+
+/**
+ * How long that goes on at most. A page that says it is there and has
+ * nothing in its `<body>` is a blank page by its own design, and it is
+ * shown as one.
+ */
+export const SWAP_PAINT_MAX_MS = 3_000;
 
 /** How often a new document held for a focused page looks again. */
 export const FOCUS_RECHECK_MS = 500;
@@ -217,7 +246,62 @@ export type CanvasFrameProps = {
    * (`quickPreview`), and `null` when the frame goes.
    */
   onQuickPreviewStorer?: (store: QuickPreviewStorer | null) => void;
+  /**
+   * Handed the way to use the page (`interact`), and `null` when the frame
+   * goes: the assistant's `interact_page`.
+   */
+  onPageInteractor?: (interactor: PageInteractor | null) => void;
+  /**
+   * Change the width the page is shown at, as the toolbar's device switch
+   * does: what `interact_page`'s `viewport` calls, so there is one way the
+   * preview is sized. Absent where the width is not the frame's to change
+   * (Review's comparison sets it for both sides).
+   */
+  onDeviceChange?: (device: CanvasDevice) => void;
 };
+
+/**
+ * What `interact_page` asks of the preview: an action on the page, or one
+ * the Studio does to the frame -- open a path on the site, change its width
+ * -- after which the page is asked to `settle`.
+ */
+export type PageInteractRequest = {
+  action:
+    | PageAction
+    | { kind: "open"; path: string }
+    | { kind: "viewport"; device: CanvasDevice };
+  /** At most this many items in the outline read afterwards. */
+  maxItems?: number;
+  /**
+   * The fingerprint of the element the person allowed this click or
+   * Enter/Space on (`ActionApproval`). Set by the Studio's gate after the
+   * person's Allow, never from the model's arguments.
+   */
+  approved?: string;
+};
+
+/** What the preview answers `interact_page`. */
+export type PageInteractAnswer =
+  | {
+      status: "done";
+      interaction: PageInteraction;
+      /** The action took the frame to another document. */
+      navigated: boolean;
+    }
+  /**
+   * The page tried to send data, held unsent: the person has to allow it,
+   * which is a `release` of `approval.hold`. Checked by the Studio
+   * (`trustedApproval`) before it is handed on.
+   */
+  | { status: "needs-approval"; approval: PageApproval };
+
+/**
+ * Use the page: see `pageInteraction.ts`. Rejects with what to tell the
+ * model when it cannot be done.
+ */
+export type PageInteractor = (
+  request: PageInteractRequest,
+) => Promise<PageInteractAnswer>;
 
 /** Store a quick preview's files at the page's origin: see `quickPreview.ts`. */
 export type QuickPreviewStorer = (
@@ -297,6 +381,8 @@ export function CanvasFrame({
   onPageCamera,
   onPageLogReader,
   onQuickPreviewStorer,
+  onPageInteractor,
+  onDeviceChange,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const valSystem = useValSystem();
@@ -364,6 +450,29 @@ export function CanvasFrame({
   } | null>(null);
   /** Where a document swapped in is scrolled to, once it is there. */
   const swapScroll = useRef<{ x: number; y: number } | null>(null);
+  /*
+   * The document a swap replaces, left on screen over the one loading under
+   * it until that one says it is there: the page it shows is taken away when
+   * there is another to look at, never for a blank frame. `epoch` is the
+   * {@link documentEpoch} the swap was made at -- the next one is the new
+   * document's.
+   *
+   * Only for a swap: the same page, as another build or quick preview. A
+   * reload the person asked for and another route load in the open, as they
+   * did, because what was there is what they asked to be rid of.
+   */
+  const [leaving, setLeaving] = useState<{
+    key: string;
+    src: string;
+    epoch: number;
+  } | null>(null);
+  /** The frame as it is rendered now, for the swap to leave on screen. */
+  const frameNow = useRef<{
+    key: string;
+    src: string;
+    epoch: number;
+    answered: boolean;
+  } | null>(null);
   useEffect(() => {
     if (sameDocument(held, wanted)) return;
     const swap = (): boolean => {
@@ -372,6 +481,15 @@ export function CanvasFrame({
       swapScroll.current =
         at === null ? null : { x: at.scrollX, y: at.scrollY };
       setSwapAt(at === null ? null : { at, url });
+      const now = frameNow.current;
+      setLeaving((before) => {
+        if (now === null) return before;
+        // One still leaving: it stays, over a document nobody has seen yet.
+        if (before !== null) return { ...before, epoch: now.epoch };
+        // A page that never answered is not worth keeping on screen.
+        if (!now.answered) return null;
+        return { key: now.key, src: now.src, epoch: now.epoch };
+      });
       setHeld(wanted);
       return true;
     };
@@ -422,6 +540,95 @@ export function CanvasFrame({
     return error === null ? null : new Error(error);
   }, []);
 
+  /**
+   * How many documents have said `ready`, and who is waiting for the next:
+   * an interaction that took the frame to another document (`interactPage`).
+   * Refs, as they are read and written by handlers, never rendered.
+   */
+  const documentsSeen = useRef(0);
+  /** The last document's id (`ready`'s `document`), where it said one. */
+  const lastDocument = useRef<string | null>(null);
+  const documentWaiters = useRef(new Set<() => void>());
+  /**
+   * `interact` requests the page has not answered yet, by id, with the
+   * document they were sent to: an answer from any other is not theirs.
+   */
+  const interactions = useRef(
+    new Map<
+      string,
+      {
+        document: string | null;
+        answer: (outcome: PageInteractOutcome | null) => void;
+      }
+    >(),
+  );
+  /**
+   * Interactions waiting on the frame, told when the Studio loads it again
+   * itself -- a new build, a quick preview, another route: that document is
+   * not one the action took the page to, and must not be read as if it were.
+   */
+  const interruptions = useRef(new Set<(error: Error) => void>());
+  const frameIdentity = `${frameSrc}\n${reloadKey}\n${held.documentKey}`;
+  const frameKey = `${frameSrc}-${reloadKey}-${held.documentKey}`;
+  frameNow.current = {
+    key: frameKey,
+    src: frameSrc,
+    epoch: documentEpoch,
+    answered: state.status === "ready",
+  };
+  // Another page, or a reload asked for: nothing of the last one is kept.
+  const lastAsked = useRef({ url, reloadKey });
+  useEffect(() => {
+    if (
+      lastAsked.current.url === url &&
+      lastAsked.current.reloadKey === reloadKey
+    ) {
+      return;
+    }
+    lastAsked.current = { url, reloadKey };
+    setLeaving(null);
+  }, [url, reloadKey]);
+  // The new document is there (and has had a moment to paint), or will not
+  // be: either way the old one has nothing left to stand in for.
+  const leavingEpoch = leaving?.epoch ?? null;
+  useEffect(() => {
+    if (leavingEpoch === null) return;
+    if (state.status === "no-answer") {
+      setLeaving(null);
+      return;
+    }
+    if (documentEpoch === leavingEpoch) return;
+    /*
+     * It said it is there, which is its bridge mounting, not its page being
+     * drawn: a quick preview renders in the browser from an emptied
+     * `<body>`, and a route can still be loading its own code. So the old
+     * document goes when the new one has something in it.
+     */
+    let looks = 0;
+    const timer = setInterval(() => {
+      looks += 1;
+      if (
+        frameHasContent(frameRef.current) ||
+        looks * SWAP_PAINT_MS >= SWAP_PAINT_MAX_MS
+      ) {
+        setLeaving(null);
+      }
+    }, SWAP_PAINT_MS);
+    return () => clearInterval(timer);
+  }, [leavingEpoch, documentEpoch, state.status]);
+  const isSwapping = leaving !== null && leaving.key !== frameKey;
+  const lastFrameIdentity = useRef(frameIdentity);
+  useEffect(() => {
+    if (lastFrameIdentity.current === frameIdentity) return;
+    lastFrameIdentity.current = frameIdentity;
+    const error = new Error(
+      "The Studio loaded the preview again while the action ran (a new build, a quick preview, or another page picked in the Studio), so what happened after it cannot be told apart. Read the page with read_page, and do the action again if it is still needed.",
+    );
+    for (const interrupt of Array.from(interruptions.current)) {
+      interrupt(error);
+    }
+  }, [frameIdentity]);
+
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
     bridge.current = null;
@@ -469,6 +676,15 @@ export function CanvasFrame({
         // before the editor picks one, not after (`BuildCode`)
         valSystem?.system.checkCodeNow();
         setDocumentEpoch((epoch) => epoch + 1);
+        // An interaction waiting for another document (`interactPage`):
+        // this one, unless it is the same document speaking again.
+        const document =
+          typeof message.document === "string" ? message.document : null;
+        if (document === null || document !== lastDocument.current) {
+          lastDocument.current = document;
+          documentsSeen.current += 1;
+          for (const waiter of Array.from(documentWaiters.current)) waiter();
+        }
         onDocument?.({ quick: heldQuick.current });
         setIsEnabling(false);
         // A new document says again what it could not read, if anything.
@@ -519,6 +735,19 @@ export function CanvasFrame({
         if (reading === undefined) return;
         logReadings.current.delete(message.requestId);
         reading(message);
+      } else if (message.type === "interacted") {
+        const interacting = interactions.current.get(message.requestId);
+        if (interacting === undefined) return;
+        // Answered by the document it was asked of, or it is not the answer:
+        // any script of the site sees the request in its window.
+        if (
+          interacting.document !== null &&
+          message.document !== interacting.document
+        ) {
+          return;
+        }
+        interactions.current.delete(message.requestId);
+        interacting.answer(interactOutcomeOf(message.outcome));
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -720,6 +949,300 @@ export function CanvasFrame({
     onQuickPreviewStorer(storeQuickPreview);
     return () => onQuickPreviewStorer(null);
   }, [onQuickPreviewStorer, storeQuickPreview]);
+
+  /**
+   * Wait until a document after the `seen`th says `ready`, until `deadline`.
+   * Counted rather than awaited from now, so a document that arrived while
+   * nobody was waiting yet is not waited for again.
+   */
+  const nextDocument = useCallback(
+    (seen: number, deadline: number) =>
+      new Promise<void>((resolve, reject) => {
+        if (documentsSeen.current > seen) return resolve();
+        const timer = setTimeout(
+          () => {
+            documentWaiters.current.delete(arrived);
+            interruptions.current.delete(interrupted);
+            reject(
+              new Error(
+                `The preview started loading another page, and none arrived within ${Math.round(INTERACT_SETTLE_TIMEOUT_MS / 1000)} seconds. It may still be loading (read_page in a moment says), it may have downloaded a file, or it went to a page that is not the site's own -- which the Studio cannot read.`,
+              ),
+            );
+          },
+          Math.max(0, deadline - Date.now()),
+        );
+        const arrived = () => {
+          clearTimeout(timer);
+          documentWaiters.current.delete(arrived);
+          interruptions.current.delete(interrupted);
+          resolve();
+        };
+        const interrupted = (error: Error) => {
+          clearTimeout(timer);
+          documentWaiters.current.delete(arrived);
+          interruptions.current.delete(interrupted);
+          reject(error);
+        };
+        documentWaiters.current.add(arrived);
+        interruptions.current.add(interrupted);
+      }),
+    [],
+  );
+
+  /**
+   * Ask the page to do one action and wait for its answer -- or for the
+   * next document, when the page was replaced without saying so first.
+   */
+  const askToInteract = useCallback(
+    (
+      action: PageAction,
+      options: {
+        deadline: number;
+        maxItems?: number;
+        logFrom?: "action" | "document";
+        approved?: string;
+      },
+    ) =>
+      new Promise<PageInteractOutcome | "replaced">((resolve, reject) => {
+        // A bridge that cannot hold what the page sends is never asked to
+        // act: `release` is how it answers the person.
+        const refused =
+          unanswered(interactCapability(action.kind)) ??
+          unanswered("interact:release");
+        if (refused !== null) return reject(refused);
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const remaining = Math.max(0, options.deadline - Date.now());
+        const done = () => {
+          clearTimeout(timer);
+          interactions.current.delete(requestId);
+          documentWaiters.current.delete(replaced);
+          interruptions.current.delete(interrupted);
+        };
+        const interrupted = (error: Error) => {
+          done();
+          reject(error);
+        };
+        interruptions.current.add(interrupted);
+        const timer = setTimeout(() => {
+          done();
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading: read_page in a moment says what it shows.",
+            ),
+          );
+        }, remaining + INTERACT_ANSWER_MARGIN_MS);
+        const replaced = () => {
+          done();
+          resolve("replaced");
+        };
+        documentWaiters.current.add(replaced);
+        interactions.current.set(requestId, {
+          document: lastDocument.current,
+          answer: (outcome) => {
+            done();
+            if (outcome === null) {
+              reject(
+                new Error(
+                  "The page answered in a way this Studio does not understand: its Val package may be newer than the Studio. Reload the Studio.",
+                ),
+              );
+            } else {
+              resolve(outcome);
+            }
+          },
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId,
+          action,
+          timeoutMs: remaining,
+          ...(options.maxItems !== undefined
+            ? { maxItems: options.maxItems }
+            : {}),
+          ...(options.logFrom !== undefined
+            ? { logFrom: options.logFrom }
+            : {}),
+          ...(options.approved !== undefined
+            ? { approved: options.approved }
+            : {}),
+        });
+      }),
+    [send, unanswered],
+  );
+
+  const sizeTo = useRef(onDeviceChange);
+  sizeTo.current = onDeviceChange;
+  const interactPage = useCallback<PageInteractor>(
+    async (request) => {
+      // The one bound on all of it: see `INTERACT_SETTLE_TIMEOUT_MS`.
+      const deadline = Date.now() + INTERACT_SETTLE_TIMEOUT_MS;
+      const maxItems = request.maxItems;
+      const where = (): PageState => ({
+        url: lastLocation.current?.path ?? url,
+      });
+
+      /**
+       * What the page asked the person about, checked before any of it is
+       * shown -- every field of it is the page's (`trustedApproval`). What
+       * cannot be shown is refused, and the page told so, which drops what
+       * it held.
+       */
+      const approvalAnswer = (approval: PageApproval): PageInteractAnswer => {
+        const trusted = trustedApproval(approval, origin);
+        if ("error" in trusted) {
+          if (approval.kind === "requests") {
+            void askToInteract(
+              { kind: "release", hold: approval.hold, allow: false },
+              { deadline: Date.now() + INTERACT_ANSWER_MARGIN_MS },
+            ).catch(() => {});
+          }
+          throw new PageRefusedError(trusted.error);
+        }
+        return { status: "needs-approval", approval: trusted.approval };
+      };
+
+      /**
+       * The document the action took the frame to, once it said `ready`:
+       * asked to settle and read, its log from when it started loading.
+       * Again for each document after it -- a redirect, a page that
+       * navigates on load -- until one stays, or the time is up.
+       */
+      const settleNewDocument = async (
+        seen: number,
+        did: string,
+        before: PageState,
+      ): Promise<PageInteractAnswer> => {
+        for (;;) {
+          await nextDocument(seen, deadline);
+          // The one bound holds here too: a page that reloads itself, or
+          // redirects to itself, would otherwise be followed for ever.
+          if (Date.now() >= deadline) {
+            throw new Error(
+              `The page kept loading new pages -- a redirect or a reload that repeats -- and did not stay on one within ${Math.round(INTERACT_SETTLE_TIMEOUT_MS / 1000)} seconds. read_page_log may say why.`,
+            );
+          }
+          seen = documentsSeen.current;
+          const outcome = await askToInteract(
+            { kind: "settle" },
+            {
+              deadline,
+              logFrom: "document",
+              ...(maxItems !== undefined ? { maxItems } : {}),
+            },
+          );
+          if (outcome === "replaced" || outcome.status === "leaving") {
+            continue;
+          }
+          if (outcome.status === "refused") {
+            throw new PageRefusedError(outcome.error);
+          }
+          if (outcome.status === "needs-approval") {
+            // The new page tried to send something while it settled, after
+            // it said `ready`: held, and asked about like any other. What it
+            // sent while it LOADED, before then, was not held -- nothing
+            // runs in a document before it does.
+            return approvalAnswer(outcome.approval);
+          }
+          return {
+            status: "done",
+            interaction: { ...outcome.interaction, did, before },
+            navigated: true,
+          };
+        }
+      };
+
+      const action = request.action;
+      if (action.kind === "open") {
+        // Asked before navigating, so a page that cannot answer is refused
+        // with nothing changed.
+        const refused =
+          unanswered("interact:settle") ?? unanswered("interact:release");
+        if (refused !== null) throw refused;
+        const target = sitePathOf(action.path, origin);
+        if ("error" in target) throw new Error(target.error);
+        const frame = frameRef.current;
+        if (frame === null) throw new Error("The preview is not open.");
+        const before = where();
+        const seen = documentsSeen.current;
+        // As turning preview mode on does: a navigation of the frame, which
+        // the new document answers with `ready`. What the frame said so far
+        // stands until it does: a navigation that never lands (a hash on
+        // the same page, an empty answer, a download) leaves it as it was.
+        frame.src = withValCanvasParam(
+          withQuickPreview(target.path, heldQuick.current),
+        );
+        return settleNewDocument(seen, `opened ${target.path}`, before);
+      }
+
+      let did: string | null = null;
+      let outcome: PageInteractOutcome | "replaced";
+      const seen = documentsSeen.current;
+      if (action.kind === "viewport") {
+        const resize = sizeTo.current;
+        if (resize === undefined) {
+          throw new Error(
+            "The preview's width is set by what it is shown beside here, not by the preview: it cannot be changed from the assistant.",
+          );
+        }
+        // Asked before resizing, so an older page is refused with nothing
+        // changed.
+        const refused =
+          unanswered("interact:settle") ?? unanswered("interact:release");
+        if (refused !== null) throw refused;
+        const width = CANVAS_DEVICE_WIDTHS[action.device];
+        did = `set the preview to ${action.device} width (${width}px)`;
+        // The settle is asked for FIRST, so its hold is up before the page
+        // is resized -- best effort: the page hears the message and the
+        // resize as two separate tasks, in the order the browser runs them.
+        const settling = askToInteract(
+          { kind: "settle", width },
+          { deadline, ...(maxItems !== undefined ? { maxItems } : {}) },
+        );
+        resize(action.device);
+        outcome = await settling;
+      } else {
+        outcome = await askToInteract(action, {
+          deadline,
+          ...(maxItems !== undefined ? { maxItems } : {}),
+          ...(request.approved !== undefined
+            ? { approved: request.approved }
+            : {}),
+        });
+      }
+      if (outcome === "replaced") {
+        // Gone without saying so first: the next document says what it is.
+        return settleNewDocument(
+          seen,
+          did ?? `did ${action.kind} on the page, and it loaded another`,
+          where(),
+        );
+      }
+      switch (outcome.status) {
+        case "leaving":
+          return settleNewDocument(seen, outcome.did, outcome.before);
+        case "needs-approval":
+          return approvalAnswer(outcome.approval);
+        case "refused":
+          throw new PageRefusedError(outcome.error);
+        case "done":
+          return {
+            status: "done",
+            interaction:
+              did === null
+                ? outcome.interaction
+                : { ...outcome.interaction, did },
+            navigated: false,
+          };
+      }
+    },
+    [askToInteract, nextDocument, unanswered, origin, url],
+  );
+  useEffect(() => {
+    if (onPageInteractor === undefined) return;
+    onPageInteractor(interactPage);
+    return () => onPageInteractor(null);
+  }, [onPageInteractor, interactPage]);
 
   // A document swapped in, scrolled to where the one before it was.
   useEffect(() => {
@@ -976,7 +1499,9 @@ export function CanvasFrame({
       : isEnabling
         ? "enabling"
         : state.status === "waiting"
-          ? "connecting"
+          ? isSwapping
+            ? "swapping"
+            : "connecting"
           : state.draftMode
             ? "live"
             : "preview-off";
@@ -997,12 +1522,44 @@ export function CanvasFrame({
         // Remounting is the reload: assigning the same `src` to a live frame is
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
-        key={`${frameSrc}-${reloadKey}-${held.documentKey}`}
+        key={frameKey}
         src={frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
       />
+      {/*
+       * The document a swap replaces, over the one loading under it. It is
+       * the element that WAS the frame (same key), and it must never be
+       * moved in the DOM: an `<iframe>` that is moved loads its page again,
+       * which is the blank frame this is here to avoid. AFTER the frame in
+       * this list for that reason -- React puts the new frame in before it
+       * and leaves it where it is -- and `canvasSwap.test.tsx` holds it to
+       * that. Out of reach: a click or a key press in a page about to go
+       * would be lost with it.
+       */}
+      {leaving !== null && leaving.key !== frameKey && (
+        <iframe
+          key={leaving.key}
+          src={leaving.src}
+          title=""
+          aria-hidden
+          tabIndex={-1}
+          data-val-canvas-leaving=""
+          style={{
+            width,
+            height,
+            border: "none",
+            display: "block",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+          referrerPolicy="same-origin"
+        />
+      )}
       {/*
        * Nothing is drawn over the page here any more.
        *

@@ -42,3 +42,33 @@ export function frameHasFocus(frame: HTMLIFrameElement | null): boolean {
       : null;
   return active === frame;
 }
+
+/** What a `<body>` holds that is not something to look at. */
+const NOT_CONTENT = new Set([
+  "SCRIPT",
+  "STYLE",
+  "LINK",
+  "TEMPLATE",
+  "NOSCRIPT",
+]);
+
+/**
+ * Whether the page in `frame` has rendered anything: an element in its
+ * `<body>` that is not a script or a style. The canvas frames the site the
+ * Studio is on, so its document can be read; where it cannot -- another
+ * origin, a frame that is gone -- the answer is yes, because waiting on
+ * something that cannot be seen is waiting for nothing.
+ */
+export function frameHasContent(frame: HTMLIFrameElement | null): boolean {
+  if (frame === null) return true;
+  let body: HTMLElement | null | undefined;
+  try {
+    body = frame.contentDocument?.body;
+  } catch {
+    return true;
+  }
+  if (body === null || body === undefined) return true;
+  return Array.from(body.children).some(
+    (element) => !NOT_CONTENT.has(element.tagName),
+  );
+}

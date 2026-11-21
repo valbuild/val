@@ -24,6 +24,13 @@ export type CanvasPreviewStatus =
   | "enabling"
   | "no-answer"
   | "preview-off"
+  /**
+   * Another document of the same page -- a new build, a quick preview -- is
+   * loading behind the one on screen, which stays there until it is ready
+   * (`CanvasFrame`'s swap). Nothing is wrong and nothing is missing from
+   * view, so nothing is said; the page cannot be edited until it is `live`.
+   */
+  | "swapping"
   | "live";
 
 /**
@@ -178,7 +185,7 @@ export function CanvasPreviewNotice({
   useEffect(() => {
     if (status === "live") setIsOpen(false);
   }, [status]);
-  if (status === "live") return null;
+  if (status === "live" || status === "swapping") return null;
 
   const label = describePreviewStatus(status, phase);
   /**
@@ -393,7 +400,8 @@ function usePreviewRecovery(
   /** Anything in the canvas's own document, to ask it what has focus. */
   near: RefObject<HTMLElement | null>,
 ): { phase: PreviewRecoveryPhase; restart: () => void } {
-  const live = status === "live";
+  // A swap is not an episode: the page on screen is the last one that worked.
+  const live = status === "live" || status === "swapping";
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const lastEnableAt = useRef<number | null>(null);
   const restart = useCallback(() => {

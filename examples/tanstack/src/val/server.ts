@@ -3,6 +3,7 @@ import {
   initValContent,
   createPrettierFormatter,
   type ValAnalytics,
+  type ValHttpMode,
 } from "@valbuild/tanstack/server";
 import prettier from "prettier";
 import { config } from "../../val.config";
@@ -15,10 +16,33 @@ import valModules from "../../val.modules";
  * preview on for a browser, and the readers are what has to notice. Two
  * independently-created defaults would both work and disagree.
  */
+/**
+ * For Val's own end-to-end suite (`e2e/proposal/`), never for an app: this
+ * server at the address of a PROPOSAL, which on Val's hosting the platform
+ * says with its own `val.server.ts`. A proposal with nothing saved in it, on
+ * the content host the suite's mock stands in for.
+ */
+const e2eProposal = process.env.VAL_E2E_PROPOSAL;
+const e2eHttp: ValHttpMode | undefined =
+  e2eProposal && process.env.VAL_API_KEY && process.env.VAL_SECRET
+    ? {
+        apiKey: process.env.VAL_API_KEY,
+        valSecret: process.env.VAL_SECRET,
+        proposal: {
+          name: e2eProposal,
+          branch: `val/p/${e2eProposal}`,
+          commit: null,
+          modules: {},
+          files: {},
+        },
+      }
+    : undefined;
+
 const { valApiHandler, draftMode } = initValServer(
   valModules,
   { ...config },
   {
+    ...(e2eHttp !== undefined ? { http: e2eHttp } : {}),
     /**
      * The project's own formatting, not prettier's defaults.
      *
@@ -39,7 +63,10 @@ const {
   fetchValRouteStega: fetchValRoute,
   fetchValRouteUrl,
   fetchValDraft,
-} = initValContent(config, valModules, { draftMode });
+} = initValContent(config, valModules, {
+  draftMode,
+  ...(e2eHttp !== undefined ? { http: e2eHttp } : {}),
+});
 
 /**
  * Content analytics, for `<ValProvider analytics>`: whether it is on, and the

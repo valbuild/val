@@ -287,6 +287,16 @@ export type AIChatHandle = {
     toolCallId: string,
     request: CodeModeRequest,
   ) => void;
+  /**
+   * Turn a tool call's row, already shown, into a question for the person:
+   * a call the Studio found it has to ask about only once it ran
+   * (`interact_page`'s form submit, `pageSubmitGate.ts`).
+   */
+  askToolQuestions: (
+    messageId: string,
+    toolCallId: string,
+    questions: AskUserQuestionItem[],
+  ) => void;
   /** Mark a tool call as complete */
   completeToolCall: (messageId: string, toolCallId: string) => void;
   /** Mark a tool call as errored */
@@ -1191,6 +1201,33 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             )
           : prev,
       );
+    },
+    askToolQuestions(
+      messageId: string,
+      toolCallId: string,
+      questions: AskUserQuestionItem[],
+    ) {
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        return {
+          lastActivityAt: Date.now(),
+          message: withPauseSynced(
+            {
+              ...prev.message,
+              // A new question, unanswered: the answers to one asked
+              // before on this row (the page asked again) are not its.
+              toolActivities: (prev.message.toolActivities ?? []).map(
+                (t): ToolActivity => {
+                  if (t.toolCallId !== toolCallId) return t;
+                  const { answers: _answered, ...rest } = t;
+                  return { ...rest, status: "pending", questions };
+                },
+              ),
+            },
+            Date.now(),
+          ),
+        };
+      });
     },
     completeToolCall(messageId: string, toolCallId: string) {
       setCurrentMessage((prev) => {
