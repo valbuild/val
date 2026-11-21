@@ -18,6 +18,7 @@ import {
   PageLogReader,
   PageReader,
 } from "./canvas/CanvasFrame";
+import { useCanvasComponentEdits } from "./canvas/CanvasComponentEdits";
 import { AssistantPage, AssistantPageContext } from "./canvas/AssistantPage";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
@@ -1265,6 +1266,14 @@ function ValShellBody({
     [navigation, resolveNavPath, reportError],
   );
 
+  /*
+   * Edits made on the page itself: `ValComponentEditor` asks, this writes.
+   * A section that was just added is opened as a picked field is, with the
+   * cursor in it (see `onComponentEdit` on the frame below).
+   */
+  const { onComponentEdit, dialog: componentEditDialog } =
+    useCanvasComponentEdits();
+
   /**
    * The running site, in a frame.
    *
@@ -1389,6 +1398,11 @@ function ValShellBody({
         }}
         onRefreshingChange={onRefreshingChange}
         onCodeChanged={onCodeChanged}
+        onComponentEdit={(edit) =>
+          onComponentEdit(edit, (path) => {
+            if (openPickedPath([path])) onPicked(path, { added: true });
+          })
+        }
       />
     );
   }, [
@@ -1396,6 +1410,7 @@ function ValShellBody({
     documentKey,
     focusedPath,
     openPickedPath,
+    onComponentEdit,
     tourPagePath,
     assistantSelecting,
     assistantPick,
@@ -2099,6 +2114,7 @@ function ValShellBody({
               />
             </div>
           )}
+          {componentEditDialog}
         </LocaleFilterProvider>
       </ContentAnalyticsProvider>
     </AssistantPageContext.Provider>,

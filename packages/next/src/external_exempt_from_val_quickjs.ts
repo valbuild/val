@@ -50,6 +50,18 @@ export { ValImage, type ValImageProps } from "./ValImage";
 export { ValVideo, type ValVideoProps } from "./ValVideo";
 export { ValApp } from "./ValApp";
 export { ValModulesClient, useRegisterValModules } from "./ValModulesClient";
+export {
+  unstable_renderValComponent,
+  type ValComponentPreviewOptions,
+} from "./ValComponentPreview";
+export { ValPreviewBridge } from "./ValPreviewBridge";
+// EXPERIMENTAL: content rendered by the components its schema links it to
+// (`s.object(...).component(...)`), arranged on the page in the Studio
+export {
+  ValComponentEditor,
+  type ValComponentEditorProps,
+} from "@valbuild/react/internal";
+export { ValPreviewError } from "./ValPreviewError";
 
 import { Internal as InternalCore } from "@valbuild/core";
 // Auto-tag JSX with Val paths:

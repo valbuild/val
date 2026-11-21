@@ -24,6 +24,7 @@ import {
   type PickModifier,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
+  type ValCanvasComponentEdit,
   type ValCanvasPageMessage,
   ValCanvasStudioMessage,
   withValCanvasParam,
@@ -201,6 +202,12 @@ export type CanvasFrameProps = {
    * when the page's code catches up. See `CanvasCodeChangedNotice`.
    */
   onCodeChanged?: (modules: ModuleFilePath[]) => void;
+  /**
+   * The editor arranged a list of components on the page itself
+   * (`ValComponentEditor`): moved one, removed one, asked to add one. The
+   * page can only ask - see `useCanvasComponentEdits`, which writes it.
+   */
+  onComponentEdit?: (edit: ValCanvasComponentEdit) => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
   onRefreshingChange?: (isRefreshing: boolean) => void;
   /** Where the page is, as it moves: its path and scroll (`location`). */
@@ -360,6 +367,7 @@ export function CanvasFrame({
   enableKey = 0,
   onStatusChange,
   onCodeChanged,
+  onComponentEdit,
   onLocation,
   scrollTo = null,
   onPageReader,
@@ -653,6 +661,8 @@ export function CanvasFrame({
         }
         interactions.current.delete(message.requestId);
         interacting.answer(interactOutcomeOf(message.outcome));
+      } else if (message.type === "componentEdit") {
+        onComponentEdit?.(message.edit);
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -678,6 +688,7 @@ export function CanvasFrame({
     onLocation,
     onDocument,
     onCodeChanged,
+    onComponentEdit,
   ]);
 
   /** `readPage` requests the page has not answered yet, by id. */

@@ -273,7 +273,7 @@ test.describe("the panes on a phone", () => {
     await goTo(page, "On this page");
     await goTo(page, "Preview");
     await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
+      page.getByRole("button", { name: "Stop editing on the page" }),
     ).toBeVisible();
 
     const target = page

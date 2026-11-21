@@ -60,3 +60,13 @@ img {
 section {
   margin-block: 2rem;
 }
+
+/*
+ * The cards of a columns section on /landing: a row that wraps. The class is
+ * on the element `ValComponentEditor` renders around the list.
+ */
+.landing-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+}

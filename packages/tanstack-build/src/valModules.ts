@@ -69,7 +69,18 @@ export async function bundleValModules(input: {
       plugins: [
         {
           name: "val:modules",
-          resolveId(source: string, importer: string | undefined) {
+          resolveId(
+            source: string,
+            importer: string | undefined,
+            extra: { kind?: string },
+          ) {
+            // The app's code, named and never loaded: left as it is written.
+            if (
+              extra.kind === "dynamic-import" &&
+              isAppCodeImport(source, importer)
+            ) {
+              return { id: source, external: true };
+            }
             const resolved = resolveOne(source, importer);
             // A project file importing a project file: an edge of the graph
             // the dependencies are read from.
@@ -112,6 +123,60 @@ export async function bundleValModules(input: {
       ].join("\n"),
       { cause: error },
     );
+  }
+
+  /**
+   * Whether a dynamic `import()` in a Val module names the app's own code
+   * rather than Val content: the component of
+   * `s.object(...).component(() => import("../components/Hero"))`.
+   *
+   * A `.val.ts` may not import app code, and that thunk is how it names some
+   * anyway: it is never called where Val modules are only read, which is
+   * here. So the import is left as it stands instead of being followed.
+   * Following it would bundle the component and everything it imports - the
+   * router, its styles, packages this layer was never asked for - into the
+   * module the Studio evaluates, and make every Val module depend on its
+   * components' files, so an edit to a component would make its content look
+   * like it was "made with code the build does not have".
+   *
+   * The dynamic imports that ARE content stay: another Val module
+   * (`def: () => import("./x.val")`) and a `.jsonValues()` entry
+   * (`c.json(() => import("./x.val.json"))`).
+   */
+  function isAppCodeImport(
+    source: string,
+    importer: string | undefined,
+  ): boolean {
+    if (importer === undefined || !/\.val\.(ts|js)$/.test(importer)) {
+      return false;
+    }
+    const resolved = projectFileOf(source, importer);
+    return resolved !== null && !/\.val\.(ts|js|json)$/.test(resolved);
+  }
+
+  /**
+   * The project file an import names, or `null` when it names none: a
+   * package of the site's layers, or nothing this project has. By a relative
+   * path or through a tsconfig alias, as {@link resolveOne} finds them, and
+   * without its errors: this only asks.
+   */
+  function projectFileOf(source: string, importer: string): string | null {
+    if (source.startsWith(".")) {
+      return resolveProjectPath(resolve(dirname(importer), source));
+    }
+    if (source in files) return source;
+    if (target.base.modules[source] || target.project.modules[source]) {
+      return null;
+    }
+    if (aliases) {
+      for (const candidate of aliases.candidates(source)) {
+        const hit = resolveProjectPath(candidate);
+        if (hit) return hit;
+      }
+      const fromBaseUrl = aliases.baseUrlCandidate(source);
+      return (fromBaseUrl && resolveProjectPath(fromBaseUrl)) || null;
+    }
+    return null;
   }
 
   function resolveOne(
