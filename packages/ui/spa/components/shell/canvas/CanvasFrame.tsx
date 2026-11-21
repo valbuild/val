@@ -219,6 +219,16 @@ export type CanvasFrameProps = {
     selection: InlineSelection | null;
   } | null;
   /**
+   * A control pressed with only a caret: the marks the next text typed on
+   * the page has. Sent to the page when `id` changes.
+   */
+  inlineEditMarks?: {
+    id: number;
+    path: SourcePath;
+    styles: string[] | null;
+    selection: InlineSelection | null;
+  } | null;
+  /**
    * Handed the way to find the text being edited in the Studio's own
    * viewport, and to put the focus back in it -- and `null` when the frame
    * goes. The frame is the one that knows: it is scaled and moved, and the
@@ -374,6 +384,7 @@ export function CanvasFrame({
   onInlineEditUnavailable,
   onInlineEditSelection,
   inlineEditApply = null,
+  inlineEditMarks = null,
   onInlineEditPlace,
   textFields,
   onPinch,
@@ -969,6 +980,22 @@ export function CanvasFrame({
       selection: apply.selection,
     });
   }, [send, applyId]);
+  // ...and what a control pressed with only a caret means for the next text.
+  const marksId = inlineEditMarks?.id ?? null;
+  const marking = useRef(inlineEditMarks);
+  marking.current = inlineEditMarks;
+  useEffect(() => {
+    const marks = marking.current;
+    if (marksId === null || marks === null) return;
+    if (inlineEditing.current !== marks.path) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "markInlineEdit",
+      path: marks.path,
+      styles: marks.styles,
+      selection: marks.selection,
+    });
+  }, [send, marksId]);
 
   const locateInlineEdit = useCallback((): InlineEditLocation | null => {
     const frame = frameRef.current;

@@ -421,6 +421,145 @@ export function defineInlineEditingSuite(): void {
           );
       });
 
+      test("undo and redo go back over typing, Enter and a control, and are written", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.getByText("Blog 1 content").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        const toolbar = inlineToolbar(page);
+        const content = [BLOG, "content"];
+        const typedOnce = JSON.stringify([
+          { tag: "p", children: ["Blog 1 content, typed"] },
+        ]);
+        const bold = JSON.stringify([
+          {
+            tag: "p",
+            children: [
+              { tag: "span", styles: ["bold"], children: ["Blog"] },
+              " 1 content, typed",
+            ],
+          },
+        ]);
+
+        // A burst of typing, then a paragraph made with Enter.
+        await page.keyboard.press("End");
+        await page.keyboard.type(", typed");
+        await expect.poll(() => written(request, content)).toBe(typedOnce);
+        await page.keyboard.press("Enter");
+        await page.keyboard.type("More");
+        await expect(copy.locator("p")).toHaveCount(2);
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(copy.locator("p")).toHaveCount(2);
+        await expect(copy.locator("p").nth(1)).toHaveText("");
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(copy.locator("p")).toHaveCount(1);
+        await expect(copy).toHaveText("Blog 1 content, typed");
+        await expect.poll(() => written(request, content)).toBe(typedOnce);
+
+        // A control's change, and then back over it AND what was typed
+        // before it: the browser's own history ended at the control.
+        await selectFromLineStart(page, 4);
+        await toolbar.getByTitle(/Bold/).click();
+        await expect.poll(() => written(request, content)).toBe(bold);
+        await expect(copy.locator("span")).toHaveText("Blog");
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(copy.locator("span")).toHaveCount(0);
+        await expect.poll(() => written(request, content)).toBe(typedOnce);
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect(copy).toHaveText("Blog 1 content");
+        await expect
+          .poll(() => written(request, content))
+          .toBe(JSON.stringify([{ tag: "p", children: ["Blog 1 content"] }]));
+        await expect(copy).toBeFocused();
+
+        // And forward again, by either of redo's keys.
+        await page.keyboard.press("ControlOrMeta+Shift+z");
+        await expect(copy).toHaveText("Blog 1 content, typed");
+        await expect.poll(() => written(request, content)).toBe(typedOnce);
+        await page.keyboard.press("Control+y");
+        await expect(copy.locator("span")).toHaveText("Blog");
+        await expect.poll(() => written(request, content)).toBe(bold);
+      });
+
+      test("a control pressed with only a caret marks what is typed next", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.getByText("Blog 1 content").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        const bold = inlineToolbar(page).getByTitle(/Bold/);
+        const content = [BLOG, "content"];
+
+        await page.keyboard.press("End");
+        await expect(bold).toHaveAttribute("aria-pressed", "false");
+        await bold.click();
+        // Shown on, though nothing on the page is bold yet...
+        await expect(bold).toHaveAttribute("aria-pressed", "true");
+        await expect(copy).toBeFocused();
+        // ...and what is typed next is.
+        await page.keyboard.type(" strong");
+        await expect
+          .poll(() => written(request, content))
+          .toBe(
+            JSON.stringify([
+              {
+                tag: "p",
+                children: [
+                  "Blog 1 content",
+                  { tag: "span", styles: ["bold"], children: [" strong"] },
+                ],
+              },
+            ]),
+          );
+        await expect(copy.locator("span")).toHaveText(" strong");
+        await expect(bold).toHaveAttribute("aria-pressed", "true");
+
+        // Pressed again inside the bold words: what comes next is not.
+        await bold.click();
+        await expect(bold).toHaveAttribute("aria-pressed", "false");
+        await page.keyboard.type(" plain");
+        await expect
+          .poll(() => written(request, content))
+          .toBe(
+            JSON.stringify([
+              {
+                tag: "p",
+                children: [
+                  "Blog 1 content",
+                  { tag: "span", styles: ["bold"], children: [" strong"] },
+                  " plain",
+                ],
+              },
+            ]),
+          );
+
+        // Moving the caret forgets a mark that was never typed with.
+        await bold.click();
+        await expect(bold).toHaveAttribute("aria-pressed", "true");
+        await page.keyboard.press("Home");
+        await expect(bold).toHaveAttribute("aria-pressed", "false");
+        await page.keyboard.type("A ");
+        await expect
+          .poll(() => written(request, content))
+          .toBe(
+            JSON.stringify([
+              {
+                tag: "p",
+                children: [
+                  "A Blog 1 content",
+                  { tag: "span", styles: ["bold"], children: [" strong"] },
+                  " plain",
+                ],
+              },
+            ]),
+          );
+      });
+
       test("a link is picked from the site's pages, and Esc in the picker closes only the picker", async ({
         page,
         request,

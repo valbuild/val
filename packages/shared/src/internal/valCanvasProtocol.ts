@@ -659,6 +659,26 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
+       * The next text typed in the richtext being edited on the page has
+       * these marks (as a span's `styles`; `[]` for none), whatever the
+       * text around the caret has: one of the Studio's formatting controls
+       * pressed with nothing selected. `null` forgets them. The page
+       * forgets them too once the caret moves, as the Studio's editor does.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "markInlineEdit";
+      /** Which field: as its `editInline` candidate named it. */
+      path: string;
+      styles: string[] | null;
+      /**
+       * Where the caret was when the control was pressed. A caret that has
+       * moved since -- the message crosses the frame after the keys that
+       * moved it -- gets no mark.
+       */
+      selection: InlineSelection | null;
+    }
+  | {
+      /**
        * Put the caret back in the text being edited on the page: the focus
        * was in one of the Studio's controls for it, and is done there.
        */
@@ -956,6 +976,16 @@ export function isValCanvasStudioMessage(
       typeof apply.path === "string" &&
       isInlineRichText(apply.value) &&
       (apply.selection === null || isInlineSelection(apply.selection))
+    );
+  }
+  if (message.type === "markInlineEdit") {
+    const mark = data as Record<string, unknown>;
+    return (
+      typeof mark.path === "string" &&
+      (mark.styles === null ||
+        (Array.isArray(mark.styles) &&
+          mark.styles.every((style) => typeof style === "string"))) &&
+      (mark.selection === null || isInlineSelection(mark.selection))
     );
   }
   if (message.type === "readPage") {

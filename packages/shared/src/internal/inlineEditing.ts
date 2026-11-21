@@ -118,6 +118,18 @@ export type InlineEditing = {
    */
   apply(value: InlineRichTextNode[], selection: InlineSelection | null): void;
   /**
+   * The marks the next text typed at the caret has, whatever the text
+   * around it has: one of the Studio's controls pressed with nothing
+   * selected (Bold, and then the next word is bold). `styles` as a span's
+   * `styles` holds them -- `[]` for none, which is how Bold is turned off
+   * inside a bold word -- and `null` to forget them. Forgotten too when the
+   * caret moves, as the Studio's own editor forgets them. A richtext only.
+   *
+   * `at` is where the caret was when they were asked for: when it is
+   * somewhere else by now, they are not taken at all.
+   */
+  mark(styles: readonly string[] | null, at: InlineSelection | null): void;
+  /**
    * Put the caret back in the copy, where it was: the focus went to one of
    * the Studio's controls -- a box to type a link in -- and is done there.
    */
@@ -140,6 +152,15 @@ const FILLER_ATTRIBUTE = "data-val-inline-filler";
  * shows for a moment before the page re-renders.
  */
 export const INLINE_EDIT_SETTLE_MS = 2000;
+
+/**
+ * Typing with no longer a pause than this between two keystrokes is one
+ * step of undo. A pause, the caret moving, or switching between typing and
+ * deleting starts the next.
+ */
+export const INLINE_UNDO_PAUSE_MS = 1000;
+/** How many steps back undo goes. */
+const INLINE_UNDO_LIMIT = 200;
 
 const TEXT_BLOCKS: ReadonlySet<string> = new Set([
   "p",
@@ -417,6 +438,7 @@ export function startInlineEditing(
     if (ended) return;
     const value = read();
     const serialized = JSON.stringify(value);
+    remember(serialized);
     if (serialized === lastReported) return;
     lastReported = serialized;
     options.onChange(value);
@@ -438,6 +460,7 @@ export function startInlineEditing(
     copy.removeEventListener("focusout", onFocusOut);
     doc.removeEventListener("pointerdown", onPressElsewhere, true);
     doc.removeEventListener("selectionchange", scheduleSelection);
+    doc.removeEventListener("selectionchange", followSelection);
     view?.removeEventListener("scroll", scheduleSelection, true);
     view?.removeEventListener("resize", scheduleSelection);
     pageObserver.disconnect();
@@ -861,6 +884,22 @@ export function startInlineEditing(
       if (source !== null) samples.set(kindOf(source), el);
     });
   };
+  /** An empty element for `node`, classed as one of its kind on the page. */
+  const elementFor = (node: InlineRichTextElement): Node => {
+    const sample = samples.get(kindOf(node));
+    const made = sample?.cloneNode(false) ?? doc.createElement(node.tag);
+    if (isHtmlElement(made) && sample === undefined && node.tag === "span") {
+      // No word of this kind on the page yet to take the class of: shown
+      // as what it is until the page's own rendering arrives.
+      const styles = stylesOf(node);
+      if (styles.includes("bold")) made.style.fontWeight = "bold";
+      if (styles.includes("italic")) made.style.fontStyle = "italic";
+      if (styles.includes("line-through")) {
+        made.style.textDecoration = "line-through";
+      }
+    }
+    return made;
+  };
   const build = (
     children: readonly InlineRichTextNode[],
     into: Node,
@@ -877,22 +916,8 @@ export function startInlineEditing(
         child.tag === "img"
           ? images.get(JSON.stringify(child))?.shift()
           : undefined;
-      const sample = samples.get(kindOf(child));
-      const made =
-        image?.cloneNode(true) ??
-        sample?.cloneNode(false) ??
-        doc.createElement(child.tag);
+      const made = image?.cloneNode(true) ?? elementFor(child);
       if (!isHtmlElement(made)) continue;
-      if (sample === undefined && child.tag === "span") {
-        // No word of this kind on the page yet to take the class of: shown
-        // as what it is until the page's own rendering arrives.
-        const styles = stylesOf(child);
-        if (styles.includes("bold")) made.style.fontWeight = "bold";
-        if (styles.includes("italic")) made.style.fontStyle = "italic";
-        if (styles.includes("line-through")) {
-          made.style.textDecoration = "line-through";
-        }
-      }
       if (child.tag === "a") {
         if (typeof child.href === "string") {
           made.setAttribute("href", child.href);
@@ -929,6 +954,10 @@ export function startInlineEditing(
     mirrors(copy, value, annotate);
     textBlocks().forEach(fill);
     select(kept);
+    // The same document, so the same step of undo: it is only drawn better.
+    if (present !== null) {
+      present = { ...snapshot(present.value), selection: present.selection };
+    }
     scheduleSelection();
   };
   const apply = (
@@ -937,6 +966,9 @@ export function startInlineEditing(
   ) => {
     if (ended || candidate.kind !== "richtext") return;
     if (!value.every(isKnownNode)) return;
+    // A step of undo of its own, whatever was being typed before it.
+    nextStep = "step";
+    storedMarks = null;
     gatherSamples();
     const images = new Map<string, Element[]>();
     copy.querySelectorAll(`[${NODE_ATTRIBUTE}]`).forEach((el) => {
@@ -962,6 +994,190 @@ export function startInlineEditing(
     refresh();
     scheduleSelection();
   };
+  // --- Undo -----------------------------------------------------------------
+  /*
+   * A richtext's undo is this file's, not the browser's. Three things the
+   * browser's history cannot follow: Enter, a join and a control's change are
+   * made by hand here (`splitBlock`, `deleteRange`, `apply`), and the last
+   * two replace what is in the copy -- which throws the browser's history
+   * away with the nodes it was about. So Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and
+   * Ctrl+Y (and the browser's own `historyUndo`, from a menu) are taken over,
+   * and the browser's undo is never run at all: half of one history is worse
+   * than none.
+   *
+   * A step is a SNAPSHOT of the copy -- its nodes, cloned, the document
+   * nodes they carry the index of, and what was selected -- not the
+   * document it reads as. Restoring the nodes puts back exactly what was on
+   * the screen, the page's classes and the images included, where building
+   * the document again (`apply`) could only guess at a class and cannot
+   * make an image at all. What it reads as is then reported as any change
+   * is, so an undo is written as the field like a keystroke, and the
+   * page's own rendering is drawn in once it arrives (`refresh`).
+   *
+   * `present` is the copy as of the last change, its selection kept up to
+   * date as the caret moves. A change pushes it -- the state from before
+   * the change, caret and all -- unless the change goes on typing what the
+   * last one typed (`INLINE_UNDO_PAUSE_MS`). Recorded on `report`, after the
+   * fact, rather than on `beforeinput`: every change of the copy ends in a
+   * report, including the ones no `beforeinput` comes before.
+   *
+   * A string has none of this: the browser's history follows typing in a
+   * single text, and nothing here replaces one.
+   */
+  type Snapshot = {
+    children: Node[];
+    nodes: InlineRichTextElement[];
+    selection: InlineSelection | null;
+    /** What the copy reads as, serialized. */
+    value: string;
+  };
+  const undoStack: Snapshot[] = [];
+  const redoStack: Snapshot[] = [];
+  let present: Snapshot | null = null;
+  /** The typing the last change went on with, and when. */
+  let burst: { kind: "typing" | "deleting"; at: number } | null = null;
+  /** What kind of change the next report is: set by what is about to make it. */
+  let nextStep: "typing" | "deleting" | "step" = "typing";
+  const snapshot = (value: string): Snapshot => ({
+    children: Array.from(copy.childNodes, (child) => child.cloneNode(true)),
+    nodes: nodes.slice(),
+    selection: selected() ?? keptSelection,
+    value,
+  });
+  /** A report: the copy reads as `serialized` now. */
+  const remember = (serialized: string) => {
+    const kind = nextStep;
+    nextStep = "typing";
+    if (candidate.kind !== "richtext" || present === null) return;
+    if (serialized === present.value) return;
+    const now = Date.now();
+    const goesOn =
+      kind !== "step" &&
+      burst !== null &&
+      burst.kind === kind &&
+      now - burst.at <= INLINE_UNDO_PAUSE_MS;
+    if (!goesOn) {
+      undoStack.push(present);
+      if (undoStack.length > INLINE_UNDO_LIMIT) undoStack.shift();
+    }
+    redoStack.length = 0;
+    burst = kind === "step" ? null : { kind, at: now };
+    present = snapshot(serialized);
+  };
+  const restore = (to: Snapshot) => {
+    storedMarks = null;
+    copy.replaceChildren(...to.children.map((child) => child.cloneNode(true)));
+    nodes.length = 0;
+    nodes.push(...to.nodes);
+    copy.focus({ preventScroll: true });
+    select(to.selection);
+    keptSelection = to.selection ?? keptSelection;
+    present = to;
+    burst = null;
+    // Told as typing is: it is the field's value now, and it is written.
+    report();
+    awaitingPage = true;
+    refresh();
+    scheduleSelection();
+  };
+  const undo = () => {
+    if (ended || present === null) return;
+    const to = undoStack.pop();
+    if (to === undefined) return;
+    redoStack.push(snapshot(present.value));
+    restore(to);
+  };
+  const redo = () => {
+    if (ended || present === null) return;
+    const to = redoStack.pop();
+    if (to === undefined) return;
+    undoStack.push(snapshot(present.value));
+    restore(to);
+  };
+
+  // --- A mark for what is typed next --------------------------------------
+  /**
+   * The marks the next text typed gets (`mark`), and the selection they were
+   * asked for at: a caret that has moved since has forgotten them.
+   */
+  let storedMarks: { styles: string[]; at: string } | null = null;
+  /** The mark the caret is in, if it is in one. */
+  const markAt = (node: Node): HTMLElement | null => {
+    let at: Node | null = node;
+    while (at !== null && at !== copy) {
+      if (isHtmlElement(at)) {
+        const tag = tagOf(at);
+        if (tag === "span") return at;
+        if (tag !== null && TEXT_BLOCKS.has(tag)) return null;
+      }
+      at = at.parentNode;
+    }
+    return null;
+  };
+  /**
+   * Type `text` at the caret with exactly `styles`: out of the mark the
+   * caret is in, when it is in one, and into a mark of its own, classed as
+   * one of its kind on the page is (or, where there is none, styled as
+   * `apply` styles one). False when that is what typing there would do
+   * anyway, and the browser's own typing is left to do it.
+   */
+  const typeMarked = (text: string, styles: string[]): boolean => {
+    const range = currentRange();
+    if (range === null || !range.collapsed || text === "") return false;
+    const block = textBlockOf(range.startContainer);
+    if (block === null) return false;
+    const mark = markAt(range.startContainer);
+    const source = mark === null ? null : sourceOf(mark);
+    const has = source === null ? [] : stylesOf(source);
+    if (JSON.stringify(has) === JSON.stringify(styles)) return false;
+    removeFillers(block);
+    const at = doc.createRange();
+    if (mark === null) {
+      at.setStart(range.startContainer, range.startOffset);
+    } else {
+      // The mark becomes two, and the text goes between them.
+      const tail = doc.createRange();
+      tail.setStart(range.startContainer, range.startOffset);
+      tail.setEnd(mark, mark.childNodes.length);
+      const rest = tail.extractContents();
+      const after = mark.cloneNode(false);
+      after.appendChild(rest);
+      mark.parentNode?.insertBefore(after, mark.nextSibling);
+      at.setStartBefore(after);
+    }
+    at.collapse(true);
+    const typed = doc.createTextNode(text);
+    if (styles.length === 0) {
+      at.insertNode(typed);
+    } else {
+      gatherSamples();
+      const node: InlineRichTextElement = { tag: "span", styles, children: [] };
+      const made = elementFor(node);
+      if (!isElement(made)) return false;
+      annotate(made, node);
+      made.appendChild(typed);
+      at.insertNode(made);
+    }
+    removeEmptyInline(block);
+    placeCaret(typed, text.length);
+    return true;
+  };
+
+  /** The caret moved: undo's step ends there, and so does a stored mark. */
+  const followSelection = () => {
+    if (ended) return;
+    const now = selected();
+    if (now === null) return;
+    const serialized = JSON.stringify(now);
+    if (storedMarks !== null && storedMarks.at !== serialized) {
+      storedMarks = null;
+    }
+    if (present === null) return;
+    if (serialized === JSON.stringify(present.selection)) return;
+    present = { ...present, selection: now };
+    burst = null;
+  };
+
   const pageObserver = new MutationObserver(refresh);
   pageObserver.observe(original, {
     subtree: true,
@@ -992,13 +1208,38 @@ export function startInlineEditing(
       }
       return;
     }
+    if (type === "historyUndo" || type === "historyRedo") {
+      // Undo is this file's: see "Undo".
+      event.preventDefault();
+      if (type === "historyUndo") undo();
+      else redo();
+      return;
+    }
+    // Where the caret is now is where this change starts, whether or not
+    // the browser has said yet that it moved.
+    followSelection();
+    nextStep = type.startsWith("delete") ? "deleting" : "typing";
     if (isBreak) {
       event.preventDefault();
+      nextStep = "step";
       splitBlock();
       report();
       return;
     }
-    if (type.startsWith("history") || type === "insertCompositionText") return;
+    if (type === "insertCompositionText") return;
+    if (
+      storedMarks !== null &&
+      type === "insertText" &&
+      typeof event.data === "string"
+    ) {
+      const { styles } = storedMarks;
+      if (typeMarked(singleLine(event.data), styles)) {
+        event.preventDefault();
+        storedMarks = null;
+        report();
+        return;
+      }
+    }
     const range = currentRange();
     if (range === null) return;
     if (!range.collapsed) {
@@ -1007,6 +1248,7 @@ export function startInlineEditing(
       // Inside one block the browser's own editing keeps what is around it.
       if (startBlock !== null && startBlock === endBlock) return;
       event.preventDefault();
+      nextStep = "step";
       deleteRange(range);
       if (type.startsWith("insert") && typeof event.data === "string") {
         insertText(singleLine(event.data));
@@ -1023,6 +1265,7 @@ export function startInlineEditing(
       event.preventDefault();
       const previous = blocks[index - 1];
       if (previous === undefined) return;
+      nextStep = "step";
       removeFillers(previous);
       const join = doc.createRange();
       join.setStart(previous, previous.childNodes.length);
@@ -1035,6 +1278,7 @@ export function startInlineEditing(
       event.preventDefault();
       const next = blocks[index + 1];
       if (next === undefined) return;
+      nextStep = "step";
       removeFillers(block);
       const join = doc.createRange();
       join.setStart(block, block.childNodes.length);
@@ -1049,6 +1293,25 @@ export function startInlineEditing(
     // being typed in: `/` opening its search mid-sentence is not an edit.
     event.stopPropagation();
     if (event.isComposing) return;
+    if (
+      candidate.kind === "richtext" &&
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey
+    ) {
+      // Before the browser's own undo can run: see "Undo".
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (key === "y" && event.ctrlKey && !event.shiftKey) {
+        event.preventDefault();
+        redo();
+        return;
+      }
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       stop();
@@ -1074,6 +1337,7 @@ export function startInlineEditing(
         ? pasted.replace(/\r\n?/g, "\n")
         : singleLine(pasted);
     if (candidate.kind === "richtext") {
+      nextStep = "step";
       const range = currentRange();
       if (range !== null && !range.collapsed) {
         const startBlock = textBlockOf(range.startContainer);
@@ -1126,6 +1390,9 @@ export function startInlineEditing(
   copy.addEventListener("drop", onDrop);
   copy.addEventListener("focusout", onFocusOut);
   doc.addEventListener("pointerdown", onPressElsewhere, true);
+  if (candidate.kind === "richtext") {
+    doc.addEventListener("selectionchange", followSelection);
+  }
   if (options.onSelection !== undefined) {
     doc.addEventListener("selectionchange", scheduleSelection);
     // Capturing: a scroll of anything the copy is inside moves it.
@@ -1149,6 +1416,10 @@ export function startInlineEditing(
     placeCaret(end, end.childNodes.length);
     if (last !== undefined) fill(last);
   }
+  // Where undo goes back to, once there is something to go back from.
+  if (candidate.kind === "richtext") {
+    present = snapshot(JSON.stringify(read()));
+  }
   scheduleSelection();
 
   return {
@@ -1161,6 +1432,15 @@ export function startInlineEditing(
       finish();
     },
     apply,
+    mark: (styles, at) => {
+      if (ended || candidate.kind !== "richtext") return;
+      const here = JSON.stringify(selected() ?? keptSelection);
+      if (styles === null || (at !== null && JSON.stringify(at) !== here)) {
+        storedMarks = null;
+        return;
+      }
+      storedMarks = { styles: [...styles].sort(), at: here };
+    },
     focus: () => {
       if (ended) return;
       copy.focus({ preventScroll: true });

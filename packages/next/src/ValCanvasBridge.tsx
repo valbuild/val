@@ -542,6 +542,17 @@ export function ValCanvasBridge({
         editing.apply(message.value, message.selection);
         return;
       }
+      if (message.type === "markInlineEdit") {
+        // Bold pressed with only a caret: for what is typed next. From the
+        // Studio only, as `applyInlineEdit`.
+        if (event.source !== window.parent) return;
+        if (event.origin !== window.location.origin) return;
+        const editing = inlineEditing.current;
+        if (editing === null || !editing.isActive()) return;
+        if (editing.path !== message.path) return;
+        editing.mark(message.styles, message.selection);
+        return;
+      }
       if (message.type === "editInline") {
         // A field's words go back as they are typed, unpublished ones
         // included. As `readPage`: only for the frame's parent, when that

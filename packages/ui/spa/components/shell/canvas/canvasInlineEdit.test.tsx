@@ -268,6 +268,33 @@ describe("editing a field on the page", () => {
     expect(of("applyInlineEdit")).toHaveLength(2);
   });
 
+  it("sends the page the marks for what is typed next, once per press", () => {
+    const rendered = renderFrame(handlers());
+    ready(BRIDGE_CAPABILITIES);
+    rendered.set({ inlineEdit: request });
+    // Nothing is being edited yet: nothing to type with them.
+    const marks = { id: 1, path: TITLE, styles: ["bold"], selection };
+    rendered.set({ inlineEdit: request, inlineEditMarks: marks });
+    expect(of("markInlineEdit")).toEqual([]);
+    started();
+    rendered.set({ inlineEdit: request, inlineEditMarks: { ...marks, id: 2 } });
+    rendered.set({ inlineEdit: request, inlineEditMarks: { ...marks, id: 2 } });
+    expect(of("markInlineEdit")).toEqual([
+      {
+        val: VAL_CANVAS_MESSAGE,
+        type: "markInlineEdit",
+        path: TITLE,
+        styles: ["bold"],
+        selection,
+      },
+    ]);
+    rendered.set({
+      inlineEdit: request,
+      inlineEditMarks: { id: 3, path: TITLE, styles: [], selection: null },
+    });
+    expect(of("markInlineEdit").at(-1)).toMatchObject({ styles: [] });
+  });
+
   it("a press elsewhere in the Studio ends the edit; one on the controls does not", () => {
     const rendered = renderFrame(handlers());
     ready(BRIDGE_CAPABILITIES);

@@ -333,6 +333,51 @@ describe("the canvas bridge editing a field on the page", () => {
     expect(editor()?.querySelector("span")).not.toBeNull();
   });
 
+  it("types what comes next with the marks a control pressed with only a caret asked for", () => {
+    richtextPage();
+    editInline([{ path: BODY, kind: "richtext", value: body }]);
+    const mark: ValCanvasStudioMessage = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "markInlineEdit",
+      path: BODY,
+      styles: ["bold"],
+      // The caret at the end, where an edit no click asked for starts.
+      selection: {
+        anchor: { block: 0, offset: 20 },
+        head: { block: 0, offset: 20 },
+      },
+    };
+    const typeX = () =>
+      editor()?.dispatchEvent(
+        new InputEvent("beforeinput", {
+          inputType: "insertText",
+          data: "x",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    // From nobody but the Studio, and for nothing but the text being edited.
+    tell(mark, { source: null, origin: "https://elsewhere.example" });
+    tell({ ...mark, path: TITLE });
+    expect(typeX()).toBe(true);
+    expect(editor()?.querySelector("span")).toBeNull();
+    tell(mark);
+    expect(typeX()).toBe(false);
+    expect(editor()?.querySelector("span")?.textContent).toBe("x");
+    expect(of("inlineEdit").at(-1)).toMatchObject({
+      path: BODY,
+      value: [
+        {
+          tag: "p",
+          children: [
+            "We are forty people.",
+            { tag: "span", styles: ["bold"], children: ["x"] },
+          ],
+        },
+      ],
+    });
+  });
+
   describe("a click that starts the edit by itself", () => {
     /** The Studio saying ahead of a click what the page's texts hold. */
     const textFields = (

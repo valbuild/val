@@ -851,3 +851,325 @@ describe("the Studio's controls for a richtext on the page", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("undo and redo in a richtext on the page", () => {
+  const body: InlineRichTextNode[] = [
+    { tag: "h2", children: ["Who we are"] },
+    {
+      tag: "p",
+      children: [
+        "We are ",
+        { tag: "span", styles: ["bold"], children: ["forty"] },
+        " people.",
+      ],
+    },
+    {
+      tag: "p",
+      children: [{ tag: "img", src: { url: "/team.png" } }, "Since 2012."],
+    },
+  ];
+  const rendered = `<div class="prose"><h2 class="t">Who we are</h2><p class="p">We are <span class="font-bold">forty</span> people.</p><p class="p"><img src="/team.png" alt="">Since 2012.</p></div>`;
+  const begin = () => {
+    const root = page(rendered);
+    const original = root.firstElementChild!;
+    return {
+      original,
+      ...start(original, { path: "body", kind: "richtext", value: body }),
+    };
+  };
+  const last = (changes: InlineEditValue[]) => changes[changes.length - 1];
+  /** A shortcut, as the keyboard sends it: true when nothing stopped it. */
+  const press = (key: string, modifiers: KeyboardEventInit = {}) =>
+    editor()!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...modifiers,
+      }),
+    );
+  const undo = () => press("z", { ctrlKey: true });
+  /** Typing one letter at the caret, as the browser would. */
+  const type = (text: string) => {
+    beforeInput("insertText", text);
+    typed(() => {
+      const range = document.getSelection()!.getRangeAt(0);
+      const node = range.startContainer;
+      if (node.nodeType !== 3) throw new Error("the caret is not in text");
+      const at = range.startOffset;
+      node.nodeValue =
+        node.nodeValue!.slice(0, at) + text + node.nodeValue!.slice(at);
+      caret(node, at + text.length);
+    });
+  };
+  const heading = () => editor()!.querySelector("h2")!.firstChild!;
+  let now = 0;
+  beforeEach(() => {
+    now = 1_000_000;
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  test("a burst of typing is one step, and the caret goes back to where it began", () => {
+    const { changes } = begin();
+    caret(heading(), 3);
+    document.dispatchEvent(new Event("selectionchange"));
+    type("!");
+    now += 200;
+    type("?");
+    expect(last(changes)).toEqual([
+      { tag: "h2", children: ["Who!? we are"] },
+      body[1],
+      body[2],
+    ]);
+    expect(undo()).toBe(false);
+    // Told to the Studio, which writes it as it writes what is typed.
+    expect(last(changes)).toEqual(body);
+    expect(document.getSelection()!.anchorOffset).toBe(3);
+  });
+
+  test("a pause, or the caret moving, starts the next step", () => {
+    const { changes } = begin();
+    caret(heading(), 3);
+    type("1");
+    now += 5000;
+    type("2");
+    caret(editor()!.querySelector("h2")!.firstChild!, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    type("3");
+    expect(last(changes)).toEqual([
+      { tag: "h2", children: ["3Who12 we are"] },
+      body[1],
+      body[2],
+    ]);
+    undo();
+    expect((last(changes) as InlineRichTextNode[])[0]).toEqual({
+      tag: "h2",
+      children: ["Who12 we are"],
+    });
+    undo();
+    expect((last(changes) as InlineRichTextNode[])[0]).toEqual({
+      tag: "h2",
+      children: ["Who1 we are"],
+    });
+    undo();
+    expect(last(changes)).toEqual(body);
+  });
+
+  test("Enter and a control's change are steps of their own, and redo does them again", () => {
+    const { changes, editing } = begin();
+    caret(heading(), 3);
+    type("!");
+    beforeInput("insertParagraph");
+    const split = last(changes);
+    expect(split).toEqual([
+      { tag: "h2", children: ["Who!"] },
+      { tag: "h2", children: [" we are"] },
+      body[1],
+      body[2],
+    ]);
+    const italic: InlineRichTextNode[] = [
+      { tag: "h2", children: ["Who!"] },
+      {
+        tag: "h2",
+        children: [{ tag: "span", styles: ["italic"], children: [" we are"] }],
+      },
+      body[1],
+      body[2],
+    ];
+    editing?.apply(italic, null);
+    // The control's change: the Studio made it, and already has it.
+    expect(last(changes)).toEqual(split);
+
+    undo();
+    expect(last(changes)).toEqual(split);
+    expect(editor()!.querySelector("span")!.className).toBe("font-bold");
+    undo();
+    expect(last(changes)).toEqual([
+      { tag: "h2", children: ["Who! we are"] },
+      body[1],
+      body[2],
+    ]);
+    undo();
+    expect(last(changes)).toEqual(body);
+    // Nothing further back: the shortcut is still the page's to keep from
+    // the browser, whose own undo would not know what was done here.
+    const count = changes.length;
+    expect(undo()).toBe(false);
+    expect(changes.length).toBe(count);
+
+    expect(press("Z", { ctrlKey: true, shiftKey: true })).toBe(false);
+    expect((last(changes) as InlineRichTextNode[])[0]).toEqual({
+      tag: "h2",
+      children: ["Who! we are"],
+    });
+    expect(press("y", { ctrlKey: true })).toBe(false);
+    expect(last(changes)).toEqual(split);
+    // And the browser's own, from a menu.
+    expect(beforeInput("historyRedo")).toBe(false);
+    expect(last(changes)).toEqual(italic);
+    expect(beforeInput("historyUndo")).toBe(false);
+    expect(last(changes)).toEqual(split);
+  });
+
+  test("a change after an undo is where redo ends", () => {
+    const { changes } = begin();
+    caret(heading(), 3);
+    type("!");
+    undo();
+    type("?");
+    const count = changes.length;
+    press("y", { ctrlKey: true });
+    expect(changes.length).toBe(count);
+    expect(last(changes)).toEqual([
+      { tag: "h2", children: ["Who? we are"] },
+      body[1],
+      body[2],
+    ]);
+  });
+
+  test("what was deleted comes back as it was: the image and the page's classes", () => {
+    const { changes } = begin();
+    const copy = editor()!;
+    const range = document.createRange();
+    range.selectNodeContents(copy);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    beforeInput("deleteContentBackward");
+    expect(last(changes)).toEqual([{ tag: "p", children: [] }]);
+    undo();
+    expect(last(changes)).toEqual(body);
+    expect(copy.querySelector("img")?.getAttribute("src")).toBe("/team.png");
+    expect(copy.querySelector("span")!.className).toBe("font-bold");
+    expect(copy.querySelector("h2")!.className).toBe("t");
+  });
+
+  test("a string keeps the browser's own undo", () => {
+    const root = page(`<h1>Our people</h1>`);
+    start(root.querySelector("h1")!, title);
+    expect(undo()).toBe(true);
+  });
+});
+
+describe("a mark for what is typed next, from a control pressed with only a caret", () => {
+  const body: InlineRichTextNode[] = [
+    {
+      tag: "p",
+      children: [
+        "We are ",
+        { tag: "span", styles: ["bold"], children: ["forty"] },
+        " people.",
+      ],
+    },
+  ];
+  const rendered = `<div><p class="p">We are <span class="font-bold">forty</span> people.</p></div>`;
+  const begin = () => {
+    const root = page(rendered);
+    return start(root.firstElementChild!, {
+      path: "body",
+      kind: "richtext",
+      value: body,
+    });
+  };
+  const last = (changes: InlineEditValue[]) => changes[changes.length - 1];
+  const paragraph = () => editor()!.querySelector("p")!;
+
+  test("is typed with it, classed as the page classes that mark, and typing goes on inside it", () => {
+    const { editing, changes } = begin();
+    // "We|are"
+    caret(paragraph().firstChild!, 2);
+    editing?.mark(["bold"], null);
+    expect(beforeInput("insertText", "x")).toBe(false);
+    expect(last(changes)).toEqual([
+      {
+        tag: "p",
+        children: [
+          "We",
+          { tag: "span", styles: ["bold"], children: ["x"] },
+          " are ",
+          { tag: "span", styles: ["bold"], children: ["forty"] },
+          " people.",
+        ],
+      },
+    ]);
+    const made = paragraph().querySelectorAll("span")[0];
+    expect(made.className).toBe("font-bold");
+    // The caret is in it: the next letter is the browser's own to type.
+    const at = document.getSelection()!.getRangeAt(0);
+    expect(made.contains(at.startContainer)).toBe(true);
+    expect(beforeInput("insertText", "y")).toBe(true);
+  });
+
+  test("none, inside a mark, types out of it", () => {
+    const { editing, changes } = begin();
+    // "for|ty"
+    caret(paragraph().querySelector("span")!.firstChild!, 3);
+    editing?.mark([], null);
+    expect(beforeInput("insertText", "x")).toBe(false);
+    expect(last(changes)).toEqual([
+      {
+        tag: "p",
+        children: [
+          "We are ",
+          { tag: "span", styles: ["bold"], children: ["for"] },
+          "x",
+          { tag: "span", styles: ["bold"], children: ["ty"] },
+          " people.",
+        ],
+      },
+    ]);
+  });
+
+  test("a mark the page has no word of yet is shown as what it is", () => {
+    const { editing } = begin();
+    caret(paragraph().firstChild!, 2);
+    editing?.mark(["italic"], null);
+    beforeInput("insertText", "x");
+    expect(paragraph().querySelector("span")!.style.fontStyle).toBe("italic");
+  });
+
+  test("is forgotten once the caret moves, and is nothing to do where the text already has it", () => {
+    const { editing } = begin();
+    caret(paragraph().firstChild!, 2);
+    editing?.mark(["italic"], null);
+    caret(paragraph().firstChild!, 4);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(beforeInput("insertText", "x")).toBe(true);
+
+    caret(paragraph().querySelector("span")!.firstChild!, 2);
+    editing?.mark(["bold"], null);
+    expect(beforeInput("insertText", "x")).toBe(true);
+  });
+
+  test("is not taken by a caret that has moved since it was asked for", () => {
+    const { editing } = begin();
+    caret(paragraph().firstChild!, 4);
+    // Asked for at "We|", arriving once the caret is at "We a|".
+    editing?.mark(["bold"], {
+      anchor: { block: 0, offset: 2 },
+      head: { block: 0, offset: 2 },
+    });
+    expect(beforeInput("insertText", "x")).toBe(true);
+    editing?.mark(["bold"], {
+      anchor: { block: 0, offset: 4 },
+      head: { block: 0, offset: 4 },
+    });
+    expect(beforeInput("insertText", "x")).toBe(false);
+  });
+
+  test("is undone with what was typed", () => {
+    const { editing, changes } = begin();
+    caret(paragraph().firstChild!, 2);
+    editing?.mark(["bold"], null);
+    beforeInput("insertText", "x");
+    editor()!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(last(changes)).toEqual(body);
+  });
+});

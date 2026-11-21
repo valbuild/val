@@ -23,6 +23,7 @@ import { cn } from "../../designSystem/cn";
 import {
   buildSchema,
   DEFAULT_FEATURES,
+  marksToStyles,
   parseEditorDocument,
   serializeEditorDocument,
   useRichTextEditorConfig,
@@ -100,6 +101,7 @@ export function CanvasInlineRichTextToolbar({
   value,
   selection,
   onApply,
+  onMarks,
   onRefocus,
 }: {
   path: SourcePath;
@@ -111,6 +113,13 @@ export function CanvasInlineRichTextToolbar({
     value: InlineRichTextNode[],
     selection: InlineSelection | null,
   ) => void;
+  /**
+   * A control pressed with only a caret: the marks the next text typed
+   * there has (as a span's `styles`), or `null` for whatever is around it.
+   * The editor keeps them as its stored marks, and the page is where the
+   * next text is typed, so it has to be told.
+   */
+  onMarks: (styles: string[] | null, selection: InlineSelection | null) => void;
   /** Put the focus back in the text on the page. */
   onRefocus: () => void;
 }) {
@@ -179,8 +188,14 @@ export function CanvasInlineRichTextToolbar({
     setTimeout(back, 0);
     setTimeout(back, 60);
   }, [onRefocus]);
-  const latest = useRef({ value, selection, onApply, onRefocus: refocus });
-  latest.current = { value, selection, onApply, onRefocus: refocus };
+  const latest = useRef({
+    value,
+    selection,
+    onApply,
+    onMarks,
+    onRefocus: refocus,
+  });
+  latest.current = { value, selection, onApply, onMarks, onRefocus: refocus };
 
   const mountRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<DetachedEditorView | null>(null);
@@ -201,6 +216,15 @@ export function CanvasInlineRichTextToolbar({
             if (isInlineRichText(document)) {
               latest.current.onApply(document, fromEditorSelection(next));
             }
+          } else if (transaction.storedMarksSet) {
+            // Bold with only a caret: nothing changed but what the next
+            // text typed will be.
+            latest.current.onMarks(
+              next.storedMarks === null
+                ? null
+                : marksToStyles(next.storedMarks),
+              fromEditorSelection(next),
+            );
           }
           redraw();
         },
@@ -220,11 +244,23 @@ export function CanvasInlineRichTextToolbar({
     if (!isPageEditableDocument(value)) return;
     const doc = parseEditorDocument(value, schema);
     const selected = toEditorSelection(doc, selection);
+    /*
+     * The marks a press with only a caret stored stay while the page says
+     * the same again -- it does, whenever the text moves on the screen --
+     * and go when the caret or the document does, as the page forgets them
+     * then too.
+     */
+    const before = view.state;
+    const same =
+      before.doc.eq(doc) && selected !== null && before.selection.eq(selected);
     view.updateState(
       EditorState.create({
         schema,
         doc,
         ...(selected !== null ? { selection: selected } : {}),
+        ...(same && before.storedMarks !== null
+          ? { storedMarks: before.storedMarks }
+          : {}),
       }),
     );
     redraw();

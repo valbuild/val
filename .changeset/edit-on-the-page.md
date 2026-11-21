@@ -13,7 +13,7 @@
 In Select & edit:
 
 - **Strings** — a headline, a label, a link's words. Enter ends the edit (in a `.multiline()` string it is a new line), Esc ends it too.
-- **Richtext** rendered with `ValRichText` — type and delete anywhere, Enter splits a paragraph, heading or list item, Backspace and Delete join them. Formatting controls float beside the text: bold, italic, strikethrough, links, headings and lists, whichever the field's schema allows. They are the same controls the field has in the column.
+- **Richtext** rendered with `ValRichText` — type and delete anywhere, Enter splits a paragraph, heading or list item, Backspace and Delete join them. Formatting controls float beside the text: bold, italic, strikethrough, links, headings and lists, whichever the field's schema allows. They are the same controls the field has in the column, and pressed with only a caret they apply to what you type next. Undo and redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y) go back over typing, Enter, Backspace and the controls alike.
 
 The caret goes in as you click, so you can start typing straight away. A text you have emptied stays on the page as a line you can click while Select is on, in either mode, so you can pick it or type in it again; with Select off the page is laid out as before.
 
