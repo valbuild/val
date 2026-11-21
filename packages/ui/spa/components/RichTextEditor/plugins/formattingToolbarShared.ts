@@ -361,6 +361,28 @@ function computePickerAnchor(
   };
 }
 
+/**
+ * Put a link on a range, or with `href` null take the link off it: what
+ * both link pickers end in.
+ *
+ * Its own function because there are two toolbars now -- the editor's own,
+ * and the one the Studio floats over a richtext being typed in on the page
+ * (`CanvasInlineRichTextToolbar`) -- and a link must mean the same
+ * transaction from either.
+ */
+export function setLinkOnRange(
+  view: EditorView,
+  markType: MarkType,
+  range: { from: number; to: number },
+  href: string | null,
+): void {
+  let tr = view.state.tr.removeMark(range.from, range.to, markType);
+  if (href) {
+    tr = tr.addMark(range.from, range.to, markType.create({ href }));
+  }
+  view.dispatch(tr);
+}
+
 export function createLinkHelper(options: LinkHelperOptions): LinkHelper {
   function closePicker() {
     options.onPickerStateChange(null);

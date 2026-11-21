@@ -34,6 +34,7 @@ import { readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { createFilePatch } from "./createFilePatch";
+import { richTextFieldPatch } from "./richTextFieldPatch";
 import { FIELD_WRITE_MAX_WAIT_MS } from "./useDebouncedFieldWrite";
 import { useRoutesOf } from "../useRoutesOf";
 import { useRichTextExternalPages } from "./useRichTextExternalPages";
@@ -326,7 +327,7 @@ export function RichTextField({
         const doc = editorRef.current?.getDocument();
         if (!doc) return null;
 
-        const replacePatch = createRichTextPatch(patchPath, doc);
+        const replacePatch = richTextFieldPatch(patchPath, doc);
         sourceRef.current = doc;
 
         const fileOpsWithNestedPath = fileOps.map((op) => ({
@@ -454,7 +455,7 @@ export function RichTextField({
     const doc = pendingDocRef.current ?? editorRef.current?.getDocument();
     if (!doc) return;
     pendingDocRef.current = null;
-    const patch = createRichTextPatch(patchPath, doc);
+    const patch = richTextFieldPatch(patchPath, doc);
     sourceRef.current = doc;
     addPatch(patch, "richtext");
     // Cleared only once the patch exists: from here `clientSideOnly` is what
@@ -558,16 +559,6 @@ export function RichTextField({
       />
     </div>
   );
-}
-
-function createRichTextPatch(path: string[], content: EditorDocument): Patch {
-  return [
-    {
-      op: "replace" as const,
-      path,
-      value: content as unknown as Parameters<typeof JSON.stringify>[0],
-    },
-  ];
 }
 
 export function RichTextPreview({ path }: { path: SourcePath }) {

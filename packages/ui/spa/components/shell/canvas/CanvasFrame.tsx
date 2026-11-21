@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bridgeAnswers,
   bridgeInfoOf,
   capabilitiesOf,
   DEFAULT_CANVAS_SELECTION,
@@ -9,6 +10,11 @@ import {
   interactOutcomeOf,
   isValCanvasPageMessage,
   type CanvasRequest,
+  type InlineEditCandidate,
+  type InlineEditValue,
+  type InlineRect,
+  type InlineRichTextNode,
+  type InlineSelection,
   type PageAction,
   type PageInteraction,
   type PageInteractOutcome,
@@ -55,6 +61,16 @@ import {
 } from "../../../stores/react/sourceRelay";
 import type { ModuleVersion } from "@valbuild/shared/internal";
 import { unansweredRequestError, type FrameBridge } from "./canvasCapabilities";
+import {
+  INLINE_TOOLBAR_ATTRIBUTE,
+  PREVIEW_VIEW_CONTROL_ATTRIBUTE,
+  type InlineEditLocation,
+  type ViewportBox,
+} from "./placeInlineToolbar";
+import {
+  type CanvasTextFields,
+  NO_CANVAS_TEXT_FIELDS,
+} from "./canvasTextFields";
 
 /**
  * How the frame is currently doing.
@@ -166,6 +182,74 @@ export type CanvasFrameProps = {
   /** Esc on the page while `isPicking`. */
   onPickingStopped?: () => void;
   /**
+   * Editing on the page (Select & edit: `useCanvasInlineEdit`). A new request
+   * asks the page to put the caret in one of these fields where it shows
+   * it; `null` ends an edit that is going on. The page answers each
+   * request once, with `onInlineEditStarted` or `onInlineEditUnavailable`
+   * -- at once, without asking, when its bridge predates editing in place.
+   */
+  inlineEdit?: {
+    requestId: string;
+    candidates: InlineEditCandidate[];
+  } | null;
+  /**
+   * The caret is in the field at `path`, on the page: in answer to
+   * `requestId`, or -- `null` -- started by the page on a click, from
+   * `textFields`. False: the Studio will not have it, and the page is told
+   * to stop.
+   */
+  onInlineEditStarted?: (requestId: string | null, path: SourcePath) => boolean;
+  /**
+   * What the page is told of its texts ahead of a click, while Select is on:
+   * what lets it start an edit in the click itself, and keep an emptied
+   * text pointable. See `canvasTextFields.ts`.
+   */
+  textFields?: CanvasTextFields;
+  /** Something was typed there: the field's new value, whole. */
+  onInlineEdit?: (path: SourcePath, value: InlineEditValue) => void;
+  /**
+   * The edit ended: on the page (Enter, Esc, the focus going elsewhere), or
+   * with the document it was in, when the frame loads another.
+   */
+  onInlineEditEnded?: (path: SourcePath) => void;
+  /** The page can edit none of what was offered. */
+  onInlineEditUnavailable?: (requestId: string) => void;
+  /**
+   * What is selected in a richtext being edited on the page: what the
+   * Studio's formatting controls act on.
+   */
+  onInlineEditSelection?: (
+    path: SourcePath,
+    selection: InlineSelection | null,
+  ) => void;
+  /**
+   * What one of those controls made of the document: sent to the page when
+   * `id` changes, to be shown in the text being typed in.
+   */
+  inlineEditApply?: {
+    id: number;
+    path: SourcePath;
+    value: InlineRichTextNode[];
+    selection: InlineSelection | null;
+  } | null;
+  /**
+   * A control pressed with only a caret: the marks the next text typed on
+   * the page has. Sent to the page when `id` changes.
+   */
+  inlineEditMarks?: {
+    id: number;
+    path: SourcePath;
+    styles: string[] | null;
+    selection: InlineSelection | null;
+  } | null;
+  /**
+   * Handed the way to find the text being edited in the Studio's own
+   * viewport, and to put the focus back in it -- and `null` when the frame
+   * goes. The frame is the one that knows: it is scaled and moved, and the
+   * page only knows where things are inside itself.
+   */
+  onInlineEditPlace?: (place: InlineEditPlace | null) => void;
+  /**
    * A two-finger gesture on the page.
    *
    * Relayed rather than observed: a frame keeps its own touches, so nothing the
@@ -243,6 +327,14 @@ export type CanvasFrameProps = {
    * (Review's comparison sets it for both sides).
    */
   onDeviceChange?: (device: CanvasDevice) => void;
+};
+
+/** Where the text being edited on the page is, and how to get back to it. */
+export type InlineEditPlace = {
+  /** `null` while the page has not said, or nothing is being edited. */
+  locate: () => InlineEditLocation | null;
+  /** Put the focus back in the page, where the caret is. */
+  focus: () => void;
 };
 
 /**
@@ -354,6 +446,16 @@ export function CanvasFrame({
   onPickElement,
   onElementPickingStopped,
   onPickingStopped,
+  inlineEdit = null,
+  onInlineEditStarted,
+  onInlineEdit,
+  onInlineEditEnded,
+  onInlineEditUnavailable,
+  onInlineEditSelection,
+  inlineEditApply = null,
+  inlineEditMarks = null,
+  onInlineEditPlace,
+  textFields,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -410,6 +512,17 @@ export function CanvasFrame({
    * deciding what to send, and written from a message handler.
    */
   const pickedHere = useRef<SourcePath | null>(null);
+  /**
+   * The field being edited on the page, from the page saying it started
+   * until it says it ended. A ref: it is read to decide what to send and to
+   * say an edit ended with its document, never rendered.
+   */
+  const inlineEditing = useRef<SourcePath | null>(null);
+  /** Where the page last said that text and its caret are, inside itself. */
+  const inlineRects = useRef<{
+    rect: InlineRect;
+    caret: InlineRect | null;
+  } | null>(null);
 
   /*
    * The document the frame holds, which follows the one asked for
@@ -569,6 +682,14 @@ export function CanvasFrame({
           ...(info !== undefined ? { bridge: info } : {}),
         };
         bridgeHolds.current = message.holds ?? NO_HOLDS;
+        // A new document: an edit that was going on in the last one went
+        // with it, and that page is not there to say so.
+        const cutShort = inlineEditing.current;
+        if (cutShort !== null) {
+          inlineEditing.current = null;
+          inlineRects.current = null;
+          onInlineEditEnded?.(cutShort);
+        }
         setState({
           status: "ready",
           draftMode: message.draftMode,
@@ -635,6 +756,29 @@ export function CanvasFrame({
         reading(message);
       } else if (message.type === "codeChanged") {
         onCodeChanged?.(message.modules);
+      } else if (message.type === "inlineEditStarted") {
+        inlineEditing.current = message.path;
+        if (onInlineEditStarted?.(message.requestId, message.path) === false) {
+          inlineEditing.current = null;
+          send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+        }
+      } else if (message.type === "inlineEdit") {
+        onInlineEdit?.(message.path, message.value);
+      } else if (message.type === "inlineEditEnded") {
+        if (inlineEditing.current === message.path) {
+          inlineEditing.current = null;
+          inlineRects.current = null;
+        }
+        onInlineEditEnded?.(message.path);
+      } else if (message.type === "inlineEditSelection") {
+        if (inlineEditing.current !== message.path) return;
+        inlineRects.current = {
+          rect: message.rect,
+          caret: message.caret ?? null,
+        };
+        onInlineEditSelection?.(message.path, message.selection);
+      } else if (message.type === "inlineEditUnavailable") {
+        onInlineEditUnavailable?.(message.requestId);
       } else if (message.type === "pageLogRead") {
         const reading = logReadings.current.get(message.requestId);
         if (reading === undefined) return;
@@ -666,12 +810,18 @@ export function CanvasFrame({
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
   }, [
+    send,
     valSystem,
     onElements,
     onPick,
     onPickElement,
     onElementPickingStopped,
     onPickingStopped,
+    onInlineEditStarted,
+    onInlineEdit,
+    onInlineEditEnded,
+    onInlineEditUnavailable,
+    onInlineEditSelection,
     onPinch,
     onZoom,
     onRefreshingChange,
@@ -1178,6 +1328,216 @@ export function CanvasFrame({
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
 
+  /*
+   * Editing on the page. Each request is asked once, by its id -- the
+   * candidates are a new array every time and say nothing about whether the
+   * request is new.
+   */
+  const inlineRequestId = inlineEdit?.requestId ?? null;
+  const inlineCandidates = useRef(inlineEdit?.candidates ?? []);
+  inlineCandidates.current = inlineEdit?.candidates ?? [];
+  const unavailable = useRef(onInlineEditUnavailable);
+  unavailable.current = onInlineEditUnavailable;
+  useEffect(() => {
+    if (inlineRequestId === null) {
+      // Withdrawn while the caret is still on the page: the page is told.
+      // An edit the page ended itself needs nothing said.
+      if (inlineEditing.current !== null) {
+        send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+      }
+      return;
+    }
+    // A page whose bridge predates editing in place never answers: said for
+    // it, so the pick opens the field in the column as it always did.
+    if (!bridgeAnswers(bridge.current?.capabilities, "editInline")) {
+      unavailable.current?.(inlineRequestId);
+      return;
+    }
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "editInline",
+      requestId: inlineRequestId,
+      candidates: inlineCandidates.current,
+    });
+  }, [send, inlineRequestId]);
+  /*
+   * The page's texts, said ahead of a click: whenever what would be said
+   * changes, and again to every new document. Only while Select is on --
+   * the page uses it for nothing else, and a value per edit is a message
+   * per edit -- and compared by value, as every render builds it afresh.
+   */
+  const sentTextFields =
+    textFields === undefined
+      ? undefined
+      : isPicking
+        ? textFields
+        : NO_CANVAS_TEXT_FIELDS;
+  const textFieldsKey = useMemo(
+    () =>
+      sentTextFields === undefined ? null : JSON.stringify(sentTextFields),
+    [sentTextFields],
+  );
+  const textFieldsToSend = useRef(sentTextFields);
+  textFieldsToSend.current = sentTextFields;
+  useEffect(() => {
+    const fields = textFieldsToSend.current;
+    if (fields === undefined || documentEpoch === 0) return;
+    send({ val: VAL_CANVAS_MESSAGE, type: "textFields", ...fields });
+  }, [send, textFieldsKey, documentEpoch]);
+
+  // Leaving Select leaves all of it, the caret on the page included.
+  useEffect(() => {
+    if (!isPicking && inlineEditing.current !== null) {
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    }
+  }, [send, isPicking]);
+
+  // What one of the Studio's formatting controls made of the text.
+  const applyId = inlineEditApply?.id ?? null;
+  const applying = useRef(inlineEditApply);
+  applying.current = inlineEditApply;
+  useEffect(() => {
+    const apply = applying.current;
+    if (applyId === null || apply === null) return;
+    if (inlineEditing.current !== apply.path) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "applyInlineEdit",
+      path: apply.path,
+      value: apply.value,
+      selection: apply.selection,
+    });
+  }, [send, applyId]);
+  // ...and what a control pressed with only a caret means for the next text.
+  const marksId = inlineEditMarks?.id ?? null;
+  const marking = useRef(inlineEditMarks);
+  marking.current = inlineEditMarks;
+  useEffect(() => {
+    const marks = marking.current;
+    if (marksId === null || marks === null) return;
+    if (inlineEditing.current !== marks.path) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "markInlineEdit",
+      path: marks.path,
+      styles: marks.styles,
+      selection: marks.selection,
+    });
+  }, [send, marksId]);
+
+  const locateInlineEdit = useCallback((): InlineEditLocation | null => {
+    const frame = frameRef.current;
+    const at = inlineRects.current;
+    if (frame === null || at === null || inlineEditing.current === null) {
+      return null;
+    }
+    const box = frame.getBoundingClientRect();
+    // The frame is laid out at the page's own size and then scaled: what
+    // the page measured in its pixels is that many of these.
+    const scale = frame.offsetWidth > 0 ? box.width / frame.offsetWidth : 1;
+    const inStudio = (rect: InlineRect): ViewportBox => ({
+      top: box.top + rect.top * scale,
+      left: box.left + rect.left * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    });
+    return {
+      field: inStudio(at.rect),
+      caret: at.caret === null ? null : inStudio(at.caret),
+      clip: visibleBox(frame),
+    };
+  }, []);
+  const focusFrame = useCallback(() => {
+    // The frame, and then the text in it: a document that lost the focus
+    // to the one around it has forgotten which of its elements had it.
+    frameRef.current?.contentWindow?.focus();
+    send({ val: VAL_CANVAS_MESSAGE, type: "focusInlineEdit" });
+  }, [send]);
+
+  /*
+   * A press anywhere in the Studio ends the edit, but for two kinds of
+   * thing.
+   *
+   * The page no longer ends it when the focus leaves for the Studio -- it
+   * cannot tell the controls from the rest (`onFocusOut` in
+   * `inlineEditing.ts`) -- so the Studio says. On `window`, capturing, and
+   * by the composed path: the Studio is in a shadow root, and from outside
+   * it every press looks like a press on its host.
+   *
+   * What does not end it:
+   *
+   * - **The floating controls** (`INLINE_TOOLBAR_ATTRIBUTE`): they act on
+   *   the text being typed in.
+   * - **The preview's view controls** (`PREVIEW_VIEW_CONTROL_ATTRIBUTE`):
+   *   zoom in and out, fit, the device widths, and the window the page is
+   *   scrolled and pinched in. They change how the page is LOOKED at and
+   *   leave the document as it is, and someone zooming in to see what they
+   *   are typing is still typing it. The floating controls follow the text
+   *   (they ask where it is every frame), and once the press is over the
+   *   caret is put back in the text: the button took the focus.
+   *
+   * Everything else ends it, deliberately: the reload button and the
+   * address bar replace the document the caret is in, Exit Preview and
+   * turning Select off leave the mode, and a press in the column is the
+   * person turning to the column. Ending writes what was typed at once
+   * (`useCanvasInlineEdit`'s `onEnded`), so none of them loses a letter.
+   */
+  const viewControlRelease = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const forgetRelease = () => {
+      viewControlRelease.current?.();
+      viewControlRelease.current = null;
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      forgetRelease();
+      const editing = inlineEditing.current;
+      if (editing === null) return;
+      const path = event.composedPath();
+      const on = (attribute: string) =>
+        path.some(
+          (target) =>
+            target instanceof Element && target.hasAttribute(attribute),
+        );
+      if (on(INLINE_TOOLBAR_ATTRIBUTE)) return;
+      if (on(PREVIEW_VIEW_CONTROL_ATTRIBUTE)) {
+        /*
+         * Back to the text once the press is done, and after what it did
+         * (a click comes after the release). Only if it is still the same
+         * edit, and forgotten at the next press: a scrollbar being dragged
+         * may never say it was released.
+         */
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const onRelease = () => {
+          window.removeEventListener("pointerup", onRelease, true);
+          window.removeEventListener("pointercancel", onRelease, true);
+          timer = setTimeout(() => {
+            timer = null;
+            if (inlineEditing.current === editing) focusFrame();
+          }, 0);
+        };
+        window.addEventListener("pointerup", onRelease, true);
+        window.addEventListener("pointercancel", onRelease, true);
+        viewControlRelease.current = () => {
+          window.removeEventListener("pointerup", onRelease, true);
+          window.removeEventListener("pointercancel", onRelease, true);
+          if (timer !== null) clearTimeout(timer);
+        };
+        return;
+      }
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      forgetRelease();
+    };
+  }, [send, focusFrame]);
+  useEffect(() => {
+    if (onInlineEditPlace === undefined) return;
+    onInlineEditPlace({ locate: locateInlineEdit, focus: focusFrame });
+    return () => onInlineEditPlace(null);
+  }, [onInlineEditPlace, locateInlineEdit, focusFrame]);
+
   // Whole, every time, and again for every new document: a reload starts the
   // page's picker afresh.
   const pickActive = elementPicking?.active === true;
@@ -1449,4 +1809,41 @@ export function CanvasFrame({
 function enableUrlOf(frameSrc: string): string {
   const redirectTo = new URL(frameSrc, window.origin).toString();
   return `/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
+}
+
+/**
+ * The part of an element that is on screen: its box, cut down by every
+ * ancestor that clips what overflows it, and by the window.
+ *
+ * The frame is scaled and panned inside the preview's pane, so its own box
+ * can reach under the Studio's column or past the pane's edge. Controls
+ * placed by that box would be drawn over the column, or cut off.
+ */
+function visibleBox(element: Element): ViewportBox {
+  const box = element.getBoundingClientRect();
+  let top = Math.max(box.top, 0);
+  let left = Math.max(box.left, 0);
+  let bottom = Math.min(box.bottom, window.innerHeight);
+  let right = Math.min(box.right, window.innerWidth);
+  for (
+    let ancestor = element.parentElement;
+    ancestor !== null;
+    ancestor = ancestor.parentElement
+  ) {
+    const style = getComputedStyle(ancestor);
+    if (style.overflowX === "visible" && style.overflowY === "visible") {
+      continue;
+    }
+    const clip = ancestor.getBoundingClientRect();
+    top = Math.max(top, clip.top);
+    left = Math.max(left, clip.left);
+    bottom = Math.min(bottom, clip.bottom);
+    right = Math.min(right, clip.right);
+  }
+  return {
+    top,
+    left,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
 }

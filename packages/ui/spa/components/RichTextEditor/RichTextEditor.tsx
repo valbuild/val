@@ -41,6 +41,7 @@ import {
 import {
   createLinkHelper,
   hasFixedToolbarContent,
+  setLinkOnRange,
 } from "./plugins/formattingToolbarShared";
 import type {
   EditorDocument,
@@ -901,15 +902,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     const ps = pickerStateRef.current;
     if (!view || !mt || !ps) return;
 
-    const { state, dispatch } = view;
-    let tr = state.tr;
-    if (href) {
-      tr = tr.removeMark(ps.savedFrom, ps.savedTo, mt);
-      tr = tr.addMark(ps.savedFrom, ps.savedTo, mt.create({ href }));
-    } else {
-      tr = tr.removeMark(ps.savedFrom, ps.savedTo, mt);
-    }
-    dispatch(tr);
+    setLinkOnRange(view, mt, { from: ps.savedFrom, to: ps.savedTo }, href);
 
     setPickerState(null);
     view.focus();

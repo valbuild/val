@@ -23,12 +23,14 @@ import {
   SLIDE_MS,
 } from "../workspace/phoneTrack";
 import { usePickingDefault } from "./usePickingDefault";
+import { useFieldShownInColumn } from "./useFieldShownInColumn";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
+import type { CanvasSelectMode } from "../../../hooks/selectModePreference";
 import type { ContentPlacement } from "../workspace/placePanes";
 import { PaneStrip } from "../workspace/WorkspaceChrome";
 import { ColumnDivider } from "../workspace/ColumnDivider";
@@ -100,6 +102,21 @@ export type PageWorkspaceProps = {
   onSelectCanvasPath?: (path: SourcePath) => void;
   /** The path the editor is on, highlighted in the fields column to match. */
   selectedCanvasPath?: SourcePath | null;
+  /**
+   * The field being typed in ON the page, while it is (Select & edit: see
+   * `useCanvasInlineEdit`). The editor does not move for it, so the column
+   * is told here: it turns to "On this page", scrolls to the field and
+   * shows it as the selected one. See `useFieldShownInColumn`.
+   */
+  editingCanvasPath?: SourcePath | null;
+  /**
+   * What Content's Select does with a pick (`CanvasSelectMode`), and how to
+   * change it. With `onSelectModeChange`, Select has a menu for it; without
+   * -- Storybook's demo page, which has no page to type on -- it is the one
+   * Select it always was.
+   */
+  selectMode?: CanvasSelectMode;
+  onSelectModeChange?: (mode: CanvasSelectMode) => void;
   /**
    * The route the canvas is showing, and how to change it.
    *
@@ -272,6 +289,9 @@ export function PageWorkspace({
   canvasPaths,
   onSelectCanvasPath,
   selectedCanvasPath,
+  editingCanvasPath = null,
+  selectMode,
+  onSelectModeChange,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -361,6 +381,32 @@ export function PageWorkspace({
    */
   const [pickToReveal, setPickToReveal] = useState<SourcePath | null>(null);
   const clearPickToReveal = useCallback(() => setPickToReveal(null), []);
+
+  /**
+   * A text being typed in on the page is shown in the column too.
+   *
+   * What a pick does, less the part that would take the caret away. The
+   * column turns to the page's fields and stops hiding the one being edited
+   * behind its filter, exactly as `onPicked` does further down; the column
+   * then scrolls to the field because it is told which one is selected
+   * (`fieldShownInColumn`). What it does NOT do is change pane on a phone:
+   * the person is typing on the page, and the column is the other pane.
+   *
+   * Only when an edit starts. The filter is read through a ref so that
+   * turning it on mid-edit is not answered by turning it straight off.
+   */
+  const fieldShownInColumn = useFieldShownInColumn(
+    selectedCanvasPath ?? null,
+    editingCanvasPath,
+  );
+  const whenEditingStarts = useRef({ onViewChange, changedFieldsOnly });
+  whenEditingStarts.current = { onViewChange, changedFieldsOnly };
+  useEffect(() => {
+    if (editingCanvasPath === null) return;
+    const { onViewChange, changedFieldsOnly } = whenEditingStarts.current;
+    onViewChange("fields");
+    if (changedFieldsOnly) setPickToReveal(editingCanvasPath);
+  }, [editingCanvasPath]);
 
   /**
    * Leaving the canvas leaves nothing behind.
@@ -521,6 +567,8 @@ export function PageWorkspace({
       // the focus is one the preview will not turn preview mode on in.
       pressed={isPicking && fieldCount > 0}
       onPressedChange={setIsPicking}
+      mode={selectMode}
+      onModeChange={onSelectModeChange}
       unavailable={
         fieldCount > 0
           ? undefined
@@ -529,7 +577,10 @@ export function PageWorkspace({
       label={!compact}
       className={
         compact && isPhone
-          ? "h-[2.125rem] w-[2.125rem] justify-center px-0"
+          ? // With the menu beside it the button is wider than it is tall.
+            onSelectModeChange !== undefined
+            ? "h-[2.125rem]"
+            : "h-[2.125rem] w-[2.125rem] justify-center px-0"
           : undefined
       }
     />
@@ -790,7 +841,7 @@ export function PageWorkspace({
           onChangedOnlyChange={setChangedFieldsOnly}
           pickToReveal={pickToReveal}
           onPickRevealed={clearPickToReveal}
-          selectedPath={selectedCanvasPath}
+          selectedPath={fieldShownInColumn}
           onSelect={onSelectCanvasPath}
         />
       ) : (
