@@ -26,6 +26,12 @@ export type ToolNotice = {
    */
   inputs: string | null;
   value: unknown;
+  /**
+   * Whether it asks for a fix: errors do, a passing page check does not.
+   * Only these start a turn of their own when the assistant is idle
+   * (`checksFollowUp.ts`).
+   */
+  failing: boolean;
   /** Called once it is handed over: it is not handed over again. */
   markTold: () => void;
 };
@@ -48,6 +54,7 @@ export const typecheckNoticeSource: ToolNoticeSource = (name) => {
       errors: untold.errors.slice(0, MAX_NOTICE_ITEMS),
       next: "The background typecheck found these in what is staged. Fix them before you build.",
     },
+    failing: true,
     markTold: () => markTypeErrorsTold(untold.inputs),
   };
 };
@@ -69,6 +76,7 @@ export const lintNoticeSource: ToolNoticeSource = (name) => {
         ? "Val's lint rules found these in what is staged. Fix them: the fixable ones with lint and fix: true, the rest in the files."
         : "Val's lint rules found these in what is staged. Fix them in the files.",
     },
+    failing: true,
     markTold: () => markLintTold(untold.inputs),
   };
 };
@@ -85,6 +93,11 @@ export const stagedCodeNoticeSource: ToolNoticeSource = (name) => {
     key: "valModules",
     inputs: null,
     value: stagedCodeNotice(staged),
+    // A schema that moved is news; code that does not run, or content that
+    // no longer fits its schema, is a problem.
+    failing:
+      staged.status === "does-not-evaluate" ||
+      (staged.status === "swapped" && staged.invalid.length > 0),
     markTold: () => markStagedCodeTold(staged),
   };
 };
@@ -115,24 +128,53 @@ export async function takeToolNotices(
     waitMs?: number;
   } = {},
 ): Promise<Record<string, unknown>> {
-  const sources = options.sources ?? TOOL_NOTICE_SOURCES;
-  const untold = sources
-    .map((source) => source(name))
-    .filter((notice): notice is ToolNotice => notice !== null);
-  if (untold.length === 0) return {};
+  return toldNow(await currentToolNotices(name, stagedInputs, options));
+}
+
+/**
+ * What the assistant has not been told about proposal `name` and is about
+ * what is staged now, without marking any of it told: to decide what to do
+ * with it first (`checksFollowUp.ts`). {@link toldNow} hands it over.
+ */
+export async function currentToolNotices(
+  name: string,
+  stagedInputs: () => Promise<string | null>,
+  options: {
+    sources?: ToolNoticeSource[];
+    waitMs?: number;
+  } = {},
+): Promise<ToolNotice[]> {
+  const untold = untoldToolNotices(name, options.sources);
+  if (untold.length === 0) return [];
   const now = untold.some((notice) => notice.inputs !== null)
     ? await within(
         stagedInputs().catch(() => null),
         options.waitMs ?? STAGED_INPUTS_WAIT_MS,
       )
     : null;
-  const notices: Record<string, unknown> = {};
-  for (const notice of untold) {
-    if (notice.inputs !== null && notice.inputs !== now) continue;
+  return untold.filter(
+    (notice) => notice.inputs === null || notice.inputs === now,
+  );
+}
+
+/** Every background check's untold finding about proposal `name`. */
+export function untoldToolNotices(
+  name: string,
+  sources: ToolNoticeSource[] = TOOL_NOTICE_SOURCES,
+): ToolNotice[] {
+  return sources
+    .map((source) => source(name))
+    .filter((notice): notice is ToolNotice => notice !== null);
+}
+
+/** Mark these told, and answer them as they are handed over. */
+export function toldNow(notices: ToolNotice[]): Record<string, unknown> {
+  const told: Record<string, unknown> = {};
+  for (const notice of notices) {
     notice.markTold();
-    notices[notice.key] = notice.value;
+    told[notice.key] = notice.value;
   }
-  return notices;
+  return told;
 }
 
 /** `work`'s answer, or `null` once `ms` have passed without one. */

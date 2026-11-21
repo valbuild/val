@@ -82,6 +82,10 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+/** Called on every change to it: what reacts to it outside React. */
+export function subscribePageCheck(listener: () => void): () => void {
+  return subscribe(listener);
+}
 const snapshot = () => current;
 
 /** The last report, and whether the assistant has heard it. */
@@ -160,6 +164,7 @@ export const pageCheckNoticeSource: ToolNoticeSource = (name) => {
     key: "page_check",
     inputs: last.inputs,
     value: pageCheckNotice(last.report),
+    failing: last.report.status === "fail",
     markTold: () => {
       last.told = true;
     },
@@ -174,6 +179,7 @@ export const pageCheckMessagesSource: ToolNoticeSource = (name) => {
     key: "page_check_messages",
     inputs: null,
     value: mine.map((note) => note.text),
+    failing: false,
     markTold: () => {
       toMain = toMain.filter((note) => note.name !== name);
     },

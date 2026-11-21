@@ -15,6 +15,7 @@ import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { AiSetup } from "./shell/AiSetup";
 import { ShareChatLink } from "./proposals/ShareChatLink";
 import { useAssistantPage } from "./shell/canvas/AssistantPage";
+import { ChecksBar, FIX_IT_MESSAGE } from "./ChecksBar";
 
 /**
  * The assistant, wired.
@@ -98,6 +99,7 @@ function ConnectedChat({ className }: { className?: string }) {
     cancel,
     shared,
     sessionModel,
+    checks,
   } = useAI(chatRef, {
     initialSessionId: initialSessionIdRef.current,
     page,
@@ -163,6 +165,16 @@ function ConnectedChat({ className }: { className?: string }) {
       onSendMessage={sendMessage}
       onSteerMessage={steerMessage}
       onCaptureSendContext={captureSendContext}
+      aboveComposer={
+        checks !== null ? (
+          <ChecksBar
+            proposalName={checks.proposalName}
+            onFixIt={() => chatRef.current?.sendUserMessage(FIX_IT_MESSAGE)}
+            retryPageCheck={checks.retryPageCheck}
+            pageChecksLeft={checks.pageChecksLeft}
+          />
+        ) : undefined
+      }
       pointedAt={page?.pointedAt ?? null}
       onClearPointedAt={page ? () => page.setPointedAt(null) : undefined}
       onCancel={cancel}

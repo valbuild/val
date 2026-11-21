@@ -45,6 +45,10 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+/** Called on every change to it: what reacts to it outside React. */
+export function subscribeBackgroundLint(listener: () => void): () => void {
+  return subscribe(listener);
+}
 const snapshot = () => current;
 
 let scheduled: { name: string; timer: ReturnType<typeof setTimeout> } | null =

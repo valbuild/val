@@ -1,3 +1,4 @@
+import { CHECKS_MESSAGE_MARKER } from "../proposals/checksMessage";
 import type { ProposalParticipant } from "../components/proposals/types";
 import {
   applyWatchedEvent,
@@ -427,6 +428,34 @@ describe("storedToolActivities", () => {
 });
 
 describe("toChatMessages", () => {
+  test("the Studio's message for its background checks loads as the notice it was shown as, not as the person's", () => {
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        { role: "user", content: "Make the hero blue", authorId: "kari" },
+        { role: "assistant", content: "Done." },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${CHECKS_MESSAGE_MARKER} The checks found problems.\n\n{}`,
+            },
+          ],
+          authorId: "kari",
+        },
+        { role: "assistant", content: "Fixed the type error." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => [m.role, m.fromChecks, m.author?.id])).toEqual([
+      ["user", undefined, "kari"],
+      ["assistant", undefined, undefined],
+      ["user", true, undefined],
+      ["assistant", undefined, undefined],
+    ]);
+  });
+
   test("tools run before a steer that came before any text stay with the turn", () => {
     const call = (name: string) => ({
       toolCallId: `call-${name}`,

@@ -17,13 +17,26 @@ import type { ParentRef } from "@valbuild/shared/internal";
  * an allocation per AI tool call for no reason.
  */
 const ops = new JSONOps();
+
+/**
+ * How long after a check finishes, or a turn ends, the follow-up waits
+ * before it looks: the chat has rendered the turn's end, and checks that
+ * finish together are weighed together.
+ */
+const FOLLOW_UP_SETTLE_MS = 500;
 import { useValSystem } from "../stores/react/SystemContext";
 import { runStagedCode, type StagedCodeOutcome } from "../proposals/stagedCode";
 import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
 import { createTurnTimer, describeTurnTiming } from "./turnTiming";
 import { usePageCheckSession } from "./usePageCheckSession";
 import {
+  createChecksFollowUp,
+  withRideAlong,
+} from "../proposals/checksFollowUp";
+import { subscribeBackgroundLint } from "../proposals/backgroundLint";
+import {
   askPageCheck,
+  subscribePageCheck,
   MESSAGE_VERIFIER_TOOL,
   PAGE_CHECK_PROMPT_SECTION,
   pickPageCheckModel,
@@ -195,6 +208,7 @@ import type { PageApproval, PickedElement } from "@valbuild/shared/internal";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
+  subscribeProposalTypecheck,
   typecheckProposal,
   typecheckStatusOf,
 } from "../proposals/useProposalTypecheck";
@@ -1270,6 +1284,49 @@ export function useAI(
   });
   const pageCheckRef = useRef(pageCheck);
   pageCheckRef.current = pageCheck;
+  /**
+   * What a check found while the assistant is idle goes to it in a turn of
+   * its own, within a budget only the person refills (`checksFollowUp.ts`).
+   */
+  const followUp = useMemo(
+    () =>
+      createChecksFollowUp({
+        proposalName: () =>
+          inCodeModeRef.current
+            ? (currentProposalRef.current?.name ?? null)
+            : null,
+        idle: () => inFlightPromptIdRef.current === null,
+        stagedInputs: (name) => stagedInputsOf(codeClients.proposals, name),
+        send: (text) => chatRef.current?.sendChecksMessage(text) ?? false,
+      }),
+    [codeClients, chatRef],
+  );
+  const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** After a check or a turn: once things have settled, not on each change. */
+  const considerFollowUp = useCallback(() => {
+    if (followUpTimerRef.current !== null) {
+      clearTimeout(followUpTimerRef.current);
+    }
+    followUpTimerRef.current = setTimeout(() => {
+      followUpTimerRef.current = null;
+      void followUp.consider();
+    }, FOLLOW_UP_SETTLE_MS);
+  }, [followUp]);
+  const considerFollowUpRef = useRef(considerFollowUp);
+  considerFollowUpRef.current = considerFollowUp;
+  useEffect(() => {
+    const unsubscribe = [
+      subscribeProposalTypecheck(considerFollowUp),
+      subscribeBackgroundLint(considerFollowUp),
+      subscribePageCheck(considerFollowUp),
+    ];
+    return () => {
+      for (const stop of unsubscribe) stop();
+      if (followUpTimerRef.current !== null) {
+        clearTimeout(followUpTimerRef.current);
+      }
+    };
+  }, [considerFollowUp]);
   // A chat that exists is held, however it came to exist: a first message, an
   // image attached before one, or a chat loaded from the list or the URL —
   // which may happen before the models are known, hence the wait for one.
@@ -1573,7 +1630,10 @@ export function useAI(
         const timing = turnTimer.end(message.id);
         if (timing !== null) Internal.log.info(describeTurnTiming(timing));
         // A change not checked yet is checked now, beside what comes next.
-        if (message.type === "ai_response") pageCheckRef.current.turnEnded();
+        if (message.type === "ai_response") {
+          pageCheckRef.current.turnEnded();
+          considerFollowUpRef.current();
+        }
       }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
@@ -3640,10 +3700,17 @@ export function useAI(
       if (sessionModelRef.current === null) lockModel(model);
       const pointedAt = takePointedAt(context, pageRef.current);
       lastPointedAtRef.current = pointedAt;
-      const contentBlocks = promptContentBlocks(
-        content,
-        attachments,
-        pointedAt,
+      // What the checks found that the assistant has not heard goes with
+      // what the person writes; the Studio's own message is nothing else.
+      const fromPerson = context?.fromChecks !== true;
+      const checksProposal = currentProposalRef.current?.name ?? null;
+      const rideAlong =
+        fromPerson && checksProposal !== null && inCodeModeRef.current
+          ? followUp.rideAlong(checksProposal)
+          : null;
+      const contentBlocks = withRideAlong(
+        promptContentBlocks(content, attachments, pointedAt),
+        rideAlong?.text ?? null,
       );
       // Only where the Studio can show one, and its server has them: the
       // Studio's shell, once a list came back. Anywhere else the assistant
@@ -3822,7 +3889,11 @@ Do not describe what you will do unless you do it for clarification — just do 
         inFlightPromptIdRef.current = message.id;
         ownedPromptIdsRef.current.add(message.id);
         if (inCodeModeRef.current) turnTimer.start(message.id);
-        pageCheckRef.current.personWrote();
+        rideAlong?.sent();
+        if (fromPerson) {
+          pageCheckRef.current.personWrote();
+          followUp.personWrote();
+        }
       }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
@@ -3870,10 +3941,14 @@ Do not describe what you will do unless you do it for clarification — just do 
       if (sent) {
         ownSteerIdsRef.current.add(steerId);
         steerLedgerRef.current.sent(message);
+        // Steered into the turn, it is still the person writing: the checks
+        // and follow-ups it allows start over (`checksFollowUp.ts`).
+        pageCheckRef.current.personWrote();
+        followUp.personWrote();
       }
       return sent;
     },
-    [sendWsMessage],
+    [sendWsMessage, followUp],
   );
 
   /**
@@ -4489,6 +4564,20 @@ Do not describe what you will do unless you do it for clarification — just do 
      * to change it: see `sessionModel`.
      */
     sessionModel,
+    /**
+     * The checks that run beside the chat in code mode, for `ChecksBar`;
+     * `null` elsewhere.
+     */
+    checks:
+      inCodeModeNow && currentProposal !== null
+        ? {
+            proposalName: currentProposal.name,
+            retryPageCheck: () => {
+              pageCheck.verify(null);
+            },
+            pageChecksLeft: () => pageCheck.left(),
+          }
+        : null,
   };
 }
 

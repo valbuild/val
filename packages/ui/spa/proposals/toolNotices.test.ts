@@ -167,12 +167,14 @@ describe("the outbox: what the background checks found, on the next tool answer"
         key: "tied",
         inputs: INPUTS,
         value: 1,
+        failing: true,
         markTold: () => told.push("tied"),
       }),
       () => ({
         key: "untied",
         inputs: null,
         value: 2,
+        failing: false,
         markTold: () => told.push("untied"),
       }),
     ];

@@ -48,6 +48,8 @@ export type PageCheckSession = {
   message: (text: string) => PageCheckAsked | { status: "sent" };
   /** Whether there is a page to check: a preview is open. */
   canCheck: () => boolean;
+  /** Checks left until the person writes again. */
+  left: () => number;
 };
 
 /**
@@ -251,6 +253,7 @@ export function usePageCheckSession(options: {
       },
       canCheck: () =>
         optionsRef.current.page() !== null && optionsRef.current.model !== null,
+      left: () => scheduler.left(),
     }),
     [scheduler],
   );

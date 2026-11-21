@@ -10,7 +10,20 @@ export async function stagedInputsOf(
   client: Pick<ProposalsClient, "get">,
   name: string,
 ): Promise<string | null> {
-  return (await client.get(name)).staged?.inputs ?? null;
+  const inputs = (await client.get(name)).staged?.inputs ?? null;
+  known.set(name, inputs);
+  return inputs;
+}
+
+const known = new Map<string, string | null>();
+
+/**
+ * What proposal `name` staged when content was last asked, without asking
+ * again: for what cannot wait for an answer, as a message being sent. `null`
+ * when not known, and then only what is not about the files can be told.
+ */
+export function knownStagedInputs(name: string): string | null {
+  return known.get(name) ?? null;
 }
 
 /**
