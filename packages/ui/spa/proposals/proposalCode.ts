@@ -754,7 +754,7 @@ async function runCodeToolNow(
       if (replaceAll !== undefined && typeof replaceAll !== "boolean") {
         return fail("replace_all must be true or false.");
       }
-      const { project } = await snapshot.read(deps.proposal.name);
+      const { project } = await snapshot.read(deps.proposal.name, "to-write");
       const filePath = path.replace(/^\/+/, "");
       const text = project[filePath];
       if (text === undefined) {
@@ -926,6 +926,8 @@ async function runCodeToolNow(
     }
     const { project, staged } = await snapshot.read(
       deps.proposal?.name ?? null,
+      // What a write is made from is checked, not only held.
+      changesCode(name, input) ? "to-write" : undefined,
     );
     if (name === "list_files") {
       const prefix = typeof input["prefix"] === "string" ? input["prefix"] : "";

@@ -332,7 +332,15 @@ export function stagedCodeReach(
       if (last.reads === undefined) return "may";
       const reads = new Set(last.reads);
       if (written.some((path) => reads.has(path))) return "can";
-      return written.some(decidesResolution) ? "may" : "cannot";
+      // A file beside one the bundle read, under the name an import of that
+      // one would also find (`x.tsx` beside `x.ts`, `x/index.ts`): writing
+      // or deleting it may change which of them the import names.
+      const stems = new Set(last.reads.map(importStem));
+      return written.some(
+        (path) => decidesResolution(path) || stems.has(importStem(path)),
+      )
+        ? "may"
+        : "cannot";
     }
   }
 }
@@ -342,6 +350,11 @@ function isValFile(path: string): boolean {
     /\.val\.(ts|js|json)$/.test(path) ||
     /(^|\/)val\.(modules|config)\.(ts|js)$/.test(path)
   );
+}
+
+/** What an import of `path` is written as: no extension, no `/index`. */
+function importStem(path: string): string {
+  return path.replace(/\.[^./]+$/, "").replace(/\/index$/, "");
 }
 
 /** A file that decides which file an import names. */

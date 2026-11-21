@@ -60,9 +60,22 @@ import type {
  *   change that lands during the read ends it too;
  * - a read that overlapped a staging of this tab's own is made again.
  *
- * What is left is the time a move of `seq` takes to arrive -- the socket's
- * delay, and {@link FRESH_MS} at most where it never does -- and, behind a
- * staging of this tab's own, {@link OWN_STAGING_GRACE_MS}. The old code had
+ * - and, because all of that rests on `seq` ARRIVING, a read that a write
+ *   is made from (`read(proposal, "to-write")`: `edit_file`, `format_files`,
+ *   `lint` with `fix`) does not rest on it: unless what is held was read,
+ *   staged or checked within {@link OWN_STAGING_GRACE_MS}, it asks the
+ *   proposal what is staged now (one small request,
+ *   `ProjectSnapshotDeps.stagedNow`) and reads the files again when that is
+ *   not what it holds. Someone else's staging is then found whether or not
+ *   this tab ever hears of it.
+ *
+ * What is left is {@link OWN_STAGING_GRACE_MS}: the edits of one reply are
+ * not checked against each other's answers. The old code had a window of
+ * about that, between its read and its staging; only the content service can
+ * close it (a staging that names the version it was made from). A content
+ * save that writes a `.val.ts` nobody staged is not in "what is staged", so
+ * for that file the bound is `seq`, or {@link FRESH_MS} where it never
+ * arrives. The old code had
  * a window too, between its read and its staging, and only the content
  * service can close it (a staging that names the version it was made from).
  *
@@ -80,7 +93,7 @@ export type ProjectSnapshot = {
    * The project of proposal `proposal`, or the site's with `null`: from
    * what is held when that is current, read otherwise.
    */
-  read(proposal: string | null): Promise<ProjectRead>;
+  read(proposal: string | null, why?: "to-write"): Promise<ProjectRead>;
   /**
    * Stage files in the proposal (`ProposalsClient.stageFiles`) and lay them
    * over what is held: the one way this tab's code tools write.
@@ -117,6 +130,13 @@ export type ProjectSnapshotDeps = {
   siteSource: () => Promise<Record<string, string> | null>;
   /** The project's `seq` as this tab holds it; `null` where there is none. */
   seq: () => number | null;
+  /**
+   * The inputs of what the proposal stages NOW, asked of the content
+   * service (`ProposalsClient.get`): what a read that a write is made from
+   * checks what it holds against. Absent: such a read always reads the
+   * files again unless they were just read or staged.
+   */
+  stagedNow?: (proposal: string) => Promise<string | null>;
   /** For tests: the clock. */
   now?: () => number;
 };
@@ -152,6 +172,8 @@ type Held = {
   inDoubt: boolean;
   /** When it was read. */
   at: number;
+  /** When it was last read, staged into by this tab, or checked. */
+  vouchedAt: number;
   /** When `seq` was first seen to have moved from `seq`; `null` while it has not. */
   movedAt: number | null;
 };
@@ -216,6 +238,7 @@ export function createProjectSnapshot(
           written: false,
           inDoubt: false,
           at: now(),
+          vouchedAt: now(),
           movedAt: null,
         };
         if (before === stagings) {
@@ -268,7 +291,30 @@ export function createProjectSnapshot(
   };
 
   return {
-    async read(proposal) {
+    async read(proposal, why) {
+      if (
+        proposal !== null &&
+        why === "to-write" &&
+        held !== null &&
+        isCurrent(proposal) &&
+        now() - held.vouchedAt >= OWN_STAGING_GRACE_MS
+      ) {
+        // Current as far as this tab has HEARD. A write is not made from
+        // that alone: ask what is staged now.
+        const checking = held;
+        let same = false;
+        try {
+          same =
+            deps.stagedNow !== undefined &&
+            (await deps.stagedNow(proposal)) === checking.staged.inputs;
+        } catch {
+          // Not known: read the files.
+        }
+        if (held === checking) {
+          if (same) held = { ...checking, vouchedAt: now() };
+          else held = { ...checking, inDoubt: true };
+        }
+      }
       if (proposal === null) {
         const moved = site !== null && deps.seq() !== site.seq;
         return { project: await readSite(moved), staged: null };
@@ -316,6 +362,8 @@ export function createProjectSnapshot(
           own: { ...held.own, ...files },
           staged: answer.staged,
           written: true,
+          // Only what was current when it was sent is vouched for by it.
+          vouchedAt: wasCurrent ? now() : held.vouchedAt,
           inDoubt:
             held.inDoubt ||
             // Unless it was read again meanwhile: that is the server's own.

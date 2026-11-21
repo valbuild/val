@@ -192,9 +192,9 @@ describe("what the code tools ask the server for", () => {
         .replace("<a>Go</a>", "<a>Buy</a>"),
     });
     // And it is what the content service holds.
-    expect((await proposal.client.files(proposal.name)).files[HERO_FILE]).toBe(
-      (read.result as { text: string }).text,
-    );
+    expect(read.result).toMatchObject({
+      text: (await proposal.client.files(proposal.name)).files[HERO_FILE],
+    });
   });
 
   test("format_files stages what changed in one request, and reads nothing", async () => {

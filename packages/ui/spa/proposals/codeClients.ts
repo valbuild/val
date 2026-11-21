@@ -30,6 +30,8 @@ export function createCodeClients(options: {
   /** The project's `seq` as this tab holds it (`ManifestSource.seq`). */
   seq: () => number | null;
   fetchImpl?: typeof fetch;
+  /** For tests: the clock. */
+  now?: () => number;
 }): CodeClients {
   const at = {
     api: options.api,
@@ -46,6 +48,9 @@ export function createCodeClients(options: {
       client: proposals,
       siteSource,
       seq: options.seq,
+      ...(options.now !== undefined ? { now: options.now } : {}),
+      stagedNow: async (name) =>
+        (await proposals.get(name)).staged?.inputs ?? null,
     }),
   };
 }

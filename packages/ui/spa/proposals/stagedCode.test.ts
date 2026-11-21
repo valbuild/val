@@ -1,4 +1,4 @@
-import type { ModuleFilePath, ValModules } from "@valbuild/core";
+import type { ValModules } from "@valbuild/core";
 import {
   resetStagedCode,
   runStagedCode,
@@ -14,7 +14,6 @@ import {
  */
 
 const NAME = "0123456789abcdef0123";
-const HOME: ModuleFilePath = "/content/home.val.ts" as ModuleFilePath;
 const REGISTRY: ValModules = { config: {}, modules: [] };
 
 /** An evaluation whose bundling the test lets through, one at a time. */
@@ -24,7 +23,8 @@ const evaluations = (
     bundle?: StagedCodeDeps["bundle"];
   } = {},
 ) => {
-  const record = { started: 0, release: [] as Array<() => void> };
+  const release: Array<() => void> = [];
+  const record = { started: 0, release };
   const deps: StagedCodeDeps = {
     project: async () => {
       record.started++;
@@ -47,7 +47,7 @@ const evaluations = (
     importRegistry: async () => REGISTRY,
     reloadCode: async () => ({
       status: "reloaded",
-      changed: [HOME],
+      changed: [],
       removed: [],
       failures: [],
     }),
@@ -141,6 +141,15 @@ describe("whether a write can change what the evaluation finds", () => {
     expect(stagedCodeReach(NAME, ["src/Hero.tsx", "src/app.css"])).toBe(
       "cannot",
     );
+    // A file an import of one it reads would also find: which of the two
+    // the import names may change.
+    for (const path of [
+      "src/schema/button.tsx",
+      "src/schema/button/index.ts",
+      "src/schema/button.js",
+    ]) {
+      expect(stagedCodeReach(NAME, [path])).toBe("may");
+    }
     // What decides which file an import names may change what it reads.
     expect(stagedCodeReach(NAME, ["tsconfig.json"])).toBe("may");
     expect(stagedCodeReach(NAME, ["package.json"])).toBe("may");

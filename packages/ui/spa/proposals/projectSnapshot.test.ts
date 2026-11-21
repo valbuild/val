@@ -21,39 +21,53 @@ import type { ProposalStaged } from "./proposalsClient";
  */
 
 const NAME = "0123456789abcdef0123";
-const FILES = `/api/val/proposals-api/${NAME}/files`;
+const ONE = `/api/val/proposals-api/${NAME}`;
+const FILES = `${ONE}/files`;
 const SOURCE = "/api/val/publish-api/project-source";
 const HERO = "src/Hero.tsx";
 
 const service = (
   over: { site?: Record<string, string>; own?: Record<string, string> } = {},
 ) => {
-  const state = {
+  const state: {
+    site: Record<string, string>;
+    siteTag: number;
+    own: Record<string, string | null>;
+    /** The content service's own `seq`. */
+    seq: number;
+    /** The `seq` the tab has heard. */
+    heard: number | null;
+    asked: string[];
+    /** Stagings refused with this, while set. */
+    refuse: { status: number; body: unknown } | null;
+    /** What a staging says of a save before it. */
+    savedFirst: boolean | undefined;
+    /** Files Val's server saves before the next staging, as a save writes them. */
+    savesFirst: Record<string, string>;
+    /** The socket outruns the relay: the tab hears a staging before its answer. */
+    hearsOwn: boolean;
+    /** Reads of the proposal's files wait for this, while set. */
+    holdReads: Promise<void> | null;
+    /** The tab's clock. */
+    now: number;
+  } = {
     site: over.site ?? { "AGENTS.md": "Use tabs.", "src/site.ts": "site" },
     siteTag: 1,
-    own: { [HERO]: "one two three", ...over.own } as Record<
-      string,
-      string | null
-    >,
-    /** The content service's own `seq`. */
+    own: { [HERO]: "one two three", ...over.own },
     seq: 1,
-    /** The `seq` the tab has heard. */
-    heard: 1 as number | null,
-    asked: [] as string[],
-    /** Stagings refused with this, while set. */
-    refuse: null as { status: number; body: unknown } | null,
-    /** What a staging says of a save before it. */
-    savedFirst: false as boolean | undefined,
-    /** Files Val's server saves before the next staging, as a save writes them. */
-    savesFirst: {} as Record<string, string>,
-    /** The socket outruns the relay: the tab hears a staging before its answer. */
+    heard: 1,
+    asked: [],
+    refuse: null,
+    savedFirst: false,
+    savesFirst: {},
     hearsOwn: false,
-    /** Reads of the proposal's files wait for this, while set. */
-    holdReads: null as Promise<void> | null,
+    holdReads: null,
+    now: 1_000_000,
   };
   const staged = (): ProposalStaged => ({
     files: Object.keys(state.own).sort(),
-    inputs: `inputs-${state.seq}`,
+    // Of the staged files' text, as the content service's is.
+    inputs: JSON.stringify(state.own),
     buildRequired: true,
   });
   const json = (status: number, body: unknown, headers = {}) =>
@@ -70,6 +84,18 @@ const service = (
       const held = new Headers(init?.headers).get("If-None-Match");
       if (held === tag) return json(304, null);
       return json(200, { files: state.site }, { ETag: tag });
+    }
+    if (path === ONE && method === "GET") {
+      return json(200, {
+        proposal: {
+          name: NAME,
+          branch: `val/p/${NAME}`,
+          displayName: "Spring",
+          status: "open",
+          updatedAt: "2026-11-21T10:00:00.000Z",
+          staged: staged(),
+        },
+      });
     }
     if (path === FILES && method === "GET") {
       const answer = { files: { ...state.own }, staged: staged() };
@@ -109,6 +135,7 @@ const service = (
     api: "/api/val",
     fetchImpl,
     seq: () => state.heard,
+    now: () => state.now,
   });
   const offered = { times: 0 };
   const never = (): never => {
@@ -286,6 +313,45 @@ describe("the project the code tools read, held in the tab", () => {
     expect(asked).toContain(`GET ${FILES}`);
     expect(asked[asked.length - 1]).toBe(`POST ${FILES}`);
     expect(s.state.own[HERO]).toBe("1 two three, and theirs");
+  });
+
+  test("an edit long after the last read asks what is staged first (before: the whole project, twice)", async () => {
+    const s = service();
+    await s.run("read_file", { path: HERO });
+    s.asked();
+    // The model thought for a while.
+    s.state.now += OWN_STAGING_GRACE_MS;
+    expect((await s.run("edit_file", edit("one", "1"))).isError).toBe(false);
+    expect(s.asked()).toEqual([`GET ${ONE}`, `POST ${FILES}`]);
+    // Reading is never checked: it costs nothing.
+    s.state.now += OWN_STAGING_GRACE_MS;
+    await s.run("read_file", { path: HERO });
+    expect(s.asked()).toEqual([]);
+  });
+
+  test("SOMEONE ELSE'S STAGING THE TAB NEVER HEARS OF is not overwritten either: the edit asks what is staged, and is made from their text", async () => {
+    const s = service();
+    await s.run("read_file", { path: HERO });
+    s.asked();
+
+    // Their staging moves `seq`, and no socket message ever arrives.
+    s.someoneStages({ [HERO]: "one two three, and theirs" });
+    s.state.now += OWN_STAGING_GRACE_MS;
+    const mine = await s.run("edit_file", edit("one", "1"));
+    expect(mine.isError).toBe(false);
+    expect(s.asked()).toEqual(
+      expect.arrayContaining([`GET ${ONE}`, `GET ${FILES}`, `POST ${FILES}`]),
+    );
+    expect(s.state.own[HERO]).toBe("1 two three, and theirs");
+
+    // format_files and lint with fix are made from the text too.
+    s.someoneStages({ [HERO]: "theirs  again" });
+    s.state.now += OWN_STAGING_GRACE_MS;
+    s.asked();
+    await s.run("format_files", { paths: [HERO] });
+    expect(s.asked()).toEqual(
+      expect.arrayContaining([`GET ${ONE}`, `GET ${FILES}`]),
+    );
   });
 
   test("behind the tab's own staging, what is held is used for a moment only: after it, a read waits for the re-read, which has their change", async () => {
