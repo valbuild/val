@@ -6,10 +6,14 @@ import {
   BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  EMPTY_TEXT_RULES,
+  holdKeys,
   installPageLog,
   isValCanvasStudioMessage,
+  markEmptyTextFields,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
+  replayKeys,
   screenshotPage,
   restoreScroll,
   startElementPicking,
@@ -19,6 +23,8 @@ import {
   VAL_CANVAS_MESSAGE,
   isCodeChangedDetail,
   type ElementPicking,
+  type HeldKeys,
+  type InlineEditCandidate,
   type InlineEditing,
   type PickModifier,
   ValCanvasElement,
@@ -153,6 +159,35 @@ export function ValCanvasBridge({
     x: number;
     y: number;
   } | null>(null);
+  /**
+   * The page's texts as the Studio last said (`textFields`), and the origin
+   * that said it, which is the only one an edit started from them answers.
+   * `null` until it says: a Studio that predates it never does, and every
+   * click then asks, as before.
+   */
+  const textFields = React.useRef<{
+    editing: boolean;
+    editable: ReadonlyMap<string, InlineEditCandidate>;
+    empty: ReadonlySet<string>;
+    origin: string;
+  } | null>(null);
+  /**
+   * Whether the edit in progress was started here, in a click, rather than
+   * by `editInline`: an `editInline` that arrives after it answers a click
+   * from before it, and must not take the caret away.
+   */
+  const startedOnClick = React.useRef(false);
+  /**
+   * The keys pressed since a click the Studio was asked about, until it
+   * answers: see `inlineEditKeys.ts`.
+   */
+  const heldKeys = React.useRef<HeldKeys | null>(null);
+  React.useEffect(
+    () => () => {
+      heldKeys.current?.release();
+    },
+    [],
+  );
   // Read when an edit starts, long after the render that set it.
   const selectionColor = React.useRef(selectionColors.selection);
   selectionColor.current = selectionColors.selection;
@@ -178,6 +213,13 @@ export function ValCanvasBridge({
 
   /** Every element Val tagged, with where it is on the page. */
   const scan = React.useCallback(() => {
+    // Before measuring: an emptied text measures with the room it is given
+    // while Select is on, so the Studio's outline of it has a size too.
+    markEmptyTextFields(
+      document,
+      pickingRef.current ? (textFields.current?.empty ?? NO_PATHS) : NO_PATHS,
+      Internal.splitJoinedSourcePaths,
+    );
     const elements: ValCanvasElement[] = [];
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
@@ -383,6 +425,22 @@ export function ValCanvasBridge({
         setPicking(message.picking);
         return;
       }
+      if (message.type === "textFields") {
+        // What starts an edit on a click, so as `editInline`: only from the
+        // frame's parent, when that is the Studio here.
+        if (event.source !== window.parent) return;
+        if (event.origin !== window.location.origin) return;
+        textFields.current = {
+          editing: message.editing,
+          editable: new Map(
+            message.editable.map((candidate) => [candidate.path, candidate]),
+          ),
+          empty: new Set(message.empty),
+          origin: event.origin,
+        };
+        scan();
+        return;
+      }
       if (message.type === "pickElements") {
         setElementPicking({
           enabled: message.enabled,
@@ -493,61 +551,51 @@ export function ValCanvasBridge({
         if (asker !== window.location.origin) return;
         const reply = (answer: ValCanvasPageMessage) =>
           window.parent.postMessage(answer, asker);
+        const pick = lastPick.current;
+        lastPick.current = null;
+        const held = heldKeys.current;
+        heldKeys.current = null;
+        const keys = held?.release() ?? [];
+        // The answer to a click from before the one that started the edit
+        // in progress, by itself: that click is what the person did last.
+        if (
+          pick === null &&
+          startedOnClick.current &&
+          inlineEditing.current?.isActive() === true
+        ) {
+          reply({
+            val: VAL_CANVAS_MESSAGE,
+            type: "inlineEditUnavailable",
+            requestId: message.requestId,
+          });
+          return;
+        }
         // One edit at a time, and the element of the last one back as the
         // page has it: it may be the very one asked for again.
         inlineEditing.current?.release();
         inlineEditing.current = null;
-        const pick = lastPick.current;
-        lastPick.current = null;
-        for (const candidate of message.candidates) {
-          const picked =
-            pick !== null &&
-            pick.element.isConnected &&
-            pathOn(pick.element, candidate.path) !== null
-              ? pick.element
-              : null;
-          const element = picked ?? findByPath(candidate.path);
-          if (element === null) continue;
-          const path = pathOn(element, candidate.path);
-          if (path === null) continue;
-          const editing = startInlineEditing(element, candidate, {
-            // Where the click was, when it was on this element.
-            at:
-              picked !== null && pick !== null
-                ? { x: pick.x, y: pick.y }
-                : null,
-            color: selectionColor.current,
-            onChange: (value) =>
-              reply({
-                val: VAL_CANVAS_MESSAGE,
-                type: "inlineEdit",
-                path,
-                value,
-              }),
-            onEnd: () =>
-              reply({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path }),
-            onSelection: (selection, rect, caret) =>
-              reply({
-                val: VAL_CANVAS_MESSAGE,
-                type: "inlineEditSelection",
-                path,
-                selection,
-                rect,
-                caret,
-              }),
-          });
-          if (editing === null) continue;
-          inlineEditing.current = editing;
+        startedOnClick.current = false;
+        const started = startFirst(message.candidates, pick, {
+          color: selectionColor.current,
+          reply,
+        });
+        if (started !== null) {
+          inlineEditing.current = started.editing;
           reply({
             val: VAL_CANVAS_MESSAGE,
             type: "inlineEditStarted",
             requestId: message.requestId,
-            path,
+            path: started.path,
           });
+          // What was typed while the Studio was being asked, now that
+          // there is somewhere for it to go: after `inlineEditStarted`,
+          // so the Studio is listening for what it types.
+          replayKeys(document, keys);
           return;
         }
         // Nothing on the page shows one of them and nothing else: the
-        // Studio opens the field in its own column.
+        // Studio opens the field in its own column, and the keys pressed
+        // meanwhile are dropped, as on a page that is not being typed in.
         reply({
           val: VAL_CANVAS_MESSAGE,
           type: "inlineEditUnavailable",
@@ -679,21 +727,72 @@ export function ValCanvasBridge({
       if (!tagged || !attribute) return;
       event.preventDefault();
       event.stopPropagation();
-      lastPick.current = {
-        element: tagged,
-        x: event.clientX,
-        y: event.clientY,
-      };
-      post({
-        val: VAL_CANVAS_MESSAGE,
-        type: "clicked",
-        paths: Internal.splitJoinedSourcePaths(attribute),
-      });
+      const paths = Internal.splitJoinedSourcePaths(attribute);
+      const pick = { element: tagged, x: event.clientX, y: event.clientY };
+      heldKeys.current?.release();
+      heldKeys.current = null;
+      /*
+       * Select & edit, and the Studio has said which of this element's
+       * fields are texts and what they hold: the edit starts HERE, in the
+       * click, rather than a round trip across the frame later. Keys typed
+       * straight after the click then go into the text -- in that round
+       * trip they went to the page's body, which drops them -- and a phone
+       * opens its keyboard, which it does only for a focus given in the tap.
+       * Which element shows a field is still decided as `editInline` decides
+       * it (`canEditInline`), from the values the Studio sent.
+       */
+      const known = textFields.current;
+      const offered =
+        known !== null && known.editing
+          ? paths.flatMap((path) => known.editable.get(path) ?? [])
+          : [];
+      if (known !== null && offered.length > 0) {
+        const reply = (answer: ValCanvasPageMessage) =>
+          window.parent.postMessage(answer, known.origin);
+        inlineEditing.current?.release();
+        inlineEditing.current = null;
+        startedOnClick.current = false;
+        const started = startFirst(offered, pick, {
+          color: selectionColor.current,
+          reply,
+        });
+        if (started !== null) {
+          inlineEditing.current = started.editing;
+          startedOnClick.current = true;
+          lastPick.current = null;
+          reply({
+            val: VAL_CANVAS_MESSAGE,
+            type: "inlineEditStarted",
+            requestId: null,
+            path: started.path,
+          });
+          return;
+        }
+        /*
+         * A text, but not as the Studio last said: its value changed since
+         * (an edit a moment ago, still on its way). The Studio is asked, as
+         * for any pick, and the keys pressed until it answers are held
+         * rather than lost.
+         */
+        heldKeys.current = holdKeys(window);
+      }
+      lastPick.current = pick;
+      post({ val: VAL_CANVAS_MESSAGE, type: "clicked", paths });
     };
     document.addEventListener("click", onClick, { capture: true });
     return () =>
       document.removeEventListener("click", onClick, { capture: true });
   }, [post]);
+
+  // Select off: an emptied text has its room taken away, and keys held for
+  // an answer to a pick are dropped. Select on: it has its room again.
+  React.useEffect(() => {
+    if (!picking) {
+      heldKeys.current?.release();
+      heldKeys.current = null;
+    }
+    scan();
+  }, [picking, scan]);
 
   // Esc while picking fields: the key goes to the page, which has the focus
   // once it has been clicked, so the studio hears of it only from here.
@@ -874,6 +973,10 @@ export function ValCanvasBridge({
             ? `[data-val-path] { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
 [data-val-path]:hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
+          // The one rule here that moves the page, and only while Select is
+          // on: an emptied text's line of room, without which it cannot be
+          // pointed at. See `emptyTextFields.ts` for why, and how narrowly.
+          picking ? EMPTY_TEXT_RULES : "",
           highlighted
             ? highlightRule(highlighted, selectionColors.selection)
             : "",
@@ -1004,6 +1107,65 @@ function isScrollable(el: Element): boolean {
     (scrolls(style.overflowY) && el.scrollHeight > el.clientHeight) ||
     (scrolls(style.overflowX) && el.scrollWidth > el.clientWidth)
   );
+}
+
+const NO_PATHS: ReadonlySet<string> = new Set();
+
+/**
+ * Start editing the first of `candidates` an element on the page shows and
+ * nothing else: the picked element when it carries the candidate's path,
+ * else the first element that does. `null` when none can be.
+ *
+ * What `editInline` does, and what a click does by itself when the Studio has
+ * said ahead of it what the element's texts hold (`textFields`): one way to
+ * start, whichever asked.
+ */
+function startFirst(
+  candidates: readonly InlineEditCandidate[],
+  pick: { element: Element; x: number; y: number } | null,
+  options: {
+    color: string;
+    reply: (answer: ValCanvasPageMessage) => void;
+  },
+): { editing: InlineEditing; path: SourcePath } | null {
+  const { reply } = options;
+  for (const candidate of candidates) {
+    const picked =
+      pick !== null &&
+      pick.element.isConnected &&
+      pathOn(pick.element, candidate.path) !== null
+        ? pick.element
+        : null;
+    const element = picked ?? findByPath(candidate.path);
+    if (element === null) continue;
+    const path = pathOn(element, candidate.path);
+    if (path === null) continue;
+    const editing = startInlineEditing(element, candidate, {
+      // Where the click was, when it was on this element.
+      at: picked !== null && pick !== null ? { x: pick.x, y: pick.y } : null,
+      color: options.color,
+      onChange: (value) =>
+        reply({
+          val: VAL_CANVAS_MESSAGE,
+          type: "inlineEdit",
+          path,
+          value,
+        }),
+      onEnd: () =>
+        reply({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path }),
+      onSelection: (selection, rect, caret) =>
+        reply({
+          val: VAL_CANVAS_MESSAGE,
+          type: "inlineEditSelection",
+          path,
+          selection,
+          rect,
+          caret,
+        }),
+    });
+    if (editing !== null) return { editing, path };
+  }
+  return null;
 }
 
 function findByPath(path: string): Element | null {

@@ -52,6 +52,10 @@ import {
   type InlineEditLocation,
   type ViewportBox,
 } from "./placeInlineToolbar";
+import {
+  type CanvasTextFields,
+  NO_CANVAS_TEXT_FIELDS,
+} from "./canvasTextFields";
 
 /**
  * How the frame is currently doing.
@@ -173,8 +177,19 @@ export type CanvasFrameProps = {
     requestId: string;
     candidates: InlineEditCandidate[];
   } | null;
-  /** The caret is in the field at `path`, on the page. */
-  onInlineEditStarted?: (requestId: string, path: SourcePath) => void;
+  /**
+   * The caret is in the field at `path`, on the page: in answer to
+   * `requestId`, or -- `null` -- started by the page on a click, from
+   * `textFields`. False: the Studio will not have it, and the page is told
+   * to stop.
+   */
+  onInlineEditStarted?: (requestId: string | null, path: SourcePath) => boolean;
+  /**
+   * What the page is told of its texts ahead of a click, while Select is on:
+   * what lets it start an edit in the click itself, and keep an emptied
+   * text pointable. See `canvasTextFields.ts`.
+   */
+  textFields?: CanvasTextFields;
   /** Something was typed there: the field's new value, whole. */
   onInlineEdit?: (path: SourcePath, value: InlineEditValue) => void;
   /**
@@ -359,6 +374,7 @@ export function CanvasFrame({
   onInlineEditSelection,
   inlineEditApply = null,
   onInlineEditPlace,
+  textFields,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -609,7 +625,10 @@ export function CanvasFrame({
         onCodeChanged?.(message.modules);
       } else if (message.type === "inlineEditStarted") {
         inlineEditing.current = message.path;
-        onInlineEditStarted?.(message.requestId, message.path);
+        if (onInlineEditStarted?.(message.requestId, message.path) === false) {
+          inlineEditing.current = null;
+          send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+        }
       } else if (message.type === "inlineEdit") {
         onInlineEdit?.(message.path, message.value);
       } else if (message.type === "inlineEditEnded") {
@@ -645,6 +664,7 @@ export function CanvasFrame({
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
   }, [
+    send,
     valSystem,
     onElements,
     onPick,
@@ -900,6 +920,31 @@ export function CanvasFrame({
       candidates: inlineCandidates.current,
     });
   }, [send, inlineRequestId]);
+  /*
+   * The page's texts, said ahead of a click: whenever what would be said
+   * changes, and again to every new document. Only while Select is on --
+   * the page uses it for nothing else, and a value per edit is a message
+   * per edit -- and compared by value, as every render builds it afresh.
+   */
+  const sentTextFields =
+    textFields === undefined
+      ? undefined
+      : isPicking
+        ? textFields
+        : NO_CANVAS_TEXT_FIELDS;
+  const textFieldsKey = useMemo(
+    () =>
+      sentTextFields === undefined ? null : JSON.stringify(sentTextFields),
+    [sentTextFields],
+  );
+  const textFieldsToSend = useRef(sentTextFields);
+  textFieldsToSend.current = sentTextFields;
+  useEffect(() => {
+    const fields = textFieldsToSend.current;
+    if (fields === undefined || documentEpoch === 0) return;
+    send({ val: VAL_CANVAS_MESSAGE, type: "textFields", ...fields });
+  }, [send, textFieldsKey, documentEpoch]);
+
   // Leaving Select leaves all of it, the caret on the page included.
   useEffect(() => {
     if (!isPicking && inlineEditing.current !== null) {

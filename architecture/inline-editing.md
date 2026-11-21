@@ -37,6 +37,35 @@ A richtext is typable when the element's children are the document's nodes, tag
 for tag, which is what `ValRichText` renders unless a `transform` changes the
 structure.
 
+### Usually without the round trip
+
+The round trip takes long enough (a few hundred milliseconds in development)
+for the start of what is typed straight after a click to be lost: the keys
+land on the page's body, which drops them, and an `End` pressed first is
+lost too, so what follows goes in at the click. A phone also opens its
+keyboard only for a focus given in the tap itself, which a message a moment
+later is not.
+
+So the Studio tells the page AHEAD of a click what its texts hold
+(`textFields`, from `canvasTextFields.ts`): every path the page reported that
+`editInline` would offer, with its value, whenever those change and while
+Select & edit is on. A click on an element showing one of them and nothing
+else starts the edit in the click, by the same `canEditInline` comparison,
+and the page says `inlineEditStarted` with no `requestId`. The Studio checks
+it again (`onStarted`) and has the page stop if it will not have it -- Select
+& edit was turned off on the way. Which element shows a field is still the
+page's to tell, and what counts as a text still the Studio's: nothing is
+decided on one side alone.
+
+When the element no longer shows what the Studio last said -- its value
+changed a moment ago and the new one is still on its way -- the page asks as
+before, and holds the keys pressed until the answer (`inlineEditKeys.ts`):
+replayed into the text when the edit starts, through the same `keydown` and
+`beforeinput` a real key goes through so Enter and Backspace in a richtext
+still split and join; dropped when the field opens in the column instead, as
+keys on a page that is not being typed in are. A Studio that predates
+`textFields` never sends it, and every click asks.
+
 So the mode never takes a way of editing away. That is also what makes a
 version skew harmless: `editInline` is a capability a bridge lists in `ready`,
 and a page whose `@valbuild/next` or `@valbuild/tanstack` predates it is never
@@ -181,6 +210,23 @@ Not `document.hasFocus()`, which looked like the way to tell "the focus went to
 the Studio" from "a click on nothing in particular": for a document in a frame
 it goes on answering yes wherever focus is emulated, Playwright included.
 
+## A text left empty is still there to click
+
+An emptied heading is `<h1 data-val-path="…"></h1>`, with no height, so
+there was nothing to click: not to pick it in Select, not to type in it again
+in Select & edit. While Select is on, in either mode, an element showing a
+string or richtext the Studio says is empty (`textFields`' `empty`) and
+nothing else is marked (`emptyTextFields.ts`), and the picking stylesheet
+gives it a line of room: a minimum height for a block, padding for an inline
+element.
+
+It is the one rule there that moves the page -- the rest is outlines,
+because outlines cannot -- and it is kept narrow on purpose: only while Select
+is on, only for what the Studio says is an empty text right now (the page
+cannot tell a text from a spacer), never an element that is empty by nature
+(`img`, `input`, `source`...), and only while the element still shows
+nothing. The room is the line it takes once it holds text again.
+
 ## What it does not do
 
 - **No images from the page.** The controls have no image button: uploading
@@ -193,18 +239,19 @@ it goes on answering yes wherever focus is emulated, Playwright included.
   control replaces what is in the copy, and the browser's history goes with
   it, so neither the control nor what was typed before it can be undone on
   the page.
-- **A text left empty cannot be clicked again.** It has no height on the page,
-  as before this existed. Its row in the column is still there.
 - **Other tags.** A document holding a tag outside `p`, `h1`-`h6`, `ul`, `ol`,
   `li`, `span`, `a`, `br` and `img` is not edited on the page at all.
 
 ## Testing it
 
 jsdom has no layout and no editing, so the unit tests
-(`inlineEditing.test.ts`, `canvasBridgeInlineEdit.test.tsx` in each binding,
-`canvasInlineEdit.test.tsx`, `inlineEditCandidates.test.ts`) mutate the copy
+(`inlineEditing.test.ts`, `inlineEditKeys.test.ts`, `emptyTextFields.test.ts`,
+`canvasBridgeInlineEdit.test.tsx` and `canvasBridgeElements.test.tsx` in each
+binding, `canvasInlineEdit.test.tsx`, `inlineEditCandidates.test.ts`,
+`canvasTextFields.test.ts`) mutate the copy
 and dispatch `input`, which covers the protocol and the reading-back.
-What the keys themselves do is only true in a browser:
+What the keys themselves do is only true in a browser -- typing straight
+after a click, and clicking an emptied text, included:
 `e2e/inlineEditingSuite.ts` types into the blog page both example apps have,
 once per framework (`inline-editing.spec.ts`, `inline-editing.next.spec.ts`),
 since the page's half is a copy per binding.

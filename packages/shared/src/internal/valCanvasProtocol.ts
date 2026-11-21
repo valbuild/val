@@ -376,8 +376,12 @@ export type ValCanvasPageMessage =
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "inlineEditStarted";
-      /** The `editInline` this answers. */
-      requestId: string;
+      /**
+       * The `editInline` this answers, or `null` when there was none: the
+       * page started the edit on a click by itself, from what `textFields`
+       * last said, and said nothing of the click (no `clicked`).
+       */
+      requestId: string | null;
       /** Which of the fields it offered. */
       path: SourcePath;
     }
@@ -664,6 +668,41 @@ export type ValCanvasStudioMessage =
       /** End whatever is being edited on the page: Select was turned off. */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "stopInlineEdit";
+    }
+  | {
+      /**
+       * The page's texts, as the Studio knows them: sent whenever the paths
+       * the page reported, Select, its mode or a value changes. The page
+       * cannot tell a text from anything else -- it has no schemas -- and
+       * needs to know ahead of a click for two things:
+       *
+       * - In Select & edit, a click on an element that shows one of
+       *   `editable` and nothing else starts the edit IN the click
+       *   (`inlineEditStarted` with no `requestId`), rather than a round
+       *   trip later: keys typed straight after the click go where the
+       *   caret is, and a phone opens its keyboard, which it does only for
+       *   a focus in the tap itself. When the element no longer shows what
+       *   the Studio last said, the page asks as before (`clicked`,
+       *   `editInline`) and holds the keys pressed meanwhile
+       *   (`inlineEditKeys.ts`).
+       * - While Select is on, an element showing one of `empty` and nothing
+       *   else is given a line of room, so it can still be pointed at
+       *   (`emptyTextFields.ts`).
+       *
+       * A bridge that predates it ignores it, as it ignores any message it
+       * does not know: nothing it answered changes.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "textFields";
+      /** Select is on in Select & edit, and fields may be written. */
+      editing: boolean;
+      /**
+       * What can be typed in on the page, with what each holds now, as
+       * `editInline` offers it. Empty unless `editing`.
+       */
+      editable: InlineEditCandidate[];
+      /** The strings and richtexts on the page that are empty now. */
+      empty: string[];
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -699,7 +738,8 @@ export function isValCanvasPageMessage(
       Array.isArray((data as { modules?: unknown }).modules) &&
       isModulePathList((data as { modules?: unknown }).modules)) ||
     (message.type === "inlineEditStarted" &&
-      typeof (data as { requestId?: unknown }).requestId === "string" &&
+      (typeof (data as { requestId?: unknown }).requestId === "string" ||
+        (data as { requestId?: unknown }).requestId === null) &&
       typeof (data as { path?: unknown }).path === "string") ||
     (message.type === "inlineEditEnded" &&
       typeof (data as { path?: unknown }).path === "string") ||
@@ -897,6 +937,16 @@ export function isValCanvasStudioMessage(
       typeof edit.requestId === "string" &&
       Array.isArray(edit.candidates) &&
       edit.candidates.every(isInlineEditCandidate)
+    );
+  }
+  if (message.type === "textFields") {
+    const fields = data as Record<string, unknown>;
+    return (
+      typeof fields.editing === "boolean" &&
+      Array.isArray(fields.editable) &&
+      fields.editable.every(isInlineEditCandidate) &&
+      Array.isArray(fields.empty) &&
+      fields.empty.every((path) => typeof path === "string")
     );
   }
   if (message.type === "applyInlineEdit") {

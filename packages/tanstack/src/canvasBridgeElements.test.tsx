@@ -1,10 +1,12 @@
 /**
  * @jest-environment jsdom
  */
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import {
+  EMPTY_TEXT_ATTRIBUTE,
   VAL_CANVAS_MESSAGE,
   type ValCanvasPageMessage,
+  type ValCanvasStudioMessage,
 } from "@valbuild/shared/internal";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 
@@ -123,5 +125,79 @@ describe("the canvas bridge reporting what is on the page", () => {
     );
 
     expect(reportedPaths()).toEqual([SHOWN, SHARED, EMPTIED]);
+  });
+
+  /**
+   * And an emptied TEXT, while Select is on, is given a line of room so it
+   * can still be pointed at: an emptied heading has no height, and nothing
+   * of no height can be clicked. Only what the Studio says is an empty text
+   * (`textFields`), never what is empty by nature, and never with Select off.
+   */
+  describe("an emptied text, while Select is on", () => {
+    const tell = (message: ValCanvasStudioMessage) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: message,
+            source: window.parent,
+            origin: window.location.origin,
+          }),
+        );
+      });
+    const emptyTexts = (empty: string[]) =>
+      tell({
+        val: VAL_CANVAS_MESSAGE,
+        type: "textFields",
+        editing: false,
+        editable: [],
+        empty,
+      });
+    const stylesheet = () =>
+      Array.from(document.querySelectorAll("style"))
+        .map((style) => style.textContent)
+        .join("\n");
+
+    it("is given room while Select is on, and has it taken away after", () => {
+      const { container } = render(
+        <>
+          <h1 data-val-path={EMPTIED} />
+          <img data-val-path={SHARED} alt="" />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      const heading = container.querySelector("h1");
+      const image = container.querySelector("img");
+      emptyTexts([EMPTIED, SHARED]);
+      // Select is off: the page is as it was built.
+      expect(heading?.hasAttribute(EMPTY_TEXT_ATTRIBUTE)).toBe(false);
+      expect(stylesheet()).not.toContain(EMPTY_TEXT_ATTRIBUTE);
+
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      expect(heading?.getAttribute(EMPTY_TEXT_ATTRIBUTE)).toBe("block");
+      expect(stylesheet()).toContain(EMPTY_TEXT_ATTRIBUTE);
+      // An image is empty by nature, whatever field is on it.
+      expect(image?.hasAttribute(EMPTY_TEXT_ATTRIBUTE)).toBe(false);
+      // Still reported, so still in the column.
+      expect(reportedPaths()).toContain(EMPTIED);
+
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: false });
+      expect(heading?.hasAttribute(EMPTY_TEXT_ATTRIBUTE)).toBe(false);
+      expect(stylesheet()).not.toContain(EMPTY_TEXT_ATTRIBUTE);
+    });
+
+    it("only when the Studio says the field is an empty text", () => {
+      const { container } = render(
+        <>
+          <div data-val-path={EMPTIED} />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      emptyTexts([]);
+      // A spacer showing a field that is not an empty text.
+      expect(
+        container.querySelector("div")?.hasAttribute(EMPTY_TEXT_ATTRIBUTE),
+      ).toBe(false);
+    });
   });
 });

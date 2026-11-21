@@ -164,6 +164,7 @@ import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useBuildEpoch } from "./canvas/useServedBuild";
 import { useCanvasInlineEdit } from "./canvas/useCanvasInlineEdit";
+import { useCanvasTextFields } from "./canvas/useCanvasTextFields";
 import {
   CanvasInlineRichTextToolbar,
   CanvasInlineToolbarLayer,
@@ -1248,9 +1249,14 @@ function ValShellBody({
    * `useCanvasInlineEdit`.
    */
   const [selectMode, setSelectMode] = useSelectModePreference();
-  const inlineEdit = useCanvasInlineEdit({
-    enabled: selectMode === "edit" && pendingChangesLoaded,
-  });
+  const inlineEditEnabled = selectMode === "edit" && pendingChangesLoaded;
+  const inlineEdit = useCanvasInlineEdit({ enabled: inlineEditEnabled });
+  /*
+   * What the page is told of its texts ahead of a click: so that a click
+   * on one starts the edit in the click, and an emptied one stays
+   * pointable. See `canvasTextFields.ts`.
+   */
+  const textFields = useCanvasTextFields(canvasPaths, inlineEditEnabled);
   const offerInlineEdit = inlineEdit.offer;
   const inlineEditRequest = inlineEdit.request;
   const inlineEditingPath = inlineEdit.editingPath;
@@ -1392,6 +1398,7 @@ function ValShellBody({
         onInlineEditSelection={onInlineEditSelection}
         onInlineEditPlace={onInlineEditPlace}
         onInlineEditStarted={onInlineEditStarted}
+        textFields={textFields}
         onInlineEdit={onInlineEdit}
         onInlineEditEnded={onInlineEditEnded}
         onInlineEditUnavailable={(requestId) => {
@@ -1471,6 +1478,7 @@ function ValShellBody({
     onInlineEdit,
     onInlineEditEnded,
     takeUnavailableInlineEdit,
+    textFields,
   ]);
 
   /**
