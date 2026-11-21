@@ -4,6 +4,7 @@ import {
   validateInitializers,
   evaluateExpression,
   findObjectPropertyAssignment,
+  findObjectPropertyAssignmentToRemove,
   ValSyntaxErrorTree,
   shallowValidateExpression,
 } from "./syntax";
@@ -167,7 +168,7 @@ export function removeValJsonEntry(
         );
       }
       return pipe(
-        findObjectPropertyAssignment(recordNode, key),
+        findObjectPropertyAssignmentToRemove(recordNode, key),
         result.flatMap(
           (
             assignment: ts.PropertyAssignment | undefined,
@@ -574,7 +575,7 @@ function removeFromNode(
     );
   } else if (ts.isObjectLiteralExpression(node)) {
     return pipe(
-      findObjectPropertyAssignment(node, key),
+      findObjectPropertyAssignmentToRemove(node, key),
       result.flatMap(
         (
           assignment: ts.PropertyAssignment | undefined,

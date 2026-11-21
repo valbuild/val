@@ -69,4 +69,28 @@ describe("removeValJsonEntry", () => {
     const res = removeValJsonEntry(parse(MODULE), [], "/blog/missing");
     expect(result.isErr(res)).toBe(true);
   });
+
+  test("refuses an entry in a record that spreads another into it", () => {
+    // `shared` may have a "/blog/hello" of its own: removing this one would
+    // delete its JSON file and bring the spread's entry back on reload.
+    const res = removeValJsonEntry(
+      parse(
+        MODULE.replace(
+          `"/blog/hello": c.json(`,
+          `...shared,\n    "/blog/hello": c.json(`,
+        ),
+      ),
+      [],
+      "/blog/hello",
+    );
+    expect(res).toEqual(
+      result.err(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            `Cannot remove "/blog/hello" from an object that spreads another into it`,
+          ),
+        }),
+      ),
+    );
+  });
 });

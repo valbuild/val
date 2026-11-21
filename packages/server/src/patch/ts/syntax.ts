@@ -218,26 +218,98 @@ export function evaluateExpression(
   }
 }
 
+/**
+ * Finds the property `key` is written as in an object literal, for an edit to
+ * write into.
+ *
+ * An object may spread another into itself (`{ ...noMedia, code: null }`): the
+ * module evaluates it, so the value reads fine, and an edit to a key written
+ * out AFTER every spread can go ahead - that property is the one that wins.
+ * What cannot is an edit to a key a spread might supply or override, since we
+ * would be writing a value the module does not end up with. Those are
+ * refused, naming the spread, so the author knows which line to write out.
+ */
 export function findObjectPropertyAssignment(
   value: ts.ObjectLiteralExpression,
   key: string,
 ): result.Result<LiteralPropertyAssignment | undefined, ValSyntaxErrorTree> {
+  const spreads = value.properties.filter(ts.isSpreadAssignment);
   return pipe(
-    validateObjectProperties(value.properties),
-    result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) => {
+    validateObjectProperties(
+      value.properties.filter((property) => !ts.isSpreadAssignment(property)),
+    ),
+    result.flatMap((assignments: readonly LiteralPropertyAssignment[]) => {
       const matchingAssignments = assignments.filter(
         (assignment) => assignment.name.text === key,
       );
-      if (matchingAssignments.length === 0) return result.ok(undefined);
       if (matchingAssignments.length > 1) {
         return result.err(
           new ValSyntaxError(`Object key "${key}" is ambiguous`, value),
         );
       }
       const [assignment] = matchingAssignments;
+      if (assignment === undefined) {
+        if (spreads.length > 0) {
+          return result.err(
+            new ValSyntaxError(
+              `Cannot edit "${key}": it is not written out in this object, so it may come from ${spreadNames(spreads)}. Write "${key}" out after the spread to make it editable`,
+              spreads[spreads.length - 1],
+            ),
+          );
+        }
+        return result.ok(undefined);
+      }
+      const overriding = spreads.filter(
+        (spread) => spread.pos > assignment.pos,
+      );
+      if (overriding.length > 0) {
+        return result.err(
+          new ValSyntaxError(
+            `Cannot edit "${key}": ${spreadNames(overriding)} comes after it and may override it. Move "${key}" after the spread to make it editable`,
+            assignment,
+          ),
+        );
+      }
       return result.ok(assignment);
     }),
   );
+}
+
+/**
+ * Finds the property `key` is written as, for a REMOVE: stricter than
+ * {@link findObjectPropertyAssignment}, because removing a key from an object
+ * that spreads another into it is refused outright. The key's own property may
+ * be all that hides a value the spread supplies, and removing it would bring
+ * that value back - and for a `.jsonValues()` entry, delete its file as well.
+ *
+ * Every remove goes through this, so the two that exist (a value, and a
+ * `.jsonValues()` entry) cannot disagree about it.
+ */
+export function findObjectPropertyAssignmentToRemove(
+  value: ts.ObjectLiteralExpression,
+  key: string,
+): result.Result<LiteralPropertyAssignment | undefined, ValSyntaxErrorTree> {
+  const spreads = value.properties.filter(ts.isSpreadAssignment);
+  if (spreads.length > 0) {
+    return result.err(
+      new ValSyntaxError(
+        `Cannot remove "${key}" from an object that spreads another into it: ${spreadNames(spreads)} may have a "${key}" of its own, and removing this one would bring it back`,
+        value,
+      ),
+    );
+  }
+  return findObjectPropertyAssignment(value, key);
+}
+
+function spreadNames(spreads: readonly ts.SpreadAssignment[]): string {
+  // Not `getText()`: it needs parent pointers, and the parsers here do not set them.
+  return spreads
+    .map((spread) =>
+      ts.isIdentifier(spread.expression)
+        ? `"...${spread.expression.text}"`
+        : "a spread",
+    )
+    .join(", ");
 }
 
 export function validateInitializers(
