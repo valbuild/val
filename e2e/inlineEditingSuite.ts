@@ -238,6 +238,99 @@ export function defineInlineEditingSuite(): void {
           .toBe(JSON.stringify("Blog 1 quickly typed text"));
       });
 
+      test.describe("when the page's copy of a text is out of date", () => {
+        /*
+         * The page usually starts an edit in the click, from what the Studio
+         * told it the texts hold (`textFields`). When that is out of date --
+         * an edit a moment ago, still on its way -- it asks the Studio as
+         * before and holds the keys pressed until the answer. That race is
+         * not something a test can win on purpose, so the page is made to
+         * have an out-of-date copy: in the preview frame, before the bridge
+         * hears it, every value the Studio says is changed.
+         */
+        test.beforeEach(async ({ page }) => {
+          await page.addInitScript(() => {
+            if (window.parent === window) return;
+            const MARK = "__valStale";
+            window.addEventListener(
+              "message",
+              (event: MessageEvent) => {
+                const data: unknown = event.data;
+                if (
+                  typeof data !== "object" ||
+                  data === null ||
+                  Reflect.get(data, "type") !== "textFields" ||
+                  Reflect.get(data, MARK) === true
+                ) {
+                  return;
+                }
+                event.stopImmediatePropagation();
+                const editable: unknown = Reflect.get(data, "editable");
+                const stale = {
+                  ...data,
+                  [MARK]: true,
+                  editable: Array.isArray(editable)
+                    ? editable.map((candidate: unknown) =>
+                        typeof candidate === "object" && candidate !== null
+                          ? {
+                              ...candidate,
+                              value:
+                                Reflect.get(candidate, "kind") === "string"
+                                  ? "out of date"
+                                  : [],
+                            }
+                          : candidate,
+                      )
+                    : editable,
+                };
+                window.dispatchEvent(
+                  new MessageEvent("message", {
+                    data: stale,
+                    origin: event.origin,
+                    source: event.source,
+                  }),
+                );
+              },
+              { capture: true },
+            );
+          });
+        });
+
+        test("the keys pressed while the Studio is asked go into the text once it starts", async ({
+          page,
+          request,
+        }) => {
+          const preview = await openBlog(page, "edit");
+          await preview.locator("h1").click();
+          await page.keyboard.press("End");
+          await page.keyboard.type(" held and replayed");
+          const copy = inlineEditor(preview);
+          await expect(copy).toHaveText("Blog 1 held and replayed");
+          await expect(copy).toBeFocused();
+          await expect
+            .poll(() => written(request, [BLOG, "title"]))
+            .toBe(JSON.stringify("Blog 1 held and replayed"));
+        });
+
+        test("...and are dropped, typed nowhere, when the field opens in the column instead", async ({
+          page,
+          request,
+        }) => {
+          const preview = await openBlog(page, "edit");
+          // A name inside a sentence: a string, so the page holds the keys
+          // and asks, and not one it can type in where it is.
+          await preview.getByText(/^Author: /).click();
+          await page.keyboard.type("dropped");
+          await expect(page).toHaveURL(/[?&]field=[^&]*authors[^&]*name/);
+          await expect(inlineEditor(preview)).toHaveCount(0);
+          // Opening the field may take the canvas to the authors' page:
+          // the keys are on neither, and nothing was written with them.
+          await expect(preview.getByText(/dropped/)).toHaveCount(0);
+          const patches = await request.get("/api/val/patches");
+          expect(await patches.text()).not.toContain("dropped");
+        });
+      });
+
       test("a text left empty can be clicked again, and typed back in", async ({
         page,
         request,
