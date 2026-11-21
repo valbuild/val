@@ -660,7 +660,9 @@ leak warning checks (`e2e/tanstack/leakWarning.spec.ts`); and, EXPERIMENTAL,
 inside a component and a single linked object, all rendered by
 `ValComponentEditor` (`_site.landing.tsx`), arranged on the page in the
 Studio's canvas (`e2e/tanstack/componentEditor.spec.ts`), with a preview
-route of their own in `src/routes/val-preview.tsx`. What it does NOT cover, and why: `.remote()` on media (and
+route of their own in `src/routes/val-preview.tsx`, which the Studio's
+Components view (`/val/components`, `e2e/tanstack/componentsView.spec.ts`)
+renders them through, one of them named with `.component(load, { name })`. What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind

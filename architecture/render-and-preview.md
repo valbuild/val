@@ -248,9 +248,60 @@ tags the elements with `data-val-path`.
 used to carry a Preview / Content / Split switch with the component in an
 iframe beside the fields, sized by `maxWidth`, `aspectRatio` and
 `defaultView` on `.component(...)`. All of that was removed: the canvas
-already shows the component on the page, and components will get a UI of
-their own for being looked at. The preview route, the bridge and `example`
-stay for that UI, and nothing in the Studio calls them today.
+already shows the component on the page, and components have a view of
+their own for being looked at, below.
+
+### The Components view (`/val/components`)
+
+Where the preview route is used. A component is looked at across the
+project, not inside one page, so it is a page of the Studio's own - a route
+like History, linked from the rail when the project links any component
+(`hasLinkedComponents`), and the whole editor column, with the preview pane
+closed (`editorOverrideWide`): it renders previews of its own, and the
+site's page beside them would only take their room. The Assistant still
+opens beside it, which is the point of the third part below.
+
+- **The board**: every component, each rendered as it is first used, at
+  one screen width (phone, tablet, desktop).
+- **One component**: stepped through use by use (the arrows, `←` / `→`,
+  and a list of every use named by its preview or its first written string,
+  and the page it is on), or every use side by side; its `example`; the
+  fields of the use on screen beside it (`Module` at its path), so an edit
+  is made where its effect is seen, and a click on content in the frame
+  scrolls to its field.
+- **The assistant**: a request about the component, or one of a few common
+  ones, sent through `askAssistant` with what it needs to find it
+  (`componentAssistantPrompt`): where the schemas link it - the module, and
+  the schema path with `*` for an item of a list, which is where its
+  `.component(() => import(...))` names the file - every use, and the one
+  on screen. The conversation is the Assistant pane's, so code mode,
+  approvals and the rest are what they are everywhere else.
+
+What the view shows is in the query (`componentsUrlState.ts`: `component`,
+`use`, `example`, `layout`, `screen`), so "the third hero, on a phone" is a
+link; `ROUTE_OWNED_PARAMS` drops them when navigating anywhere else.
+
+**Which component a value is** is read off the serialized schemas and the
+sources (`collectComponents`): the marker says an object is linked, the
+source says how many items a list has and which variant of a union each
+one is. A component's identity is a hash of its serialized object schema,
+because the component itself is a closure the Studio never sees - so the
+same `hero` reused in two modules is one component with the uses of both,
+and a link to it stops resolving when its fields change. Its name is
+`.component(load, { name })` when given (plain data, so it serializes);
+else its literal field (`type: s.literal("hero")` is "Hero"); else the field
+it is used in, made singular (`cards` is "Card"). Uses are found only in
+sources that are loaded, so a `.jsonValues()` entry the Studio has not
+fetched has none yet.
+
+**A component nothing uses cannot be previewed**, example or not: the route
+finds the component through the value at a path, and there is no path. It
+is listed, with where it is linked, and says so.
+
+**It frames the served site, not a quick preview.** In local development
+the dev server's own reload makes a code change show up; a code-mode quick
+preview (`?val_quick=`) is not passed to these frames yet, and Reload
+(`reloadKey`) loads them again after a build.
 
 `component` is a lazy `import()` and never the component. Val evaluates
 `.val.ts` files outside of the app — `val validate` and the language server in

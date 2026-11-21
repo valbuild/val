@@ -69,6 +69,8 @@ export const noteSection = s
   })
   .describe("A boxed note, with a design-system component behind it")
   .component(() => import("../components/Callout"), {
+    // What the Studio's Components view calls it, rather than "Note"
+    name: "Callout",
     props: (note) => ({
       heading: note.title,
       body: note.text,
