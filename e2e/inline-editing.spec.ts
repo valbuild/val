@@ -132,9 +132,33 @@ test.describe("the floating controls, on a richtext with headings", () => {
     await expect(copy).toBeFocused();
     await page.keyboard.press("End");
     await page.keyboard.type(" Typed after.");
-    await expect
-      .poll(() => written(request, body))
-      .toContain("rendered inline. Typed after.");
+    /*
+     * In the heading, and nothing else of it changed. Not "after its last
+     * word": End goes to the end of the line the caret is on, and where a
+     * heading wraps depends on the fonts of the machine this runs on.
+     */
+    const heading = async () => {
+      const value: unknown = JSON.parse((await written(request, body)) ?? "[]");
+      const text = (node: unknown): string => {
+        if (typeof node === "string") return node;
+        if (typeof node !== "object" || node === null) return "";
+        const children: unknown = Reflect.get(node, "children");
+        return Array.isArray(children) ? children.map(text).join("") : "";
+      };
+      const h3 = Array.isArray(value)
+        ? value.find(
+            (node: unknown) =>
+              typeof node === "object" &&
+              node !== null &&
+              Reflect.get(node, "tag") === "h3",
+          )
+        : undefined;
+      return text(h3);
+    };
+    await expect.poll(heading).toContain(" Typed after.");
+    expect((await heading()).replace(" Typed after.", "")).toBe(
+      "The blocks below are one array of a discriminated union, rendered inline.",
+    );
   });
 });
 

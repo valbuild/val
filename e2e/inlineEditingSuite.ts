@@ -376,6 +376,9 @@ export function defineInlineEditingSuite(): void {
           .poll(() => written(request, [BLOG, "title"]))
           .toBe(JSON.stringify("Blog 1 again"));
         await page.keyboard.press("Enter");
+        // The copy stays until the page shows what was typed: one headline
+        // again before it is read.
+        await expect(inlineEditor(preview)).toHaveCount(0);
         await expect(preview.locator("h1")).toHaveText("Blog 1 again");
       });
 
