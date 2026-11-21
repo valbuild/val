@@ -262,7 +262,8 @@ function installCensus() {
     child: Fiber | null;
     sibling: Fiber | null;
     memoizedProps: unknown;
-    memoizedState: unknown;
+    /** For a function component: its hooks, as a list. */
+    memoizedState: Hook | null;
     dependencies: { firstContext: ContextDependency | null } | null;
     _debugHookTypes?: string[] | null;
   };
@@ -292,25 +293,25 @@ function installCensus() {
   const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null;
 
+  /** A component function's name: the one it was given, else its own. */
+  function functionName(fn: (...args: never[]) => unknown): string {
+    const displayName: unknown = Reflect.get(fn, "displayName");
+    return typeof displayName === "string" && displayName !== ""
+      ? displayName
+      : fn.name || "(anonymous)";
+  }
+
   function nameOf(fiber: Fiber): string {
     const type = fiber.type;
     if (typeof type === "function") {
-      return (
-        (Reflect.get(type, "displayName") as string | undefined) ||
-        type.name ||
-        "(anonymous)"
-      );
+      return functionName(type);
     }
     if (isRecord(type)) {
       const displayName = type.displayName;
       if (typeof displayName === "string") return displayName;
       const inner = type.render ?? type.type;
       if (typeof inner === "function") {
-        return (
-          (Reflect.get(inner, "displayName") as string | undefined) ||
-          inner.name ||
-          "(anonymous)"
-        );
+        return functionName(inner);
       }
       if (isRecord(inner) && typeof inner.render === "function") {
         return inner.render.name || "(anonymous)";
@@ -379,7 +380,7 @@ function installCensus() {
       }
     }
     let count = 0;
-    let hook = fiber.memoizedState as Hook | null;
+    let hook = fiber.memoizedState;
     while (hook) {
       count += 1;
       hook = hook.next;
@@ -404,8 +405,8 @@ function installCensus() {
       fiber.tag === SIMPLE_MEMO
     ) {
       const names = slotNames(fiber);
-      let hook = fiber.memoizedState as Hook | null;
-      let before = previous.memoizedState as Hook | null;
+      let hook = fiber.memoizedState;
+      let before = previous.memoizedState;
       let slot = 0;
       while (hook && before) {
         // Only what can schedule a render: a state, a reducer, a store

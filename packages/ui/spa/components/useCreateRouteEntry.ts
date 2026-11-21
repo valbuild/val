@@ -4,16 +4,14 @@ import { JSONValue } from "@valbuild/core/patch";
 import { useAddModuleFilePatch } from "./ValProvider";
 import { useSchemas } from "./ValFieldProvider";
 import { useValSystem } from "../stores/react/SystemContext";
-import {
-  sameDeep,
-  sameItems,
-  useStoreValue,
-} from "../stores/react/useStoreValue";
+import { useStoreValue } from "../stores/react/useStoreValue";
 
 import {
   CreatableRouter,
+  type CreatableRouters,
+  type KeptCreatableRouters,
   collectCreatableRouters,
-  routerModulesOf,
+  keepCreatableRouters,
 } from "./creatableRouters";
 import { useEmptyOf } from "../hooks/useEmptyOf";
 
@@ -35,10 +33,17 @@ export function useCreatableRouters(): {
   const schemas = useSchemas();
   const schemaData =
     "data" in schemas && schemas.data !== undefined ? schemas.data : null;
-  const routerPaths = useMemo(
-    () => (schemaData === null ? NO_ROUTERS : routerModulesOf(schemaData)),
-    [schemaData],
-  );
+  // The modules whose source the answer is made of: the routers it lists.
+  const routerPaths = useMemo(() => {
+    if (schemaData === null) return NO_ROUTERS;
+    const { pageRouters, externalRouter } = collectCreatableRouters(
+      schemaData,
+      NO_SOURCES,
+    );
+    return pageRouters
+      .concat(externalRouter === null ? [] : [externalRouter])
+      .map((router) => router.moduleFilePath);
+  }, [schemaData]);
   /*
    * The routers' own sources, not every module's, and the answer before
    * while it says the same: a router's keys move when a page is added,
@@ -47,10 +52,7 @@ export function useCreatableRouters(): {
    * and this is read by the shell and by every route field, which rendered
    * for each write to be handed the same routers.
    */
-  const kept = useRef<{
-    sources: unknown[];
-    routers: CreatableRouters;
-  } | null>(null);
+  const kept = useRef<KeptCreatableRouters | null>(null);
   const subscribe = useCallback(
     (onChange: () => void) => {
       if (val === null) return () => {};
@@ -64,39 +66,25 @@ export function useCreatableRouters(): {
   );
   const read = useCallback((): CreatableRouters => {
     if (val === null || schemaData === null) return NO_CREATABLE_ROUTERS;
-    const sources = routerPaths.map((moduleFilePath) =>
-      val.system.sourceStore.moduleSource(moduleFilePath),
+    kept.current = keepCreatableRouters(
+      kept.current,
+      schemaData,
+      routerPaths,
+      routerPaths.map((moduleFilePath) =>
+        val.system.sourceStore.moduleSource(moduleFilePath),
+      ),
     );
-    const previous = kept.current;
-    if (previous !== null && sameItems(previous.sources, sources)) {
-      return previous.routers;
-    }
-    const byModule: Record<ModuleFilePath, unknown> = {};
-    routerPaths.forEach((moduleFilePath, index) => {
-      byModule[moduleFilePath] = sources[index];
-    });
-    const routers = collectCreatableRouters(schemaData, byModule);
-    kept.current = {
-      sources,
-      routers:
-        previous !== null && sameDeep(previous.routers, routers)
-          ? previous.routers
-          : routers,
-    };
     return kept.current.routers;
   }, [val, schemaData, routerPaths]);
   return useStoreValue(subscribe, read, { version });
 }
 
-type CreatableRouters = {
-  pageRouters: CreatableRouter[];
-  externalRouter: CreatableRouter | null;
-};
 const NO_CREATABLE_ROUTERS: CreatableRouters = {
   pageRouters: [],
   externalRouter: null,
 };
 const NO_ROUTERS: ModuleFilePath[] = [];
+const NO_SOURCES: Record<ModuleFilePath, unknown> = {};
 
 /**
  * Creates an entry in a router module and returns its key.

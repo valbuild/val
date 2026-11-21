@@ -839,7 +839,7 @@ export function ValProvider({
     };
   }, [system]);
 
-  /** See {@link ValContextValue.serverPublishingPatchIds}. */
+  /** See {@link ValHoldsValue.publishingPatchIds}. */
   const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
   const subscribeToChain = useCallback(
     (onChange: () => void) =>
@@ -3075,7 +3075,7 @@ export function usePublishingPatchIds(): ReadonlySet<string> {
 
 /**
  * The changes a failed publish holds back: pending, and not ready to publish.
- * See {@link ValContextValue.serverHeldBackPatchIds}.
+ * See {@link ValHoldsValue.heldBackPatchIds}.
  */
 export function useHeldBackPatchIds(): ReadonlySet<string> {
   const { publishJobsState } = useContext(ValContext);

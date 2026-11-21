@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { act, renderHook } from "@testing-library/react";
-import { useCallback } from "react";
+import { useCallback, useLayoutEffect } from "react";
 import {
   createValueStore,
   sameDeep,
@@ -140,6 +140,20 @@ describe("useLateStoreValue", () => {
     });
     expect(reads).toBe(readsBefore + 2);
     expect(renders).toBe(rendersBefore + 1);
+  });
+
+  test("sees a move made between its first read and its subscription", () => {
+    const store = createValueStore(1);
+    const read = () => store.get();
+    const hook = renderHook(() => {
+      // A layout effect runs after the render that read the store and before
+      // the effect that subscribes to it: nobody is listening yet.
+      useLayoutEffect(() => {
+        store.set(2);
+      }, []);
+      return useLateStoreValue(store.subscribe, read);
+    });
+    expect(hook.result.current).toBe(2);
   });
 
   test("drops a read that was scheduled when its reader is gone", () => {

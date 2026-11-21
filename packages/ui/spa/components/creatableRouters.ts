@@ -9,6 +9,7 @@ import {
   RoutePattern,
   parseRoutePattern,
 } from "@valbuild/shared/internal";
+import { sameDeep, sameItems } from "../stores/react/useStoreValue";
 
 /** The id `s.router(externalPageRouter, ...)` serializes to. */
 const EXTERNAL_ROUTER_ID = "external-url-router";
@@ -101,18 +102,6 @@ function routePatternSourceOf(moduleFilePath: ModuleFilePath): string {
  * Pure, so it can be tested without a provider tree: `useCreatableRouters` is
  * only the memoised React wrapper around this.
  */
-/** The modules {@link collectCreatableRouters} reads the source of. */
-export function routerModulesOf(
-  schemas: Record<ModuleFilePath, SerializedSchema>,
-): ModuleFilePath[] {
-  const routers: ModuleFilePath[] = [];
-  for (const moduleFilePathS in schemas) {
-    const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    if (isRouterSchema(schemas[moduleFilePath])) routers.push(moduleFilePath);
-  }
-  return routers;
-}
-
 export function collectCreatableRouters(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, unknown>,
@@ -150,4 +139,58 @@ export function collectCreatableRouters(
   }
   pageRouters.sort((a, b) => a.patternString.localeCompare(b.patternString));
   return { pageRouters, externalRouter };
+}
+
+/** What {@link collectCreatableRouters} answers. */
+export type CreatableRouters = {
+  pageRouters: CreatableRouter[];
+  externalRouter: CreatableRouter | null;
+};
+
+/** An answer of {@link keepCreatableRouters}, with what it was made of. */
+export type KeptCreatableRouters = {
+  schemas: Record<ModuleFilePath, SerializedSchema>;
+  /** The source of each of `routerPaths`, in their order. */
+  sources: unknown[];
+  routers: CreatableRouters;
+};
+
+/**
+ * {@link collectCreatableRouters}, with the answer before handed back while
+ * it is the same one: for a reader that is asked on every source change in
+ * the project and must not hand its own readers a new object for each.
+ *
+ * Not collected again while the schemas and every router's source are the
+ * objects they were. BOTH: a router's key description, its parameters and
+ * its schemes are read off the schemas, and code can change those and leave
+ * every source as it was. And when they are collected again and say the same
+ * -- a page being typed in is an entry of its router, so the router's source
+ * is a new object for every write -- the routers before are the ones kept.
+ */
+export function keepCreatableRouters(
+  previous: KeptCreatableRouters | null,
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+  routerPaths: readonly ModuleFilePath[],
+  sources: unknown[],
+): KeptCreatableRouters {
+  if (
+    previous !== null &&
+    previous.schemas === schemas &&
+    sameItems(previous.sources, sources)
+  ) {
+    return previous;
+  }
+  const byModule: Record<ModuleFilePath, unknown> = {};
+  routerPaths.forEach((moduleFilePath, index) => {
+    byModule[moduleFilePath] = sources[index];
+  });
+  const routers = collectCreatableRouters(schemas, byModule);
+  return {
+    schemas,
+    sources,
+    routers:
+      previous !== null && sameDeep(previous.routers, routers)
+        ? previous.routers
+        : routers,
+  };
 }

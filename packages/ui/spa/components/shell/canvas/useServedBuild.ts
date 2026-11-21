@@ -107,6 +107,17 @@ export function useSettledProjectSeq(
 ): number | null {
   const seq = useProjectSeq(watch);
   const [settled, setSettled] = useState(seq);
+  /*
+   * Starting to follow `seq` is not `seq` moving: where it is then is where
+   * it is settled, at once, in the render that starts. Left to the timer, a
+   * reader would see `null` become a number half a second after it started
+   * watching and take it for a save by someone else.
+   */
+  const [watching, setWatching] = useState(watch);
+  if (watching !== watch) {
+    setWatching(watch);
+    setSettled(seq);
+  }
   useEffect(() => {
     if (seq === settled) return;
     const timer = setTimeout(() => setSettled(seq), settleMs);

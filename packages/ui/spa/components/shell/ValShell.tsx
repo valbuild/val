@@ -27,6 +27,7 @@ import {
 } from "./planLimits/useStudioAccess";
 import { useResumeRefusedSaves } from "./planLimits/useResumeRefusedSaves";
 import { usePlanNotice } from "./planLimits/usePlanNotice";
+import { noticeCountsChanges } from "./planLimits/planNotices";
 import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
@@ -434,9 +435,11 @@ const ValShellBody = memo(function ValShellBody({
    * bar. Each with the next step beside it. See `planLimits/planNotices.ts`.
    */
   const project = useValConfig()?.project;
-  // Counted only under a refusal, which is the one notice that says how
-  // many changes are waiting: the count moves with every field write.
-  const changesWaiting = useChangesToReview(studioAccess.refusal !== null);
+  // Counted only while the one notice that says how many changes are waiting
+  // can be showing: the count moves with every field write.
+  const changesWaiting = useChangesToReview(
+    noticeCountsChanges(studioAccess.access, studioAccess.refusal),
+  );
   const plan = usePlanNotice(studioAccess, {
     project: project?.split("/")[1] || null,
     changesWaiting,

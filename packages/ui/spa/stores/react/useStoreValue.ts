@@ -99,6 +99,10 @@ export function useLateStoreValue<T>(
     const unsubscribe = subscribe(() => {
       if (timer === null) timer = setTimeout(refresh, 0);
     });
+    // The store may have moved between the render that read it and this
+    // effect, with nobody listening yet: looked at once more now that
+    // someone is. `useSyncExternalStore` does the same for its readers.
+    refresh();
     return () => {
       unsubscribe();
       if (timer !== null) clearTimeout(timer);
