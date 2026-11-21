@@ -244,6 +244,11 @@ function DeviceSwitch({
   );
 }
 
+/** How narrow a card on a board may get: wider for a wider screen, so a thumbnail stays legible. */
+function cardMinWidth(device: Device): number {
+  return device === "mobile" ? 220 : device === "tablet" ? 320 : 440;
+}
+
 function widthOf(device: Device): number {
   return (
     DEVICES.find((option) => option.device === device)?.width ??
@@ -297,7 +302,7 @@ function Board({
       <ul
         className="grid gap-4 p-4"
         style={{
-          gridTemplateColumns: `repeat(auto-fill, minmax(${device === "mobile" ? 220 : 300}px, 1fr))`,
+          gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth(device)}px, 1fr))`,
         }}
       >
         {components.map((component) => {
@@ -491,7 +496,7 @@ function ComponentDetail({
         <ul
           className="grid gap-4"
           style={{
-            gridTemplateColumns: `repeat(auto-fill, minmax(${state.device === "mobile" ? 220 : 320}px, 1fr))`,
+            gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth(state.device)}px, 1fr))`,
           }}
           data-testid="component-instances"
         >

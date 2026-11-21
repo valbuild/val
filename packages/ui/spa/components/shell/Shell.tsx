@@ -448,6 +448,19 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
+   * The override needs the preview's room as well: it previews things of its
+   * own (the Components view renders every component), and the site's page
+   * beside it would only take room from them. The Assistant still opens
+   * beside it.
+   */
+  editorOverrideWide?: boolean;
+  /**
+   * EXPERIMENTAL: the Components view (`VAL_COMPONENTS_ROUTE`), in the rail,
+   * for a project that links components to its content. Absent otherwise:
+   * an icon that opens an empty view reads as something broken.
+   */
+  components?: { active: boolean; onOpen: () => void };
+  /**
    * The Sketch pane, while a sketchpad is open: one of the workspace's panes,
    * laid out beside Content and the preview by `workspaceLayout`. On a phone,
    * until its pane bar exists, it takes the whole screen as it did.
@@ -740,6 +753,8 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
+  editorOverrideWide = false,
+  components,
   sketchPane,
   canvasPinned = false,
   revealPreview = 0,
@@ -1735,7 +1750,9 @@ export function Shell({
     () => ({
       content: contentOpen,
       // History takes the preview's place: the column is there either way.
-      preview: (isCanvasOpen && canCanvas) || history !== undefined,
+      preview:
+        !(editorOverride && editorOverrideWide) &&
+        ((isCanvasOpen && canCanvas) || history !== undefined),
       sketch: sketchOpen,
       chat: aiEnabled && chatOpen,
     }),
@@ -1747,6 +1764,8 @@ export function Shell({
       sketchOpen,
       aiEnabled,
       chatOpen,
+      editorOverride,
+      editorOverrideWide,
     ],
   );
   /** The widths the columns were dragged to: see `ColumnDivider`. */
@@ -1967,6 +1986,7 @@ export function Shell({
         >
           <PageWorkspace
             breakpoint={breakpoint}
+            contentFullWidth={Boolean(editorOverride) && editorOverrideWide}
             page={canCanvas ? canvasPage : undefined}
             renderCanvas={canCanvas ? renderCanvas : undefined}
             canvasPaths={canCanvas ? canvasPaths : undefined}
@@ -2157,6 +2177,7 @@ export function Shell({
             accountError={accountError}
             logo={data.logo}
             isLoading={isLoading}
+            components={components}
           />
         )}
 

@@ -97,6 +97,7 @@ import {
   VAL_ERRORS_ROUTE,
   VAL_HOME_ROUTE,
   VAL_HISTORY_ROUTE,
+  VAL_COMPONENTS_ROUTE,
   VAL_REVIEW_ROUTE,
   scrollToStudioPath,
   useNavigation,
@@ -110,7 +111,7 @@ import { CommitList } from "../../history/CommitList";
 import { useStudioSketchpads } from "../sketchpad/useStudioSketchpads";
 import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
-import { useValConfig } from "../ValFieldProvider";
+import { useSchemas, useValConfig } from "../ValFieldProvider";
 import { RestoreControls } from "../../history/RestoreControls";
 import { RestoreModeProvider } from "../../history/RestoreModeContext";
 import { useDirectedRestore } from "../../history/useDirectedRestore";
@@ -172,6 +173,8 @@ import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
+import { ComponentsView } from "../componentsView/ComponentsView";
+import { hasLinkedComponents } from "../../utils/collectComponents";
 import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
 
 /**
@@ -1698,12 +1701,21 @@ function ValShellBody({
    * selected" for it, which is why the header's link appeared to go nowhere.
    * It is a real module and renders like any other record, so it renders.
    */
+  /** Whether the project links any components: what puts them in the rail. */
+  const schemasForComponents = useSchemas();
+  const hasComponents = useMemo(
+    () =>
+      schemasForComponents.status === "success" &&
+      hasLinkedComponents(schemasForComponents.data),
+    [schemasForComponents],
+  );
   const unlistedModulePath =
     !navigation.isCompareView &&
     !navigation.isErrorsView &&
     !navigation.isHistoryView &&
     !navigation.isReviewView &&
     !navigation.isAdeptView &&
+    !navigation.isComponentsView &&
     selectionId === null &&
     navigation.currentSourcePath
       ? (navigation.currentSourcePath as SourcePath)
@@ -1734,6 +1746,9 @@ function ValShellBody({
   ) : navigation.isAdeptView ? (
     // Unlinked: see VAL_ADEPT_ROUTE.
     <AdeptView />
+  ) : navigation.isComponentsView ? (
+    // EXPERIMENTAL: see VAL_COMPONENTS_ROUTE.
+    <ComponentsView />
   ) : unlistedModulePath ? (
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
@@ -1918,6 +1933,15 @@ function ValShellBody({
                 : undefined
             }
             editorOverride={overrideEditor}
+            editorOverrideWide={navigation.isComponentsView}
+            components={
+              hasComponents
+                ? {
+                    active: navigation.isComponentsView,
+                    onOpen: () => navigation.navigate(VAL_COMPONENTS_ROUTE),
+                  }
+                : undefined
+            }
             notice={editorNotice}
             floatingNotices={
               saveFailedNotice === null

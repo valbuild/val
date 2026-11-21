@@ -59,6 +59,12 @@ export type PageWorkspaceProps = {
   children: ReactNode;
   breakpoint: ShellBreakpoint;
   /**
+   * Let the column be as wide as its pane, rather than a readable line of
+   * fields: for a view that is not fields (the Components view lays out
+   * previews of its own side by side).
+   */
+  contentFullWidth?: boolean;
+  /**
    * The fields Val found on the page.
    *
    * Drives the fields view and the demo page in Storybook. Absent in the app
@@ -273,6 +279,7 @@ const OPEN_EASE = SLIDE_EASE;
 export function PageWorkspace({
   children,
   breakpoint,
+  contentFullWidth = false,
   page,
   renderCanvas,
   canvasPaths,
@@ -738,8 +745,9 @@ export function PageWorkspace({
         style={{
           // In the middle of the workspace, with the preview switched off,
           // the fields are kept to a width a line of them can be read at.
-          maxWidth:
-            contentPlacement?.kind === "anchor"
+          maxWidth: contentFullWidth
+            ? "none"
+            : contentPlacement?.kind === "anchor"
               ? READABLE_WIDTH + (railPadding !== undefined ? RAIL_WIDTH : 0)
               : CANVAS_MAX_WIDTH,
           ...railPadding,

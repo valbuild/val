@@ -135,6 +135,23 @@ export function collectComponents(
   });
 }
 
+/**
+ * Whether any schema links a component, read off the schemas alone: what
+ * decides whether the Studio offers its Components view at all.
+ */
+export function hasLinkedComponents(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+): boolean {
+  let found = false;
+  for (const schema of Object.values(schemas)) {
+    walkSchema(schema, [], 0, () => {
+      found = true;
+    });
+    if (found) return true;
+  }
+  return false;
+}
+
 type Building = {
   id: string;
   schema: SerializedObjectSchema;
