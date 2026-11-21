@@ -426,4 +426,74 @@ describe("editing a field on the page", () => {
     rendered.unmount();
     expect(onInlineEditPlace).toHaveBeenLastCalledWith(null);
   });
+
+  describe("the page's texts, said ahead of a click", () => {
+    const fields = {
+      editing: true,
+      editable: [{ path: TITLE, kind: "string" as const, value: "Our people" }],
+      empty: [],
+    };
+
+    it("are sent once the page is ready, and again only when they change", () => {
+      const rendered = renderFrame({ ...handlers(), textFields: fields });
+      expect(of("textFields")).toEqual([]);
+      ready(BRIDGE_CAPABILITIES);
+      expect(of("textFields")).toEqual([
+        { val: VAL_CANVAS_MESSAGE, type: "textFields", ...fields },
+      ]);
+      // A re-render with the same texts: nothing new to say.
+      rendered.set({
+        textFields: { ...fields, editable: [...fields.editable] },
+      });
+      expect(of("textFields")).toHaveLength(1);
+      // An edit changed what the title holds.
+      const edited = {
+        ...fields,
+        editable: [{ ...fields.editable[0], value: "Our team" }],
+      };
+      rendered.set({ textFields: edited });
+      expect(of("textFields").at(-1)).toEqual({
+        val: VAL_CANVAS_MESSAGE,
+        type: "textFields",
+        ...edited,
+      });
+      // A new document is told again.
+      ready(BRIDGE_CAPABILITIES);
+      expect(of("textFields")).toHaveLength(3);
+    });
+
+    it("say nothing is a text while Select is off", () => {
+      const rendered = renderFrame({ ...handlers(), textFields: fields });
+      ready(BRIDGE_CAPABILITIES);
+      rendered.set({ textFields: fields, isPicking: false });
+      expect(of("textFields").at(-1)).toEqual({
+        val: VAL_CANVAS_MESSAGE,
+        type: "textFields",
+        editing: false,
+        editable: [],
+        empty: [],
+      });
+    });
+
+    it("an edit the page started on a click is handed on, and stopped when the Studio will not have it", () => {
+      const on = handlers();
+      on.onInlineEditStarted
+        .mockReturnValueOnce(true)
+        .mockReturnValueOnce(false);
+      renderFrame({ ...on, textFields: fields });
+      ready(BRIDGE_CAPABILITIES);
+      const started: ValCanvasPageMessage = {
+        val: VAL_CANVAS_MESSAGE,
+        type: "inlineEditStarted",
+        requestId: null,
+        path: TITLE,
+      };
+      say(started);
+      expect(on.onInlineEditStarted).toHaveBeenLastCalledWith(null, TITLE);
+      expect(of("stopInlineEdit")).toEqual([]);
+      say({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path: TITLE });
+      say(started);
+      expect(of("stopInlineEdit")).toHaveLength(1);
+    });
+  });
 });

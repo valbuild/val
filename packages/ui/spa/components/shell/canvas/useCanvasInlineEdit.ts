@@ -70,7 +70,15 @@ export type CanvasInlineEdit = {
   /** For `CanvasFrame`'s `inlineEditApply`. */
   applied: CanvasInlineEditApplied | null;
   onSelection: (path: SourcePath, selection: InlineSelection | null) => void;
-  onStarted: (requestId: string, path: SourcePath) => void;
+  /**
+   * The page put the caret in `path`: in answer to the request `requestId`,
+   * or -- `null` -- by itself, on a click, from what it was told of its
+   * texts beforehand (`CanvasTextFields`). False when the Studio will not
+   * have that edit after all (Select & edit was turned off on the way, or
+   * the field is no longer one that can be typed in), and the page should be
+   * told to stop.
+   */
+  onStarted: (requestId: string | null, path: SourcePath) => boolean;
   onEdit: (path: SourcePath, value: InlineEditValue) => void;
   onEnded: (path: SourcePath) => void;
   /**
@@ -207,20 +215,49 @@ export function useCanvasInlineEdit({
     [enabled, system],
   );
 
-  const onStarted = useCallback((requestId: string, path: SourcePath) => {
-    const asked = pending.current;
-    if (asked === null || asked.request.requestId !== requestId) return;
-    active.current =
-      asked.request.candidates.find((candidate) => candidate.path === path) ??
-      null;
-    setEditingPath(active.current?.path ?? null);
-    const started = active.current;
+  const begin = useCallback((started: CanvasInlineEditCandidate | null) => {
+    active.current = started;
+    setEditingPath(started?.path ?? null);
     setRichText(
       started !== null && started.kind === "richtext"
         ? { path: started.path, value: started.value, selection: null }
         : null,
     );
   }, []);
+
+  const onStarted = useCallback(
+    (requestId: string | null, path: SourcePath): boolean => {
+      if (requestId === null) {
+        // Started by the page on a click. Asked again here rather than taken
+        // on trust: the page acted on what it was told a moment ago.
+        if (!enabled || system === null) return false;
+        const [started] = inlineEditCandidates(
+          [path],
+          system.sourceStore.allSources(),
+          system.schemaStore.all(),
+        );
+        if (started === undefined) return false;
+        /*
+         * A request still on its way answers a click from before this one,
+         * and the page says it cannot rather than take the caret away: that
+         * answer must not open the old pick in the column. Forgotten, not
+         * withdrawn -- withdrawing tells the page to stop editing, and the
+         * page is editing this.
+         */
+        pending.current = null;
+        begin(started);
+        return true;
+      }
+      const asked = pending.current;
+      if (asked === null || asked.request.requestId !== requestId) return true;
+      begin(
+        asked.request.candidates.find((candidate) => candidate.path === path) ??
+          null,
+      );
+      return true;
+    },
+    [enabled, system, begin],
+  );
 
   const onEdit = useCallback(
     (path: SourcePath, value: InlineEditValue) => {

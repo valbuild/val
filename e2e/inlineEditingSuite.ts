@@ -218,6 +218,74 @@ export function defineInlineEditingSuite(): void {
         ).toHaveAttribute("aria-pressed", "true");
       });
 
+      test("what is typed straight after the click goes into the text, none of it lost", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        // No waiting for the caret between the click and the keys: a
+        // person does not wait either. The edit used to start a round trip
+        // across the frame after the click, and the keys pressed in it --
+        // the End included -- went to the page and were dropped.
+        await preview.locator("h1").click();
+        await page.keyboard.press("End");
+        await page.keyboard.type(" quickly typed text");
+        const copy = inlineEditor(preview);
+        await expect(copy).toHaveText("Blog 1 quickly typed text");
+        await expect(copy).toBeFocused();
+        await expect
+          .poll(() => written(request, [BLOG, "title"]))
+          .toBe(JSON.stringify("Blog 1 quickly typed text"));
+      });
+
+      test("a text left empty can be clicked again, and typed back in", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        const headline = preview.locator("h1");
+        await headline.click();
+        await page.keyboard.press("ControlOrMeta+a");
+        await page.keyboard.press("Backspace");
+        await page.keyboard.press("Enter");
+        await expect(inlineEditor(preview)).toHaveCount(0);
+        await expect
+          .poll(() => written(request, [BLOG, "title"]))
+          .toBe(JSON.stringify(""));
+        await expect(headline).toHaveText("");
+
+        // Empty, the heading has no height of its own; while Select is on it
+        // is given a line, so there is something to point at...
+        const height = async () => (await headline.boundingBox())?.height ?? 0;
+        await expect.poll(height).toBeGreaterThan(0);
+        // ...and only then: with Select off the page is laid out as built.
+        await page
+          .getByRole("button", {
+            name: "Stop selecting and editing on the page",
+          })
+          .click();
+        await expect.poll(height).toBe(0);
+        await page
+          .getByRole("button", { name: "Select and edit on the page" })
+          .click();
+        await expect.poll(height).toBeGreaterThan(0);
+
+        // A plain click, not a forced one: it puts the caret in it.
+        await headline.click();
+        const copy = inlineEditor(preview);
+        await expect(
+          copy,
+          "the caret did not go into the emptied headline",
+        ).toBeFocused();
+        await page.keyboard.type("Blog 1 again");
+        await expect(copy).toHaveText("Blog 1 again");
+        await expect
+          .poll(() => written(request, [BLOG, "title"]))
+          .toBe(JSON.stringify("Blog 1 again"));
+        await page.keyboard.press("Enter");
+        await expect(preview.locator("h1")).toHaveText("Blog 1 again");
+      });
+
       test("Enter and Backspace split and join a richtext's paragraphs", async ({
         page,
         request,

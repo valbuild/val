@@ -332,4 +332,150 @@ describe("the canvas bridge editing a field on the page", () => {
     tell(apply);
     expect(editor()?.querySelector("span")).not.toBeNull();
   });
+
+  describe("a click that starts the edit by itself", () => {
+    /** The Studio saying ahead of a click what the page's texts hold. */
+    const textFields = (
+      editable: Extract<
+        ValCanvasStudioMessage,
+        { type: "textFields" }
+      >["editable"],
+      from?: { source: Window | null; origin: string },
+    ) =>
+      tell(
+        {
+          val: VAL_CANVAS_MESSAGE,
+          type: "textFields",
+          editing: true,
+          editable,
+          empty: [],
+        },
+        from,
+      );
+    const press = (key: string) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        (document.activeElement ?? document.body).dispatchEvent(event);
+      });
+      return event;
+    };
+
+    it("starts in the click, with no round trip, when the Studio said what the text holds", () => {
+      const { getByText } = page();
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      textFields([{ path: TITLE, kind: "string", value: "Our people" }]);
+      click(getByText("Our people"));
+      expect(of("clicked")).toEqual([]);
+      expect(of("inlineEditStarted")).toEqual([
+        {
+          val: VAL_CANVAS_MESSAGE,
+          type: "inlineEditStarted",
+          requestId: null,
+          path: TITLE,
+        },
+      ]);
+      // The caret is in it at once: a key pressed now goes into the text.
+      expect(document.activeElement).toBe(editor());
+      type("Our team");
+      expect(of("inlineEdit").at(-1)).toMatchObject({
+        path: TITLE,
+        value: "Our team",
+      });
+    });
+
+    it("asks, as before, when the text no longer holds what the Studio said, and keeps the keys pressed meanwhile", () => {
+      const { getByText } = page();
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      // Said before the page re-rendered with the latest edit.
+      textFields([{ path: TITLE, kind: "string", value: "Our peopl" }]);
+      const pageHeard = jest.fn();
+      document.body.addEventListener("keydown", pageHeard);
+      click(getByText("Our people"));
+      expect(of("clicked")).toHaveLength(1);
+      expect(editor()).toBeNull();
+      // Typed before the Studio answered: nothing on the page hears it.
+      const typed = press("!");
+      expect(typed.defaultPrevented).toBe(true);
+      expect(pageHeard).not.toHaveBeenCalled();
+      document.body.removeEventListener("keydown", pageHeard);
+      editInline([{ path: TITLE, kind: "string", value: "Our people" }]);
+      // Into the text, once it is there, and after the Studio heard it began.
+      expect(editor()?.textContent).toBe("Our people!");
+      const types = posted
+        .filter((message) => message.type.startsWith("inlineEdit"))
+        .map((message) => message.type);
+      expect(types.slice(0, 2)).toEqual(["inlineEditStarted", "inlineEdit"]);
+      expect(of("inlineEdit").at(-1)).toMatchObject({ value: "Our people!" });
+    });
+
+    it("drops the keys held when the field is opened in the column instead", () => {
+      const { getByText } = page();
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      textFields([{ path: TITLE, kind: "string", value: "Something else" }]);
+      click(getByText("Our people"));
+      press("x");
+      editInline([{ path: TITLE, kind: "string", value: "Something else" }]);
+      expect(of("inlineEditUnavailable")).toHaveLength(1);
+      expect(of("inlineEdit")).toEqual([]);
+      expect(getByText("Our people").textContent).toBe("Our people");
+      // And the page has its keyboard back.
+      expect(press("y").defaultPrevented).toBe(false);
+    });
+
+    it("an answer to a click from before it does not take the caret away", () => {
+      const { getByText } = render(
+        <>
+          <h1 data-val-path={TITLE}>Our people</h1>
+          <h2 data-val-path={HREF}>Since 2012</h2>
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      textFields([{ path: TITLE, kind: "string", value: "Our people" }]);
+      // The Studio is asked about the subheading, which it said nothing of...
+      click(getByText("Since 2012"));
+      expect(of("clicked")).toHaveLength(1);
+      // ...and before it answers, the heading is clicked and typed in.
+      click(getByText("Our people"));
+      expect(editor()?.textContent).toBe("Our people");
+      editInline([{ path: HREF, kind: "string", value: "Since 2012" }], "r1");
+      expect(of("inlineEditUnavailable")).toEqual([
+        {
+          val: VAL_CANVAS_MESSAGE,
+          type: "inlineEditUnavailable",
+          requestId: "r1",
+        },
+      ]);
+      expect(editor()?.textContent).toBe("Our people");
+      expect(document.activeElement).toBe(editor());
+    });
+
+    it("only in Select & edit, and only as the Studio here says", () => {
+      const { getByText } = page();
+      tell({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: true });
+      // From another window: not heard.
+      textFields([{ path: TITLE, kind: "string", value: "Our people" }], {
+        source: null,
+        origin: "https://elsewhere.example",
+      });
+      click(getByText("Our people"));
+      expect(editor()).toBeNull();
+      expect(of("clicked")).toHaveLength(1);
+      // Plain Select: a click is a pick, as it always was.
+      tell({
+        val: VAL_CANVAS_MESSAGE,
+        type: "textFields",
+        editing: false,
+        editable: [],
+        empty: [],
+      });
+      click(getByText("Our people"));
+      expect(editor()).toBeNull();
+      expect(of("clicked")).toHaveLength(2);
+    });
+  });
 });

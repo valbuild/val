@@ -79,6 +79,8 @@ describe("editing on the page, over the canvas protocol", () => {
   test("the page says an edit started, what was typed, and that it ended", () => {
     for (const message of [
       { type: "inlineEditStarted", requestId: "inline-1", path: title.path },
+      // Started on a click by the page itself, from `textFields`.
+      { type: "inlineEditStarted", requestId: null, path: title.path },
       { type: "inlineEdit", path: title.path, value: "Our team" },
       { type: "inlineEdit", path: body.path, value: body.value },
       { type: "inlineEditEnded", path: title.path },
@@ -93,6 +95,7 @@ describe("editing on the page, over the canvas protocol", () => {
   test("...and is not heard when what it says is not a field's value", () => {
     for (const message of [
       { type: "inlineEditStarted", path: title.path },
+      { type: "inlineEditStarted", requestId: 7, path: title.path },
       { type: "inlineEdit", path: title.path, value: 7 },
       { type: "inlineEdit", path: title.path, value: [{ nope: true }] },
       { type: "inlineEdit", value: "Our team" },
@@ -162,6 +165,34 @@ describe("editing on the page, over the canvas protocol", () => {
       { path: undefined },
     ]) {
       expect(isValCanvasStudioMessage({ ...apply, ...wrong })).toBe(false);
+    }
+  });
+
+  test("the studio says ahead of a click what on the page is a text", () => {
+    const fields = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "textFields",
+      editing: true,
+      editable: [title, body],
+      empty: ['/app/page.val.ts?p="subtitle"'],
+    };
+    expect(isValCanvasStudioMessage(fields)).toBe(true);
+    expect(
+      isValCanvasStudioMessage({
+        ...fields,
+        editing: false,
+        editable: [],
+        empty: [],
+      }),
+    ).toBe(true);
+    for (const wrong of [
+      { editing: undefined },
+      { editable: undefined },
+      { editable: [{ ...title, kind: "number" }] },
+      { empty: undefined },
+      { empty: [7] },
+    ]) {
+      expect(isValCanvasStudioMessage({ ...fields, ...wrong })).toBe(false);
     }
   });
 });
