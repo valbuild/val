@@ -1,6 +1,7 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
+import type { PickedSources } from "./projectMap";
 import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
@@ -488,17 +489,31 @@ Besides content, you can read the project's code (list_files, read_file, search_
  * after the person's message, which the prompt explains (`PAGE_PROMPT_SECTION`
  * in `hooks/pageTools.ts`). Attribute values are escaped, so text on the
  * customer's page cannot close the tag and pass for the person's words.
+ *
+ * In code mode it also names where the element is in the code, as far as
+ * the tab can tell (`pickedElementSources`), so the model reads those files
+ * instead of searching for them.
  */
-export function pickedElementPrompt(picked: PickedElement): string {
+export function pickedElementPrompt(
+  picked: PickedElement,
+  sources: PickedSources = {},
+): string {
   const attribute = (name: string, value: string) =>
     ` ${name}="${escapePickedText(value)}"`;
+  const files = (name: string, paths: string[] | undefined) =>
+    paths !== undefined && paths.length > 0
+      ? attribute(name, paths.join(", "))
+      : "";
   return `<picked${attribute("tag", picked.tag)}${
     picked.classes.length > 0
       ? attribute("classes", picked.classes.join(" "))
       : ""
   }${attribute("selector", picked.selector)}${
     picked.valPath !== undefined ? attribute("path", picked.valPath) : ""
-  }${attribute("text", picked.text)}/>`;
+  }${sources.module !== undefined ? attribute("module", sources.module) : ""}${files(
+    "imported-by",
+    sources.importedBy,
+  )}${files("classes-in", sources.classesIn)}${attribute("text", picked.text)}/>`;
 }
 
 function escapePickedText(value: string): string {
@@ -1159,7 +1174,7 @@ async function stageCode(
       buildRequired: staged.staged.buildRequired,
       next: !staged.staged.buildRequired
         ? "The preview already shows these files."
-        : "The preview shows them as a quick preview by itself in a moment. Call build_proposal once the change is complete.",
+        : "The preview shows them as a quick preview by itself in a moment. No build is needed to see components, styles and text; build only for what a quick preview cannot show, once, when the request is finished.",
       ...(evaluated === undefined
         ? {}
         : {
@@ -1436,6 +1451,13 @@ export async function readProjectInstructions(
   deps: ProjectReadDeps,
 ): Promise<string | null> {
   const { project } = await readProject(deps);
+  return projectInstructionsOf(project);
+}
+
+/** {@link readProjectInstructions}, of a project already read. */
+export function projectInstructionsOf(
+  project: Record<string, string>,
+): string | null {
   const found = PROJECT_INSTRUCTION_FILES.flatMap((path) => {
     const text = project[path];
     return text === undefined || text.trim() === ""
