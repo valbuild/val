@@ -163,7 +163,7 @@ export async function initHandlerOptions(
         opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
       apiKey: opts.apiKey || process.env.VAL_API_KEY,
       valSecret: opts.valSecret || process.env.VAL_SECRET,
-      project: opts.project || process.env.VAL_PROJECT,
+      project: Internal.valProjectOf(opts, process.env),
       config,
     };
   }
@@ -240,7 +240,7 @@ export async function initHandlerOptions(
   const valDisableRedirectUrl =
     opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL;
 
-  const maybeValProject = opts.project || process.env.VAL_PROJECT;
+  const maybeValProject = Internal.valProjectOf(opts, process.env);
   const valBuildUrl =
     opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL;
   const valContentUrl =

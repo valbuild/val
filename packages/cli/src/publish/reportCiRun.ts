@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { type CiRunReportBody } from "@valbuild/shared/internal";
 import { findAndEvalValConfigFile } from "../utils/evalValConfigFile";
 import { getContentHost, postJson, ContentHostError } from "./contentHost";
@@ -75,7 +76,7 @@ export async function reportCiRun(options: {
   const config = await findAndEvalValConfigFile(options.root).catch(() => null);
   const credential = await resolvePublishCredential({
     root: options.root,
-    project: config?.project ?? env.VAL_PROJECT ?? null,
+    project: Internal.valProjectOf(config, env) ?? null,
     env,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });

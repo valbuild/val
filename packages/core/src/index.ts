@@ -400,6 +400,7 @@ import {
  */
 import corePackageJson from "../package.json";
 import { log, isDebugEnabled, VAL_DEBUG_STORAGE_KEY } from "./log";
+import { valProject, valProjectOf } from "./valProject";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -442,6 +443,9 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
 export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 const Internal = {
+  /** Which Val Build project: `VAL_PROJECT`, else val.config. See `valProject.ts`. */
+  valProject,
+  valProjectOf,
   /** Val's console output. See `log.ts` for which levels print, and when. */
   log,
   isDebugEnabled,
