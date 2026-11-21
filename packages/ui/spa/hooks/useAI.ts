@@ -21,6 +21,14 @@ import { useValSystem } from "../stores/react/SystemContext";
 import { runStagedCode, type StagedCodeOutcome } from "../proposals/stagedCode";
 import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
 import { createTurnTimer, describeTurnTiming } from "./turnTiming";
+import { usePageCheckSession } from "./usePageCheckSession";
+import {
+  askPageCheck,
+  MESSAGE_VERIFIER_TOOL,
+  PAGE_CHECK_PROMPT_SECTION,
+  pickPageCheckModel,
+  VERIFY_TOOL,
+} from "../proposals/pageCheck";
 import {
   scheduleBackgroundChecks,
   stagedInputsOf,
@@ -1215,7 +1223,8 @@ export function useAI(
   // until they do. `useAvailableAIModel` is the floor: it still answers when
   // the content server reports providers but no models, which is what an older
   // server does.
-  const { selected: selectedModel } = useAIModelSelection();
+  const { selected: selectedModel, models: availableModels } =
+    useAIModelSelection();
   const defaultModel = useAvailableAIModel();
   const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1244,6 +1253,23 @@ export function useAI(
     setSessionModel(model);
   }, []);
   const chatModel = sessionModel ?? pickedModel;
+  /**
+   * The page check (`usePageCheckSession`): a hidden session that reads the
+   * preview after a code change, beside the chat rather than in it, on the
+   * smallest model the project reaches. Only in code mode.
+   */
+  const pageCheck = usePageCheckSession({
+    sendWsMessage,
+    subscribeToWsMessages,
+    proposalName: () => currentProposalRef.current?.name ?? null,
+    page: () => (inCodeModeRef.current ? pageRef.current : null),
+    chatSessionId: () => sessionIdRef.current,
+    model: pickPageCheckModel(availableModels, chatModel),
+    proposals: codeClients.proposals,
+    siteSource: codeClients.siteSource,
+  });
+  const pageCheckRef = useRef(pageCheck);
+  pageCheckRef.current = pageCheck;
   // A chat that exists is held, however it came to exist: a first message, an
   // image attached before one, or a chat loaded from the list or the URL —
   // which may happen before the models are known, hence the wait for one.
@@ -1546,6 +1572,8 @@ export function useAI(
       ) {
         const timing = turnTimer.end(message.id);
         if (timing !== null) Internal.log.info(describeTurnTiming(timing));
+        // A change not checked yet is checked now, beside what comes next.
+        if (message.type === "ai_response") pageCheckRef.current.turnEnded();
       }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
@@ -2662,6 +2690,20 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (
+          message.name === VERIFY_TOOL.name ||
+          message.name === MESSAGE_VERIFIER_TOOL.name
+        ) {
+          sendToolResult({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            ...askPageCheck(
+              pageCheckRef.current,
+              message.name,
+              message.arguments,
+            ),
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "read_page") {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
@@ -2898,6 +2940,7 @@ export function useAI(
                   siteSource: codeClients.siteSource,
                   onTypechecked: proposalCodeChanged,
                 });
+                pageCheckRef.current.codeChanged();
               }
             }
             sendToolResult({
@@ -3625,6 +3668,8 @@ export function useAI(
       if (inCodeMode && currentProposalRef.current !== null) {
         refreshProjectInstructions(currentProposalRef.current.name);
       }
+      /** Whether a page check reads the preview after this turn's changes. */
+      const pageChecked = inCodeMode && pageCheckRef.current.canCheck();
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
@@ -3739,7 +3784,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                       : { kind: "site" },
                   )
                 : ""
-            }${
+            }${pageChecked ? PAGE_CHECK_PROMPT_SECTION : ""}${
               inCodeMode
                 ? projectInstructionsPromptSection(projectInstructions)
                 : ""
@@ -3762,6 +3807,8 @@ Do not describe what you will do unless you do it for clarification — just do 
                   ...(hostedRef.current && currentProposalRef.current !== null
                     ? [QUICK_PREVIEW_TOOL]
                     : []),
+                  // The page check reads that preview, in code mode.
+                  ...(pageChecked ? [VERIFY_TOOL, MESSAGE_VERIFIER_TOOL] : []),
                 ],
                 valReads.getAssistantSettings().webSearch === true,
               ),
@@ -3775,6 +3822,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         inFlightPromptIdRef.current = message.id;
         ownedPromptIdsRef.current.add(message.id);
         if (inCodeModeRef.current) turnTimer.start(message.id);
+        pageCheckRef.current.personWrote();
       }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.

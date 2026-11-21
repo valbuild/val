@@ -338,6 +338,53 @@ export const CODE_TOOLS: AITool[] = [
 ];
 
 /**
+ * The code tools that only read: what the page check is given
+ * (`pageCheck.ts`), which must never change the proposal it is checking.
+ */
+export const READ_ONLY_CODE_TOOLS: AITool[] = [
+  LIST_FILES_TOOL,
+  READ_FILE_TOOL,
+  SEARCH_CODE_TOOL,
+];
+
+/**
+ * One of {@link READ_ONLY_CODE_TOOLS}, run as the assistant's are
+ * (`runCodeTool`), with everything that could write, build or typecheck
+ * refused: a call of any other tool is refused before it runs.
+ */
+export async function runReadOnlyCodeTool(
+  name: string,
+  args: unknown,
+  deps: ProjectReadDeps,
+): Promise<CodeToolAnswer> {
+  const refuse = (): never => {
+    throw new Error(`${name} only reads here: nothing can be changed.`);
+  };
+  if (!READ_ONLY_CODE_TOOLS.some((tool) => tool.name === name)) {
+    return {
+      result: {
+        success: false,
+        error: `${name} is not one of the tools here: ${READ_ONLY_CODE_TOOLS.map((tool) => tool.name).join(", ")}.`,
+      },
+      isError: true,
+    };
+  }
+  return runCodeTool(name, args, {
+    proposal: deps.proposal,
+    client: { files: deps.client.files, stageFiles: refuse },
+    siteSource: deps.siteSource,
+    build: {
+      start: refuse,
+      running: () => null,
+      report: () => ({ status: "idle", last: null }),
+      cancel: () => false,
+    },
+    typecheck: refuse,
+    offerProposal: () => {},
+  });
+}
+
+/**
  * The assistant asking for code mode: a card in the chat with a button that
  * turns it on (`CodeModeRequestCard`), or on the site opens the `</>` menu to
  * choose a proposal. The turn waits on it, as on a question.

@@ -1,4 +1,5 @@
 import { markLintTold, untoldLintProblems } from "./backgroundLint";
+import { pageCheckMessagesSource, pageCheckNoticeSource } from "./pageCheck";
 import {
   markStagedCodeTold,
   stagedCodeNotice,
@@ -93,6 +94,8 @@ export const TOOL_NOTICE_SOURCES: ToolNoticeSource[] = [
   typecheckNoticeSource,
   lintNoticeSource,
   stagedCodeNoticeSource,
+  pageCheckNoticeSource,
+  pageCheckMessagesSource,
 ];
 
 /** How long reading what is staged now may hold a tool answer back. */
