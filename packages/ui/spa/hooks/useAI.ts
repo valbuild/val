@@ -179,7 +179,7 @@ import {
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
-  CODE_TOOLS,
+  assistantCodeTools,
   codeToolsPromptSection,
   isCodeTool,
   projectInstructionsPromptSection,
@@ -3868,7 +3868,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                     : []),
                   // Hosted only: see `hostedRef`.
                   ...(hostedRef.current
-                    ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                    ? [...assistantCodeTools(), REQUEST_CODE_MODE_TOOL]
                     : []),
                   // A quick preview is shown in a proposal's preview.
                   ...(hostedRef.current && currentProposalRef.current !== null

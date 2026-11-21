@@ -275,7 +275,7 @@ const FORMAT_FILES_TOOL: AITool = {
   name: "format_files",
   description:
     "Format the proposal's files the way the project formats them -- Prettier, with the project's config -- " +
-    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files, before typecheck. " +
+    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files. " +
     "A config it cannot read (JavaScript or YAML, plugins) is reported, not guessed at.",
   parameters: {
     type: "object",
@@ -302,7 +302,9 @@ const LINT_TOOL: AITool = {
     "Check the proposal's files with Val's lint rules -- the ones a developer's editor runs: a c.define path that is not the file's own, " +
     "a module missing from val.modules.ts, c.define content that is a variable (it validates, then fails at publish), " +
     "an import a .val file may not make. When one fires, something is wrong: fix it. " +
-    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). Call it after format_files, with typecheck.",
+    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). " +
+    "The Studio lints what you stage by itself after each change, and what it finds comes with a tool answer as lint_problems: " +
+    "call this to fix what the rules can fix (fix: true), or to lint other files, not to check each change.",
   parameters: {
     type: "object",
     properties: {
@@ -320,6 +322,17 @@ const LINT_TOOL: AITool = {
     required: [],
   },
 };
+
+/**
+ * The code tools the assistant is offered: {@link CODE_TOOLS} without
+ * `typecheck`, which waits for the typecheck. The Studio typechecks what is
+ * staged by itself and tells the assistant (`toolNotices.ts`), so a turn
+ * never waits on it. `typecheck` still runs when called, for a chat that
+ * began with it.
+ */
+export function assistantCodeTools(): AITool[] {
+  return CODE_TOOLS.filter((tool) => tool.name !== TYPECHECK_TOOL.name);
+}
 
 export const CODE_TOOLS: AITool[] = [
   LIST_FILES_TOOL,
@@ -518,11 +531,11 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (edit_file, write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (edit_file, write_files), format it (format_files) and build it (build_proposal). The Studio checks it for you. Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, with its line, then read_file the lines around it (offset, limit) rather than the whole file when the file is long.
 - Change a file that exists with edit_file: old_string is copied exactly from what read_file gave you, with enough lines around it to match once, and only what changes is sent. Make several edit_file calls for several places. Use write_files for a new file, to delete one (null), or when most of a file changes; it takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are. Then carry on, or end your turn: never wait to check. The Studio typechecks and lints what you staged by itself, beside you, and a page check reads the preview once your turn ends. What they find comes back to you, as below; typecheck_status says where the typecheck is, without waiting. The person can write while the checks run, so end the turn as soon as the change is staged. Tell them it is in the preview, not on the site: the site changes when the proposal is published.
 - The preview: a second after files are staged, the preview shows them as a quick preview by itself -- components, layout, styles and text, in seconds, without a build. Call quick_preview only to see a change now, or when none ran. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build. The code you stage runs in the preview, on the real site, without asking the person: interact_page asks before each click and holds what the page sends, but that is interact_page's rule, not your code's -- never stage code that sends, deletes or buys by itself.
 - A tool's answer can carry \`typecheck_errors\` or \`lint_problems\`: the background typecheck or Val's lint rules found these in what is staged, after a change. Fix them before you build.
 - What those checks find after your turn ends comes as a message that starts with [Background checks], sent by the Studio and not by the person, or at the end of the person's next message inside <background_checks>. Fix what is still there; do not thank the person for it.
@@ -835,7 +848,7 @@ async function runCodeToolNow(
           ...(status.current
             ? {}
             : {
-                note: "This check is of files staged before the last change: call typecheck once your edits are done.",
+                note: "This check is of files staged before the last change. The Studio typechecks the files as they are now by itself, and what it finds comes with a tool answer: do not wait for it.",
               }),
         },
         isError: false,

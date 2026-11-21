@@ -1,4 +1,5 @@
 import {
+  assistantCodeTools,
   buildProposal,
   buildProposalOnServer,
   CODE_TOOLS,
@@ -420,6 +421,14 @@ describe("the code tools", () => {
     expect(isCodeTool("write_files")).toBe(true);
     // create_patch is a content tool.
     expect(isCodeTool("create_patch")).toBe(false);
+  });
+
+  test("the assistant is not offered typecheck, which waits: the Studio typechecks by itself, and it still runs when called", async () => {
+    const offered = assistantCodeTools().map((tool) => tool.name);
+    expect(offered).not.toContain("typecheck");
+    expect(offered).toContain("typecheck_status");
+    expect(offered).toContain("lint");
+    expect(isCodeTool("typecheck")).toBe(true);
   });
 
   test("search the project as grep would: every matching line, where it is", async () => {
