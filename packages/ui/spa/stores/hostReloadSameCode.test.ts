@@ -65,3 +65,56 @@ test("code that moved is a new intake", async () => {
   await reload({ config, modules: [] });
   expect(system.host.initializedAt()).not.toBe(second);
 });
+
+test("content that moved under the same schema is a new intake", async () => {
+  withClock();
+  const system = createSystem({ fetchPatches: async () => ({ patches: [] }) });
+  const reload = reloadStaged(system.host);
+  await reload(registry(["title"]));
+  const first = system.host.initializedAt();
+
+  // The same schema, and the `.val.ts` now says something else.
+  const { c, s, config } = initVal();
+  const module = c.define(MODULE, s.object({ title: s.string() }), {
+    title: "Another title",
+  });
+  await reload({
+    config,
+    modules: [{ def: async () => ({ default: module }) }],
+  });
+  expect(system.host.initializedAt()).not.toBe(first);
+  expect(system.host.bundleSources()?.[MODULE]).toEqual({
+    title: "Another title",
+  });
+});
+
+test("a hot reload hands over a new instance of the same schema, and that is a new intake", async () => {
+  // Compared by identity there, not by content: an instance carries
+  // closures (`validate`, `preview`) the serialized schema does not.
+  withClock();
+  const system = createSystem({ fetchPatches: async () => ({ patches: [] }) });
+  await system.host.reloadCode(registry(["title"]));
+  const first = system.host.initializedAt();
+
+  await system.host.reloadCode(registry(["title"]));
+  expect(system.host.initializedAt()).not.toBe(first);
+});
+
+test("a hot reload that re-evaluated nothing is not one", async () => {
+  withClock();
+  const system = createSystem({ fetchPatches: async () => ({ patches: [] }) });
+  const same = registry(["title"]);
+  const { c, s } = initVal();
+  const module = c.define(MODULE, s.object({ title: s.string() }), {
+    title: "title",
+  });
+  const kept = {
+    ...same,
+    modules: [{ def: async () => ({ default: module }) }],
+  };
+  await system.host.reloadCode(kept);
+  await system.host.reloadCode(kept);
+  const second = system.host.initializedAt();
+  await system.host.reloadCode(kept);
+  expect(system.host.initializedAt()).toBe(second);
+});

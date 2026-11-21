@@ -466,6 +466,14 @@ export function CanvasFrame({
     src: string;
     epoch: number;
   } | null>(null);
+  /**
+   * How many swaps there have been, in the frame's key: a swap is always a
+   * new `<iframe>`, also back to a document the canvas held a moment ago.
+   * Without it that frame's key is the one still leaving, React hands the
+   * old element back as the frame, and the canvas waits for a `ready` that
+   * document said long ago.
+   */
+  const [swaps, setSwaps] = useState(0);
   /** The frame as it is rendered now, for the swap to leave on screen. */
   const frameNow = useRef<{
     key: string;
@@ -490,6 +498,7 @@ export function CanvasFrame({
         if (!now.answered) return null;
         return { key: now.key, src: now.src, epoch: now.epoch };
       });
+      setSwaps((count) => count + 1);
       setHeld(wanted);
       return true;
     };
@@ -569,7 +578,7 @@ export function CanvasFrame({
    */
   const interruptions = useRef(new Set<(error: Error) => void>());
   const frameIdentity = `${frameSrc}\n${reloadKey}\n${held.documentKey}`;
-  const frameKey = `${frameSrc}-${reloadKey}-${held.documentKey}`;
+  const frameKey = `${frameSrc}-${reloadKey}-${held.documentKey}-${swaps}`;
   frameNow.current = {
     key: frameKey,
     src: frameSrc,

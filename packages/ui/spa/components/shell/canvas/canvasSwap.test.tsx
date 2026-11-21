@@ -414,6 +414,26 @@ describe("a swap never shows a blank frame", () => {
     expect(frames(canvas.container)).toEqual([next]);
   });
 
+  test("a swap back to the document being replaced is a new frame too, not the old one handed back", async () => {
+    const canvas = mount();
+    const old = frames(canvas.container)[0];
+    say(old, ready);
+    canvas.swapTo({ quickPreviewId: "q1" });
+    await act(async () => {});
+    // Back to the served build before the quick preview came up: the same
+    // address the old frame holds, which already said `ready` long ago.
+    canvas.swapTo({ quickPreviewId: null });
+    await act(async () => {});
+    const [next, kept] = frames(canvas.container);
+    expect(frames(canvas.container)).toHaveLength(2);
+    expect(kept).toBe(old);
+    expect(next).not.toBe(old);
+    expect(next.getAttribute("src")).toBe("/?val_canvas=1");
+    // So it answers, and the canvas is live again.
+    say(next, ready);
+    expect(canvas.statuses.at(-1)).toBe("live");
+  });
+
   test("a new document that never answers does not leave the old page up as if it were current", async () => {
     const canvas = mount();
     const old = frames(canvas.container)[0];

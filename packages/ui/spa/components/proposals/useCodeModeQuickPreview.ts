@@ -197,6 +197,8 @@ export function useCodeModeQuickPreview({
   const working = build.assistantWorking;
   /** The staged files a quick preview was last started for, by itself. */
   const started = useRef<string | null>(null);
+  /** When the staged files were first seen as they are now. */
+  const seen = useRef<{ inputs: string; at: number } | null>(null);
   // The served build has what is staged: said for whoever waits to know
   // the staged files are seen (`waitForStagedPreview`).
   useEffect(() => {
@@ -209,14 +211,20 @@ export function useCodeModeQuickPreview({
   }, [name, stagedInputs, buildRequired, reading]);
   useEffect(() => {
     if (name === null || stagedInputs === null || !buildRequired) return;
+    // The pause is since these files were staged, whatever re-ran this
+    // since: a read of the proposal, the page coming back.
+    if (seen.current?.inputs !== stagedInputs) {
+      seen.current = { inputs: stagedInputs, at: Date.now() };
+    }
     if (!pageLive || reading) return;
     if (started.current === stagedInputs || isShown(stagedInputs)) return;
+    const paused = Date.now() - seen.current.at;
     const timer = setTimeout(
       () => {
         started.current = stagedInputs;
         void run({ auto: true, inputs: stagedInputs });
       },
-      working ? QUICK_PREVIEW_PAUSE_MS : 0,
+      working ? Math.max(0, QUICK_PREVIEW_PAUSE_MS - paused) : 0,
     );
     return () => clearTimeout(timer);
   }, [

@@ -101,8 +101,11 @@ beforeEach(() => {
       return json({ commit: `commit-${stagings}`, staged: staged() });
     }
     if (method === "POST" && path === "/p1/quick-preview") {
-      const asked = (JSON.parse(init?.body ?? "{}") as { inputs?: string })
-        .inputs;
+      const body: unknown = JSON.parse(init?.body ?? "{}");
+      const asked =
+        typeof body === "object" && body !== null && "inputs" in body
+          ? body.inputs
+          : undefined;
       return json({ inputs: asked, files: {} });
     }
     throw new Error(`Not this test's network: ${method} ${url}`);
@@ -198,6 +201,25 @@ describe("from a staging to its quick preview", () => {
     // The turn ending adds nothing: what is staged is shown.
     act(() => setAssistantWorking(false));
     await pass(10_000);
+    expect(quickPreviews()).toHaveLength(1);
+  });
+
+  test("the pause is since the last write, not since the proposal was last read", async () => {
+    await open();
+    act(() => setAssistantWorking(true));
+    await write(0);
+    // A build ending, a typecheck reporting: the proposal is read again,
+    // again and again, while the turn goes on.
+    for (let waited = 0; waited < QUICK_PREVIEW_PAUSE_MS - 500; waited += 500) {
+      await pass(500);
+      act(() => proposalCodeChanged());
+    }
+    expect(quickPreviews()).toHaveLength(0);
+    // The last of those reads answers, and the pause has half a second left.
+    await pass(0);
+    await pass(499);
+    expect(quickPreviews()).toHaveLength(0);
+    await pass(1);
     expect(quickPreviews()).toHaveLength(1);
   });
 
