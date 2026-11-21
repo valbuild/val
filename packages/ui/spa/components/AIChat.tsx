@@ -43,6 +43,7 @@ import {
   steerSent,
   steerTimedOut,
   steersTurnEnded,
+  leftChat,
   type Outbox,
   type Steer,
 } from "./aiSteer";
@@ -160,6 +161,12 @@ export type ChatMessage = {
    * message of its own below. Its tool rows still belong to that turn.
    */
   segmentOf?: string;
+  /**
+   * A user message sent into a running turn and read there, rather than one
+   * that asked a question of its own: a retry of that turn asks the question
+   * again with it.
+   */
+  steered?: boolean;
 };
 
 /**
@@ -224,10 +231,10 @@ type QueuedMessage = {
   /** When it was written, among every message: see `enqueueInOrder`. */
   seq: number;
   /**
-   * Set once it was steered into a running turn and came back to the queue:
-   * a late `ai_steer_status` still finds it. See `aiSteer.ts`.
+   * Set once it was steered into a running turn: a late `ai_steer_status`
+   * still finds it, and it is never sent into another chat. See `aiSteer.ts`.
    */
-  steerId?: string;
+  steered?: { steerId: string; sessionId: string | null };
   outgoing: string | ChatDocument;
   displayText: string;
   doc?: ChatDocument;
@@ -504,6 +511,22 @@ const DEFAULT_SUGGESTIONS = [
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The next message the queue may send into the chat on screen. A message
+ * steered into another chat never goes into this one (`leftChat` takes those
+ * out; this makes sure).
+ */
+function sendableHead(
+  queue: QueuedMessage[],
+  shownSession: string | null,
+): QueuedMessage | undefined {
+  const next = queue[0];
+  if (next?.steered !== undefined && next.steered.sessionId !== shownSession) {
+    return undefined;
+  }
+  return next;
+}
 
 /** A steer's message in the transcript: one id per steer, so it shows once. */
 function steerIdMessageId(steerId: string): string {
@@ -785,6 +808,51 @@ function renderChatInline(node: ChatInlineNode, key: number): React.ReactNode {
     );
   }
   return null;
+}
+
+/**
+ * The question a turn answered, and the messages steered into it, in order:
+ * looking up from the turn's answer at `answerIndex`, past the parts of the
+ * answer above each steer.
+ */
+function questionOfTurn(
+  messages: ChatMessage[],
+  answerIndex: number,
+): { question: ChatMessage; steers: ChatMessage[] } | null {
+  const steers: ChatMessage[] = [];
+  for (let i = answerIndex - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    if (m.steered) {
+      steers.unshift(m);
+      continue;
+    }
+    return { question: m, steers };
+  }
+  return null;
+}
+
+/**
+ * One message that asks a turn again: its question and what was steered into
+ * it, one after the other, with all their attachments.
+ */
+function retrySourceOf(
+  question: ChatMessage,
+  steers: ChatMessage[],
+): ChatMessage {
+  if (steers.length === 0) return question;
+  const parts = [question, ...steers];
+  const docs = parts.map((m) => m.userDoc);
+  const userDoc = docs.every((doc): doc is ChatDocument => doc !== undefined)
+    ? docs.flat()
+    : undefined;
+  const attachments = parts.flatMap((m) => m.attachments ?? []);
+  return {
+    ...question,
+    content: parts.map((m) => getTextContent(m.content)).join("\n\n"),
+    ...(userDoc ? { userDoc } : { userDoc: undefined }),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
 }
 
 function getImageUrls(content: AIMessageContent): string[] {
@@ -1135,14 +1203,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const queue = outbox.queue;
   /** Numbers messages as they are written, for `QueuedMessage.seq`. */
   const seqRef = useRef(0);
-  /** Why a steered message came back to the composer, until the next send. */
+  /** Why a steered message was queued instead, until the next send. */
   const [steerNotice, setSteerNotice] = useState<string | null>(null);
+  /** The chat on screen, for what arrives between renders. */
+  const shownSessionRef = useRef<string | null>(currentSessionId ?? null);
+  shownSessionRef.current = currentSessionId ?? null;
 
   /** A message as it is shown in the transcript, once it is sent. */
   const userMessageOf = useCallback(
-    (message: QueuedMessage, id: string): ChatMessage => ({
+    (message: QueuedMessage, id: string, steered?: boolean): ChatMessage => ({
       id,
       role: "user",
+      ...(steered ? { steered: true } : {}),
       content: message.displayText,
       status: "complete",
       attachments: message.attachments,
@@ -1457,7 +1529,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCompletedMessages((prev) => [...prev, message]);
     },
     showSteer(steerId: string, message: ChatMessage) {
-      placeDelivered({ ...message, id: steerIdMessageId(steerId) });
+      placeDelivered({
+        ...message,
+        id: steerIdMessageId(steerId),
+        steered: true,
+      });
     },
     steerStatus(steerId: string, status: AISteerStatus, reason?: string) {
       const { outbox: next, effect } = applySteerStatus(
@@ -1465,23 +1541,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         steerId,
         status,
         reason,
+        shownSessionRef.current,
       );
       if (next !== outboxRef.current) updateOutbox(() => next);
       if (effect.type === "delivered") {
         placeDelivered(
-          userMessageOf(effect.message, steerIdMessageId(steerId)),
+          userMessageOf(effect.message, steerIdMessageId(steerId), true),
         );
       } else if (effect.type === "rejected") {
-        // Back into the composer to edit, when nothing is being written
-        // there; otherwise it waits in the chat, with Edit, for it to be.
-        if (editorRef.current?.isEmpty() ?? false) {
-          updateOutbox((prev) => ({
-            ...prev,
-            steers: prev.steers.filter((s) => s.steerId !== steerId),
-          }));
-          putBackInComposer(effect.message);
-          setSteerNotice(effect.reason);
-        }
+        // Queued instead, in order: sending it into this turn again would
+        // only be refused again. It can be edited or removed there.
+        setSteerNotice(effect.reason);
       }
     },
   }));
@@ -1735,7 +1805,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             )
           ) {
             updateOutbox((prev) =>
-              steerSent(prev, queued, steerId, Date.now()),
+              steerSent(
+                prev,
+                queued,
+                steerId,
+                shownSessionRef.current,
+                Date.now(),
+              ),
             );
             requestAnimationFrame(() => editorRef.current?.focus());
             return;
@@ -1774,7 +1850,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     const next = nextSteerDeadline(outbox);
     if (next === null) return;
     const timer = setTimeout(
-      () => updateOutbox((prev) => steerTimedOut(prev, next.steerId)),
+      () =>
+        updateOutbox((prev) =>
+          steerTimedOut(prev, next.steerId, shownSessionRef.current),
+        ),
       Math.max(0, next.at - Date.now()),
     );
     return () => clearTimeout(timer);
@@ -1786,10 +1865,27 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
    * `too_late` would put them. Before the queue's own effect, below, so
    * they are in it when it looks.
    */
+  const shownSession = currentSessionId ?? null;
   useEffect(() => {
-    if (ownTurnBusy || !outbox.steers.some(isWaitingSteer)) return;
-    updateOutbox(steersTurnEnded);
-  }, [ownTurnBusy, outbox, updateOutbox]);
+    if (
+      ownTurnBusy ||
+      !outbox.steers.some(
+        (s) => s.sessionId === shownSession && isWaitingSteer(s),
+      )
+    ) {
+      return;
+    }
+    updateOutbox((prev) => steersTurnEnded(prev, shownSession));
+  }, [ownTurnBusy, outbox, updateOutbox, shownSession]);
+
+  /**
+   * Another chat is open: what was steered into the one left behind stays
+   * that chat's. It is delivered there, or kept for the person, and never
+   * sent into this one. See `leftChat`.
+   */
+  useEffect(() => {
+    updateOutbox((prev) => leftChat(prev, shownSession));
+  }, [shownSession, updateOutbox]);
 
   /**
    * Send the next queued message once the turn before has ended. Never
@@ -1797,19 +1893,25 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
    */
   useEffect(() => {
     if (queue.length === 0 || busy || queuePaused || !isConnected) return;
-    const [next, ...rest] = queue;
-    setQueue(() => rest);
+    // What the queue holds NOW, not at this render: an effect above may
+    // have changed it in this same pass (`leftChat`, `steersTurnEnded`).
+    const next = sendableHead(outboxRef.current.queue, shownSession);
+    if (next === undefined) return;
+    // By id, from what the queue holds NOW: a steer can have been put into
+    // it since this render, and must not be written over.
+    setQueue((prev) => prev.filter((m) => m.id !== next.id));
     deliver(next);
-  }, [queue, busy, queuePaused, isConnected, deliver, setQueue]);
+  }, [queue, busy, queuePaused, isConnected, deliver, setQueue, shownSession]);
 
   /** Send the next queued message now: after a Stop or a failed turn. */
   const sendNext = useCallback(() => {
     if (queue.length === 0 || busy) return;
+    const next = sendableHead(outboxRef.current.queue, shownSession);
+    if (next === undefined) return;
     setQueueStopped(false);
-    const [next, ...rest] = queue;
-    setQueue(() => rest);
+    setQueue((prev) => prev.filter((m) => m.id !== next.id));
     deliver(next);
-  }, [queue, busy, deliver, setQueue]);
+  }, [queue, busy, deliver, setQueue, shownSession]);
 
   const clearQueue = useCallback(() => {
     setQueue(() => []);
@@ -1862,8 +1964,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     [queue, isEditorEmpty, setQueue, putBackInComposer],
   );
 
-  /** A steer the server would not take: back to edit, or dropped. */
-  const editRejectedSteer = useCallback(
+  /** A steer its own chat did not read: back to edit here, or dropped. */
+  const editStrandedSteer = useCallback(
     (steerId: string) => {
       const steer = outbox.steers.find((s) => s.steerId === steerId);
       if (steer === undefined || !isEditorEmpty) return;
@@ -1875,7 +1977,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     },
     [outbox.steers, isEditorEmpty, updateOutbox, putBackInComposer],
   );
-  const removeRejectedSteer = useCallback(
+  const removeStrandedSteer = useCallback(
     (steerId: string) => {
       updateOutbox((prev) => ({
         ...prev,
@@ -1946,21 +2048,27 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const idx = messages.findIndex((m) => m.id === errorMsgId);
       if (idx <= 0) return;
 
-      const prevUserMsg = messages
-        .slice(0, idx)
-        .reverse()
-        .find((m) => m.role === "user");
-      if (!prevUserMsg) return;
+      // The turn's own question, and what was steered into it on the way:
+      // a retry asks them again together, in the order they were read.
+      const turn = questionOfTurn(messages, idx);
+      if (turn === null) return;
+      const prevUserMsg = retrySourceOf(turn.question, turn.steers);
       if (
         othersTurn ||
         (prevUserMsg.author !== undefined && prevUserMsg.author.id !== viewerId)
       ) {
+        setCompletedMessages((prev) =>
+          prev.filter((m) => m.segmentOf !== errorMsgId),
+        );
         askAgain(prevUserMsg, errorMsgId);
         return;
       }
 
-      // Remove the errored assistant message
-      setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
+      // Remove the errored assistant message, and the parts of it above
+      // each steer.
+      setCompletedMessages((prev) =>
+        prev.filter((m) => m.id !== errorMsgId && m.segmentOf !== errorMsgId),
+      );
       const retryPayload: string | ChatDocument =
         prevUserMsg.userDoc ?? getTextContent(prevUserMsg.content);
       const sent =
@@ -2196,31 +2304,26 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               />
             ))
           )}
-          {outbox.steers.map((steer) => (
-            <MessageBubble
-              key={steer.steerId}
-              message={userMessageOf(
-                steer.message,
-                steerIdMessageId(steer.steerId),
-              )}
-              author={
-                showAuthors && viewer
-                  ? { person: viewer, isViewer: true }
-                  : undefined
-              }
-              onRetry={() => {}}
-              onSubmitToolAnswers={() => {}}
-              onCancelToolQuestion={() => {}}
-              footer={
-                <SteerNote
-                  steer={steer}
-                  canEdit={isEditorEmpty}
-                  onEdit={editRejectedSteer}
-                  onRemove={removeRejectedSteer}
-                />
-              }
-            />
-          ))}
+          {outbox.steers
+            .filter((s) => s.sessionId === shownSession && isWaitingSteer(s))
+            .map((steer) => (
+              <MessageBubble
+                key={steer.steerId}
+                message={userMessageOf(
+                  steer.message,
+                  steerIdMessageId(steer.steerId),
+                )}
+                author={
+                  showAuthors && viewer
+                    ? { person: viewer, isViewer: true }
+                    : undefined
+                }
+                onRetry={() => {}}
+                onSubmitToolAnswers={() => {}}
+                onCancelToolQuestion={() => {}}
+                footer={<SteerNote steer={steer} />}
+              />
+            ))}
           {awaitingSince !== null && !currentMessage && (
             <TurnStatsLine
               className="px-1"
@@ -2283,8 +2386,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               >
                 <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-fg-error-primary" />
                 <span className="min-w-0 flex-1">
-                  The assistant did not take your message: {steerNotice} It is
-                  back here to edit and send again.
+                  The assistant could not read your message while it works:{" "}
+                  {steerNotice} It is queued instead, and is sent when this
+                  answer is done. You can edit or remove it there.
                 </span>
                 <button
                   type="button"
@@ -2295,6 +2399,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   <X className="h-3 w-3" />
                 </button>
               </div>
+            )}
+            {outbox.steers.some((s) => s.state === "stranded") && (
+              <StrandedSteers
+                steers={outbox.steers.filter((s) => s.state === "stranded")}
+                canEdit={isEditorEmpty}
+                onEdit={editStrandedSteer}
+                onRemove={removeStrandedSteer}
+              />
             )}
             {queue.length > 0 && (
               <QueuedMessages
@@ -3083,65 +3195,88 @@ function MessageBubble({
 
 /**
  * Under a message sent into the running turn, until the assistant has it:
- * that it is on its way and cannot be taken back, or why it was not taken,
- * with the queue's Edit and Remove.
+ * that it is on its way, and cannot be taken back.
  */
-function SteerNote({
-  steer,
+function SteerNote({ steer }: { steer: Steer<QueuedMessage> }) {
+  return (
+    <span
+      data-steer-state={steer.state}
+      className="flex items-center gap-1 px-1 text-xs text-fg-secondary"
+    >
+      <Clock className="h-3 w-3 shrink-0" />
+      {steer.state === "accepted"
+        ? "Sent; the assistant will read it at its next step. It can no longer be edited."
+        : "Sent; the assistant will read it at its next step."}
+    </span>
+  );
+}
+
+/**
+ * Messages sent into the running turn of a chat the person has since left,
+ * which that turn ended without reading. Nothing sends them anywhere: they
+ * wait here, to be taken back to edit and send in this chat, or removed.
+ */
+function StrandedSteers({
+  steers,
   canEdit,
   onEdit,
   onRemove,
 }: {
-  steer: Steer<QueuedMessage>;
+  steers: Steer<QueuedMessage>[];
   /** Edit puts it back into the composer: only into an empty one. */
   canEdit: boolean;
   onEdit: (steerId: string) => void;
   onRemove: (steerId: string) => void;
 }) {
-  if (steer.state !== "rejected") {
-    return (
-      <span
-        data-steer-state={steer.state}
-        className="flex items-center gap-1 px-1 text-xs text-fg-secondary"
-      >
-        <Clock className="h-3 w-3 shrink-0" />
-        {steer.state === "accepted"
-          ? "Sent; the assistant will read it at its next step. It can no longer be edited."
-          : "Sent; the assistant will read it at its next step."}
-      </span>
-    );
-  }
   return (
-    <span
-      data-steer-state="rejected"
-      role="status"
-      className="flex max-w-[80%] flex-wrap items-center gap-1 px-1 text-xs text-fg-secondary"
+    <section
+      aria-label="Not read in the chat you left"
+      className="mb-2 rounded-md border border-border-primary bg-bg-secondary text-xs touch:text-sm"
     >
-      <AlertTriangle className="h-3 w-3 shrink-0 text-fg-error-primary" />
-      <span className="min-w-0">Not sent: {steer.reason}</span>
-      <button
-        type="button"
-        onClick={() => onEdit(steer.steerId)}
-        disabled={!canEdit}
-        title={
-          canEdit
-            ? "Take it back to edit"
-            : "Send or clear what you are writing first"
-        }
-        className="shrink-0 rounded px-1 text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary disabled:text-fg-disabled"
-      >
-        Edit
-      </button>
-      <button
-        type="button"
-        onClick={() => onRemove(steer.steerId)}
-        aria-label="Remove"
-        title="Remove"
-        className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </span>
+      <div className="flex items-center gap-2 px-2 pt-1.5 text-fg-secondary">
+        <AlertTriangle className="h-3 w-3 shrink-0 text-fg-error-primary" />
+        <span className="min-w-0 flex-1">
+          {steers.length === 1
+            ? "Sent to the chat you left, whose answer ended before reading it. It was not sent anywhere else."
+            : `${steers.length} sent to a chat you left, whose answer ended before reading them. They were not sent anywhere else.`}
+        </span>
+      </div>
+      <ol className="flex flex-col py-1">
+        {steers.map((steer) => (
+          <li
+            key={steer.steerId}
+            data-steer-state="stranded"
+            className="flex items-center gap-1.5 px-2 py-0.5"
+          >
+            <span className="min-w-0 flex-1 truncate text-fg-primary">
+              {truncate(steer.message.displayText, 120)}
+            </span>
+            <button
+              type="button"
+              onClick={() => onEdit(steer.steerId)}
+              disabled={!canEdit}
+              title={
+                canEdit
+                  ? "Take it back to edit and send here"
+                  : "Send or clear what you are writing first"
+              }
+              className="shrink-0 rounded px-1 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary disabled:text-fg-disabled"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemove(steer.steerId)}
+              aria-label="Remove"
+              title="Remove"
+              className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

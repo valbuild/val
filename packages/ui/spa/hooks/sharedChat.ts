@@ -240,9 +240,23 @@ export function toChatMessages(
     // Numbered among the messages shown, as they always were.
     const id = `history-${sessionId}-${chat.length}`;
     if (m.role === "user") {
+      // A steer read before the assistant had written anything: the server
+      // stores no answer part above it, but the tools run before it are
+      // still the turn's. They go on an empty part of their own, as the
+      // chat showed them while the turn ran.
+      if (toolActivities.length > 0) {
+        chat.push({
+          id,
+          role: "assistant",
+          content: "",
+          status: "complete",
+          toolActivities,
+        });
+      }
       toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
+      const userId = `history-${sessionId}-${chat.length}`;
       chat.push({
-        id,
+        id: userId,
         role: "user",
         content: m.content,
         status: "complete",

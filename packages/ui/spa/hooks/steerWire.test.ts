@@ -5,6 +5,7 @@ import {
   promptContentBlocks,
   routeSteerStatus,
   steerContentBlocks,
+  createSteerLedger,
 } from "./steerWire";
 import {
   AIServerMessage,
@@ -142,5 +143,35 @@ describe("the final server's details", () => {
       ]),
     ).toEqual([{ type: "image_key", key: "img-1" }]);
     expect(steerContentBlocks([{ type: "text", text: " \n " }])).toBeNull();
+  });
+});
+
+describe("createSteerLedger", () => {
+  const steer = (steerId: string) =>
+    AISteerMessage.parse({
+      type: "ai_steer",
+      id: "prompt-1",
+      sessionId: "chat-1",
+      steerId,
+      message: [{ type: "text", text: steerId }],
+    });
+
+  test("after a reconnect, only what was accepted and not settled is sent again, as it was", () => {
+    const ledger = createSteerLedger();
+    for (const id of ["waiting", "unanswered", "read", "late", "refused"]) {
+      ledger.sent(steer(id));
+    }
+    for (const id of ["waiting", "read", "late", "refused"]) {
+      ledger.status(id, "accepted");
+    }
+    ledger.status("read", "delivered");
+    ledger.status("late", "too_late");
+    ledger.status("refused", "rejected");
+    expect(ledger.toResend()).toEqual([steer("waiting")]);
+    // Answered `accepted` again after the re-send: still sent once more only
+    // if the socket drops again before it settles.
+    ledger.status("waiting", "accepted");
+    ledger.status("waiting", "delivered");
+    expect(ledger.toResend()).toEqual([]);
   });
 });

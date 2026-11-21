@@ -10,9 +10,12 @@ import type { AISteerStatus } from "../hooks/useAIWebSocket";
  *   where it was delivered, between the assistant's steps.
  * - `too_late`: the turn ended without another step. It goes into the queue,
  *   in the order it was written, and is sent as the next prompt.
- * - `rejected`: it stays with the person, with the reason, to edit.
+ * - `rejected`: not taken now -- most often because enough is waiting
+ *   already. It goes into the queue, in order, like `too_late`, and the chat
+ *   says why. Sending it again into the same turn would only fail again, and
+ *   the queue is where it can still be edited or removed.
  *
- * And two things the server does not say:
+ * And three things the server does not say:
  *
  * - No answer at all within `STEER_ACK_TIMEOUT_MS`: a server that predates
  *   steering ignores `ai_steer`, so the message is queued exactly as it was
@@ -22,6 +25,10 @@ import type { AISteerStatus } from "../hooks/useAIWebSocket";
  *   there is no next step to read it at, so it goes into the queue as
  *   `too_late` would put it. After a Stop the queue waits for the person, as
  *   it always has.
+ * - The person opened another chat. A steer belongs to the chat it was sent
+ *   in, and is never sent into another one: it is left to its own turn, which
+ *   delivers it or ends without it. One that ends up unread is `stranded` --
+ *   kept for the person, with Edit and Remove, and sent nowhere by itself.
  *
  * Pure, so the chat and its tests run the same transitions. The chat keeps
  * the state and performs the `effect`.
@@ -34,13 +41,19 @@ import type { AISteerStatus } from "../hooks/useAIWebSocket";
  */
 export const STEER_ACK_TIMEOUT_MS = 5000;
 
+/** The chat a message was written in; `null` for one not yet started. */
+export type ChatSessionId = string | null;
+
 /** What the queue and the steers hold: a message, in the order written. */
 export type OutgoingMessage = {
   id: string;
   /** When it was written, relative to every other message: queue order. */
   seq: number;
-  /** Set once it has been steered, so a late status can still find it. */
-  steerId?: string;
+  /**
+   * Set once it has been steered, so a late status can still find it, with
+   * the chat it was steered into: it is never sent into another one.
+   */
+  steered?: { steerId: string; sessionId: ChatSessionId };
 };
 
 export type SteerState =
@@ -48,14 +61,18 @@ export type SteerState =
   | "sending"
   /** The server has it for the running turn. It cannot be taken back. */
   | "accepted"
-  /** The server would not take it. `reason` says why. */
-  | "rejected";
+  /**
+   * Sent into a chat the person has left, and not read there: kept for them
+   * to edit or remove, and never sent by itself.
+   */
+  | "stranded";
 
 export type Steer<M extends OutgoingMessage> = {
   steerId: string;
+  /** The chat whose running turn it was sent into. */
+  sessionId: ChatSessionId;
   message: M;
   state: SteerState;
-  reason?: string;
   /** For `STEER_ACK_TIMEOUT_MS`. */
   sentAt: number;
 };
@@ -63,7 +80,7 @@ export type Steer<M extends OutgoingMessage> = {
 export type Outbox<M extends OutgoingMessage> = {
   /** Waiting for a turn to end: sent one per turn, in order. */
   queue: M[];
-  /** Sent into the running turn, and not delivered yet. */
+  /** Sent into a running turn, and not delivered yet. */
   steers: Steer<M>[];
 };
 
@@ -71,18 +88,24 @@ export type SteerEffect<M extends OutgoingMessage> =
   | { type: "none" }
   /** Show it as a user message, where the turn has got to. */
   | { type: "delivered"; message: M }
-  /** Give it back to the person, with why. */
-  | { type: "rejected"; steerId: string; message: M; reason: string };
+  /** It was queued instead; say why. */
+  | { type: "rejected"; reason: string };
+
+export type SteerResult<M extends OutgoingMessage> = {
+  outbox: Outbox<M>;
+  effect: SteerEffect<M>;
+};
 
 export function emptyOutbox<M extends OutgoingMessage>(): Outbox<M> {
   return { queue: [], steers: [] };
 }
 
-/** It was sent into the running turn. */
+/** It was sent into the running turn of `sessionId`. */
 export function steerSent<M extends OutgoingMessage>(
   outbox: Outbox<M>,
   message: M,
   steerId: string,
+  sessionId: ChatSessionId,
   now: number,
 ): Outbox<M> {
   return {
@@ -91,7 +114,8 @@ export function steerSent<M extends OutgoingMessage>(
       ...outbox.steers,
       {
         steerId,
-        message: { ...message, steerId },
+        sessionId,
+        message: { ...message, steered: { steerId, sessionId } },
         state: "sending",
         sentAt: now,
       },
@@ -113,22 +137,46 @@ export function enqueueInOrder<M extends OutgoingMessage>(
     : [...queue.slice(0, at), message, ...queue.slice(at)];
 }
 
-export type SteerResult<M extends OutgoingMessage> = {
-  outbox: Outbox<M>;
-  effect: SteerEffect<M>;
-};
+/**
+ * A steer that will not be read in its turn: into the queue when its chat is
+ * the one open, stranded when it is not.
+ */
+function unread<M extends OutgoingMessage>(
+  outbox: Outbox<M>,
+  steer: Steer<M>,
+  shown: ChatSessionId,
+): Outbox<M> {
+  const others = outbox.steers.filter((s) => s.steerId !== steer.steerId);
+  if (steer.sessionId === shown) {
+    return {
+      queue: enqueueInOrder(outbox.queue, steer.message),
+      steers: others,
+    };
+  }
+  return { ...outbox, steers: [...others, { ...steer, state: "stranded" }] };
+}
 
-/** What the server said about a steer. Unknown ids change nothing. */
+/**
+ * What the server said about a steer. Unknown ids change nothing. `shown` is
+ * the chat on screen: a steer of another chat is never shown here, nor sent.
+ */
 export function applySteerStatus<M extends OutgoingMessage>(
   outbox: Outbox<M>,
   steerId: string,
   status: AISteerStatus,
   reason: string | undefined,
+  shown: ChatSessionId,
 ): SteerResult<M> {
   const none: SteerResult<M> = { outbox, effect: { type: "none" } };
   const steer = outbox.steers.find((s) => s.steerId === steerId);
   const withoutSteer = outbox.steers.filter((s) => s.steerId !== steerId);
   if (steer !== undefined) {
+    if (steer.state === "stranded") {
+      // Read in its own chat after all: nothing left for the person to do.
+      return status === "delivered"
+        ? { outbox: { ...outbox, steers: withoutSteer }, effect: none.effect }
+        : none;
+    }
     switch (status) {
       case "accepted":
         if (steer.state !== "sending") return none;
@@ -144,44 +192,33 @@ export function applySteerStatus<M extends OutgoingMessage>(
       case "delivered":
         return {
           outbox: { ...outbox, steers: withoutSteer },
-          effect: { type: "delivered", message: steer.message },
+          effect:
+            steer.sessionId === shown
+              ? { type: "delivered", message: steer.message }
+              : { type: "none" },
         };
       case "too_late":
-        if (steer.state === "rejected") return none;
+        return { outbox: unread(outbox, steer, shown), effect: none.effect };
+      case "rejected":
         return {
-          outbox: {
-            queue: enqueueInOrder(outbox.queue, steer.message),
-            steers: withoutSteer,
-          },
-          effect: { type: "none" },
+          outbox: unread(outbox, steer, shown),
+          effect:
+            steer.sessionId === shown
+              ? {
+                  type: "rejected",
+                  reason: reason ?? "The assistant could not take it now.",
+                }
+              : { type: "none" },
         };
-      case "rejected": {
-        if (steer.state === "rejected") return none;
-        const why = reason ?? "The assistant could not take this message.";
-        return {
-          outbox: {
-            ...outbox,
-            steers: outbox.steers.map((s) =>
-              s.steerId === steerId
-                ? { ...s, state: "rejected", reason: why }
-                : s,
-            ),
-          },
-          effect: {
-            type: "rejected",
-            steerId,
-            message: steer.message,
-            reason: why,
-          },
-        };
-      }
     }
   }
   // Not waiting as a steer: it fell back to the queue (no answer in time, or
   // its turn ended first). Still unsent there, so the server's word decides.
-  const queued = outbox.queue.find((m) => m.steerId === steerId);
-  if (queued === undefined) return none;
-  const withoutQueued = outbox.queue.filter((m) => m.steerId !== steerId);
+  const queued = outbox.queue.find((m) => m.steered?.steerId === steerId);
+  if (queued === undefined || queued.steered === undefined) return none;
+  const withoutQueued = outbox.queue.filter(
+    (m) => m.steered?.steerId !== steerId,
+  );
   switch (status) {
     case "accepted":
       // The server has it after all: it must not be sent again as a prompt.
@@ -190,7 +227,13 @@ export function applySteerStatus<M extends OutgoingMessage>(
           queue: withoutQueued,
           steers: [
             ...outbox.steers,
-            { steerId, message: queued, state: "accepted", sentAt: 0 },
+            {
+              steerId,
+              sessionId: queued.steered.sessionId,
+              message: queued,
+              state: "accepted",
+              sentAt: 0,
+            },
           ],
         },
         effect: { type: "none" },
@@ -198,7 +241,10 @@ export function applySteerStatus<M extends OutgoingMessage>(
     case "delivered":
       return {
         outbox: { ...outbox, queue: withoutQueued },
-        effect: { type: "delivered", message: queued },
+        effect:
+          queued.steered.sessionId === shown
+            ? { type: "delivered", message: queued }
+            : { type: "none" },
       };
     case "too_late":
     case "rejected":
@@ -211,41 +257,70 @@ export function applySteerStatus<M extends OutgoingMessage>(
 export function steerTimedOut<M extends OutgoingMessage>(
   outbox: Outbox<M>,
   steerId: string,
+  shown: ChatSessionId,
 ): Outbox<M> {
   const steer = outbox.steers.find((s) => s.steerId === steerId);
   if (steer === undefined || steer.state !== "sending") return outbox;
-  return {
-    queue: enqueueInOrder(outbox.queue, steer.message),
-    steers: outbox.steers.filter((s) => s.steerId !== steerId),
-  };
+  return unread(outbox, steer, shown);
 }
 
 /**
- * The turn is over: nothing waiting for its next step will be read in it.
- * Rejected ones stay, for the person.
+ * The turn of the chat on screen is over: nothing waiting for its next step
+ * will be read in it. Another chat's steers are left to that chat's turn.
  */
 export function steersTurnEnded<M extends OutgoingMessage>(
   outbox: Outbox<M>,
+  shown: ChatSessionId,
 ): Outbox<M> {
-  const waiting = outbox.steers.filter((s) => s.state !== "rejected");
+  const waiting = outbox.steers.filter(
+    (s) => s.sessionId === shown && isWaitingSteer(s),
+  );
   if (waiting.length === 0) return outbox;
+  return waiting.reduce((next, steer) => unread(next, steer, shown), outbox);
+}
+
+/**
+ * Another chat is on screen now. A steer that fell back to the queue belongs
+ * to the chat it was steered into, so it is taken out of the queue -- the
+ * queue sends into whichever chat is open -- and kept for the person.
+ */
+export function leftChat<M extends OutgoingMessage>(
+  outbox: Outbox<M>,
+  shown: ChatSessionId,
+): Outbox<M> {
+  const elsewhere = outbox.queue.filter(
+    (m) => m.steered !== undefined && m.steered.sessionId !== shown,
+  );
+  if (elsewhere.length === 0) return outbox;
   return {
-    queue: waiting.reduce(
-      (queue, steer) => enqueueInOrder(queue, steer.message),
-      outbox.queue,
-    ),
-    steers: outbox.steers.filter((s) => s.state === "rejected"),
+    queue: outbox.queue.filter((m) => !elsewhere.includes(m)),
+    steers: [
+      ...outbox.steers,
+      ...elsewhere.flatMap((message): Steer<M>[] =>
+        message.steered === undefined
+          ? []
+          : [
+              {
+                steerId: message.steered.steerId,
+                sessionId: message.steered.sessionId,
+                message,
+                state: "stranded",
+                sentAt: 0,
+              },
+            ],
+      ),
+    ],
   };
 }
 
-/** Whether a steer is still waiting on the running turn. */
+/** Whether a steer is still waiting on its running turn. */
 export function isWaitingSteer<M extends OutgoingMessage>(
   steer: Steer<M>,
 ): boolean {
-  return steer.state !== "rejected";
+  return steer.state === "sending" || steer.state === "accepted";
 }
 
-/** The steer that falls back to the queue first, if any is still unanswered. */
+/** The steer that falls back first, if any is still unanswered. */
 export function nextSteerDeadline<M extends OutgoingMessage>(
   outbox: Outbox<M>,
 ): { steerId: string; at: number } | null {

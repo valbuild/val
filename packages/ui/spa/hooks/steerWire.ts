@@ -9,6 +9,7 @@ import { pickedElementPrompt } from "../proposals/proposalCode";
 import {
   AISteerStatus,
   type AIMessageContentBlock,
+  type AISteerMessage,
   type AISteerStatusMessage,
 } from "./useAIWebSocket";
 
@@ -117,4 +118,39 @@ export function steerContentBlocks(
     return text === "" ? [] : [{ type: "text", text }];
   });
   return kept.length === 0 ? null : kept;
+}
+
+/**
+ * The steers this tab sent and the server has not settled, for sending again
+ * after the socket reconnects: an `accepted` one may have been lost with the
+ * socket's state on the way, and the server answers a steerId it has seen --
+ * `accepted` again, or `delivered` again -- without reading it twice. One it
+ * has not seen yet is answered like any new steer.
+ */
+export function createSteerLedger(): {
+  sent: (message: AISteerMessage) => void;
+  status: (steerId: string, status: AISteerStatus) => void;
+  /** Accepted, and neither delivered nor ended since: send these again. */
+  toResend: () => AISteerMessage[];
+} {
+  const unsettled = new Map<
+    string,
+    { message: AISteerMessage; accepted: boolean }
+  >();
+  return {
+    sent(message) {
+      unsettled.set(message.steerId, { message, accepted: false });
+    },
+    status(steerId, status) {
+      const entry = unsettled.get(steerId);
+      if (entry === undefined) return;
+      if (status === "accepted") entry.accepted = true;
+      else unsettled.delete(steerId);
+    },
+    toResend() {
+      return Array.from(unsettled.values())
+        .filter((entry) => entry.accepted)
+        .map((entry) => entry.message);
+    },
+  };
 }

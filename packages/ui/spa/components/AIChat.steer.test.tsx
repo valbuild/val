@@ -42,13 +42,14 @@ function setup(options?: { steerSucceeds?: boolean }) {
   const onCancel = jest.fn();
   const plain = (content: unknown) =>
     Array.isArray(content) ? JSON.stringify(content) : String(content);
-  render(
+  const tree = (session: string | null) => (
     <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
       <ValPortalProvider>
         <TooltipProvider>
           <AIChat
             ref={chatRef}
             chatEditorRef={editorRef}
+            currentSessionId={session}
             isConnected
             authError={false}
             mode="http"
@@ -65,8 +66,18 @@ function setup(options?: { steerSucceeds?: boolean }) {
           />
         </TooltipProvider>
       </ValPortalProvider>
-    </ValThemeProvider>,
+    </ValThemeProvider>
   );
+  const view = render(tree("chat-1"));
+  /**
+   * Open another chat, as `useAI`'s `newSession` / `loadSession` do: the
+   * session changes and the transcript is cleared, in one go.
+   */
+  const switchChat = (session: string | null) =>
+    act(() => {
+      view.rerender(tree(session));
+      chatRef.current?.clearMessages();
+    });
   /** Write `text` in the composer and press Enter. */
   const write = (text: string) => {
     act(() => editorRef.current?.setDocument([{ tag: "p", children: [text] }]));
@@ -115,6 +126,7 @@ function setup(options?: { steerSucceeds?: boolean }) {
     steered,
     onCancel,
     transcript,
+    switchChat,
   };
 }
 
@@ -208,37 +220,142 @@ test("too_late keeps the order of what was written", () => {
   expect(prompts).toHaveLength(3);
 });
 
-test("rejected gives it back in the composer with the reason, when nothing is being written", () => {
-  const { write, answering, status, steered, editorRef, prompts } = setup();
-  write("First");
-  answering();
-  write("Second");
-  status(steered[0].steerId, "rejected", "Only the person who asked can.");
-  expect(screen.getByRole("status").textContent).toContain(
-    "Only the person who asked can.",
-  );
-  expect(editorRef.current?.isEmpty()).toBe(false);
-  expect(document.querySelector("[data-steer-state]")).toBeNull();
-  expect(prompts).toHaveLength(1);
-});
-
-test("rejected while something else is being written stays in the chat, to edit or remove", () => {
-  const { write, answering, status, steered, editorRef, prompts } = setup();
+test("rejected queues it in order, and says why and what happens next", () => {
+  const { write, answering, status, steered, prompts, editorRef } = setup();
   write("First");
   const turn = answering();
   write("Second");
-  act(() =>
-    editorRef.current?.setDocument([{ tag: "p", children: ["Typing"] }]),
+  status(
+    steered[0].steerId,
+    "rejected",
+    "5 messages are already waiting for this answer.",
   );
-  status(steered[0].steerId, "rejected", "Not now.");
-  const row = document.querySelector("[data-steer-state='rejected']");
-  expect(row?.textContent).toContain("Not now.");
-  expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
-  // A rejected steer is not sent when the turn ends.
-  turn.done();
-  expect(prompts).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  const notice = screen.getByRole("status");
+  expect(notice.textContent).toContain(
+    "5 messages are already waiting for this answer.",
+  );
+  expect(notice.textContent).toContain("sent when this answer is done");
+  expect(queueRegion()?.textContent).toContain("Second");
   expect(document.querySelector("[data-steer-state]")).toBeNull();
+  // Written meanwhile: behind it in the queue, not steered into the same
+  // turn to be refused again.
+  write("Third");
+  expect(steered).toHaveLength(1);
+  // Nothing was put in the composer over what is being written.
+  expect(editorRef.current?.isEmpty()).toBe(true);
+  turn.done();
+  expect(prompts).toEqual([
+    expect.stringContaining("First"),
+    expect.stringContaining("Second"),
+  ]);
+  answering().done();
+  expect(prompts[2]).toContain("Third");
+});
+
+test("a steer queued by its timeout is not written over when another steer joins it at the turn's end", () => {
+  jest.useFakeTimers();
+  const { write, answering, steered, prompts } = setup();
+  write("First");
+  const turn = answering();
+  write("Second");
+  act(() => {
+    jest.advanceTimersByTime(1000);
+  });
+  write("Third");
+  // "Second" falls back to the queue; "Third" is still waiting on the turn.
+  act(() => {
+    jest.advanceTimersByTime(STEER_ACK_TIMEOUT_MS - 1000);
+  });
+  expect(queueRegion()?.textContent).toContain("Second");
+  expect(steered).toHaveLength(2);
+  // The turn ends before "Third" times out: both go, in order.
+  turn.done();
+  expect(prompts[1]).toContain("Second");
+  answering().done();
+  expect(prompts).toHaveLength(3);
+  expect(prompts[2]).toContain("Third");
+});
+
+test("opening another chat mid-turn never sends the old chat's steers into it", () => {
+  jest.useFakeTimers();
+  const { write, answering, steered, prompts, status, switchChat, transcript } =
+    setup();
+  write("First");
+  const turn = answering();
+  turn.say("Working on it");
+  write("Accepted one");
+  write("Unanswered one");
+  status(steered[0].steerId, "accepted");
+  switchChat(null);
+  act(() => {
+    jest.advanceTimersByTime(STEER_ACK_TIMEOUT_MS);
+  });
+  // Nothing went into the new chat: not sent, not queued, not shown.
+  expect(prompts).toHaveLength(1);
+  expect(queueRegion()).toBeNull();
+  expect(transcript().join(" ")).not.toContain("Accepted one");
+  // The old turn reads the accepted one: still not shown here.
+  status(steered[0].steerId, "delivered");
+  expect(transcript().join(" ")).not.toContain("Accepted one");
+  // The one it never answered is kept for the person, and sent nowhere.
+  const left = screen.getByRole("region", {
+    name: "Not read in the chat you left",
+  });
+  expect(left.textContent).toContain("Unanswered one");
+  expect(left.textContent).not.toContain("Accepted one");
+  write("New question");
+  answering().done();
+  expect(prompts).toEqual([
+    expect.stringContaining("First"),
+    expect.stringContaining("New question"),
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  expect(
+    screen.queryByRole("region", { name: "Not read in the chat you left" }),
+  ).toBeNull();
+});
+
+test("a steer that fell back to the queue stays with its chat when another is opened", () => {
+  jest.useFakeTimers();
+  const { write, answering, prompts, switchChat } = setup();
+  write("First");
+  answering();
+  write("Second");
+  act(() => {
+    jest.advanceTimersByTime(STEER_ACK_TIMEOUT_MS);
+  });
+  expect(queueRegion()?.textContent).toContain("Second");
+  switchChat("chat-2");
+  expect(queueRegion()).toBeNull();
+  expect(prompts).toHaveLength(1);
+  expect(
+    screen.getByRole("region", { name: "Not read in the chat you left" })
+      .textContent,
+  ).toContain("Second");
+});
+
+test("Retry of a steered turn asks its question again, with what was steered into it", () => {
+  const { write, answering, steered, status, prompts, chatRef, transcript } =
+    setup();
+  write("Fix the typos");
+  const turn = answering();
+  turn.say("Found 12 pages.");
+  write("Only the blog posts");
+  status(steered[0].steerId, "delivered");
+  turn.say("Fixing the posts");
+  act(() => chatRef.current?.errorAssistantMessage(turn.id, "It broke"));
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(prompts).toHaveLength(2);
+  expect(prompts[1]).toContain("Fix the typos");
+  expect(prompts[1]).toContain("Only the blog posts");
+  expect(prompts[1].indexOf("Fix the typos")).toBeLessThan(
+    prompts[1].indexOf("Only the blog posts"),
+  );
+  // The failed turn's parts are gone; the question and the steer stay.
+  const shown = transcript().join(" ");
+  expect(shown).not.toContain("Found 12 pages.");
+  expect(shown).not.toContain("Fixing the posts");
+  expect(shown).toContain("Only the blog posts");
 });
 
 test("no word from the server in time queues it, as before steering existed", () => {

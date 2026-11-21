@@ -427,6 +427,45 @@ describe("storedToolActivities", () => {
 });
 
 describe("toChatMessages", () => {
+  test("tools run before a steer that came before any text stay with the turn", () => {
+    const call = (name: string) => ({
+      toolCallId: `call-${name}`,
+      name,
+      isError: false,
+    });
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: "Fix the typos",
+          toolCalls: [call("search_content")],
+        },
+        // No assistant row: it had written nothing when the steer was read.
+        {
+          role: "user",
+          content: "Only the blog posts",
+          toolCalls: [call("create_patch")],
+        },
+        { role: "assistant", content: "Fixed the 4 posts." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(
+      chat.map((m) => [
+        m.role,
+        m.content,
+        m.toolActivities?.map((t) => t.name),
+      ]),
+    ).toEqual([
+      ["user", "Fix the typos", undefined],
+      ["assistant", "", ["search_content"]],
+      ["user", "Only the blog posts", undefined],
+      ["assistant", "Fixed the 4 posts.", ["create_patch"]],
+    ]);
+    expect(new Set(chat.map((m) => m.id)).size).toBe(chat.length);
+  });
+
   test("a steered message sits between the parts of the answer, with the tools of each part", () => {
     const call = (name: string) => ({
       toolCallId: `call-${name}`,

@@ -1262,7 +1262,7 @@ function SteerDemo({ outcome }: { outcome: SteerOutcome }) {
       });
     } else if (outcome === "rejected") {
       later(800, () =>
-        status("rejected", "Only the person who asked can add to this answer."),
+        status("rejected", "5 messages are already waiting for this answer."),
       );
     }
     return () => timers.forEach(clearTimeout);
@@ -1307,7 +1307,7 @@ export const SteerTooLate: Story = {
   render: () => <SteerDemo outcome="too_late" />,
 };
 
-/** Not taken: back in the box to edit, with why. */
+/** Not taken now: queued instead, in order, with why. */
 export const SteerRejected: Story = {
   render: () => <SteerDemo outcome="rejected" />,
 };

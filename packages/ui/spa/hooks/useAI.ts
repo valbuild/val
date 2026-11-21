@@ -105,6 +105,7 @@ import {
   promptContentBlocks,
   routeSteerStatus,
   steerContentBlocks,
+  createSteerLedger,
 } from "./steerWire";
 import {
   AssistantSettings,
@@ -1416,6 +1417,8 @@ export function useAI(
    * comes after the turn's answer, when the prompt is no longer owned.
    */
   const ownSteerIdsRef = useRef<Set<string>>(new Set());
+  /** Those not settled yet, to send again after a reconnect. */
+  const steerLedgerRef = useRef(createSteerLedger());
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
@@ -1427,6 +1430,7 @@ export function useAI(
             watchedSessionIdRef.current === sessionIdRef.current,
         );
         if (route.to === "chat") {
+          steerLedgerRef.current.status(message.steerId, route.status);
           chatRef.current?.steerStatus(
             message.steerId,
             route.status,
@@ -3801,11 +3805,29 @@ Do not describe what you will do unless you do it for clarification — just do 
         message: blocks,
       };
       const sent = sendWsMessage(message);
-      if (sent) ownSteerIdsRef.current.add(steerId);
+      if (sent) {
+        ownSteerIdsRef.current.add(steerId);
+        steerLedgerRef.current.sent(message);
+      }
       return sent;
     },
     [sendWsMessage],
   );
+
+  /**
+   * The socket came back: what was accepted and not read yet is sent again,
+   * with the same steerId. The server does not read one twice, and answers
+   * `too_late` for a turn that is gone, which queues it here as usual.
+   */
+  const wasConnectedRef = useRef(isWsConnected);
+  useEffect(() => {
+    const reconnected = isWsConnected && !wasConnectedRef.current;
+    wasConnectedRef.current = isWsConnected;
+    if (!reconnected) return;
+    for (const message of steerLedgerRef.current.toResend()) {
+      sendWsMessage(message);
+    }
+  }, [isWsConnected, sendWsMessage]);
 
   // A question card keeps the turn open (and the composer disabled) until a
   // result is delivered, so a socket that dropped while the user was deciding
