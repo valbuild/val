@@ -10,6 +10,8 @@ import {
   type ValCanvasStudioMessage,
 } from "@valbuild/shared/internal";
 import { CanvasFrame, type CanvasFrameProps } from "./CanvasFrame";
+import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasWindow } from "./CanvasWindow";
 
 /**
  * Editing on the page, between the Studio and the frame: what is asked of
@@ -289,6 +291,117 @@ describe("editing a field on the page", () => {
     expect(of("stopInlineEdit")).toHaveLength(1);
     controls.remove();
     elsewhere.remove();
+  });
+
+  describe("the preview's own controls", () => {
+    /** The preview's toolbar, as the Studio renders it beside the frame. */
+    const renderToolbar = () =>
+      render(
+        <CanvasToolbar
+          device="desktop"
+          onDeviceChange={() => undefined}
+          scale={1}
+          onZoomIn={() => undefined}
+          onZoomOut={() => undefined}
+          onFit={() => undefined}
+          onReload={() => undefined}
+        />,
+      );
+    const press = (target: Element) =>
+      act(() => {
+        target.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+    const release = (target: Element) =>
+      act(() => {
+        target.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      });
+    const afterwards = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    it("zoom, fit and a width keep the edit, and put the caret back once the press is over", async () => {
+      const rendered = renderFrame(handlers());
+      // jsdom has no focus between documents to give.
+      const focusFrame = jest
+        .spyOn(frame.contentWindow!, "focus")
+        .mockImplementation(() => undefined);
+      ready(BRIDGE_CAPABILITIES);
+      rendered.set({ inlineEdit: request });
+      started();
+      const toolbar = renderToolbar();
+      for (const label of [
+        "Zoom in",
+        "Zoom out",
+        "Fit page width",
+        "mobile width",
+      ]) {
+        posted.length = 0;
+        const button = toolbar.getByRole("button", { name: label });
+        press(button);
+        expect(of("stopInlineEdit")).toEqual([]);
+        // Not while the button is held: what it does comes on release.
+        expect(of("focusInlineEdit")).toEqual([]);
+        release(button);
+        await afterwards();
+        expect(of("stopInlineEdit")).toEqual([]);
+        expect(of("focusInlineEdit")).toHaveLength(1);
+      }
+      expect(focusFrame).toHaveBeenCalledTimes(4);
+    });
+
+    it("so does the window the page is scrolled in", async () => {
+      // jsdom has no layout, and the window measures the page.
+      const original = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      };
+      const rendered = renderFrame(handlers());
+      ready(BRIDGE_CAPABILITIES);
+      rendered.set({ inlineEdit: request });
+      started();
+      const window = render(
+        <CanvasWindow pageWidth={800} scale={1} onScaleChange={() => undefined}>
+          <div data-testid="page" />
+        </CanvasWindow>,
+      );
+      press(window.getByTestId("page"));
+      expect(of("stopInlineEdit")).toEqual([]);
+      window.unmount();
+      globalThis.ResizeObserver = original;
+    });
+
+    it("the reload ends it: it replaces the document the caret is in", () => {
+      const rendered = renderFrame(handlers());
+      ready(BRIDGE_CAPABILITIES);
+      rendered.set({ inlineEdit: request });
+      started();
+      const toolbar = renderToolbar();
+      press(toolbar.getByRole("button", { name: "Reload the page" }));
+      expect(of("stopInlineEdit")).toHaveLength(1);
+    });
+
+    it("a press that is never released does not take the focus from what is pressed next", async () => {
+      const rendered = renderFrame(handlers());
+      ready(BRIDGE_CAPABILITIES);
+      rendered.set({ inlineEdit: request });
+      started();
+      const toolbar = renderToolbar();
+      const elsewhere = document.body.appendChild(
+        document.createElement("input"),
+      );
+      // A scrollbar dragged and let go of without a word.
+      press(toolbar.getByRole("button", { name: "Zoom in" }));
+      press(elsewhere);
+      expect(of("stopInlineEdit")).toHaveLength(1);
+      say({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path: TITLE });
+      release(elsewhere);
+      await afterwards();
+      expect(of("focusInlineEdit")).toEqual([]);
+      elsewhere.remove();
+    });
   });
 
   it("hands over the way to find the text and to get back to it, and takes it away", () => {

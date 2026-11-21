@@ -9,6 +9,15 @@ export type ViewportBox = {
 /** On the floating controls: a press inside them is not a press elsewhere. */
 export const INLINE_TOOLBAR_ATTRIBUTE = "data-val-inline-toolbar";
 
+/**
+ * On the preview's controls that change only how the page is LOOKED at --
+ * its zoom, its width, the window it is scrolled in -- and not which
+ * document it is. A press on one does not end an edit on the page: someone
+ * zooming in to see what they are typing is still typing it. See the press
+ * listener in `CanvasFrame`.
+ */
+export const PREVIEW_VIEW_CONTROL_ATTRIBUTE = "data-val-preview-view-control";
+
 /** What `CanvasFrame` says of the text being edited: see its `onInlineEditPlace`. */
 export type InlineEditLocation = {
   /** The text's element, in the Studio's viewport. */

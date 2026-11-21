@@ -49,6 +49,7 @@ import type { ModuleVersion } from "@valbuild/shared/internal";
 import { unansweredRequestError, type FrameBridge } from "./canvasCapabilities";
 import {
   INLINE_TOOLBAR_ATTRIBUTE,
+  PREVIEW_VIEW_CONTROL_ATTRIBUTE,
   type InlineEditLocation,
   type ViewportBox,
 } from "./placeInlineToolbar";
@@ -924,32 +925,6 @@ export function CanvasFrame({
     });
   }, [send, applyId]);
 
-  /*
-   * A press anywhere in the Studio but on those controls ends the edit.
-   *
-   * The page no longer ends it when the focus leaves for the Studio -- it
-   * cannot tell the controls from the rest (`onFocusOut` in
-   * `inlineEditing.ts`) -- so the Studio says. On `window`, capturing, and
-   * by the composed path: the Studio is in a shadow root, and from outside
-   * it every press looks like a press on its host.
-   */
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (inlineEditing.current === null) return;
-      const onControls = event
-        .composedPath()
-        .some(
-          (target) =>
-            target instanceof Element &&
-            target.hasAttribute(INLINE_TOOLBAR_ATTRIBUTE),
-        );
-      if (onControls) return;
-      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
-    };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  }, [send]);
-
   const locateInlineEdit = useCallback((): InlineEditLocation | null => {
     const frame = frameRef.current;
     const at = inlineRects.current;
@@ -978,6 +953,85 @@ export function CanvasFrame({
     frameRef.current?.contentWindow?.focus();
     send({ val: VAL_CANVAS_MESSAGE, type: "focusInlineEdit" });
   }, [send]);
+
+  /*
+   * A press anywhere in the Studio ends the edit, but for two kinds of
+   * thing.
+   *
+   * The page no longer ends it when the focus leaves for the Studio -- it
+   * cannot tell the controls from the rest (`onFocusOut` in
+   * `inlineEditing.ts`) -- so the Studio says. On `window`, capturing, and
+   * by the composed path: the Studio is in a shadow root, and from outside
+   * it every press looks like a press on its host.
+   *
+   * What does not end it:
+   *
+   * - **The floating controls** (`INLINE_TOOLBAR_ATTRIBUTE`): they act on
+   *   the text being typed in.
+   * - **The preview's view controls** (`PREVIEW_VIEW_CONTROL_ATTRIBUTE`):
+   *   zoom in and out, fit, the device widths, and the window the page is
+   *   scrolled and pinched in. They change how the page is LOOKED at and
+   *   leave the document as it is, and someone zooming in to see what they
+   *   are typing is still typing it. The floating controls follow the text
+   *   (they ask where it is every frame), and once the press is over the
+   *   caret is put back in the text: the button took the focus.
+   *
+   * Everything else ends it, deliberately: the reload button and the
+   * address bar replace the document the caret is in, Exit Preview and
+   * turning Select off leave the mode, and a press in the column is the
+   * person turning to the column. Ending writes what was typed at once
+   * (`useCanvasInlineEdit`'s `onEnded`), so none of them loses a letter.
+   */
+  const viewControlRelease = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const forgetRelease = () => {
+      viewControlRelease.current?.();
+      viewControlRelease.current = null;
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      forgetRelease();
+      const editing = inlineEditing.current;
+      if (editing === null) return;
+      const path = event.composedPath();
+      const on = (attribute: string) =>
+        path.some(
+          (target) =>
+            target instanceof Element && target.hasAttribute(attribute),
+        );
+      if (on(INLINE_TOOLBAR_ATTRIBUTE)) return;
+      if (on(PREVIEW_VIEW_CONTROL_ATTRIBUTE)) {
+        /*
+         * Back to the text once the press is done, and after what it did
+         * (a click comes after the release). Only if it is still the same
+         * edit, and forgotten at the next press: a scrollbar being dragged
+         * may never say it was released.
+         */
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const onRelease = () => {
+          window.removeEventListener("pointerup", onRelease, true);
+          window.removeEventListener("pointercancel", onRelease, true);
+          timer = setTimeout(() => {
+            timer = null;
+            if (inlineEditing.current === editing) focusFrame();
+          }, 0);
+        };
+        window.addEventListener("pointerup", onRelease, true);
+        window.addEventListener("pointercancel", onRelease, true);
+        viewControlRelease.current = () => {
+          window.removeEventListener("pointerup", onRelease, true);
+          window.removeEventListener("pointercancel", onRelease, true);
+          if (timer !== null) clearTimeout(timer);
+        };
+        return;
+      }
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      forgetRelease();
+    };
+  }, [send, focusFrame]);
   useEffect(() => {
     if (onInlineEditPlace === undefined) return;
     onInlineEditPlace({ locate: locateInlineEdit, focus: focusFrame });

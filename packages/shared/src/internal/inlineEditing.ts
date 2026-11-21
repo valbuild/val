@@ -307,9 +307,10 @@ export function startInlineEditing(
     /** Editing ended, however it did. Called once. */
     onEnd: () => void;
     /**
-     * A richtext's selection moved, or the copy did: what the Studio's
-     * controls act on, and where to draw them. Not called for a string,
-     * which has none.
+     * The selection moved, or the copy did: what the Studio's controls act
+     * on, and where to draw them and the field's validation errors. For a
+     * string the selection is always `null`: there are no controls for
+     * one, but its errors are drawn by it all the same.
      */
     onSelection?: (
       selection: InlineSelection | null,
@@ -832,9 +833,7 @@ export function startInlineEditing(
    * the copy, and the Studio is told once, after it has the text.
    */
   const scheduleSelection = () => {
-    if (candidate.kind !== "richtext" || options.onSelection === undefined) {
-      return;
-    }
+    if (options.onSelection === undefined) return;
     if (selectionTimer !== null || ended || view === null) return;
     selectionTimer = view.setTimeout(reportSelection, 0);
   };
@@ -1127,7 +1126,7 @@ export function startInlineEditing(
   copy.addEventListener("drop", onDrop);
   copy.addEventListener("focusout", onFocusOut);
   doc.addEventListener("pointerdown", onPressElsewhere, true);
-  if (candidate.kind === "richtext" && options.onSelection !== undefined) {
+  if (options.onSelection !== undefined) {
     doc.addEventListener("selectionchange", scheduleSelection);
     // Capturing: a scroll of anything the copy is inside moves it.
     view?.addEventListener("scroll", scheduleSelection, true);
@@ -1166,6 +1165,9 @@ export function startInlineEditing(
       if (ended) return;
       copy.focus({ preventScroll: true });
       if (selected() === null) select(keptSelection);
+      // The copy can have moved while the focus was away -- the frame made
+      // narrower -- and a report is not made without the focus.
+      scheduleSelection();
     },
   };
 }

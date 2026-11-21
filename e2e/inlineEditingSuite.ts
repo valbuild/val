@@ -397,6 +397,108 @@ export function defineInlineEditingSuite(): void {
         await expect(inlineToolbar(page)).toHaveCount(0);
       });
 
+      test("zooming and changing the width keep the caret in the text, and typing goes on being written", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.locator("h1").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        await page.keyboard.press("End");
+        await page.keyboard.type("A");
+
+        // The preview's own controls change how the page is looked at, and
+        // leave what is being typed in it alone.
+        const controls = page.getByRole("toolbar", { name: "Preview" });
+        const frame = page.locator('iframe[title^="Preview of"]');
+        const before = await frame.boundingBox();
+        await controls.getByRole("button", { name: "Zoom in" }).click();
+        await expect
+          .poll(async () => (await frame.boundingBox())?.width)
+          .toBeGreaterThan(before?.width ?? 0);
+        await expect(copy).toBeFocused();
+        await page.keyboard.type("B");
+        await expect(copy).toHaveText("Blog 1AB");
+
+        await controls.getByRole("button", { name: "mobile width" }).click();
+        await expect(
+          controls.getByRole("button", { name: "mobile width" }),
+        ).toHaveAttribute("aria-pressed", "true");
+        await expect(copy).toBeFocused();
+        await page.keyboard.type("C");
+
+        await controls.getByRole("button", { name: "Fit page width" }).click();
+        await expect(copy).toBeFocused();
+        await page.keyboard.type("D");
+        await expect
+          .poll(() => written(request, [BLOG, "title"]))
+          .toBe(JSON.stringify("Blog 1ABCD"));
+      });
+
+      test("the floating controls follow a zoom", async ({ page }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.getByText("Blog 1 content").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        const toolbar = inlineToolbar(page);
+        await expect(toolbar).toBeVisible();
+        /*
+         * How far the bar is from the text, on the side it is on: placed
+         * by the text (`placeInlineToolbar`), 8 away from it. Followed, it
+         * stays that; left behind by a zoom, it does not. (Not its x: the
+         * text starts at the preview's edge, where the bar is held.)
+         */
+        const gap = async () => {
+          const bar = await toolbar.boundingBox();
+          const text = await copy.boundingBox();
+          if (bar === null || text === null) return "no box";
+          const between =
+            bar.y + bar.height <= text.y
+              ? text.y - (bar.y + bar.height)
+              : bar.y >= text.y + text.height
+                ? bar.y - (text.y + text.height)
+                : null;
+          if (between === null) return "over the text";
+          // A pixel either way for the scale's fractions.
+          return Math.abs(between - 8) <= 1.5 ? "8 from the text" : between;
+        };
+        await expect.poll(gap).toBe("8 from the text");
+        const frame = page.locator('iframe[title^="Preview of"]');
+        const before = await frame.boundingBox();
+        await page
+          .getByRole("toolbar", { name: "Preview" })
+          .getByRole("button", { name: "Zoom in" })
+          .click();
+        await expect
+          .poll(async () => (await frame.boundingBox())?.width)
+          .toBeGreaterThan(before?.width ?? 0);
+        await expect.poll(gap).toBe("8 from the text");
+        await expect(copy).toBeFocused();
+      });
+
+      test("the reload ends the edit, and what was typed is written", async ({
+        page,
+        request,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await preview.locator("h1").click();
+        const copy = inlineEditor(preview);
+        await expect(copy).toBeFocused();
+        await page.keyboard.press("End");
+        // Straight to the reload: no pause for the typing to be written on.
+        await page.keyboard.type(" again");
+        await page
+          .getByRole("toolbar", { name: "Preview" })
+          .getByRole("button", { name: /Reload the page|Updating the page/ })
+          .click();
+        await expect
+          .poll(() => written(request, [BLOG, "title"]))
+          .toBe(JSON.stringify("Blog 1 again"));
+        await expect(preview.locator("h1")).toHaveText("Blog 1 again");
+        await expect(inlineEditor(preview)).toHaveCount(0);
+      });
+
       test("of a link's two fields, its words are the one typed in", async ({
         page,
         request,

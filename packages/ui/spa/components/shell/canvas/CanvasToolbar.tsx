@@ -9,6 +9,14 @@ import {
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { CanvasDevice } from "./types";
+import { PREVIEW_VIEW_CONTROL_ATTRIBUTE } from "./placeInlineToolbar";
+
+/**
+ * On the widths, the zoom and the fit, and not on the reload: a press on
+ * one of these leaves a text being typed in on the page being typed in,
+ * where a reload replaces the document it is in. See `CanvasFrame`.
+ */
+const VIEW_CONTROL = { [PREVIEW_VIEW_CONTROL_ATTRIBUTE]: "" };
 
 const DEVICES: readonly CanvasDevice[] = ["desktop", "tablet", "mobile"];
 
@@ -111,6 +119,7 @@ export function CanvasToolbar({
             <button
               key={option}
               type="button"
+              {...VIEW_CONTROL}
               aria-label={`${option} width`}
               aria-pressed={device === option}
               onClick={() => onDeviceChange(option)}
@@ -128,6 +137,7 @@ export function CanvasToolbar({
       {onDeviceChange !== undefined && <Divider />}
       <button
         type="button"
+        {...VIEW_CONTROL}
         aria-label="Zoom out"
         onClick={onZoomOut}
         className={cn(
@@ -142,6 +152,7 @@ export function CanvasToolbar({
       </span>
       <button
         type="button"
+        {...VIEW_CONTROL}
         aria-label="Zoom in"
         onClick={onZoomIn}
         className={cn(
@@ -158,6 +169,7 @@ export function CanvasToolbar({
        */}
       <button
         type="button"
+        {...VIEW_CONTROL}
         aria-label="Fit page width"
         title="Show the page at the width of the pane, from the top"
         onClick={onFit}

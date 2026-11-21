@@ -164,10 +164,8 @@ import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useBuildEpoch } from "./canvas/useServedBuild";
 import { useCanvasInlineEdit } from "./canvas/useCanvasInlineEdit";
-import {
-  CanvasInlineRichTextToolbar,
-  CanvasInlineToolbarLayer,
-} from "./canvas/CanvasInlineRichTextToolbar";
+import { CanvasInlineRichTextToolbar } from "./canvas/CanvasInlineRichTextToolbar";
+import { CanvasInlineEditFloat } from "./canvas/CanvasInlineFieldErrors";
 import { useSelectModePreference } from "../../hooks/selectModePreference";
 import {
   useCodeModeQuickPreview,
@@ -2117,24 +2115,32 @@ function ValShellBody({
           />
           {proposalDialogs}
           {/*
-           * The formatting controls for a richtext being typed in on the
-           * page: the Studio's own, floated over the preview where the text
-           * is. In the portal, outside the preview's zoom.
+           * What floats by a text being typed in on the page: its
+           * validation errors, and the formatting controls of a richtext.
+           * The Studio's own, over the preview where the text is. In the
+           * portal, outside the preview's zoom.
            */}
-          {inlineEdit.richText !== null &&
+          {inlineEdit.editingPath !== null &&
             portalContainer !== null &&
             portalContainer !== undefined &&
             createPortal(
-              <CanvasInlineToolbarLayer locate={locateInlineEdit}>
-                <CanvasInlineRichTextToolbar
-                  key={inlineEdit.richText.path}
-                  path={inlineEdit.richText.path}
-                  value={inlineEdit.richText.value}
-                  selection={inlineEdit.richText.selection}
-                  onApply={inlineEdit.apply}
-                  onRefocus={refocusInlineEdit}
-                />
-              </CanvasInlineToolbarLayer>,
+              <CanvasInlineEditFloat
+                key={inlineEdit.editingPath}
+                path={inlineEdit.editingPath}
+                locate={locateInlineEdit}
+                toolbar={
+                  inlineEdit.richText !== null ? (
+                    <CanvasInlineRichTextToolbar
+                      key={inlineEdit.richText.path}
+                      path={inlineEdit.richText.path}
+                      value={inlineEdit.richText.value}
+                      selection={inlineEdit.richText.selection}
+                      onApply={inlineEdit.apply}
+                      onRefocus={refocusInlineEdit}
+                    />
+                  ) : null
+                }
+              />,
               portalContainer,
             )}
           <ProposalSiteCompare
