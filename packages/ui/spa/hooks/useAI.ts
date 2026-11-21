@@ -18,13 +18,13 @@ import type { ParentRef } from "@valbuild/shared/internal";
  */
 const ops = new JSONOps();
 import { useValSystem } from "../stores/react/SystemContext";
+import { runStagedCode, type StagedCodeOutcome } from "../proposals/stagedCode";
+import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
+import { createTurnTimer, describeTurnTiming } from "./turnTiming";
 import {
-  markStagedCodeTold,
-  runStagedCode,
-  stagedCodeNotice,
-  untoldStagedCode,
-  type StagedCodeOutcome,
-} from "../proposals/stagedCode";
+  scheduleBackgroundChecks,
+  stagedInputsOf,
+} from "../proposals/backgroundChecks";
 import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
 import type {
   AIChatHandle,
@@ -100,6 +100,7 @@ import type {
   AIToolCallMessage,
   AIPromptMessage,
   AISteerMessage,
+  AIToolResultMessage,
 } from "./useAIWebSocket";
 import {
   promptContentBlocks,
@@ -188,7 +189,6 @@ import {
   scheduleTypecheck,
   typecheckProposal,
   typecheckStatusOf,
-  untoldTypeErrors,
 } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
@@ -1185,6 +1185,10 @@ export function useAI(
     currentProposal?.name ?? null,
     codeModeNowHere,
   );
+  const inCodeModeRef = useRef(inCodeModeNow);
+  inCodeModeRef.current = inCodeModeNow;
+  /** How long each code mode turn takes, and in which tools: `turnTiming.ts`. */
+  const turnTimer = useMemo(() => createTurnTimer(), []);
   useEffect(() => {
     if (inCodeModeNow && currentProposal !== null) {
       refreshProjectInstructions(currentProposal.name);
@@ -1421,6 +1425,34 @@ export function useAI(
   const steerLedgerRef = useRef(createSteerLedger());
 
   useEffect(() => {
+    /**
+     * Every answer to a tool call goes through here, so what the background
+     * checks found (`toolNotices.ts`) goes with it, whichever tool it is: the
+     * assistant hears without having stopped to ask. A tool's answer is never
+     * lost to a notice that could not be read.
+     */
+    const sendToolResult = (toolResult: AIToolResultMessage): void => {
+      const name = currentProposalRef.current?.name ?? null;
+      if (name === null) {
+        turnTimer.toolAnswered(toolResult.toolCallId);
+        sendWsMessage(toolResult);
+        return;
+      }
+      void takeToolNotices(name, () =>
+        stagedInputsOf(codeClients.proposals, name),
+      )
+        .catch((error: unknown) => {
+          Internal.log.error("Could not read the background checks:", error);
+          return {};
+        })
+        .then((notices) => {
+          turnTimer.toolAnswered(toolResult.toolCallId);
+          sendWsMessage({
+            ...toolResult,
+            result: withToolNotices(toolResult.result, notices),
+          });
+        });
+    };
     const handler = (message: AIServerMessage) => {
       if (message.type === "ai_steer_status") {
         const route = routeSteerStatus(
@@ -1505,6 +1537,16 @@ export function useAI(
       if ("id" in message && !ownedPromptIdsRef.current.has(message.id)) {
         return;
       }
+      if (message.type === "ai_tool_call") {
+        turnTimer.toolCalled(message.id, message.toolCallId, message.name);
+      } else if (
+        message.type === "ai_response" ||
+        message.type === "ai_error" ||
+        message.type === "ai_cancelled"
+      ) {
+        const timing = turnTimer.end(message.id);
+        if (timing !== null) Internal.log.info(describeTurnTiming(timing));
+      }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
@@ -1565,7 +1607,7 @@ export function useAI(
         // the project says now, and ask only if it is still undecided.
         const setting = valReads.getWebSearchSetting();
         if (setting !== null || !chatRef.current) {
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result:
@@ -1616,7 +1658,7 @@ export function useAI(
         )
       ) {
         if (!chatRef.current) {
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -1669,7 +1711,7 @@ export function useAI(
               "Cannot show ask_user_question card:",
               blockedReason,
             );
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1706,7 +1748,7 @@ export function useAI(
           const inProposal = codeModeState().proposal;
           if (inProposal?.on === true) {
             // Nothing to ask: it is on already.
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1716,7 +1758,7 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else if (!chatRef.current) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1759,7 +1801,7 @@ export function useAI(
             "module_file_paths" in schemaArgs
               ? schemaArgs.module_file_paths
               : undefined;
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: allSchemaAnswer(schemas, asked),
@@ -1777,7 +1819,7 @@ export function useAI(
               ? valueAtPath(snapshot.data, args.path)
               : null;
           if (at !== null && at.status === "invalid") {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: at.message },
@@ -1789,7 +1831,7 @@ export function useAI(
               narrow:
                 "Read what was left out with get_source and path: the path you asked with (if any) followed by an omitted path, e.g. path: ['posts', '12'].",
             });
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1803,7 +1845,7 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1829,7 +1871,7 @@ export function useAI(
           aiSearch
             .query(args.query, args.limit, args.offset)
             .then((searchResult) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: cappedToolResult(
@@ -1843,7 +1885,7 @@ export function useAI(
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
             .catch((err) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: String(err) },
@@ -1853,7 +1895,7 @@ export function useAI(
             });
         } else if (message.name === "validate_content") {
           const errors = aiValidation.getErrors();
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: cappedToolResult(errors, {
@@ -1870,7 +1912,7 @@ export function useAI(
           const exec = async () => {
             const parseResult = Patch.safeParse(args.patch);
             if (!parseResult.success) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1887,7 +1929,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1907,7 +1949,7 @@ export function useAI(
             const patchId = valReads.createPatchId();
             const parentRef = valReads.getParentRef();
             if (parentRef === null) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1943,7 +1985,7 @@ export function useAI(
                       .map((k) => `"${k}"`)
                       .join(", ")}.`
                   : "";
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1956,7 +1998,7 @@ export function useAI(
               return;
             }
             if (expanded.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1970,7 +2012,7 @@ export function useAI(
               return;
             }
             if (expanded.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: expanded.message },
@@ -1986,7 +2028,7 @@ export function useAI(
             );
             if (validationResult && "status" in validationResult) {
               Internal.log.error("Patch status not valid", validationResult);
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -2003,7 +2045,7 @@ export function useAI(
               );
               if (Object.keys(blockingErrors).length > 0) {
                 Internal.log.error("Patch validation failed", blockingErrors);
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId: message.toolCallId,
                   result: {
@@ -2026,7 +2068,7 @@ export function useAI(
               true,
             );
             if (res.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -2037,7 +2079,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: res.message },
@@ -2064,7 +2106,7 @@ export function useAI(
           const messageId = message.id;
           (async () => {
             if (!args.image_key || !args.module_file_path || !args.file_path) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2082,7 +2124,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2099,7 +2141,7 @@ export function useAI(
             const isRemote = isRemoteSchema(moduleSchema);
             const parentRef = valReads.getParentRef();
             if (parentRef === null) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2149,7 +2191,7 @@ export function useAI(
                         ", ",
                       )}. Retry ${toolName} with one of these as image_key.`
                   : "";
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2180,7 +2222,7 @@ export function useAI(
             let entryKey = args.file_path;
             if (isRemote) {
               if (moduleSchema.type !== "record") {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2200,7 +2242,7 @@ export function useAI(
                 sha256: sessionRes.sha256,
               });
               if (named.status === "error") {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2221,7 +2263,7 @@ export function useAI(
             );
 
             if (buildResult.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2235,7 +2277,7 @@ export function useAI(
               return;
             }
             if (buildResult.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: buildResult.message },
@@ -2251,7 +2293,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -2267,7 +2309,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2291,7 +2333,7 @@ export function useAI(
               true,
             );
             if (patchRes.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2304,7 +2346,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: patchRes.message },
@@ -2322,7 +2364,7 @@ export function useAI(
           const messageId = message.id;
           (async () => {
             if (!args.module_file_path || !args.file_path) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2339,7 +2381,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2363,7 +2405,7 @@ export function useAI(
               sourceData,
             );
             if (buildResult.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2377,7 +2419,7 @@ export function useAI(
               return;
             }
             if (buildResult.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: buildResult.message },
@@ -2393,7 +2435,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -2409,7 +2451,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2429,7 +2471,7 @@ export function useAI(
               sessionIdRef.current,
             );
             if (patchRes.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2441,7 +2483,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: patchRes.message },
@@ -2460,7 +2502,7 @@ export function useAI(
           const schemas = valReads.getAllSchemasSnapshot();
           const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
           if (navPath === null) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -2472,7 +2514,7 @@ export function useAI(
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
           } else {
             navigate(navPath as SourcePath);
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: true },
@@ -2486,7 +2528,7 @@ export function useAI(
             browserPathname,
             (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
           );
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -2509,7 +2551,7 @@ export function useAI(
           const pathname = (message.arguments as { pathname?: string })
             .pathname;
           if (!pathname) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -2526,14 +2568,14 @@ export function useAI(
               (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
             );
             if (found) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: true, ...found },
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -2572,7 +2614,7 @@ export function useAI(
                 new Date(b.createdAt).getTime() -
                 new Date(a.createdAt).getTime(),
             );
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: cappedToolResult(
@@ -2590,7 +2632,7 @@ export function useAI(
           const sid = sessionIdRef.current;
           if (sid == null) {
             // Defensive: tool calls only run for an active session.
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: "No active session." },
@@ -2604,7 +2646,7 @@ export function useAI(
               setSessions((prev) =>
                 prev.map((s) => (s.id === sid ? { ...s, name } : s)),
               );
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: true },
@@ -2612,7 +2654,7 @@ export function useAI(
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
             .catch((err) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: String(err) },
@@ -2632,7 +2674,7 @@ export function useAI(
             pointedAt: lastPointedAtRef.current ?? page?.pointedAt ?? null,
             noPage: NO_PREVIEW,
           }).then(({ result, isError }) => {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
               result,
@@ -2668,7 +2710,7 @@ export function useAI(
                     pendingQuestionsRef.current.set(toolCallId, messageId);
                   },
             answer: ({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -2687,7 +2729,7 @@ export function useAI(
             readPageLog: pageRef.current?.readPageLog() ?? null,
             noPage: NO_PREVIEW,
           }).then(({ result, isError }) => {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
               result,
@@ -2711,7 +2753,7 @@ export function useAI(
               return upload(file);
             },
           }).then(({ result, isError, images }) => {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
               result,
@@ -2726,7 +2768,7 @@ export function useAI(
           const messageId = message.id;
           void runQuickPreviewTool(quickPreviewRunner()).then(
             ({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -2838,7 +2880,7 @@ export function useAI(
                     ),
                 }
               : {}),
-          }).then(async ({ result, isError }) => {
+          }).then(({ result, isError }) => {
             if (
               (toolName === "write_files" ||
                 toolName === "edit_file" ||
@@ -2846,58 +2888,29 @@ export function useAI(
                 toolName === "format_files" ||
                 toolName === "lint") &&
               !isError
-            )
+            ) {
               proposalCodeChanged();
-            // The background typecheck found errors in what is staged now,
-            // and the assistant has not heard: it hears on this answer
-            const untold =
-              proposalName === null ? null : untoldTypeErrors(proposalName);
-            // Told only of errors in what is staged now; the read that says
-            // so is given a few seconds, never the answer's whole wait
-            const notice =
-              untold !== null &&
-              (await Promise.race([
-                stagedInputs().catch(() => null),
-                new Promise<null>((resolve) =>
-                  setTimeout(() => resolve(null), 3_000),
-                ),
-              ])) === untold.inputs
-                ? untold
-                : null;
-            if (notice !== null) markTypeErrorsTold(notice.inputs);
-            // The tab's evaluation of the staged code finished after the
-            // write that started it answered: it is told on this answer
-            const staged =
-              proposalName === null ? null : untoldStagedCode(proposalName);
-            if (staged !== null) markStagedCodeTold(staged);
-            sendWsMessage({
+              // Checked beside the conversation, not in it: what the checks
+              // find reaches the assistant on a later tool answer
+              if (proposalName !== null) {
+                scheduleBackgroundChecks(proposalName, {
+                  client: codeClients.proposals,
+                  siteSource: codeClients.siteSource,
+                  onTypechecked: proposalCodeChanged,
+                });
+              }
+            }
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
-              result:
-                notice === null && staged === null
-                  ? result
-                  : {
-                      result,
-                      ...(notice !== null
-                        ? {
-                            typecheck_errors: {
-                              newErrors: notice.errors.length,
-                              errors: notice.errors.slice(0, 20),
-                              next: "The background typecheck found these in what is staged. Fix them before you build.",
-                            },
-                          }
-                        : {}),
-                      ...(staged !== null
-                        ? { valModules: stagedCodeNotice(staged) }
-                        : {}),
-                    },
+              result,
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
           });
         } else if (message.name === "show_compare_view") {
           navigate("/val/compare");
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: { success: true },
@@ -2917,7 +2930,7 @@ export function useAI(
           const messageId = message.id;
           (async () => {
             if (!args.module_file_path) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2932,7 +2945,7 @@ export function useAI(
             const isStringArray = (v: unknown): v is string[] =>
               Array.isArray(v) && v.every((p) => typeof p === "string");
             if (!isStringArray(args.destination_path)) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2949,7 +2962,7 @@ export function useAI(
               toolName === "duplicate_source" &&
               !isStringArray(args.source_path)
             ) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2966,7 +2979,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -3005,7 +3018,7 @@ export function useAI(
               );
             }
             if (buildResult.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -3019,7 +3032,7 @@ export function useAI(
               return;
             }
             if (buildResult.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: buildResult.message },
@@ -3034,7 +3047,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -3050,7 +3063,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -3071,7 +3084,7 @@ export function useAI(
               sessionIdRef.current,
             );
             if (patchRes.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -3085,7 +3098,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: patchRes.message },
@@ -3117,7 +3130,7 @@ export function useAI(
               },
             }))
             .then(({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -3150,7 +3163,7 @@ export function useAI(
               },
             }))
             .then(({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -3172,7 +3185,7 @@ export function useAI(
             !Array.isArray(args.path) ||
             !args.path.every((p) => typeof p === "string")
           ) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3189,7 +3202,7 @@ export function useAI(
           const schemas = valReads.getAllSchemasSnapshot();
           const moduleSchema = schemas?.[moduleFilePath];
           if (!moduleSchema) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3212,7 +3225,7 @@ export function useAI(
             args.path,
           );
           if (described.kind === "error") {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: described.message },
@@ -3224,7 +3237,7 @@ export function useAI(
           const count = Array.isArray(described.value)
             ? described.value.length
             : Object.keys(described.value as Record<string, unknown>).length;
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -3246,7 +3259,7 @@ export function useAI(
             !Array.isArray(args.path) ||
             !args.path.every((p) => typeof p === "string")
           ) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3263,7 +3276,7 @@ export function useAI(
           const schemas = valReads.getAllSchemasSnapshot();
           const moduleSchema = schemas?.[moduleFilePath];
           if (!moduleSchema) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3286,7 +3299,7 @@ export function useAI(
             args.path,
           );
           if (described.kind === "error") {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: described.message },
@@ -3308,7 +3321,7 @@ export function useAI(
                 : described.container === "richtext"
                   ? "use count_entries to get the number of blocks"
                   : "use get_source to read the gallery's entries";
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3333,7 +3346,7 @@ export function useAI(
               : fallback;
           const limit = toIndex(args.limit, 100);
           const offset = toIndex(args.offset, 0);
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -3349,7 +3362,7 @@ export function useAI(
             "Received unknown tool call in useAI",
             message.name,
           );
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: { success: false, error: `Unknown tool: ${message.name}` },
@@ -3761,6 +3774,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       if (sent) {
         inFlightPromptIdRef.current = message.id;
         ownedPromptIdsRef.current.add(message.id);
+        if (inCodeModeRef.current) turnTimer.start(message.id);
       }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
