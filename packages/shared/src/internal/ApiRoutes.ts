@@ -1624,6 +1624,18 @@ export const Api = {
             errors: z.array(GenericPatchError),
           }),
         }),
+        /*
+         * The content service failed: it answered with an error, or could not
+         * be reached. Nothing is known to be deleted, so the client keeps
+         * every patch it asked about.
+         */
+        z.object({
+          status: z.literal(502),
+          json: z.object({
+            message: z.string(),
+            details: z.string().optional(),
+          }),
+        }),
         z.object({
           status: z.literal(200),
           json: z.union([
@@ -1666,6 +1678,17 @@ export const Api = {
           json: z.object({
             type: z.literal("patch-head-conflict"),
             message: z.string(),
+            /*
+             * The patches of the batch BEFORE the conflicting one, which were
+             * saved: each patch is its own write, and someone else's can land
+             * between two of ours. Without these the client still holds them
+             * as unsaved and sends them again, which the content service
+             * refuses as a patch it already has. Optional, because a server
+             * from before this sends none.
+             */
+            newPatchIds: z.array(PatchId).optional(),
+            parentRef: ParentRef.optional(),
+            headVersion: z.number().optional(),
           }),
         }),
         z.object({
