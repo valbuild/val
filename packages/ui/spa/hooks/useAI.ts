@@ -29,17 +29,15 @@ import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
-  ChatMessage,
   ChatMessageAttachment,
   SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
-import type { ToolActivity } from "../components/AIChatToolActivities";
 import {
   applyWatchedEvent,
+  toChatMessages,
   runningAsker,
   someoneElseAdded,
-  storedToolActivities,
 } from "./sharedChat";
 import { AskUserQuestionArgs } from "./askUserQuestion";
 import {
@@ -67,10 +65,6 @@ import {
   type WebSearchAsk,
 } from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
-import {
-  chatDocumentToHtmlText,
-  collectImageNodesFromDoc,
-} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -104,9 +98,15 @@ import type {
   AISession,
   AIServerMessage,
   AIToolCallMessage,
-  AIMessageContentBlock,
   AIPromptMessage,
+  AISteerMessage,
 } from "./useAIWebSocket";
+import {
+  promptContentBlocks,
+  routeSteerStatus,
+  steerContentBlocks,
+  createSteerLedger,
+} from "./steerWire";
 import {
   AssistantSettings,
   assistantSettingsPromptSection,
@@ -159,7 +159,6 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
-  pickedElementPrompt,
   isCodeTool,
   projectInstructionsPromptSection,
   QUICK_PREVIEW_TOOL,
@@ -1310,6 +1309,8 @@ export function useAI(
   const watchedActiveIdRef = useRef<string | null>(null);
   /** Watched turns whose question was seen asked, rather than joined midway. */
   const watchedStartedRef = useRef<Set<string>>(new Set());
+  /** Who asked each watched turn: see `WatchedChat.askers`. */
+  const watchedAskersRef = useRef<Map<string, ProposalParticipant>>(new Map());
   /** Remember the open chat as the server has it, and whose turn is running. */
   const takeServerMessages = useCallback(
     (sessionId: string, messages: ServerMessage[]) => {
@@ -1410,8 +1411,45 @@ export function useAI(
     ((message: AIServerMessage) => void) | null
   >(null);
 
+  /**
+   * The messages this chat steered into its running turn, by `steerId`. A
+   * status for one is the chat's whatever the turn has done since: `too_late`
+   * comes after the turn's answer, when the prompt is no longer owned.
+   */
+  const ownSteerIdsRef = useRef<Set<string>>(new Set());
+  /** Those not settled yet, to send again after a reconnect. */
+  const steerLedgerRef = useRef(createSteerLedger());
+
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      if (message.type === "ai_steer_status") {
+        const route = routeSteerStatus(
+          message,
+          ownSteerIdsRef.current,
+          watchedSessionIdRef.current !== null &&
+            watchedSessionIdRef.current === sessionIdRef.current,
+        );
+        if (route.to === "chat") {
+          steerLedgerRef.current.status(message.steerId, route.status);
+          chatRef.current?.steerStatus(
+            message.steerId,
+            route.status,
+            message.reason,
+          );
+        } else if (route.to === "watched") {
+          applyWatchedEvent(message, {
+            chat: chatRef.current,
+            activeId: watchedActiveIdRef,
+            started: watchedStartedRef.current,
+            askers: watchedAskersRef.current,
+            participantOf: participantOfRef.current,
+            setTurnBy,
+            // Not the end of a turn: nothing to read again yet.
+            turnEnded: () => {},
+          });
+        }
+        return;
+      }
       if (message.type === "ai_watching") {
         if (message.sessionId !== sessionIdRef.current) return;
         watchedSessionIdRef.current = message.sessionId;
@@ -1432,6 +1470,7 @@ export function useAI(
           chat: chatRef.current,
           activeId: watchedActiveIdRef,
           started: watchedStartedRef.current,
+          askers: watchedAskersRef.current,
           participantOf: participantOfRef.current,
           setTurnBy,
           turnEnded: (joinedMidway) => {
@@ -3543,54 +3582,13 @@ export function useAI(
       }
       const model = sessionModelRef.current ?? chatModel;
       if (sessionModelRef.current === null) lockModel(model);
-      const baseText =
-        typeof content === "string" ? content : chatDocumentToHtmlText(content);
-      // Pull inline image nodes out of the rich document so their keys are
-      // registered as `image_key` content blocks (the protocol the server
-      // expects), not buried in the HTML text. Drop any still-pending keys —
-      // the editor should already block Send while uploads are in flight, but
-      // this is a defence-in-depth check.
-      const inlineImages =
-        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
-      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
-        .filter((n) => n.key && !n.key.startsWith("pending:"))
-        .map((n) => ({
-          key: n.key,
-          name: n.alt || "inline image",
-          mimeType: n.mimeType,
-          previewUrl: n.previewUrl,
-        }));
-      const mergedAttachments: ChatMessageAttachment[] = [];
-      const seenKeys = new Set<string>();
-      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
-        if (seenKeys.has(a.key)) continue;
-        seenKeys.add(a.key);
-        mergedAttachments.push(a);
-      }
-      let augmentedText = baseText;
-      if (mergedAttachments.length > 0) {
-        const lines = mergedAttachments.map(
-          (a) => `- ${a.name}: image_key="${a.key}"`,
-        );
-        augmentedText =
-          baseText +
-          "\n\n[Attached images — when calling convert_session_image_to_patch, " +
-          "use the exact image_key string from this list (NOT any vision-system file id):\n" +
-          lines.join("\n") +
-          "]";
-      }
       const pointedAt = takePointedAt(context, pageRef.current);
       lastPointedAtRef.current = pointedAt;
-      if (pointedAt !== null) {
-        augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
-      }
-      const contentBlocks: AIMessageContentBlock[] = [
-        { type: "text", text: augmentedText },
-        ...mergedAttachments.map((attachment) => ({
-          type: "image_key" as const,
-          key: attachment.key,
-        })),
-      ];
+      const contentBlocks = promptContentBlocks(
+        content,
+        attachments,
+        pointedAt,
+      );
       // Only where the Studio can show one, and its server has them: the
       // Studio's shell, once a list came back. Anywhere else the assistant
       // would offer something that fails, or that nobody can open.
@@ -3773,6 +3771,63 @@ Do not describe what you will do unless you do it for clarification — just do 
     },
     [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
   );
+
+  /**
+   * Send a message into this chat's running turn (`ai_steer`): the agent
+   * reads it at its next step. False when there is no turn of this chat's to
+   * send it into, or no socket: the chat queues it instead. What becomes of
+   * it comes back as `ai_steer_status`, to `AIChatHandle.steerStatus`.
+   */
+  const steerMessage = useCallback(
+    (
+      content: string | ChatDocument,
+      attachments: ChatMessageAttachment[] | undefined,
+      context: SendContext | undefined,
+      steerId: string,
+    ): boolean => {
+      const promptId = inFlightPromptIdRef.current;
+      const sessionId = sessionIdRef.current;
+      if (promptId === null || sessionId === null) return false;
+      const blocks = steerContentBlocks(
+        promptContentBlocks(
+          content,
+          attachments,
+          takePointedAt(context, pageRef.current),
+        ),
+      );
+      // Nothing to say: the server refuses an empty steer.
+      if (blocks === null) return false;
+      const message: AISteerMessage = {
+        type: "ai_steer",
+        id: promptId,
+        sessionId,
+        steerId,
+        message: blocks,
+      };
+      const sent = sendWsMessage(message);
+      if (sent) {
+        ownSteerIdsRef.current.add(steerId);
+        steerLedgerRef.current.sent(message);
+      }
+      return sent;
+    },
+    [sendWsMessage],
+  );
+
+  /**
+   * The socket came back: what was accepted and not read yet is sent again,
+   * with the same steerId. The server does not read one twice, and answers
+   * `too_late` for a turn that is gone, which queues it here as usual.
+   */
+  const wasConnectedRef = useRef(isWsConnected);
+  useEffect(() => {
+    const reconnected = isWsConnected && !wasConnectedRef.current;
+    wasConnectedRef.current = isWsConnected;
+    if (!reconnected) return;
+    for (const message of steerLedgerRef.current.toResend()) {
+      sendWsMessage(message);
+    }
+  }, [isWsConnected, sendWsMessage]);
 
   // A question card keeps the turn open (and the composer disabled) until a
   // result is delivered, so a socket that dropped while the user was deciding
@@ -4220,7 +4275,8 @@ Do not describe what you will do unless you do it for clarification — just do 
       return;
     }
     const sessionId = currentSessionId;
-    sendWsMessage({ type: "ai_watch_session", sessionId });
+    // `steering`: this Studio reads `ai_steer_status` inside `ai_watched`.
+    sendWsMessage({ type: "ai_watch_session", sessionId, steering: true });
     return () => {
       sendWsMessage({ type: "ai_unwatch_session", sessionId });
       if (watchedSessionIdRef.current === sessionId) {
@@ -4343,6 +4399,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    steerMessage,
     captureSendContext,
     uploadAiImage,
     isStreaming,
@@ -4404,38 +4461,3 @@ const SHARED_CHAT_POLL_MS = 4000;
  * refused send, never two turns at once.
  */
 const STALE_TURN_MS = 2 * 60 * 1000;
-
-function toChatMessages(
-  sessionId: string,
-  messages: ServerMessage[],
-  participantOf: (id: string) => ProposalParticipant,
-): ChatMessage[] {
-  const chat: ChatMessage[] = [];
-  /** The tools the last question's turn called: they go on its answer. */
-  let toolActivities: ToolActivity[] = [];
-  for (const m of messages) {
-    if (m.role !== "user" && m.role !== "assistant") continue;
-    // Numbered among the messages shown, as they always were.
-    const id = `history-${sessionId}-${chat.length}`;
-    if (m.role === "user") {
-      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
-      chat.push({
-        id,
-        role: "user",
-        content: m.content,
-        status: "complete",
-        ...(m.authorId ? { author: participantOf(m.authorId) } : {}),
-      });
-      continue;
-    }
-    chat.push({
-      id,
-      role: "assistant",
-      content: m.content,
-      status: "complete",
-      ...(toolActivities.length > 0 ? { toolActivities } : {}),
-    });
-    toolActivities = [];
-  }
-  return chat;
-}
