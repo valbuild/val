@@ -71,7 +71,7 @@ A sketchpad is a rough page -- headings, text, boxes, columns -- that you and th
  * waits for.
  */
 const CODE_MODE_TOOLS_INTRO =
-  "Call get_all_schema first only when the request is about content and you do not already know which module holds it. A change to code or to a schema does not need it: the .val.ts you read has the schema, and the project's map at the end of this prompt says where things are. The content tools:";
+  "A change to code or to a schema does not need get_all_schema: the .val.ts you read has the schema, and the project's map at the end of this prompt says where things are. Before you change content with create_patch, know the shape of what you patch: call get_all_schema first, unless you have read that module's .val.ts or its get_source in this conversation. The content tools:";
 const CODE_MODE_VALIDATE_CONTENT =
   "check content for errors — call this after a change to content (create_patch). A change to code alone does not need it.";
 const CODE_MODE_SESSION_NAME =

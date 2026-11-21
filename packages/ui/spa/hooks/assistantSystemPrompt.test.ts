@@ -48,11 +48,12 @@ describe("the content editor's prompt", () => {
   });
 
   test("keeps the content rules, on the site and in a proposal too", () => {
-    for (const code of [
+    const places: AssistantSystemPromptInput["code"][] = [
       null,
-      { kind: "site" as const },
-      { kind: "proposal" as const },
-    ]) {
+      { kind: "site" },
+      { kind: "proposal" },
+    ];
+    for (const code of places) {
       const prompt = assistantSystemPrompt({
         ...editor,
         code,
@@ -80,6 +81,20 @@ describe("the prompt in code mode", () => {
     expect(prompt).not.toContain("call this after every change");
     expect(prompt).not.toContain("at least once per session");
     expect(prompt).toContain("in the same reply as your first other tool call");
+  });
+
+  test("is told to know a module's shape before patching its content", () => {
+    expect(prompt).toContain(
+      "Before you change content with create_patch, know the shape of what you patch",
+    );
+  });
+
+  test("sent before the project was read: says there is no map yet", () => {
+    const early = assistantSystemPrompt({ ...codeMode, projectMap: null });
+    expect(early).toContain("there is no map for this message");
+    expect(
+      assistantSystemPrompt({ ...editor, projectMap: null }),
+    ).not.toContain("## The project's map");
   });
 
   test("says to read together and to edit together", () => {
