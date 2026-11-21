@@ -394,10 +394,11 @@ export type ValCanvasPageMessage =
     }
   | {
       /**
-       * A richtext being edited on the page: what is selected in it, and
-       * where its element is in the page's viewport. The Studio draws its
-       * formatting controls there and has them act on that selection
-       * (`applyInlineEdit`). Sent when either moves.
+       * A text being edited on the page: what is selected in it, and
+       * where its element is in the page's viewport. The Studio draws the
+       * field's validation errors there and, for a richtext, its formatting
+       * controls, acting on that selection (`applyInlineEdit`). Sent when
+       * either moves. A string's selection is always `null`.
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "inlineEditSelection";

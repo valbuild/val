@@ -137,3 +137,65 @@ test.describe("the floating controls, on a richtext with headings", () => {
       .toContain("rendered inline. Typed after.");
   });
 });
+
+/**
+ * The front page's call to action, whose label may not start or end with a
+ * space (`.regexp` in `_site.index.val.ts`): a rule only the showcase has.
+ */
+test.describe("a field's validation errors, by the text typed in on the page", () => {
+  test.use({ viewport: { width: 1512, height: 900 } });
+
+  test("an error shows by the text as it is typed, and goes when it is fixed", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page);
+    await page.getByRole("button", { name: "Open the canvas" }).click();
+    const preview = await selectOnPreview(page, "edit");
+    await preview.getByRole("link", { name: "Read the docs" }).click();
+    const copy = inlineEditor(preview);
+    await expect(copy, "the caret did not go into the label").toBeFocused();
+    const errors = page.getByLabel(
+      "Validation errors for the text on the page",
+    );
+    await expect(errors).toHaveCount(0);
+
+    await page.keyboard.press("End");
+    await page.keyboard.type(" ");
+    await expect(errors).toContainText("No leading or trailing whitespace");
+    // By the text and not over it, and inside the preview.
+    const message = await errors.boundingBox();
+    const text = await copy.boundingBox();
+    const frame = await page
+      .locator('iframe[title^="Preview of"]')
+      .boundingBox();
+    if (message === null || text === null || frame === null) {
+      throw new Error("the message, the text or the preview has no box");
+    }
+    const above = message.y + message.height <= text.y;
+    const below = message.y >= text.y + text.height;
+    expect(above || below, "the message is over the text").toBe(true);
+    expect(
+      Math.abs(above ? text.y - message.y : message.y - text.y),
+    ).toBeLessThan(200);
+    expect(message.y).toBeGreaterThanOrEqual(frame.y);
+    expect(message.x).toBeGreaterThanOrEqual(frame.x);
+    expect(message.x + message.width).toBeLessThanOrEqual(
+      frame.x + frame.width,
+    );
+    // The column's row says the same.
+    await expect(columnRow(page, '."ctaLabel"')).toContainText(
+      "No leading or trailing whitespace",
+    );
+    // Showing it did not take the caret.
+    await expect(copy).toBeFocused();
+
+    await page.keyboard.press("Backspace");
+    await expect(errors).toHaveCount(0);
+    await expect(copy).toBeFocused();
+    await page.keyboard.type("!");
+    await expect
+      .poll(() => written(request, ["/", "hero", "ctaLabel"]))
+      .toBe(JSON.stringify("Read the docs!"));
+  });
+});

@@ -18,6 +18,7 @@ The parts, and nothing else knows about it:
 | `editInline`, `inlineEdit`, `inlineEditSelection`, and the rest | `valCanvasProtocol.ts`                                       | The conversation across the frame                                            |
 | `useCanvasInlineEdit`, `inlineEditCandidates`                   | `@valbuild/ui`, `components/shell/canvas/`                   | Decides what to offer the page, and writes what comes back                   |
 | `CanvasInlineRichTextToolbar`, `placeInlineToolbar`             | `@valbuild/ui`, `components/shell/canvas/`                   | The formatting controls floated over a richtext, and where they go           |
+| `CanvasInlineEditFloat`                                         | `@valbuild/ui`, `components/shell/canvas/`                   | The field's validation errors, floated by any text, with those controls      |
 
 ## One round trip, and a way back
 
@@ -146,13 +147,33 @@ That splits the work across the frame, and each half does only what it can:
   is always the page's own rendering, so it is where the theme's classes
   come from. Never while the two differ: what the person is looking at stays.
 
+### The field's validation errors, by the text
+
+What the field's row in the column says is wrong with it, it also says by the
+text being typed in: a label that may not end in a space says so as the space
+is typed, where the person is looking, and stops saying so when it is
+deleted. The same errors, read the same way (`useValidationErrors`, which is
+also what makes them be worked out), so the two never disagree.
+
+Drawn by the Studio, for the reason the controls are, and in the SAME box as
+the controls (`CanvasInlineEditFloat`): two boxes placed each by itself would
+both want the room above the text and one would land on the other. Between
+the bar and the text, when the box is above it. A string has no controls, so
+for a string the box is the errors alone, and nothing is drawn while there
+are none.
+
+So the page reports where a STRING is too, not only a richtext
+(`inlineEditSelection`, with no selection: `null`). The bridges relay that
+report for any kind already, so the widening is in `inlineEditing.ts` alone.
+
 ### Where the controls go
 
 Above the text, with its left edge. Where that does not fit they go below it,
 and where neither fits -- a text taller than the preview -- inside the
 preview's edge, on the side away from the caret. Never outside the part of the
 preview that is on screen (`placeInlineToolbar`, which is pure and tested), and
-not at all while the text is scrolled out of it. What opens OUT of the bar (the
+not at all while the text is scrolled out of it. The errors go wherever the bar
+goes, as part of its box. What opens OUT of the bar (the
 link picker) is not part of the bar's box: a bar that grew a list of pages
 would be moved away from the text to make room for it.
 
@@ -171,8 +192,15 @@ there, and a box to type a link in has to take the focus. So:
 - on the page, Enter (a single line), Esc, or a press anywhere outside the text
   ends it;
 - in the Studio, a press anywhere but on the controls ends it (`CanvasFrame`
-  sends `stopInlineEdit`) -- which includes the canvas's own zoom and width
-  buttons;
+  sends `stopInlineEdit`), with one exception: the preview's controls that
+  change only how the page is LOOKED at -- zoom in and out, fit, the device
+  widths, and the window it is scrolled and pinched in, all marked
+  `PREVIEW_VIEW_CONTROL_ATTRIBUTE`. Someone zooming in to see what they are
+  typing is still typing it. The floating controls follow the text, and once
+  the press is over the caret is put back in it (`focusInlineEdit`). The
+  reload, the address bar, Exit Preview and turning Select off do end it:
+  each replaces the document the caret is in or leaves the mode. What was
+  typed is written as the edit ends, whichever ended it;
 - and the Studio says when the caret should go back (`focusInlineEdit`): a
   document that lost the focus to the one around it has forgotten which of its
   elements had it.
@@ -202,7 +230,8 @@ it goes on answering yes wherever focus is emulated, Playwright included.
 
 jsdom has no layout and no editing, so the unit tests
 (`inlineEditing.test.ts`, `canvasBridgeInlineEdit.test.tsx` in each binding,
-`canvasInlineEdit.test.tsx`, `inlineEditCandidates.test.ts`) mutate the copy
+`canvasInlineEdit.test.tsx`, `canvasInlineFieldErrors.test.tsx`,
+`inlineEditCandidates.test.ts`) mutate the copy
 and dispatch `input`, which covers the protocol and the reading-back.
 What the keys themselves do is only true in a browser:
 `e2e/inlineEditingSuite.ts` types into the blog page both example apps have,

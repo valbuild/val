@@ -677,7 +677,9 @@ describe("the Studio's controls for a richtext on the page", () => {
     });
   });
 
-  test("a string has none to tell", async () => {
+  test("a string has no selection to tell, but says where it is", async () => {
+    // Where its validation errors are drawn: a string has no controls,
+    // but its errors belong by it as much as a richtext's do.
     const root = page(`<h1>Our people</h1>`);
     const onSelection = jest.fn();
     startInlineEditing(root.querySelector("h1")!, title, {
@@ -688,7 +690,13 @@ describe("the Studio's controls for a richtext on the page", () => {
     });
     document.dispatchEvent(new Event("selectionchange"));
     await told();
-    expect(onSelection).not.toHaveBeenCalled();
+    expect(onSelection).toHaveBeenCalled();
+    for (const [selection, rect] of onSelection.mock.calls) {
+      expect(selection).toBeNull();
+      expect(rect).toEqual(
+        expect.objectContaining({ top: expect.any(Number) }),
+      );
+    }
   });
 
   const italic: InlineRichTextNode[] = [

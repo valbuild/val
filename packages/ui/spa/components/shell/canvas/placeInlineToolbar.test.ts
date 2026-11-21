@@ -82,3 +82,63 @@ describe("where the formatting controls go", () => {
     });
   });
 });
+
+/*
+ * A field's validation errors float in the same box as the controls -- or
+ * alone, for a string, which has no controls (`CanvasInlineEditFloat`) --
+ * so they are placed by the same rule, at whatever size the box has grown
+ * to with them in it.
+ */
+describe("where a field's validation errors go", () => {
+  /** A bar with two lines of errors under it. */
+  const withErrors = { width: 320, height: 40 + 4 + 56 };
+  /** A string's errors, on their own. */
+  const errorsAlone = { width: 260, height: 36 };
+
+  const overlaps = (a: ViewportBox, b: ViewportBox) =>
+    a.left < b.left + b.width &&
+    b.left < a.left + a.width &&
+    a.top < b.top + b.height &&
+    b.top < a.top + a.height;
+  const inside = (a: ViewportBox, b: ViewportBox) =>
+    a.left >= b.left &&
+    a.top >= b.top &&
+    a.left + a.width <= b.left + b.width &&
+    a.top + a.height <= b.top + b.height;
+
+  test("a string's errors go above it, as the controls of a richtext do", () => {
+    expect(placeInlineToolbar(field(300), clip, errorsAlone)).toEqual({
+      shown: true,
+      side: "above",
+      top: 300 - 8 - 36,
+      left: 400,
+    });
+  });
+
+  test("the box grown by its errors goes below a text it no longer fits above", () => {
+    // Room for the bar alone above this one, not for the bar and errors.
+    expect(placeInlineToolbar(field(160), clip, size)).toMatchObject({
+      side: "above",
+    });
+    expect(placeInlineToolbar(field(160), clip, withErrors)).toMatchObject({
+      side: "below",
+      top: 160 + 60 + 8,
+    });
+  });
+
+  test("never over the text, and never outside the preview, wherever the text is", () => {
+    for (const box of [withErrors, errorsAlone]) {
+      // Down the preview, and along it to past its right edge.
+      for (let top = 100; top + 60 <= 700; top += 20) {
+        for (const left of [300, 600, 1000]) {
+          const text = field(top, 60, left);
+          const placed = placeInlineToolbar(text, clip, box);
+          if (!placed.shown) throw new Error(`hidden at ${top}`);
+          const drawn = { top: placed.top, left: placed.left, ...box };
+          expect(inside(drawn, clip)).toBe(true);
+          expect(overlaps(drawn, text)).toBe(false);
+        }
+      }
+    }
+  });
+});
