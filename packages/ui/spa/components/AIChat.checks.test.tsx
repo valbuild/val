@@ -27,7 +27,7 @@ beforeEach(() => {
 
 const CHECKS = `${CHECKS_MESSAGE_MARKER} The checks found problems.\n\n{"lint_problems":{"problems":[]}}`;
 
-function setup() {
+function setup(sends = true) {
   const chatRef = createRef<AIChatHandle>();
   const editorRef = createRef<ChatEditorRef>();
   const sent: Array<{ text: unknown; context: SendContext | undefined }> = [];
@@ -43,7 +43,7 @@ function setup() {
             mode="http"
             onSendMessage={(text, _attachments, context) => {
               sent.push({ text, context });
-              return true;
+              return sends;
             }}
           />
         </TooltipProvider>
@@ -117,4 +117,18 @@ test("a chat loaded later shows the Studio's message as the notice it was", () =
     }),
   ).toBeTruthy();
   expect(screen.queryByText("You")).toBeNull();
+});
+
+test("a checks message that could not be sent is not left behind, and says so", () => {
+  const { chatRef } = setup(false);
+  let accepted = true;
+  act(() => {
+    accepted = chatRef.current?.sendChecksMessage(CHECKS) ?? true;
+  });
+  expect(accepted).toBe(false);
+  expect(
+    screen.queryByRole("button", {
+      name: /The checks found problems, and sent them to the assistant/,
+    }),
+  ).toBeNull();
 });

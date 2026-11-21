@@ -24,8 +24,19 @@ export type CheckStatus =
   | { status: "running" }
   | { status: "ok" }
   | { status: "problems"; count: number }
-  /** It could not run: not the change's fault. */
-  | { status: "failed"; message: string };
+  /**
+   * It could not run: not the change's fault. `message` is for the person;
+   * `details` is what the service said, for support.
+   */
+  | { status: "failed"; message: string; details?: string };
+
+/** Whether the page check can be run again from the bar, and if not, why. */
+export type PageRetry =
+  | { status: "available"; run: () => void }
+  /** As often as it may since the person's last message. */
+  | { status: "limited" }
+  /** No preview open: there is no page to read. */
+  | { status: "no-preview" };
 
 export type ChecksBarViewProps = {
   typecheck: CheckStatus;
@@ -34,8 +45,10 @@ export type ChecksBarViewProps = {
   followUp: ChecksFollowUpState;
   /** Sends a message as the person, asking for the findings to be fixed. */
   onFixIt: () => void;
-  /** Runs the page check again; `null` when none is left until the person writes. */
-  onRetryPageCheck: (() => void) | null;
+  /** Runs the page check again, or why it cannot be. */
+  pageRetry: PageRetry;
+  /** Runs the typecheck and lint again; `null` when that cannot help. */
+  onRetryChecks: (() => void) | null;
 };
 
 export function ChecksBarView({
@@ -44,7 +57,8 @@ export function ChecksBarView({
   page,
   followUp,
   onFixIt,
-  onRetryPageCheck,
+  pageRetry,
+  onRetryChecks,
 }: ChecksBarViewProps) {
   const anything =
     typecheck.status !== "idle" ||
@@ -70,20 +84,38 @@ export function ChecksBarView({
           </span>
         )}
       </div>
+      {(typecheck.status === "failed" || lint.status === "failed") && (
+        <FailureRow
+          message={
+            typecheck.status === "failed" && lint.status === "failed"
+              ? "The typecheck and Val's lint rules could not run."
+              : typecheck.status === "failed"
+                ? "The typecheck could not run."
+                : "Val's lint rules could not run."
+          }
+          details={[typecheck, lint]
+            .map((check) =>
+              check.status === "failed"
+                ? (check.details ?? check.message)
+                : null,
+            )
+            .filter((line): line is string => line !== null)
+            .join("\n")}
+          retry={onRetryChecks}
+        />
+      )}
       {page.status === "failed" && (
-        <div className="flex items-start gap-2 rounded-md border border-border-primary bg-bg-secondary px-3 py-2 text-xs touch:text-sm">
-          <span className="min-w-0 flex-1 text-fg-secondary">
-            The page check could not finish: {page.message}{" "}
-            {onRetryPageCheck === null &&
-              "It runs again after your next message."}
-          </span>
-          {onRetryPageCheck !== null && (
-            <Button size="xs" variant="outline" onClick={onRetryPageCheck}>
-              <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />
-              Try again
-            </Button>
-          )}
-        </div>
+        <FailureRow
+          message={`${page.message}${
+            pageRetry.status === "limited"
+              ? " It runs again after your next message."
+              : pageRetry.status === "no-preview"
+                ? " It runs again once the preview is open."
+                : ""
+          }`}
+          details={page.details}
+          retry={pageRetry.status === "available" ? pageRetry.run : null}
+        />
       )}
       {followUp.status === "stopped" && (
         <div className="flex flex-col gap-2 rounded-md border border-border-warning-primary bg-bg-warning-secondary px-3 py-2 text-xs touch:text-sm">
@@ -109,6 +141,37 @@ export function ChecksBarView({
             </Button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** A check that could not run: what happened, Try again when it can help, and Details for support. */
+function FailureRow({
+  message,
+  details,
+  retry,
+}: {
+  message: string;
+  details?: string;
+  retry: (() => void) | null;
+}) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border-primary bg-bg-secondary px-3 py-2 text-xs touch:text-sm">
+      <div className="flex items-start gap-2">
+        <span className="min-w-0 flex-1 text-fg-secondary">{message}</span>
+        {retry !== null && (
+          <Button size="xs" variant="outline" onClick={retry}>
+            <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />
+            Try again
+          </Button>
+        )}
+      </div>
+      {details !== undefined && details !== "" && (
+        <details className="text-fg-secondary">
+          <summary className="cursor-pointer">Details</summary>
+          <pre className="mt-1 whitespace-pre-wrap break-words">{details}</pre>
+        </details>
       )}
     </div>
   );
@@ -235,7 +298,11 @@ function pageStatus(state: PageCheckState, name: string): CheckStatus {
   if (state.status === "idle" || state.name !== name) return { status: "idle" };
   if (state.status === "running") return { status: "running" };
   if (state.status === "failed") {
-    return { status: "failed", message: state.message };
+    return {
+      status: "failed",
+      message: state.message,
+      ...(state.details !== undefined ? { details: state.details } : {}),
+    };
   }
   if (state.report.status === "pass") return { status: "ok" };
   if (state.report.status === "blocked") {
@@ -255,38 +322,54 @@ export function ChecksBar({
   proposalName,
   onFixIt,
   retryPageCheck,
-  pageChecksLeft,
+  pageCheckCanRun,
+  retryChecks,
 }: {
   proposalName: string;
   onFixIt: () => void;
   retryPageCheck: () => void;
   /** Read as the bar renders, which it does whenever a check moves. */
-  pageChecksLeft: () => number;
+  pageCheckCanRun: () => "yes" | "limited" | "no-preview";
+  /** Typecheck and lint what is staged again. */
+  retryChecks: () => void;
 }) {
   const typecheck = useTypecheckState();
   const lint = useBackgroundLint();
   const page = usePageCheck();
   const followUp = useChecksFollowUp();
+  const canRun = pageCheckCanRun();
+  const typecheckOf: CheckStatus =
+    typecheck.status === "idle" || typecheck.name !== proposalName
+      ? { status: "idle" }
+      : typecheck.status === "running"
+        ? { status: "running" }
+        : typecheck.status === "failed"
+          ? {
+              status: "failed",
+              message: "The typecheck could not run.",
+              details: typecheck.message,
+            }
+          : typecheck.errors.length === 0
+            ? { status: "ok" }
+            : { status: "problems", count: typecheck.errors.length };
+  // A typecheck that failed for good -- not adept or the network -- fails
+  // again: no Try again for it.
+  const typecheckRetryable =
+    typecheck.status !== "failed" || typecheck.retryable;
   return (
     <ChecksBarView
-      typecheck={
-        typecheck.status === "idle" || typecheck.name !== proposalName
-          ? { status: "idle" }
-          : typecheck.status === "running"
-            ? { status: "running" }
-            : typecheck.status === "failed"
-              ? { status: "failed", message: typecheck.message }
-              : typecheck.errors.length === 0
-                ? { status: "ok" }
-                : { status: "problems", count: typecheck.errors.length }
-      }
+      typecheck={typecheckOf}
       lint={
         lint.status === "idle" || lint.name !== proposalName
           ? { status: "idle" }
           : lint.status === "running"
             ? { status: "running" }
             : lint.status === "failed"
-              ? { status: "failed", message: lint.message }
+              ? {
+                  status: "failed",
+                  message: "Val's lint rules could not run.",
+                  details: lint.message,
+                }
               : lint.problems.length === 0
                 ? { status: "ok" }
                 : { status: "problems", count: lint.problems.length }
@@ -294,7 +377,12 @@ export function ChecksBar({
       page={pageStatus(page, proposalName)}
       followUp={followUp}
       onFixIt={onFixIt}
-      onRetryPageCheck={pageChecksLeft() > 0 ? retryPageCheck : null}
+      pageRetry={
+        canRun === "yes"
+          ? { status: "available", run: retryPageCheck }
+          : { status: canRun }
+      }
+      onRetryChecks={typecheckRetryable ? retryChecks : null}
     />
   );
 }

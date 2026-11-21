@@ -20,6 +20,26 @@ export function isChecksContent(
   return first?.text !== undefined && isChecksMessage(first.text);
 }
 
+const RIDE_ALONG = /\s*<background_checks>[\s\S]*?<\/background_checks>\s*/g;
+
+/**
+ * A person's stored message without the findings that rode along with it
+ * (`withRideAlong`): they were for the assistant, not part of what was said.
+ */
+export function withoutRideAlong<B extends { type: string; text?: string }>(
+  content: string | B[],
+): string | B[] {
+  if (typeof content === "string") return content.replace(RIDE_ALONG, "");
+  return content.filter(
+    (block) =>
+      !(
+        block.type === "text" &&
+        block.text !== undefined &&
+        block.text.trimStart().startsWith("<background_checks>")
+      ),
+  );
+}
+
 /** A follow-up's message without what it says to the assistant: the findings. */
 export function stripChecksMessage(text: string): string {
   const start = text.indexOf("\n\n");

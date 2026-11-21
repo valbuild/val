@@ -351,6 +351,36 @@ export const CODE_TOOLS: AITool[] = [
 ];
 
 /**
+ * Whether a code tool's answer says it staged files: what makes the
+ * background checks and the page check run. A `lint` without `fix`, or a
+ * `format_files` that changed nothing, changed no code, and checking it again
+ * would spend a page check on nothing.
+ */
+export function stagedCode(
+  name: string,
+  args: unknown,
+  answer: CodeToolAnswer,
+): boolean {
+  if (answer.isError) return false;
+  if (name === "write_files" || name === "edit_file") return true;
+  const result = isRecord(answer.result) ? answer.result : {};
+  if (name === "lint") {
+    const fixed = result["fixedAndStaged"];
+    return Array.isArray(fixed) && fixed.length > 0;
+  }
+  if (name === "format_files") {
+    const input = isRecord(args) ? args : {};
+    const files = result["files"];
+    return (
+      input["write"] !== false &&
+      Array.isArray(files) &&
+      files.some((file) => isRecord(file) && file["status"] === "changed")
+    );
+  }
+  return false;
+}
+
+/**
  * The code tools that only read: what the page check is given
  * (`pageCheck.ts`), which must never change the proposal it is checking.
  */

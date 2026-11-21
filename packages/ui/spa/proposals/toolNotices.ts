@@ -117,7 +117,7 @@ export const STAGED_INPUTS_WAIT_MS = 3_000;
 /**
  * Take what the assistant has not been told about proposal `name`, marking
  * it told. A finding about staged inputs is handed over only when they are
- * what is staged now; the read that says so is given `waitMs`, never the
+ * what is staged now, and dropped when they are not; the read that says so is given `waitMs`, never the
  * answer's whole wait, and is made only when there is such a finding.
  */
 export async function takeToolNotices(
@@ -128,8 +128,25 @@ export async function takeToolNotices(
     waitMs?: number;
   } = {},
 ): Promise<Record<string, unknown>> {
-  return toldNow(await currentToolNotices(name, stagedInputs, options));
+  // One at a time per proposal: two answers in flight at once would both
+  // read the same untold findings before either marked them told.
+  const before = lanes.get(name) ?? Promise.resolve();
+  const take = before.then(async () =>
+    toldNow(await currentToolNotices(name, stagedInputs, options)),
+  );
+  const lane = take.then(
+    () => {},
+    () => {},
+  );
+  lanes.set(name, lane);
+  void lane.then(() => {
+    if (lanes.get(name) === lane) lanes.delete(name);
+  });
+  return take;
 }
+
+/** The take running per proposal, for the next to wait on. */
+const lanes = new Map<string, Promise<void>>();
 
 /**
  * What the assistant has not been told about proposal `name` and is about
@@ -152,6 +169,15 @@ export async function currentToolNotices(
         options.waitMs ?? STAGED_INPUTS_WAIT_MS,
       )
     : null;
+  // A finding about files that are no longer staged will never be current
+  // again -- the checks run anew on what is -- so it is dropped, or every
+  // answer after it would ask content what is staged, for nothing. Kept
+  // only when what is staged could not be read.
+  if (now !== null) {
+    for (const notice of untold) {
+      if (notice.inputs !== null && notice.inputs !== now) notice.markTold();
+    }
+  }
   return untold.filter(
     (notice) => notice.inputs === null || notice.inputs === now,
   );

@@ -171,7 +171,8 @@ function ConnectedChat({ className }: { className?: string }) {
             proposalName={checks.proposalName}
             onFixIt={() => chatRef.current?.sendUserMessage(FIX_IT_MESSAGE)}
             retryPageCheck={checks.retryPageCheck}
-            pageChecksLeft={checks.pageChecksLeft}
+            pageCheckCanRun={checks.pageCheckCanRun}
+            retryChecks={checks.retryChecks}
           />
         ) : undefined
       }

@@ -428,6 +428,34 @@ describe("storedToolActivities", () => {
 });
 
 describe("toChatMessages", () => {
+  test("what rode along with the person's message is not shown as theirs when the chat is loaded again", () => {
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Make the header blue" },
+            {
+              type: "text",
+              text: '<background_checks>\n{"typecheck_errors":{}}\n</background_checks>',
+            },
+          ],
+        },
+        {
+          role: "user",
+          content:
+            'And the footer\n\n<background_checks>\n{"lint_problems":{}}\n</background_checks>',
+        },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => m.content)).toEqual([
+      [{ type: "text", text: "Make the header blue" }],
+      "And the footer",
+    ]);
+  });
+
   test("the Studio's message for its background checks loads as the notice it was shown as, not as the person's", () => {
     const chat = toChatMessages(
       "chat-1",

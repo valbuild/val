@@ -232,6 +232,34 @@ describe("the follow-ups, with the checks' own findings", () => {
     expect(followUp.rideAlong(NAME)?.text).toContain("no-illegal-module-paths");
   });
 
+  test("a follow-up the person stopped, or that failed, leaves nothing spinning and starts nothing more", async () => {
+    const followUp = followUps();
+    followUp.personWrote();
+    await lintFinds(FIRST, "/src/content/one.val.ts");
+    await followUp.consider();
+    expect(checksFollowUpState()).toMatchObject({ status: "fixing" });
+    followUp.halt();
+    expect(checksFollowUpState()).toEqual({ status: "idle" });
+    await lintFinds(SECOND, "/src/content/two.val.ts");
+    await followUp.consider();
+    expect(sent).toHaveLength(1);
+  });
+
+  test("a follow-up that could not be sent hands nothing over and spends nothing", async () => {
+    const followUp = followUps();
+    followUp.personWrote();
+    accepts = false;
+    await lintFinds(FIRST, "/src/content/start.val.ts");
+    await followUp.consider();
+    accepts = true;
+    await followUp.consider();
+    expect(sent).toHaveLength(1);
+    expect(checksFollowUpState()).toMatchObject({
+      status: "fixing",
+      attempt: 1,
+    });
+  });
+
   test("a page check that passed shows, and starts nothing", async () => {
     const followUp = followUps();
     followUp.personWrote();

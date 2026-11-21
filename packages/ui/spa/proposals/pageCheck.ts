@@ -69,7 +69,14 @@ export type PageCheckState =
       report: PageCheckReport;
     }
   /** It did not finish: the AI service, or the session, failed. */
-  | { status: "failed"; name: string; message: string };
+  | {
+      status: "failed";
+      name: string;
+      /** What happened, for the person. */
+      message: string;
+      /** What the service said, for support: under "Details". */
+      details?: string;
+    };
 
 const IDLE: PageCheckState = { status: "idle" };
 let current: PageCheckState = IDLE;
@@ -135,9 +142,21 @@ export function pageCheckReported(
 }
 
 /** It ended without reporting. */
-export function pageCheckFailed(name: string, message: string): void {
-  set({ status: "failed", name, message });
+export function pageCheckFailed(
+  name: string,
+  message: string,
+  details?: string,
+): void {
+  set({
+    status: "failed",
+    name,
+    message,
+    ...(details !== undefined ? { details } : {}),
+  });
 }
+
+/** How long a page check may run before it is stopped: it reads, it does not build. */
+export const PAGE_CHECK_DEADLINE_MS = 5 * 60_000;
 
 /** The last report of proposal `name`, if any: for the chat's card. */
 export function lastPageCheckReport(name: string) {
@@ -180,8 +199,9 @@ export const pageCheckMessagesSource: ToolNoticeSource = (name) => {
     inputs: null,
     value: mine.map((note) => note.text),
     failing: false,
+    // Only the notes handed over: one sent meanwhile goes with the next.
     markTold: () => {
-      toMain = toMain.filter((note) => note.name !== name);
+      toMain = toMain.filter((note) => !mine.includes(note));
     },
   };
 };
@@ -479,6 +499,16 @@ export function askedAnswer(asked: PageCheckAsked): {
           status: "limited",
           error:
             "The page check has run as often as it may since the person's last message. It runs again after their next one. Check the page yourself with read_page if you must.",
+        },
+        isError: true,
+      };
+    case "not-here":
+      return {
+        result: {
+          success: false,
+          status: "not-here",
+          error:
+            "No page check can run here now: no preview is open. Check the change with read_page once the person opens the preview.",
         },
         isError: true,
       };

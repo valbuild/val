@@ -12,6 +12,7 @@ import {
   checksLine,
   noteForMain,
   noteForPageCheck,
+  PAGE_CHECK_DEADLINE_MS,
   PAGE_CHECK_MAX_ITERATIONS,
   PAGE_CHECK_SYSTEM_PROMPT,
   PAGE_CHECK_TOOLS,
@@ -79,6 +80,8 @@ export function usePageCheckSession(options: {
   optionsRef.current = options;
   /** The page check's own session, per chat. */
   const sessionsRef = useRef(new Map<string, string>());
+  /** Stops a check that never answers: `PAGE_CHECK_DEADLINE_MS`. */
+  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runningRef = useRef<{
     promptId: string;
     name: string;
@@ -87,18 +90,21 @@ export function usePageCheckSession(options: {
   } | null>(null);
 
   const scheduler = useMemo(() => {
-    const finish = (message: string | null) => {
+    /** The running check ended: why, when it did not report. */
+    const finish = (failure: { message: string; details?: string } | null) => {
       const running = runningRef.current;
       runningRef.current = null;
+      if (deadlineRef.current !== null) clearTimeout(deadlineRef.current);
+      deadlineRef.current = null;
       if (running !== null && !running.reported) {
-        pageCheckFailed(
-          running.name,
-          message ?? "The page check ended without saying what it saw.",
-        );
+        const why = failure ?? {
+          message: "The page check ended without saying what it saw.",
+        };
+        pageCheckFailed(running.name, why.message, why.details);
       }
       scheduler.finished();
     };
-    const start = (request: PageCheckRequest) => {
+    const start = (request: PageCheckRequest): boolean => {
       const now = optionsRef.current;
       const name = now.proposalName();
       const chat = now.chatSessionId();
@@ -108,9 +114,9 @@ export function usePageCheckSession(options: {
         now.model === null ||
         now.page() === null
       ) {
-        // Nothing to check here: not a failure, so nothing is shown.
-        scheduler.finished();
-        return;
+        // Nothing to check here: not a failure, so nothing is shown, and
+        // the check is not counted.
+        return false;
       }
       const promptId = randomUUID();
       runningRef.current = { promptId, name, inputs: null, reported: false };
@@ -171,8 +177,24 @@ export function usePageCheckSession(options: {
               },
             ],
           });
-          if (!sent) finish("The AI service could not be reached.");
+          if (!sent) {
+            finish({ message: "Val Build's AI service could not be reached." });
+            return;
+          }
+          // An answer that never comes would leave it running, and every
+          // check after it waiting: it is stopped instead.
+          deadlineRef.current = setTimeout(() => {
+            if (runningRef.current?.promptId !== promptId) return;
+            optionsRef.current.sendWsMessage({
+              type: "ai_cancel",
+              id: promptId,
+            });
+            finish({
+              message: "The page check took too long, and was stopped.",
+            });
+          }, PAGE_CHECK_DEADLINE_MS);
         });
+      return true;
     };
     const scheduler = createPageCheckScheduler(start);
     return Object.assign(scheduler, { finish });
@@ -215,9 +237,12 @@ export function usePageCheckSession(options: {
         scheduler.finish(null);
       } else if (message.type === "ai_error") {
         Internal.log.debug("The page check failed:", message.message);
-        scheduler.finish(message.message);
+        scheduler.finish({
+          message: "The AI service did not finish the page check.",
+          details: message.message,
+        });
       } else if (message.type === "ai_cancelled") {
-        scheduler.finish("The page check was stopped.");
+        scheduler.finish({ message: "The page check was stopped." });
       }
     };
     return options.subscribeToWsMessages(handler);

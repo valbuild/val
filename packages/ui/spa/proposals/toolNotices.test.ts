@@ -104,7 +104,7 @@ describe("the outbox: what the background checks found, on the next tool answer"
     expect(await takeToolNotices(NAME, async () => INPUTS)).toEqual({});
   });
 
-  test("a finding about files staged before the last change is kept back, not marked told", async () => {
+  test("a finding about files no longer staged is dropped, and content is not asked again", async () => {
     const { deps } = lintDeps({
       "val.modules.ts": MODULES,
       "src/content/home.val.ts": WRONG_PATH,
@@ -112,11 +112,23 @@ describe("the outbox: what the background checks found, on the next tool answer"
     await runLint(NAME, deps);
 
     expect(await takeToolNotices(NAME, async () => LATER)).toEqual({});
-    expect(untoldLintProblems(NAME)?.inputs).toBe(INPUTS);
-    // Staged again, as it was: it is current, and handed over.
-    expect(await takeToolNotices(NAME, async () => INPUTS)).toHaveProperty(
-      "lint_problems",
-    );
+    expect(untoldLintProblems(NAME)).toBeNull();
+    const stagedInputs = jest.fn(async () => LATER);
+    expect(await takeToolNotices(NAME, stagedInputs)).toEqual({});
+    expect(stagedInputs).not.toHaveBeenCalled();
+  });
+
+  test("two answers at once hand a finding over once", async () => {
+    const { deps } = lintDeps({
+      "val.modules.ts": MODULES,
+      "src/content/home.val.ts": WRONG_PATH,
+    });
+    await runLint(NAME, deps);
+    const [first, second] = await Promise.all([
+      takeToolNotices(NAME, async () => INPUTS),
+      takeToolNotices(NAME, async () => INPUTS),
+    ]);
+    expect([first, second].filter((n) => "lint_problems" in n)).toHaveLength(1);
   });
 
   test("the background typecheck's errors go the same way, and both checks in one answer", async () => {

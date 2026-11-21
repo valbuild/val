@@ -9,7 +9,11 @@ import type {
 } from "./useAIWebSocket";
 import type { AssistantPage } from "../components/shell/canvas/AssistantPage";
 import type { ProposalJson } from "../proposals/proposalsClient";
-import { pageCheckOf, resetPageCheck } from "../proposals/pageCheck";
+import {
+  PAGE_CHECK_DEADLINE_MS,
+  pageCheckOf,
+  resetPageCheck,
+} from "../proposals/pageCheck";
 import { takeToolNotices } from "../proposals/toolNotices";
 import { resetBackgroundLint } from "../proposals/backgroundLint";
 import { resetProposalTypecheck } from "../proposals/useProposalTypecheck";
@@ -221,10 +225,12 @@ describe("the page check's session", () => {
       message: "The AI service did not answer.",
     });
     await flush();
+    // Said for the person; what the service said goes under Details.
     expect(pageCheckOf(NAME)).toEqual({
       status: "failed",
       name: NAME,
-      message: "The AI service did not answer.",
+      message: "The AI service did not finish the page check.",
+      details: "The AI service did not answer.",
     });
     expect(hook.result.current.verify(null)).toEqual({ status: "started" });
   });
@@ -262,4 +268,35 @@ describe("the page check's session", () => {
     hook.unmount();
     expect(ws.sent.at(-1)).toEqual({ type: "ai_cancel", id: promptId });
   });
+});
+
+describe("a page check that does not finish", () => {
+  beforeEach(() => {
+    resetPageCheck();
+    jest.useFakeTimers();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  test("is stopped after its deadline, shown as ours to explain, and the next can run", async () => {
+    const { ws, hook } = render();
+    hook.result.current.verify(null);
+    await flush();
+    const promptId = ws.prompts()[0]?.id;
+    await act(async () => {
+      jest.advanceTimersByTime(PAGE_CHECK_DEADLINE_MS);
+    });
+    expect(ws.sent.at(-1)).toEqual({ type: "ai_cancel", id: promptId });
+    expect(pageCheckOf(NAME)).toEqual({
+      status: "failed",
+      name: NAME,
+      message: "The page check took too long, and was stopped.",
+    });
+    expect(hook.result.current.verify(null)).toEqual({ status: "started" });
+  });
+});
+
+test("with no preview, verify says so and spends nothing", () => {
+  const { hook } = render(socket(), false);
+  expect(hook.result.current.verify(null)).toEqual({ status: "not-here" });
+  expect(hook.result.current.left()).toBe(3);
 });

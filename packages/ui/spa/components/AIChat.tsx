@@ -1694,7 +1694,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
    * the queue once someone else's turn has ended.
    */
   const deliver = useCallback(
-    (message: QueuedMessage) => {
+    (message: QueuedMessage): boolean => {
       const { attachments } = message;
       const msgId = nextId();
       const userMsg = userMessageOf(message, msgId);
@@ -1705,7 +1705,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           ? onSendMessage(message.outgoing, attachments, message.context)
           : onSendMessage(message.outgoing, attachments)
         : true;
-      if (!sent) {
+      if (!sent && message.fromChecks) {
+        // The Studio's own message is not left behind as a failure: its
+        // findings were not handed over, and go with the next message.
+        setCompletedMessages((prev) => prev.filter((m) => m.id !== msgId));
+      } else if (!sent) {
         setCompletedMessages((prev) =>
           prev.map((m) =>
             m.id === msgId
@@ -1719,6 +1723,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         // the caret back once the answer lands.
         armForSend();
       }
+      return sent;
     },
     [userMessageOf, onSendMessage, setAwaitingSince, armForSend],
   );
@@ -1889,7 +1894,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     ) {
       return false;
     }
-    deliver({
+    return deliver({
       id: nextId(),
       seq: ++seqRef.current,
       outgoing: text,
@@ -1898,7 +1903,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       context: { pointedAt: null, fromChecks: true },
       fromChecks: true,
     });
-    return true;
   };
 
   /**

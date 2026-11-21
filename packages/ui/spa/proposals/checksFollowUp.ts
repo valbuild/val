@@ -183,6 +183,11 @@ export type ChecksFollowUp = {
   /** The person wrote: the follow-ups start over. */
   personWrote: () => void;
   /**
+   * The turn was stopped, or failed: nothing more starts on its own until
+   * the person writes, and what was being fixed is not shown as running.
+   */
+  halt: () => void;
+  /**
    * A check finished, or a turn ended: start a follow-up when the assistant
    * is idle and something it has not heard asks for a fix.
    */
@@ -270,6 +275,12 @@ export function createChecksFollowUp(deps: ChecksFollowUpDeps): ChecksFollowUp {
       attempts = 0;
       setChecksFollowUp({ status: "idle" });
     },
+    halt: () => {
+      budget = NO_FOLLOW_UPS;
+      if (checksFollowUpState().status === "fixing") {
+        setChecksFollowUp({ status: "idle" });
+      }
+    },
     consider,
     rideAlong: (name) => {
       const inputs = knownStagedInputs(name);
@@ -290,17 +301,15 @@ export function createChecksFollowUp(deps: ChecksFollowUpDeps): ChecksFollowUp {
   };
 }
 
-/** A prompt's content with the findings that ride along after its text. */
+/**
+ * A prompt's content with the findings that ride along, in a text block of
+ * their own after it: the transcript drops that block when a chat is loaded
+ * again (`withoutRideAlong`), so the person's message reads as they wrote it.
+ */
 export function withRideAlong(
   blocks: AIMessageContentBlock[],
   text: string | null,
 ): AIMessageContentBlock[] {
   if (text === null) return blocks;
-  let added = false;
-  const out = blocks.map((block): AIMessageContentBlock => {
-    if (added || block.type !== "text") return block;
-    added = true;
-    return { ...block, text: `${block.text}\n\n${text}` };
-  });
-  return added ? out : [{ type: "text", text }, ...out];
+  return [...blocks, { type: "text", text }];
 }

@@ -18,7 +18,8 @@ const IDLE: ChecksBarViewProps = {
   page: { status: "idle" },
   followUp: { status: "idle" },
   onFixIt: () => {},
-  onRetryPageCheck: null,
+  pageRetry: { status: "limited" },
+  onRetryChecks: null,
 };
 
 test("nothing checked, nothing shown", () => {
@@ -93,29 +94,63 @@ test("a fix that changed nothing says so", () => {
   ).toBeTruthy();
 });
 
-test("a page check that could not finish offers Try again, and says when it runs when none is left", () => {
-  const retry = jest.fn();
+test("a page check that could not finish offers Try again, and says when it runs when it cannot", () => {
+  const run = jest.fn();
+  const page = {
+    status: "failed" as const,
+    message: "The AI service did not finish the page check.",
+    details: "529 overloaded_error",
+  };
   const { rerender } = render(
     <ChecksBarView
       {...IDLE}
-      page={{ status: "failed", message: "The AI service did not answer." }}
-      onRetryPageCheck={retry}
+      page={page}
+      pageRetry={{ status: "available", run }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(retry).toHaveBeenCalledTimes(1);
+  expect(run).toHaveBeenCalledTimes(1);
+  // What the service said is for support, under Details.
+  expect(screen.getByText("Details")).toBeTruthy();
+  expect(screen.getByText("529 overloaded_error")).toBeTruthy();
 
   rerender(
-    <ChecksBarView
-      {...IDLE}
-      page={{ status: "failed", message: "The AI service did not answer." }}
-      onRetryPageCheck={null}
-    />,
+    <ChecksBarView {...IDLE} page={page} pageRetry={{ status: "limited" }} />,
   );
   expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   expect(
     screen.getByText(/It runs again after your next message\./),
   ).toBeTruthy();
+
+  rerender(
+    <ChecksBarView
+      {...IDLE}
+      page={page}
+      pageRetry={{ status: "no-preview" }}
+    />,
+  );
+  expect(
+    screen.getByText(/It runs again once the preview is open\./),
+  ).toBeTruthy();
+});
+
+test("a typecheck that could not run offers Try again, unless it would fail again", () => {
+  const retry = jest.fn();
+  const typecheck = {
+    status: "failed" as const,
+    message: "The typecheck could not run.",
+    details: "adept answered 503",
+  };
+  const { rerender } = render(
+    <ChecksBarView {...IDLE} typecheck={typecheck} onRetryChecks={retry} />,
+  );
+  expect(screen.getByText("The typecheck could not run.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+  rerender(
+    <ChecksBarView {...IDLE} typecheck={typecheck} onRetryChecks={null} />,
+  );
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 });
 
 test("a failed page check reads as what was seen, and where", () => {

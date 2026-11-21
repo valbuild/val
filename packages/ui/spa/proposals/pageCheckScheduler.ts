@@ -34,7 +34,9 @@ export type PageCheckAsked =
   /** One runs: this one runs after it. */
   | { status: "queued" }
   /** None left until the person writes again. */
-  | { status: "limited" };
+  | { status: "limited" }
+  /** None can run here: no preview open, or no model. Not counted. */
+  | { status: "not-here" };
 
 /** Runs `run` after `ms`; what it answers cancels it. */
 export type PageCheckTimer = (run: () => void, ms: number) => () => void;
@@ -62,7 +64,11 @@ export type PageCheckScheduler = {
 };
 
 export function createPageCheckScheduler(
-  start: (request: PageCheckRequest) => void,
+  /**
+   * Start a check; `false` when none can run here (no preview, no model):
+   * then it is not counted, and nothing runs.
+   */
+  start: (request: PageCheckRequest) => boolean,
   options: {
     timer?: PageCheckTimer;
     quietMs?: number;
@@ -98,7 +104,11 @@ export function createPageCheckScheduler(
     if (left <= 0) return { status: "limited" };
     left--;
     running = true;
-    start(request);
+    if (!start(request)) {
+      left++;
+      running = false;
+      return { status: "not-here" };
+    }
     return { status: "started" };
   };
 

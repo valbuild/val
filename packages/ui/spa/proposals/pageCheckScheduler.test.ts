@@ -11,7 +11,10 @@ describe("when the page check runs", () => {
 
   const scheduler = () => {
     const started: PageCheckRequest[] = [];
-    const check = createPageCheckScheduler((request) => started.push(request));
+    const check = createPageCheckScheduler((request) => {
+      started.push(request);
+      return true;
+    });
     return { check, started };
   };
 
@@ -103,6 +106,27 @@ describe("when the page check runs", () => {
     expect(check.checkNow({ reason: "verify", focus: null })).toEqual({
       status: "started",
     });
+  });
+
+  test("a check that cannot run here -- no preview -- is not counted, and the next can run", () => {
+    let canRun = false;
+    const started: PageCheckRequest[] = [];
+    const check = createPageCheckScheduler((request) => {
+      if (!canRun) return false;
+      started.push(request);
+      return true;
+    });
+    for (let i = 0; i < PAGE_CHECKS_PER_MESSAGE + 1; i++) {
+      expect(check.checkNow({ reason: "verify", focus: null })).toEqual({
+        status: "not-here",
+      });
+    }
+    expect(check.left()).toBe(PAGE_CHECKS_PER_MESSAGE);
+    canRun = true;
+    expect(check.checkNow({ reason: "verify", focus: null })).toEqual({
+      status: "started",
+    });
+    expect(started).toHaveLength(1);
   });
 
   test("left, no timer goes off later", () => {

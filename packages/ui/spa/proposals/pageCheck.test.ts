@@ -152,8 +152,6 @@ describe("the page check's tools", () => {
     if (report === undefined) throw new Error("no report");
     pageCheckReported(NAME, INPUTS, report);
 
-    // Files changed since: kept back.
-    expect(await takeToolNotices(NAME, async () => "b".repeat(64))).toEqual({});
     const notices = await takeToolNotices(NAME, async () => INPUTS);
     expect(notices).toEqual({
       page_check: {
@@ -169,6 +167,41 @@ describe("the page check's tools", () => {
       },
     });
     expect(await takeToolNotices(NAME, async () => INPUTS)).toEqual({});
+  });
+
+  test("a report about files changed since is dropped, never handed over", async () => {
+    pageCheckReported(NAME, INPUTS, {
+      status: "fail",
+      summary: "The old heading.",
+      findings: [],
+    });
+    expect(await takeToolNotices(NAME, async () => "b".repeat(64))).toEqual({});
+    expect(await takeToolNotices(NAME, async () => INPUTS)).toEqual({});
+  });
+
+  test("a note sent while one is being handed over goes with the next answer", async () => {
+    noteForMain(NAME, "first");
+    let answer: (inputs: string | null) => void = () => {};
+    // A finding tied to the files, so the take waits on what is staged.
+    pageCheckReported(NAME, INPUTS, {
+      status: "pass",
+      summary: "Fine.",
+      findings: [],
+    });
+    const taking = takeToolNotices(
+      NAME,
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await Promise.resolve();
+    noteForMain(NAME, "second");
+    answer(INPUTS);
+    expect(await taking).toMatchObject({ page_check_messages: ["first"] });
+    expect(
+      await takeToolNotices(NAME, () => new Promise(() => {}), { waitMs: 5 }),
+    ).toEqual({ page_check_messages: ["second"] });
   });
 
   test("a report that is not one is refused, and it is told how to send one", async () => {

@@ -180,6 +180,7 @@ import {
 import { useProjectLocales } from "./useProjectLocales";
 import {
   assistantCodeTools,
+  stagedCode,
   codeToolsPromptSection,
   isCodeTool,
   projectInstructionsPromptSection,
@@ -1314,6 +1315,8 @@ export function useAI(
   }, [followUp]);
   const considerFollowUpRef = useRef(considerFollowUp);
   considerFollowUpRef.current = considerFollowUp;
+  const haltFollowUpRef = useRef(() => followUp.halt());
+  haltFollowUpRef.current = () => followUp.halt();
   useEffect(() => {
     const unsubscribe = [
       subscribeProposalTypecheck(considerFollowUp),
@@ -1633,6 +1636,9 @@ export function useAI(
         if (message.type === "ai_response") {
           pageCheckRef.current.turnEnded();
           considerFollowUpRef.current();
+        } else {
+          // Stopped, or failed: the person decides what happens next.
+          haltFollowUpRef.current();
         }
       }
       if (message.type === "ai_streaming") {
@@ -2883,6 +2889,7 @@ export function useAI(
           const toolCallId = message.toolCallId;
           const messageId = message.id;
           const toolName = message.name;
+          const toolArgs = message.arguments;
           const proposalName = currentProposalRef.current?.name ?? null;
           const stagedInputs = async () =>
             proposalName === null
@@ -2992,8 +2999,11 @@ export function useAI(
               !isError
             ) {
               proposalCodeChanged();
-              // Checked beside the conversation, not in it: what the checks
-              // find reaches the assistant on a later tool answer
+            }
+            // Checked beside the conversation, not in it: what the checks
+            // find reaches the assistant on a later tool answer. Only once
+            // files were staged: a lint that only looked changed nothing.
+            if (stagedCode(toolName, toolArgs, { result, isError })) {
               if (proposalName !== null) {
                 scheduleBackgroundChecks(proposalName, {
                   client: codeClients.proposals,
@@ -4575,7 +4585,18 @@ Do not describe what you will do unless you do it for clarification — just do 
             retryPageCheck: () => {
               pageCheck.verify(null);
             },
-            pageChecksLeft: () => pageCheck.left(),
+            pageCheckCanRun: () =>
+              !pageCheck.canCheck()
+                ? "no-preview"
+                : pageCheck.left() > 0
+                  ? "yes"
+                  : "limited",
+            retryChecks: () =>
+              scheduleBackgroundChecks(currentProposal.name, {
+                client: codeClients.proposals,
+                siteSource: codeClients.siteSource,
+                onTypechecked: proposalCodeChanged,
+              }),
           }
         : null,
   };

@@ -4,7 +4,7 @@ import type { ProposalParticipant } from "../components/proposals/types";
 import type { AIMessagesResponse } from "../components/ValProvider";
 import type { AIMessageContentBlock, AIWatchedMessage } from "./useAIWebSocket";
 import { AskUserQuestionArgs, AskUserQuestionResult } from "./askUserQuestion";
-import { isChecksContent } from "../proposals/checksMessage";
+import { isChecksContent, withoutRideAlong } from "../proposals/checksMessage";
 
 /**
  * Reading a proposal's chat that others write in too (valbuild/home
@@ -259,7 +259,7 @@ export function toChatMessages(
       chat.push({
         id: userId,
         role: "user",
-        content: m.content,
+        content: withoutRideAlong(m.content),
         status: "complete",
         // The Studio's message for its background checks, as it was shown.
         ...(isChecksContent(m.content)

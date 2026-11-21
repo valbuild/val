@@ -24,7 +24,8 @@ const meta: Meta<typeof ChecksBarView> = {
     page: { status: "idle" },
     followUp: { status: "idle" },
     onFixIt: () => {},
-    onRetryPageCheck: () => {},
+    pageRetry: { status: "available", run: () => {} },
+    onRetryChecks: () => {},
   } satisfies ChecksBarViewProps,
 };
 export default meta;
@@ -147,14 +148,15 @@ export const FoundAfterReload: Story = {
   },
 };
 
-/** Our failure: the page check could not finish. Try again runs it. */
+/** Our failure: the page check could not finish. Try again runs it; Details has what the service said. */
 export const PageCheckFailed: Story = {
   args: {
     typecheck: { status: "ok" },
     lint: { status: "ok" },
     page: {
       status: "failed",
-      message: "The AI service did not answer.",
+      message: "The AI service did not finish the page check.",
+      details: "529 overloaded_error: Overloaded",
     },
   },
 };
@@ -163,6 +165,34 @@ export const PageCheckFailed: Story = {
 export const PageCheckFailedNoneLeft: Story = {
   args: {
     ...PageCheckFailed.args,
-    onRetryPageCheck: null,
+    pageRetry: { status: "limited" },
+  },
+};
+
+/** The same, with the preview closed: there is no page to read. */
+export const PageCheckFailedNoPreview: Story = {
+  args: {
+    ...PageCheckFailed.args,
+    pageRetry: { status: "no-preview" },
+  },
+};
+
+/** The typecheck could not run (adept or the network): Try again runs it. */
+export const TypecheckCouldNotRun: Story = {
+  args: {
+    typecheck: {
+      status: "failed",
+      message: "The typecheck could not run.",
+      details: "adept answered 503",
+    },
+    lint: { status: "ok" },
+  },
+};
+
+/** A typecheck that fails for good: no Try again, which would fail again. */
+export const TypecheckCannotRun: Story = {
+  args: {
+    ...TypecheckCouldNotRun.args,
+    onRetryChecks: null,
   },
 };
