@@ -1,3 +1,4 @@
+import { changesCode } from "./changesCode";
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
@@ -560,20 +561,6 @@ export type CodeToolDeps = {
  * the assistant with its next tool answer (`untoldStagedCode`).
  */
 const STAGED_CODE_WAIT_SECONDS = 20;
-
-/**
- * The tools that change the proposal's code: refused while code mode is off.
- * Reading it, typechecking it and building what is staged change nothing.
- */
-export function changesCode(
-  name: string,
-  input: Record<string, unknown>,
-): boolean {
-  if (name === "write_files" || name === "edit_file") return true;
-  if (name === "format_files") return input["write"] !== false;
-  if (name === "lint") return input["fix"] === true;
-  return false;
-}
 
 /**
  * The proposal's build, as the assistant's tools reach it: `useProposalBuild`'s
