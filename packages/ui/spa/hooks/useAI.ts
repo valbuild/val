@@ -22,10 +22,12 @@ import {
   markStagedCodeTold,
   runStagedCode,
   stagedCodeNotice,
+  stagedCodeReach,
   untoldStagedCode,
   type StagedCodeOutcome,
 } from "../proposals/stagedCode";
 import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
+import { createCodeClients } from "../proposals/codeClients";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
@@ -197,8 +199,8 @@ import {
   proposalBuildControl,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
-import { createProposalsClient } from "../proposals/proposalsClient";
 import {
+  codeModeHeldFor,
   codeModeState,
   useCodeModeState,
   readCodeMode,
@@ -207,7 +209,6 @@ import {
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
-import { createProjectSourceReader } from "@valbuild/shared/internal";
 import { assistantPersona, isInCodeMode } from "./assistantPersona";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
@@ -860,18 +861,19 @@ export function useAI(
   );
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
-    () => ({
-      proposals: createProposalsClient({ api: "/api/val" }),
-      /*
-       * The site's source, by version: asked on every tool call, and sent
-       * whole only when a publish changed it. Not the publish client's,
-       * which holds its first answer for as long as it lives -- one deploy
-       * there, and this hook's whole life here, so a publish in between
-       * went unseen by the code tools.
-       */
-      siteSource: createProjectSourceReader({ api: "/api/val" }),
-    }),
+    () =>
+      createCodeClients({
+        api: "/api/val",
+        seq: () => valSystemRef.current?.system.manifest.seq() ?? null,
+      }),
     [],
+  );
+  // After a staging of this tab's the project is read again as soon as the
+  // `seq` it moved is heard, not when the model next asks for a file.
+  useEffect(
+    () =>
+      valSystem?.system.manifest.onSeq(() => codeClients.snapshot.seqMoved()),
+    [valSystem, codeClients],
   );
   // Same answer the fields get, for the same reason: `empty_at_path` on a
   // locale-keyed record scaffolds one entry per language, and the languages are
@@ -1165,6 +1167,7 @@ export function useAI(
         proposal: { name: proposal },
         client: codeClients.proposals,
         siteSource: codeClients.siteSource,
+        snapshot: codeClients.snapshot,
       })
         .then((text) => {
           projectInstructionsRef.current = { proposal, text };
@@ -2711,6 +2714,7 @@ export function useAI(
             proposal: currentProposalRef.current,
             client: codeClients.proposals,
             siteSource: codeClients.siteSource,
+            snapshot: codeClients.snapshot,
             build:
               proposalName === null
                 ? build
@@ -2782,11 +2786,15 @@ export function useAI(
                       proposalName,
                       studioStagedCodeDeps(
                         proposalName,
-                        codeClients.proposals,
+                        codeClients.snapshot,
                         system,
                       ),
                     );
                   },
+                  // A write that cannot change the Val modules does not
+                  // wait for them to be evaluated
+                  stagedCodeReach: (paths) =>
+                    stagedCodeReach(proposalName, paths),
                 }
               : {}),
             ...(proposalName !== null
@@ -2797,6 +2805,10 @@ export function useAI(
                       proposalName,
                       (id) => profilesRef.current[id]?.fullName ?? null,
                     ),
+                  // While this tab holds code mode as on, a write does not
+                  // ask first: the server refuses it if it is off by then
+                  codeModeHere: () => codeModeHeldFor(proposalName),
+                  nameOf: (id) => profilesRef.current[id]?.fullName ?? null,
                 }
               : {}),
           }).then(async ({ result, isError }) => {
@@ -2813,16 +2825,24 @@ export function useAI(
             // and the assistant has not heard: it hears on this answer
             const untold =
               proposalName === null ? null : untoldTypeErrors(proposalName);
-            // Told only of errors in what is staged now; the read that says
-            // so is given a few seconds, never the answer's whole wait
+            // Told only of errors in what is staged now: as the chat's
+            // snapshot of the proposal holds it, which this tool's own
+            // staging just wrote. Asked for (a few seconds at most, never
+            // the answer's whole wait) only when nothing is held.
+            const held =
+              proposalName === null
+                ? undefined
+                : codeClients.snapshot.staged(proposalName);
             const notice =
               untold !== null &&
-              (await Promise.race([
-                stagedInputs().catch(() => null),
-                new Promise<null>((resolve) =>
-                  setTimeout(() => resolve(null), 3_000),
-                ),
-              ])) === untold.inputs
+              (held !== undefined
+                ? held.inputs
+                : await Promise.race([
+                    stagedInputs().catch(() => null),
+                    new Promise<null>((resolve) =>
+                      setTimeout(() => resolve(null), 3_000),
+                    ),
+                  ])) === untold.inputs
                 ? untold
                 : null;
             if (notice !== null) markTypeErrorsTold(notice.inputs);

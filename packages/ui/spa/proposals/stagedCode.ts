@@ -1,9 +1,8 @@
 import type { ModuleFilePath, ValModules } from "@valbuild/core";
 import type { Evaluated } from "@valbuild/shared/internal";
-import { proposalProject } from "@valbuild/shared/publish";
 import type { CodeReload, HostStore } from "../stores/HostStore";
 import { registryOfEntry } from "../stores/react/loadValModules";
-import type { ProposalsClient } from "./proposalsClient";
+import type { ProjectSnapshot } from "./projectSnapshot";
 
 /**
  * After a staging, the tab evaluates the proposal's `val.modules` and swaps
@@ -41,6 +40,12 @@ export type StagedCodeOutcome =
       removed: ModuleFilePath[];
       /** Modules whose content does not fit their (new) schema, and why. */
       invalid: { moduleFilePath: ModuleFilePath; errors: string[] }[];
+      /**
+       * The project files the bundle was made of: `val.modules.ts` and what
+       * it reaches. A write of none of them cannot change the outcome
+       * ({@link stagedCodeReach}). Absent where the bundler did not say.
+       */
+      reads?: string[];
     }
   | {
       /** The staged code does not bundle or does not run: nothing moved. */
@@ -63,7 +68,13 @@ export type StagedCodeDeps = {
     inputs: string | null;
   }>;
   /** `bundleValModules`, against the site's vendor layer; `null` where this page cannot run the builder. */
-  bundle: ((files: Record<string, string>) => Promise<{ code: string }>) | null;
+  bundle:
+    | ((files: Record<string, string>) => Promise<{
+        code: string;
+        /** Each module file, and the project files it depends on. */
+        dependencies?: Record<string, string[]>;
+      }>)
+    | null;
   /** Off the Studio's page, with a deadline: `evaluateTree`. */
   evaluate: (code: string) => Promise<Evaluated>;
   /** The same bundle, imported in the Studio's own realm: its default export. */
@@ -87,8 +98,14 @@ export async function evaluateStagedCode(
     message,
   });
   let code: string;
+  let reads: string[] | undefined;
   try {
-    code = (await bundle(files)).code;
+    const bundled = await bundle(files);
+    code = bundled.code;
+    reads =
+      bundled.dependencies === undefined
+        ? undefined
+        : bundleReads(files, bundled.dependencies);
   } catch (error) {
     return failed(messageOf(error));
   }
@@ -133,8 +150,26 @@ export async function evaluateStagedCode(
     changed: reload.changed,
     removed: reload.removed,
     invalid,
+    ...(reads !== undefined ? { reads } : {}),
   };
 }
+
+/** The entry, every module file it reaches and every file those depend on. */
+function bundleReads(
+  files: Record<string, string>,
+  dependencies: Record<string, string[]>,
+): string[] {
+  const reads = new Set<string>(
+    VAL_MODULES_ENTRIES.filter((path) => path in files),
+  );
+  for (const [module, deps] of Object.entries(dependencies)) {
+    reads.add(module);
+    for (const path of deps) reads.add(path);
+  }
+  return [...reads].sort();
+}
+
+const VAL_MODULES_ENTRIES = ["val.modules.ts", "val.modules.js"];
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -195,20 +230,37 @@ export async function importBundle(code: string): Promise<ValModules> {
  * The evaluations of one proposal's staged code, one after another: each
  * staging is evaluated after the one before it, so the last to finish is of
  * the last staging, and an older registry never lands over a newer one.
+ *
+ * At most one waits behind the one running: an evaluation reads the project
+ * when it STARTS, so the one waiting is already of every staging made until
+ * then, and three writes in one reply are evaluated twice at most rather
+ * than three times end to end.
  */
-let queue: { name: string; done: Promise<unknown> } | null = null;
+type Lane = {
+  running: Promise<StagedCodeOutcome> | null;
+  next: Promise<StagedCodeOutcome> | null;
+};
+const lanes = new Map<string, Lane>();
 /** The last outcome, and whether the assistant has been told of it. */
 let latest: { name: string; outcome: StagedCodeOutcome } | null = null;
 const told = new WeakSet<StagedCodeOutcome>();
 
-/** Evaluate proposal `name`'s staged code, after any evaluation of it already running. */
+/**
+ * Evaluate proposal `name`'s staged code, after any evaluation of it already
+ * running; joined, when one is waiting to run already.
+ */
 export function runStagedCode(
   name: string,
   deps: StagedCodeDeps,
 ): Promise<StagedCodeOutcome> {
-  const after = queue !== null && queue.name === name ? queue.done : null;
-  const done = (async () => {
-    if (after !== null) await after.catch(() => undefined);
+  let lane = lanes.get(name);
+  if (lane === undefined) {
+    lane = { running: null, next: null };
+    lanes.set(name, lane);
+  }
+  if (lane.next !== null) return lane.next;
+  const own = lane;
+  const evaluate = async (): Promise<StagedCodeOutcome> => {
     let outcome: StagedCodeOutcome;
     try {
       outcome = await evaluateStagedCode(deps);
@@ -219,11 +271,82 @@ export function runStagedCode(
         message: messageOf(error),
       };
     }
-    latest = { name, outcome };
+    // Not when the lanes were reset meanwhile (a test's `resetStagedCode`).
+    if (lanes.get(name) === own) latest = { name, outcome };
     return outcome;
-  })();
-  queue = { name, done };
+  };
+  const before = own.running;
+  const done: Promise<StagedCodeOutcome> = (
+    before === null
+      ? evaluate()
+      : // `evaluate` answers its own failures, so `before` never rejects.
+        before.then(() => {
+          own.next = null;
+          own.running = done;
+          return evaluate();
+        })
+  ).finally(() => {
+    if (own.running === done) own.running = null;
+  });
+  if (before === null) own.running = done;
+  else own.next = done;
   return done;
+}
+
+/**
+ * Whether a write of `paths` in proposal `name` can change what evaluating
+ * its staged code finds:
+ *
+ * - `can`: a Val file (a `.val.ts`, its `.val.json` entries, `val.modules`,
+ *   `val.config`), a file the last evaluation's bundle was made of, or any
+ *   file while the staged code does not evaluate -- the fix may be anywhere.
+ *   The write waits for the evaluation.
+ * - `may`: not known -- nothing was evaluated in this tab yet, one is under
+ *   way whose bundle may reach further than the last one's, or the write is
+ *   of what decides how imports resolve. It is evaluated, and the write does
+ *   not wait: what it finds reaches the assistant with its next tool answer
+ *   ({@link untoldStagedCode}).
+ * - `cannot`: no file the bundle reads. Nothing is evaluated.
+ */
+export type StagedCodeReach = "can" | "may" | "cannot";
+
+export function stagedCodeReach(
+  name: string,
+  paths: string[],
+): StagedCodeReach {
+  const written = paths.map((path) => path.replace(/^\/+/, ""));
+  if (written.some(isValFile)) return "can";
+  const lane = lanes.get(name);
+  if (lane !== undefined && (lane.running !== null || lane.next !== null)) {
+    return "may";
+  }
+  const last = latest !== null && latest.name === name ? latest.outcome : null;
+  if (last === null) return "may";
+  switch (last.status) {
+    case "not-here":
+      // Nothing is evaluated on this page, whatever is written.
+      return "cannot";
+    case "does-not-evaluate":
+      return "can";
+    case "swapped": {
+      if (last.reads === undefined) return "may";
+      const reads = new Set(last.reads);
+      if (written.some((path) => reads.has(path))) return "can";
+      return written.some(decidesResolution) ? "may" : "cannot";
+    }
+  }
+}
+
+function isValFile(path: string): boolean {
+  return (
+    /\.val\.(ts|js|json)$/.test(path) ||
+    /(^|\/)val\.(modules|config)\.(ts|js)$/.test(path)
+  );
+}
+
+/** A file that decides which file an import names. */
+function decidesResolution(path: string): boolean {
+  return /(^|\/)(package|tsconfig[^/]*|jsconfig[^/]*)\.json$/.test(path);
 }
 
 /**
@@ -260,25 +383,23 @@ function worthTelling(outcome: StagedCodeOutcome): boolean {
 
 /** For tests: nothing evaluated. */
 export function resetStagedCode(): void {
-  queue = null;
+  lanes.clear();
   latest = null;
 }
 
 /**
- * `StagedCodeDeps.project`: the proposal's files over the site's source, and
- * the inputs a build of them is named for.
+ * `StagedCodeDeps.project`: the proposal's project as the chat's snapshot
+ * holds it (`projectSnapshot.ts`) -- this tab's staging laid over it, so
+ * asked for again only when that staging left it in doubt -- and the inputs
+ * a build of it is named for.
  */
 export function stagedProject(
   name: string,
-  client: Pick<ProposalsClient, "files">,
-  siteSource: () => Promise<Record<string, string> | null>,
+  snapshot: Pick<ProjectSnapshot, "read">,
 ): StagedCodeDeps["project"] {
   return async () => {
-    const [read, site] = await Promise.all([client.files(name), siteSource()]);
-    return {
-      files: proposalProject(site ?? {}, read.files),
-      inputs: read.staged.inputs,
-    };
+    const { project, staged } = await snapshot.read(name);
+    return { files: project, inputs: staged?.inputs ?? null };
   };
 }
 
