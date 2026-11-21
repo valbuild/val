@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { ValBuildAccess } from "./useValBuildAccess";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import {
@@ -15,6 +16,7 @@ import {
   CanvasFrame,
   type InlineEditPlace,
   PageCamera,
+  PageInteractor,
   PageLogReader,
   PageReader,
 } from "./canvas/CanvasFrame";
@@ -1226,6 +1228,7 @@ function ValShellBody({
   const pageReader = useRef<PageReader | null>(null);
   const pageCamera = useRef<PageCamera | null>(null);
   const pageLogReader = useRef<PageLogReader | null>(null);
+  const pageInteractor = useRef<PageInteractor | null>(null);
   const assistantPage = useMemo(
     (): AssistantPage => ({
       codeMode: assistantPick.codeMode,
@@ -1236,6 +1239,7 @@ function ValShellBody({
       readPage: () => pageReader.current,
       screenshotPage: () => pageCamera.current,
       readPageLog: () => pageLogReader.current,
+      interactPage: () => pageInteractor.current,
     }),
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
@@ -1323,6 +1327,7 @@ function ValShellBody({
     return ({
       width,
       height,
+      setDevice,
       reloadKey,
       isPicking,
       onRefreshingChange,
@@ -1440,6 +1445,11 @@ function ValShellBody({
         onPageLogReader={(reader) => {
           pageLogReader.current = reader;
         }}
+        onPageInteractor={(interactor) => {
+          pageInteractor.current = interactor;
+        }}
+        // The toolbar's device switch: `interact_page`'s `viewport`.
+        {...(setDevice !== undefined ? { onDeviceChange: setDevice } : {})}
         onPinch={onPinch}
         onZoom={onZoom}
         /*
@@ -1685,6 +1695,15 @@ function ValShellBody({
    * module from calling hooks with a path it does not have.
    */
   const updates = studioIsDeployer ? upgradeSettings : null;
+  // What the shell already asked Val Build (`useShellData`), handed on so
+  // Settings does not ask again. A stable object, or the callback below
+  // changes on every render.
+  const shellConnected = data.webComponentsUrl !== undefined;
+  const shellStudioMode = data.studioMode;
+  const valBuild = useMemo<ValBuildAccess>(
+    () => ({ connected: shellConnected, studioMode: shellStudioMode }),
+    [shellConnected, shellStudioMode],
+  );
   const settingsModule = data.settings?.moduleFilePath;
   const renderSettings = useCallback(
     () => (
@@ -1700,13 +1719,17 @@ function ValShellBody({
          * A hosted project made from a template has no settings module, and
          * Updates is what it opened Settings for: telling it how to add one
          * is for a developer, who would see it in a project without Updates.
+         * Its variables and secrets are still shown -- a hosted site is
+         * where they are set from here.
          */}
-        {(settingsModule !== undefined || updates === null) && (
-          <ValSettingsSections moduleFilePath={settingsModule} />
-        )}
+        <ValSettingsSections
+          moduleFilePath={settingsModule}
+          explainMissingModule={updates === null}
+          valBuild={valBuild}
+        />
       </>
     ),
-    [settingsModule, updates],
+    [settingsModule, updates, valBuild],
   );
   const proposals = useMemo(
     () =>

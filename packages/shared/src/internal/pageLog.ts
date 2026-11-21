@@ -118,7 +118,26 @@ export type PageLog = {
   read: (options?: {
     sinceNavigation?: boolean;
     levels?: readonly PageLogLevel[];
+    /**
+     * Only what was recorded after this {@link PageLog.mark}: what an
+     * interaction caused (`pageInteraction.ts`). Overrides
+     * `sinceNavigation`, since a mark is later than any navigation before
+     * it. An entry that repeated across the mark counts only its repeats
+     * after it.
+     */
+    since?: number;
   }) => PageLogSnapshot;
+  /**
+   * Where the log is now, to read from later with `since`: how many times
+   * it has recorded anything.
+   */
+  mark: () => number;
+  /**
+   * How many of the page's `fetch` calls have not answered yet (Val's own
+   * excluded): what an interaction waits on before it calls the page
+   * settled.
+   */
+  inFlight: () => number;
   /** How many of each since the page last navigated. */
   counts: () => PageLogCounts;
   /**
@@ -188,6 +207,18 @@ export function installPageLog(
   const items: Array<PageLogEntry | { navigation: string }> = [];
   let dropped = 0;
   let lastPath = currentPath(win);
+  /** Every time `record` recorded something, a repeat included: `mark`. */
+  let recorded = 0;
+  /**
+   * Which records each entry is: they are consecutive, since only the last
+   * entry is ever repeated. For `read({ since })`.
+   */
+  const recordsOf = new WeakMap<
+    PageLogEntry,
+    { first: number; last: number }
+  >();
+  /** `fetch` calls not answered yet: `inFlight`. */
+  let pending = 0;
 
   const push = (item: PageLogEntry | { navigation: string }) => {
     items.push(item);
@@ -232,9 +263,12 @@ export function installPageLog(
         // A render loop logs the same line hundreds of times: one entry
         // with a count keeps the rest of the log.
         last.repeated = (last.repeated ?? 1) + 1;
+        recorded++;
+        const records = recordsOf.get(last);
+        if (records !== undefined) records.last = recorded;
         return;
       }
-      push({
+      const pushed: PageLogEntry = {
         level: entry.level,
         source: entry.source,
         text,
@@ -243,7 +277,10 @@ export function installPageLog(
         ...(url !== undefined ? { url } : {}),
         ...(entry.status !== undefined ? { status: entry.status } : {}),
         ...(entry.tag !== undefined ? { tag: entry.tag } : {}),
-      });
+      };
+      recorded++;
+      recordsOf.set(pushed, { first: recorded, last: recorded });
+      push(pushed);
     } catch {
       // The log must never be what breaks the page.
     } finally {
@@ -346,6 +383,14 @@ export function installPageLog(
           const answer = originalFetch.call(win, input, init);
           if (url === null || isIgnored(url, win, ignoreUrl)) return answer;
           const href = url.href;
+          // Counted until it answers, either way: `inFlight`.
+          pending++;
+          let answered = false;
+          const done = () => {
+            if (answered) return;
+            answered = true;
+            pending = Math.max(0, pending - 1);
+          };
           /*
            * The page is handed a promise DERIVED from its fetch, never the
            * fetch's own with a handler on it. Any `then` on a promise marks
@@ -361,6 +406,7 @@ export function installPageLog(
            */
           return answer.then(
             (response) => {
+              done();
               try {
                 const status: unknown = Reflect.get(Object(response), "status");
                 if (typeof status === "number" && status >= 400) {
@@ -386,6 +432,7 @@ export function installPageLog(
               return response;
             },
             (error: unknown) => {
+              done();
               try {
                 // An abort is the page changing its mind, not a failure.
                 if (!isAbort(error)) {
@@ -415,7 +462,9 @@ export function installPageLog(
   const log: PageLog = {
     read: (readOptions = {}) => {
       noteLocation();
-      const sinceNavigation = readOptions.sinceNavigation !== false;
+      const since = readOptions.since;
+      const sinceNavigation =
+        since === undefined && readOptions.sinceNavigation !== false;
       const levels = readOptions.levels;
       const entries = entriesOf(items, sinceNavigation).filter(
         (entry) =>
@@ -423,9 +472,22 @@ export function installPageLog(
           levels.length === 0 ||
           levels.includes(entry.level),
       );
+      const copies: PageLogEntry[] = [];
+      for (const entry of entries) {
+        if (since === undefined) {
+          copies.push({ ...entry });
+          continue;
+        }
+        const records = recordsOf.get(entry);
+        if (records === undefined || records.last <= since) continue;
+        // Only the times it happened after the mark.
+        const times = records.last - Math.max(since, records.first - 1);
+        const { repeated: _all, ...rest } = entry;
+        copies.push(times > 1 ? { ...rest, repeated: times } : rest);
+      }
       return {
         path: currentPath(win),
-        entries: entries.map((entry) => ({ ...entry })),
+        entries: copies,
         sinceNavigation,
         dropped,
         startedAt,
@@ -435,6 +497,8 @@ export function installPageLog(
       noteLocation();
       return countEntries(entriesOf(items, true));
     },
+    mark: () => recorded,
+    inFlight: () => pending,
     noteLocation,
     uninstall: () => {
       // Only what is still ours: something wrapped after us keeps its own.

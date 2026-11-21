@@ -1,6 +1,7 @@
 import { describeDeployPhase, deployPercent } from "../publish/deployProgress";
 import type { StudioDeployState } from "../publish/useStudioDeploy";
 import type { StudioBuildStep } from "./proposalCode";
+import type { ServerBuildProgress } from "@valbuild/shared/publish";
 
 /**
  * A build of the proposal as it is shown: in the upgrade's dialog, and by the
@@ -36,8 +37,7 @@ export function proposalBuildProgress(
           }
         : { label: "Building", percent: null };
     case "on-server":
-      // Val Build builds, renders and serves it, and says nothing between
-      return { label: "Building on Val Build", percent: null };
+      return onServerProgress(step.progress ?? null);
     case "serving":
       return {
         label: "Serving the build at the proposal's address",
@@ -49,4 +49,43 @@ export function proposalBuildProgress(
         percent: null,
       };
   }
+}
+
+/**
+ * Val Build's build, as far as it says (`buildProgress`): waiting in its
+ * queue, the builder's steps across most of the bar, then checking the build
+ * renders and serving it. Nothing said is a build without a percent, as
+ * before.
+ */
+function onServerProgress(
+  progress: ServerBuildProgress | null,
+): ProposalBuildProgress {
+  if (progress === null) {
+    return { label: "Building on Val Build", percent: null };
+  }
+  if (progress.built) {
+    return {
+      label: "Checking the page and serving it",
+      percent: Math.round(100 * DEPLOY_SHARE),
+    };
+  }
+  if (progress.step !== null && progress.step.of > 0) {
+    const done = Math.min(progress.step.index - 1, progress.step.of);
+    return {
+      label: progress.step.label,
+      percent: Math.round(
+        5 + (100 * DEPLOY_SHARE - 5) * (done / progress.step.of),
+      ),
+    };
+  }
+  if (progress.queued !== null && progress.queued > 0) {
+    return {
+      label:
+        progress.queued === 1
+          ? "Waiting for Val Build: 1 build ahead"
+          : `Waiting for Val Build: ${progress.queued} builds ahead`,
+      percent: 0,
+    };
+  }
+  return { label: "Starting the build", percent: 5 };
 }

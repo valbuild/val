@@ -1,5 +1,13 @@
 # @valbuild/language-server
 
+## 0.153.6
+
+### Patch Changes
+
+- Updated dependencies [[`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf), [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4), [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f)]:
+  - @valbuild/shared@0.153.6
+  - @valbuild/server@0.153.6
+
 ## 0.153.5
 
 ### Patch Changes

@@ -102,39 +102,52 @@ export function DiffArea({
             Compared with the site
           </span>
         </div>
-        <pre className="flex-1 overflow-auto py-2 font-mono text-xs leading-5">
-          {lines.map((line, index) =>
-            line.kind === "skip" ? (
-              <div
-                key={index}
-                className="select-none px-4 text-fg-tertiary italic"
-              >
-                ⋯ {line.count} unchanged {line.count === 1 ? "line" : "lines"}
-              </div>
-            ) : (
-              <div
-                key={index}
-                className={cn(
-                  "flex px-4",
-                  line.kind === "added" &&
-                    "bg-bg-brand-secondary text-fg-brand-secondary",
-                  line.kind === "removed" &&
-                    "bg-bg-error-primary text-fg-error-primary",
-                )}
-              >
-                <span className="w-5 shrink-0 select-none opacity-60">
-                  {line.kind === "added"
-                    ? "+"
-                    : line.kind === "removed"
-                      ? "-"
-                      : " "}
-                </span>
-                <span className="whitespace-pre">{line.text}</span>
-              </div>
-            ),
-          )}
-        </pre>
+        <DiffLines lines={lines} className="flex-1 overflow-auto py-2" />
       </div>
     </div>
+  );
+}
+
+/**
+ * The lines of one file's diff, on their own: what {@link DiffArea} draws, and
+ * what Review draws under a file it has opened.
+ */
+export function DiffLines({
+  lines,
+  className,
+}: {
+  lines: DiffLine[];
+  className?: string;
+}) {
+  return (
+    <pre className={cn("font-mono text-xs leading-5", className)}>
+      {lines.map((line, index) =>
+        line.kind === "skip" ? (
+          <div key={index} className="select-none px-4 text-fg-tertiary italic">
+            ⋯ {line.count} unchanged {line.count === 1 ? "line" : "lines"}
+          </div>
+        ) : (
+          <div
+            key={index}
+            className={cn(
+              "flex px-4",
+              line.kind === "added" &&
+                "bg-bg-brand-secondary text-fg-brand-secondary",
+              line.kind === "removed" &&
+                "bg-bg-error-primary text-fg-error-primary",
+            )}
+          >
+            <span className="w-5 shrink-0 select-none opacity-60">
+              {line.kind === "added"
+                ? "+"
+                : line.kind === "removed"
+                  ? "-"
+                  : " "}
+            </span>
+            <span className="whitespace-pre">{line.text}</span>
+          </div>
+        ),
+      )}
+    </pre>
   );
 }
