@@ -1,3 +1,4 @@
+import { CHECKS_MESSAGE_MARKER } from "../proposals/checksMessage";
 import type { ProposalParticipant } from "../components/proposals/types";
 import {
   applyWatchedEvent,
@@ -427,6 +428,62 @@ describe("storedToolActivities", () => {
 });
 
 describe("toChatMessages", () => {
+  test("what rode along with the person's message is not shown as theirs when the chat is loaded again", () => {
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Make the header blue" },
+            {
+              type: "text",
+              text: '<background_checks>\n{"typecheck_errors":{}}\n</background_checks>',
+            },
+          ],
+        },
+        {
+          role: "user",
+          content:
+            'And the footer\n\n<background_checks>\n{"lint_problems":{}}\n</background_checks>',
+        },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => m.content)).toEqual([
+      [{ type: "text", text: "Make the header blue" }],
+      "And the footer",
+    ]);
+  });
+
+  test("the Studio's message for its background checks loads as the notice it was shown as, not as the person's", () => {
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        { role: "user", content: "Make the hero blue", authorId: "kari" },
+        { role: "assistant", content: "Done." },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${CHECKS_MESSAGE_MARKER} The checks found problems.\n\n{}`,
+            },
+          ],
+          authorId: "kari",
+        },
+        { role: "assistant", content: "Fixed the type error." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => [m.role, m.fromChecks, m.author?.id])).toEqual([
+      ["user", undefined, "kari"],
+      ["assistant", undefined, undefined],
+      ["user", true, undefined],
+      ["assistant", undefined, undefined],
+    ]);
+  });
+
   test("tools run before a steer that came before any text stay with the turn", () => {
     const call = (name: string) => ({
       toolCallId: `call-${name}`,
