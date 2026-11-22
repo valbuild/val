@@ -5,6 +5,7 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { storesReceived } from "./intake";
 // By relative path, not by package name: `e2e/` is not a workspace package, so
 // nothing links `@valbuild/*` into a `node_modules` it can resolve from — the
 // same reason `e2e/http/httpMode.ts` reaches into `packages/server/src`.
@@ -59,19 +60,10 @@ export async function openStudio(
     content: "nextjs-portal { display: none !important; }",
   });
   await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: INTAKE_TIMEOUT,
-        message: "the store system never took the project in",
-      },
-    )
+    .poll(() => storesReceived(page), {
+      timeout: INTAKE_TIMEOUT,
+      message: "the store system never took the project in",
+    })
     .toBe(true);
 }
 
