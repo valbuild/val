@@ -35,6 +35,17 @@ import {
   type PageState,
 } from "./pageInteraction";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
+import {
+  isInlineEditCandidate,
+  isInlineEditValue,
+  isInlineRichText,
+  isInlineSelection,
+  type InlineEditCandidate,
+  type InlineEditValue,
+  type InlineRect,
+  type InlineRichTextNode,
+  type InlineSelection,
+} from "./inlineEditing";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -130,6 +141,7 @@ export type CanvasRequest =
   | "screenshotPage"
   | "readPageLog"
   | "quickPreview"
+  | "editInline"
   | InteractCapability;
 
 /** An action of `interact`, as a capability: see {@link CanvasRequest}. */
@@ -151,6 +163,7 @@ export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
   "screenshotPage",
   "readPageLog",
   "quickPreview",
+  "editInline",
   // Written out, not mapped from `PAGE_ACTION_KINDS`: this module is read
   // while `pageInteraction.ts` is still loading (it imports the inspection,
   // which imports this). `pageInteraction.test.ts` holds the two equal.
@@ -440,6 +453,66 @@ export type ValCanvasPageMessage =
       val: typeof VAL_CANVAS_MESSAGE;
       type: "codeChanged";
       modules: ModuleFilePath[];
+    }
+  | {
+      /**
+       * What `editInline` asked for is happening: the caret is in the field
+       * at `path`, on the page (`inlineEditing.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditStarted";
+      /**
+       * The `editInline` this answers, or `null` when there was none: the
+       * page started the edit on a click by itself, from what `textFields`
+       * last said, and said nothing of the click (no `clicked`).
+       */
+      requestId: string | null;
+      /** Which of the fields it offered. */
+      path: SourcePath;
+    }
+  | {
+      /**
+       * Something was typed into the field being edited on the page: its new
+       * value, whole. The Studio writes it as the field in its own column
+       * would.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEdit";
+      path: SourcePath;
+      value: InlineEditValue;
+    }
+  | {
+      /**
+       * A text being edited on the page: what is selected in it, and
+       * where its element is in the page's viewport. The Studio draws the
+       * field's validation errors there and, for a richtext, its formatting
+       * controls, acting on that selection (`applyInlineEdit`). Sent when
+       * either moves. A string's selection is always `null`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditSelection";
+      path: SourcePath;
+      selection: InlineSelection | null;
+      rect: InlineRect;
+      /** Where the caret itself is, when the page could say. */
+      caret?: InlineRect | null;
+    }
+  | {
+      /** Editing on the page ended: Enter, Esc, or the focus went elsewhere. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditEnded";
+      path: SourcePath;
+    }
+  | {
+      /**
+       * None of what `editInline` offered can be edited on the page: no
+       * element shows one of them and nothing else. The Studio opens the
+       * field in its own column instead.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditUnavailable";
+      /** The `editInline` this answers. */
+      requestId: string;
     };
 
 /** What the studio tells the page. */
@@ -667,6 +740,105 @@ export type ValCanvasStudioMessage =
       type: "quickPreview";
       id: string;
       files: QuickPreviewFiles;
+    }
+  | {
+      /**
+       * Edit one of these fields ON the page (`inlineEditing.ts`): sent in
+       * answer to a `clicked`, with the fields of that element that can be
+       * typed -- a string, a richtext -- and what each holds, which is how
+       * the page tells that the element shows one of them and nothing else.
+       *
+       * The first the page can edit is edited (`inlineEditStarted`, then
+       * `inlineEdit` as it is typed and `inlineEditEnded`); when there is
+       * none it says `inlineEditUnavailable`. Asked only of a bridge whose
+       * `ready` lists `editInline`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "editInline";
+      requestId: string;
+      candidates: InlineEditCandidate[];
+    }
+  | {
+      /**
+       * The richtext being edited on the page is now this, with this
+       * selected: what one of the Studio's formatting controls made of it.
+       * The Studio has already written it; the page shows it in the copy
+       * being typed in, and goes on from there.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "applyInlineEdit";
+      /** Which field: as its `editInline` candidate named it. */
+      path: string;
+      value: InlineRichTextNode[];
+      selection: InlineSelection | null;
+    }
+  | {
+      /**
+       * The next text typed in the richtext being edited on the page has
+       * these marks (as a span's `styles`; `[]` for none), whatever the
+       * text around the caret has: one of the Studio's formatting controls
+       * pressed with nothing selected. `null` forgets them. The page
+       * forgets them too once the caret moves, as the Studio's editor does.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "markInlineEdit";
+      /** Which field: as its `editInline` candidate named it. */
+      path: string;
+      styles: string[] | null;
+      /**
+       * Where the caret was when the control was pressed. A caret that has
+       * moved since -- the message crosses the frame after the keys that
+       * moved it -- gets no mark.
+       */
+      selection: InlineSelection | null;
+    }
+  | {
+      /**
+       * Put the caret back in the text being edited on the page: the focus
+       * was in one of the Studio's controls for it, and is done there.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "focusInlineEdit";
+    }
+  | {
+      /** End whatever is being edited on the page: Select was turned off. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "stopInlineEdit";
+    }
+  | {
+      /**
+       * The page's texts, as the Studio knows them: sent whenever the paths
+       * the page reported, Select, its mode or a value changes. The page
+       * cannot tell a text from anything else -- it has no schemas -- and
+       * needs to know ahead of a click for two things:
+       *
+       * - In Select & edit, a click on an element that shows one of
+       *   `editable` and nothing else starts the edit IN the click
+       *   (`inlineEditStarted` with no `requestId`), rather than a round
+       *   trip later: keys typed straight after the click go where the
+       *   caret is, and a phone opens its keyboard, which it does only for
+       *   a focus in the tap itself. When the element no longer shows what
+       *   the Studio last said, the page asks as before (`clicked`,
+       *   `editInline`) and holds the keys pressed meanwhile
+       *   (`inlineEditKeys.ts`).
+       * - While Select is on, an element showing one of `empty` and nothing
+       *   else is given a line of room, so it can still be pointed at
+       *   (`emptyTextFields.ts`).
+       *
+       * A bridge that predates it ignores it, as it ignores any message it
+       * does not know: nothing it answered changes.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "textFields";
+      /** Select is on in Select & edit, and fields may be written. */
+      editing: boolean;
+      /**
+       * What can be typed in on the page, with what each holds now, as
+       * `editInline` offers it. Empty unless `editing`.
+       */
+      editable: InlineEditCandidate[];
+      /** The strings and richtexts on the page that are empty now. */
+      empty: string[];
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -702,7 +874,41 @@ export function isValCanvasPageMessage(
       typeof (data as { id?: unknown }).id === "string") ||
     (message.type === "codeChanged" &&
       Array.isArray((data as { modules?: unknown }).modules) &&
-      isModulePathList((data as { modules?: unknown }).modules))
+      isModulePathList((data as { modules?: unknown }).modules)) ||
+    (message.type === "inlineEditStarted" &&
+      (typeof (data as { requestId?: unknown }).requestId === "string" ||
+        (data as { requestId?: unknown }).requestId === null) &&
+      typeof (data as { path?: unknown }).path === "string") ||
+    (message.type === "inlineEditEnded" &&
+      typeof (data as { path?: unknown }).path === "string") ||
+    (message.type === "inlineEdit" &&
+      typeof (data as { path?: unknown }).path === "string" &&
+      isInlineEditValue((data as { value?: unknown }).value)) ||
+    (message.type === "inlineEditUnavailable" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "inlineEditSelection" && isSelectionReport(data))
+  );
+}
+
+function isSelectionReport(value: object): boolean {
+  const report = value as Record<string, unknown>;
+  return (
+    typeof report.path === "string" &&
+    (report.selection === null || isInlineSelection(report.selection)) &&
+    isRect(report.rect) &&
+    (report.caret === undefined ||
+      report.caret === null ||
+      isRect(report.caret))
+  );
+}
+
+function isRect(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ["top", "left", "width", "height"].every((side) =>
+      Number.isFinite(Reflect.get(value, side)),
+    )
   );
 }
 
@@ -1055,6 +1261,42 @@ export function isValCanvasStudioMessage(
           read.levels.every((level) => level === "error" || level === "warn")))
     );
   }
+  if (message.type === "editInline") {
+    const edit = data as Record<string, unknown>;
+    return (
+      typeof edit.requestId === "string" &&
+      Array.isArray(edit.candidates) &&
+      edit.candidates.every(isInlineEditCandidate)
+    );
+  }
+  if (message.type === "textFields") {
+    const fields = data as Record<string, unknown>;
+    return (
+      typeof fields.editing === "boolean" &&
+      Array.isArray(fields.editable) &&
+      fields.editable.every(isInlineEditCandidate) &&
+      Array.isArray(fields.empty) &&
+      fields.empty.every((path) => typeof path === "string")
+    );
+  }
+  if (message.type === "applyInlineEdit") {
+    const apply = data as Record<string, unknown>;
+    return (
+      typeof apply.path === "string" &&
+      isInlineRichText(apply.value) &&
+      (apply.selection === null || isInlineSelection(apply.selection))
+    );
+  }
+  if (message.type === "markInlineEdit") {
+    const mark = data as Record<string, unknown>;
+    return (
+      typeof mark.path === "string" &&
+      (mark.styles === null ||
+        (Array.isArray(mark.styles) &&
+          mark.styles.every((style) => typeof style === "string"))) &&
+      (mark.selection === null || isInlineSelection(mark.selection))
+    );
+  }
   if (message.type === "interact") {
     const field = (key: string): unknown => Reflect.get(data, key);
     const maxItems = field("maxItems");
@@ -1090,6 +1332,8 @@ export function isValCanvasStudioMessage(
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
     message.type === "sourcesSynced" ||
+    message.type === "stopInlineEdit" ||
+    message.type === "focusInlineEdit" ||
     (message.type === "confirmed" &&
       ((data as { seq?: unknown }).seq === null ||
         typeof (data as { seq?: unknown }).seq === "number"))

@@ -80,7 +80,12 @@ async function recordElementReports(page: Page) {
     });
   });
   return {
-    /** Until a report has `path` either missing or on an empty (0×0) box. */
+    /**
+     * Until a report has `path` missing, or on a box of another width than
+     * the first report had it on: the element no longer the filled-in one.
+     * Not "on a 0×0 box": while Select is on, an emptied text is given a
+     * line of room so it can still be pointed at (`emptyTextFields.ts`).
+     */
     waitForEmptied: (path: string) =>
       page.waitForFunction(
         (wanted) => {
@@ -91,14 +96,16 @@ async function recordElementReports(page: Page) {
             }[];
           };
           const bag = window as unknown as { __valReports?: Report[] };
-          return (bag.__valReports ?? []).some((report) => {
-            const element = report.elements.find((candidate) =>
+          const widthIn = (report: Report) =>
+            report.elements.find((candidate) =>
               candidate.paths.includes(wanted),
-            );
-            return (
-              element === undefined ||
-              (element.rect.width === 0 && element.rect.height === 0)
-            );
+            )?.rect.width;
+          const reports = bag.__valReports ?? [];
+          const filled =
+            reports[0] === undefined ? undefined : widthIn(reports[0]);
+          return reports.some((report) => {
+            const width = widthIn(report);
+            return width === undefined || width !== filled;
           });
         },
         path,
@@ -152,13 +159,22 @@ test("clearing a link's label keeps both of the link's rows", async ({
   await expect(href).toBeVisible();
 
   const reports = await recordElementReports(page);
+  // A report of the filled-in link first, to tell the emptied one from.
+  await studio.getByRole("button", { name: "Reload the page" }).first().click();
+  await page.waitForFunction(
+    () =>
+      ((window as unknown as { __valReports?: unknown[] }).__valReports ?? [])
+        .length > 0,
+    undefined,
+    { timeout: 30000 },
+  );
   await label.locator("input").first().click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.press("Backspace");
   /*
    * Wait for the report the bug was in: the first one in which the label's
-   * element is no longer the filled-in link. With the fix it is there, 0×0;
-   * without it, it is missing — and either way the rows below are then
+   * element is no longer the filled-in link. With the fix it is there, as an
+   * empty box (a line of room while Select is on); without it, it is missing — and either way the rows below are then
    * checked against what the page actually said.
    */
   await reports.waitForEmptied(LABEL_PATH);

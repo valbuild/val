@@ -33,6 +33,8 @@ import {
   AlertTriangle,
   ArrowUp,
   Clock,
+  ChevronDown,
+  ShieldAlert,
 } from "lucide-react";
 import type { AISession, AISteerStatus } from "../hooks/useAIWebSocket";
 import {
@@ -47,6 +49,7 @@ import {
   type Outbox,
   type Steer,
 } from "./aiSteer";
+import { stripChecksMessage } from "../proposals/checksMessage";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
 import { randomUUID } from "../utils/randomUUID";
@@ -167,6 +170,11 @@ export type ChatMessage = {
    * again with it.
    */
   steered?: boolean;
+  /**
+   * A message the Studio sent for its background checks, not the person:
+   * shown as a notice rather than as their words (`checksFollowUp.ts`).
+   */
+  fromChecks?: true;
 };
 
 /**
@@ -245,6 +253,8 @@ type QueuedMessage = {
    * element picked then, not whatever is picked when it is sent.
    */
   context?: SendContext;
+  /** The Studio's, for its background checks: see `sendChecksMessage`. */
+  fromChecks?: true;
 };
 
 /**
@@ -252,7 +262,14 @@ type QueuedMessage = {
  * element picked on the page. `pointedAt: null` sends none, even if
  * something is picked by the time it goes.
  */
-export type SendContext = { pointedAt: PickedElement | null };
+export type SendContext = {
+  pointedAt: PickedElement | null;
+  /**
+   * Sent by the Studio for its background checks, not written by the person
+   * (`checksFollowUp.ts`): it does not count as the person writing.
+   */
+  fromChecks?: true;
+};
 
 type CurrentMessage = {
   message: ChatMessage;
@@ -368,6 +385,15 @@ export type AIChatHandle = {
    * one. Shown where the turn has got to, once however often it is reported.
    */
   showSteer: (steerId: string, message: ChatMessage) => void;
+  /**
+   * Hand the assistant what the background checks found, in a turn of its
+   * own, shown as the Studio's rather than the person's
+   * (`checksFollowUp.ts`). Only while the chat is idle: a turn running, a
+   * message waiting in the queue, or a queue paused by the person answers
+   * `false`, and nothing is sent -- the findings go with the next message
+   * instead.
+   */
+  sendChecksMessage: (text: string) => boolean;
 };
 
 export type AIChatProps = {
@@ -436,6 +462,8 @@ export type AIChatProps = {
    * a conversation can start — no AI key, and the AI setup to add one.
    */
   emptyStateOverride?: ReactNode;
+  /** Shown above the composer: the background checks (`ChecksBar`). */
+  aboveComposer?: ReactNode;
   /** Extra class names on the root container */
   className?: string;
   /** Whether the underlying WebSocket connection is ready */
@@ -538,7 +566,7 @@ function nextId(): string {
   return `chat-${++_msgId}-${Date.now()}`;
 }
 
-function getTextContent(content: AIMessageContent): string {
+export function getTextContent(content: AIMessageContent): string {
   if (typeof content === "string") {
     return content;
   }
@@ -929,6 +957,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
     emptyStateOverride,
+    aboveComposer,
     className,
     isConnected,
     authError,
@@ -1219,7 +1248,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       status: "complete",
       attachments: message.attachments,
       userDoc: message.doc,
-      ...(viewerRef.current ? { author: viewerRef.current } : {}),
+      ...(message.fromChecks
+        ? { fromChecks: true }
+        : viewerRef.current
+          ? { author: viewerRef.current }
+          : {}),
     }),
     [],
   );
@@ -1302,6 +1335,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   /** Whether the next message sent from outside waits for a model. */
   const chooseModelFirstRef = useRef(false);
   useImperativeHandle(ref, () => ({
+    sendChecksMessage(text: string) {
+      return sendChecksRef.current(text);
+    },
     sendUserMessage(text: string) {
       if (chooseModelFirstRef.current) {
         setStaged(text);
@@ -1658,7 +1694,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
    * the queue once someone else's turn has ended.
    */
   const deliver = useCallback(
-    (message: QueuedMessage) => {
+    (message: QueuedMessage): boolean => {
       const { attachments } = message;
       const msgId = nextId();
       const userMsg = userMessageOf(message, msgId);
@@ -1669,7 +1705,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           ? onSendMessage(message.outgoing, attachments, message.context)
           : onSendMessage(message.outgoing, attachments)
         : true;
-      if (!sent) {
+      if (!sent && message.fromChecks) {
+        // The Studio's own message is not left behind as a failure: its
+        // findings were not handed over, and go with the next message.
+        setCompletedMessages((prev) => prev.filter((m) => m.id !== msgId));
+      } else if (!sent) {
         setCompletedMessages((prev) =>
           prev.map((m) =>
             m.id === msgId
@@ -1683,6 +1723,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         // the caret back once the answer lands.
         armForSend();
       }
+      return sent;
     },
     [userMessageOf, onSendMessage, setAwaitingSince, armForSend],
   );
@@ -1841,6 +1882,28 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     ],
   );
   handleSendRef.current = handleSend;
+  const sendChecksRef = useRef<(text: string) => boolean>(() => false);
+  sendChecksRef.current = (text: string) => {
+    if (
+      busy ||
+      queue.length > 0 ||
+      outbox.steers.some(isWaitingSteer) ||
+      queuePaused ||
+      !isConnected ||
+      staged !== null
+    ) {
+      return false;
+    }
+    return deliver({
+      id: nextId(),
+      seq: ++seqRef.current,
+      outgoing: text,
+      displayText: text,
+      files: [],
+      context: { pointedAt: null, fromChecks: true },
+      fromChecks: true,
+    });
+  };
 
   /**
    * A steer the server has said nothing about in time is queued, as before
@@ -2346,6 +2409,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           </div>
         ) : (
           <>
+            {aboveComposer}
             {!isConnected && !authError && (
               <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs touch:text-sm text-fg-secondary">
                 <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
@@ -2976,6 +3040,9 @@ function MessageBubble({
   onEnableCodeMode?: (toolCallId: string) => void;
   onDeclineCodeMode?: (toolCallId: string) => void;
 }) {
+  if (message.fromChecks) {
+    return <ChecksNotice text={getTextContent(message.content)} />;
+  }
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
@@ -3295,6 +3362,41 @@ function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
       now,
     ),
   };
+}
+
+/**
+ * What the Studio sent the assistant for its background checks: a notice in
+ * the transcript, not a message in the person's name. The findings are for
+ * the assistant, so they are folded away.
+ */
+function ChecksNotice({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const findings = stripChecksMessage(text);
+  return (
+    <div className="flex flex-col items-center gap-1 px-1">
+      <button
+        type="button"
+        onClick={() => setOpen((was) => !was)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 rounded-full border border-border-primary bg-bg-secondary px-2.5 py-1 text-xs touch:text-sm text-fg-secondary hover:text-fg-primary"
+      >
+        <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
+        The checks found problems, and sent them to the assistant
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <pre className="max-h-64 w-full overflow-auto whitespace-pre-wrap rounded-md border border-border-primary bg-bg-secondary p-2 text-xs text-fg-secondary">
+          {findings}
+        </pre>
+      )}
+    </div>
+  );
 }
 
 function StreamingCursor() {
