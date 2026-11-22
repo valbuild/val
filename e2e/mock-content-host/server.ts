@@ -3803,6 +3803,14 @@ async function proposalStage(
     if (JSON.stringify(now) === JSON.stringify(source)) continue;
     proposal.saved.modules[moduleFilePath] = source;
   }
+  /*
+   * A staging moves the branch's chain version, as `home` counts it
+   * (`patches.countStaging`), and its Studios hear: what every Studio open
+   * on the proposal re-reads its staged files on (`ManifestSource.seq`), and
+   * what ends the assistant's held copy of them (`projectSnapshot.ts`).
+   */
+  bumpChainVersion(proposal.branch);
+  broadcastChain(proposal.branch);
   json(res, 200, { commit: commitSha, staged: stagedJson(proposal) });
 }
 

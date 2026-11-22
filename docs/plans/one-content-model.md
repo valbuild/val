@@ -2800,6 +2800,33 @@ grows with the site, which home's rule keeps out of 128 MB
 makes (adept) can evaluate too, and should report the same versions, so a
 proposal built on the server and one evaluated in the tab agree.
 
+### Which writes wait for it
+
+Evaluating after EVERY write made every write wait for it (up to 20 s), a
+component `val.modules.ts` never imports included, and three edits in one
+reply of the model were evaluated three times end to end. So
+(`stagedCodeReach` in `stagedCode.ts`):
+
+- **A write that can change the outcome waits**, as before: a `.val.ts`, a
+  `.val.json` entry, `val.modules`, `val.config`, any file the last
+  evaluation's bundle was made of (the bundler says: `dependencies`), or any
+  file at all while the staged code does not evaluate, since the fix may be
+  anywhere.
+- **A write that cannot is not evaluated**: a file the last bundle did not
+  read. It is answered as soon as it is staged.
+- **Where that is not known, it is evaluated and not waited for**: nothing was
+  evaluated in this tab yet, an evaluation is under way whose bundle may reach
+  further than the last one's, or the write is of what decides how imports
+  resolve (`package.json`, a `tsconfig`). What it finds reaches the assistant
+  with its next tool answer (`untoldStagedCode`).
+- **Evaluations of one proposal coalesce**: at most one waits behind the one
+  running, and it reads the project when it starts, so it is of every staging
+  made until then.
+
+The project an evaluation reads is the chat's snapshot of it
+(`projectSnapshot.ts`), which the staging that asked for it was laid over: no
+request, unless that staging left the files in doubt.
+
 ### Cost
 
 Not measured. Update with code gives each tree a 2-minute deadline, which says

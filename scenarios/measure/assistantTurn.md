@@ -33,19 +33,27 @@ model's share, which the tab cannot measure from its end of the socket.
 ## Counted work (asserted in CI)
 
 Requests from the tab to the app's `/api/val`, each of which the app relays
-to content: two hops per request. A call after the turn's first; the first
-is the same requests with the site's source sent whole.
+to content: two hops per request. A call after the chat's first, which reads
+the project once (2 requests, beside each other) into the chat's snapshot of
+it (`projectSnapshot.ts`). "Was" is the count before the snapshot.
 
-| Tool                    | Requests | Which                                                                                                   |
-| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `read_file`             | 2        | site source (by version, answered 304), proposal files                                                  |
-| `search_code`           | 2        | the same                                                                                                |
-| `list_files`            | 2        | the same                                                                                                |
-| `lint`                  | 2        | the same                                                                                                |
-| `lint` with `fix: true` | 4        | proposal (code mode), site source, proposal files, stage                                                |
-| `format_files`          | 4        | proposal (code mode), site source, proposal files, stage                                                |
-| `write_files`           | 5        | proposal (code mode), stage, then for the evaluation: proposal files, site source (whole), build target |
-| `edit_file`             | 7        | proposal (code mode), site source, proposal files, stage, then the evaluation's three                   |
+| Tool                    | Requests | Was | Which                                                                                      |
+| ----------------------- | -------- | --- | ------------------------------------------------------------------------------------------ |
+| `read_file`             | 0        | 2   | answered from the snapshot                                                                 |
+| `search_code`           | 0        | 2   | the same                                                                                   |
+| `list_files`            | 0        | 2   | the same                                                                                   |
+| `lint`                  | 0        | 2   | the same                                                                                   |
+| `lint` with `fix: true` | 2        | 4   | proposal (what is staged now), stage                                                       |
+| `format_files`          | 2        | 4   | proposal (what is staged now), stage                                                       |
+| `write_files`           | 1        | 5   | stage                                                                                      |
+| `edit_file`             | 2        | 7   | proposal (what is staged now), stage; 1 within 2 s of a read or of this tab's last staging |
+
+The evaluation of a staging is 1 request (build target) when it runs. A
+write waits for it only when it can change the Val modules (a `.val.ts`,
+`val.modules`, `val.config`, a file their bundle read); a write that cannot
+is not evaluated; where that is not known it is evaluated beside the answer.
+Behind a staging the tab reads the proposal's files again once it hears the
+project's `seq` moved, which no answer waits for.
 
 After one staging, once the tool has answered:
 
@@ -56,8 +64,8 @@ After one staging, once the tool has answered:
 | The Code changes pane, when it is open | 2        | proposal files, site source (whole)                                     |
 
 So one `edit_file`, from the call arriving to its files being handed to the
-page, is **12 requests** with the Code changes pane closed (7 before the
-answer, 5 after), 14 with it open. `write_files` is 10.
+page, is **7 requests** with the Code changes pane closed (2 before the
+answer, 5 after; it was 12), 9 with it open. `write_files` is 6.
 
 Waits that are not requests, and are in the code as constants:
 
@@ -165,17 +173,15 @@ the tables above name.
 
 Not fixed here; each is someone's to decide.
 
-1. **The evaluation reads the project a second time.** `edit_file` reads
-   the site's source and the proposal's files, stages, and then
-   `studioStagedCodeDeps` reads both again plus the build target, with a
-   publish client made for that one call, so the site's source comes whole
-   (no `If-None-Match`). Three of an edit's seven requests.
-2. **The site's source is asked for on every tool call.** A 304 is small,
-   but it is a round trip through the app to content, in front of every
+1. ~~The evaluation reads the project a second time.~~ Fixed: it reads the
+   chat's snapshot.
+2. ~~The site's source is asked for on every tool call.~~ Fixed: with each
+   re-read of the proposal's files, and otherwise every 30 s.
+3. ~~Code mode is read before every write.~~ Fixed: the server's refusal is
+   the answer. A write made from a file's text asks what is staged instead,
+   unless the files were read or staged within 2 s.
+4. ~~Reading tools of one model reply share nothing.~~ Fixed: they share one
    read.
-3. **Code mode is read before every write** (one GET of the proposal).
-4. **Reading tools of one model reply share nothing.** They run at once,
-   and each makes its own two requests for the same project.
 5. **The quick preview reads the proposal twice** a second apart, for the
    same `staged.inputs`, and may read it a third time: `useCodeModeQuickPreview`
    reads again when the project's `seq` moves, which a staging also does.
@@ -183,9 +189,9 @@ Not fixed here; each is someone's to decide.
 6. **The Code changes pane reads the site's source whole on every change**
    (a publish client per read).
 7. **The proposals bar reads the whole list of proposals** on every staging.
-8. **Writes are one at a time, and each waits for its own evaluation**: N
-   edits in one reply cost N evaluations, where one after the last would say
-   the same.
+8. ~~Each write waits for its own evaluation.~~ Fixed: only a write that can
+   change the Val modules waits, and evaluations of one proposal coalesce.
+   Writes are still one at a time.
 9. **The background typecheck does not start after an edit.**
    `scheduleTypecheck`'s comment says "after each edit, and on Build", and
    its only caller is the build's `start` in `useAI.ts`. Not slow, but the

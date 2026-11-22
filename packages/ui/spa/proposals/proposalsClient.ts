@@ -238,7 +238,19 @@ const FilesAnswer = z.object({
   files: z.record(z.string(), z.string().nullable()),
   staged: Staged,
 });
-const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
+const StagedAnswer = z.object({
+  commit: z.string(),
+  staged: Staged,
+  /**
+   * Whether Val's server saved pending content changes before it staged
+   * (`beforeProposalCodeWrite`): a save writes `.val.ts` files the caller
+   * did not, so what it holds of the proposal's files is no longer all of
+   * them (`projectSnapshot.ts`). Absent where the server did not say.
+   */
+  savedFirst: z.boolean().optional(),
+});
+/** What a staging answers. */
+export type ProposalStagedAnswer = z.infer<typeof StagedAnswer>;
 
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
