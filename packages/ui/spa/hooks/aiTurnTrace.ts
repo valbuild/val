@@ -1,5 +1,5 @@
 import { Internal } from "@valbuild/core";
-import { changesCode as toolChangesCode } from "../proposals/proposalCode";
+import { changesCode as toolChangesCode } from "../proposals/changesCode";
 import type { AIClientMessage, AIServerMessage } from "./useAIWebSocket";
 
 /**
