@@ -2986,6 +2986,8 @@ export function useAI(
                 scheduleBackgroundChecks(proposalName, {
                   client: codeClients.proposals,
                   siteSource: codeClients.siteSource,
+                  // The lint reads the project the tool just wrote, held
+                  snapshot: codeClients.snapshot,
                   onTypechecked: proposalCodeChanged,
                 });
                 pageCheckRef.current.codeChanged();
@@ -4573,6 +4575,7 @@ Do not describe what you will do unless you do it for clarification — just do 
               scheduleBackgroundChecks(currentProposal.name, {
                 client: codeClients.proposals,
                 siteSource: codeClients.siteSource,
+                snapshot: codeClients.snapshot,
                 onTypechecked: proposalCodeChanged,
               }),
           }
