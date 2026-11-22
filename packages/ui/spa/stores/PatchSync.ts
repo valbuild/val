@@ -60,7 +60,16 @@ export type SaveResult =
        */
       headVersion?: number;
     }
-  | { status: "conflict"; message: string }
+  | {
+      status: "conflict";
+      message: string;
+      /**
+       * The part of the batch the server took before the conflicting patch.
+       * Each patch is its own write, so another writer's can land between two
+       * of ours. Absent from a server that predates saying so.
+       */
+      saved?: SavedPatches;
+    }
   | {
       status: "rejected";
       message: string;
@@ -847,6 +856,23 @@ export class PatchSync {
     this.attempt++;
     if (result.status === "conflict") {
       this.activity.work("patch:save-conflict");
+      /*
+       * What the server took before the conflict is saved, and must not be
+       * sent again: the content service refuses a patch id it already has,
+       * and the retry would fail on it for good. Recorded BEFORE the line
+       * below forgets `savedNotInStat`, so they are marked saved without
+       * becoming the parent the retry names -- the re-sync decides that.
+       */
+      const savedIds = new Set(result.saved?.newPatchIds ?? []);
+      if (result.saved !== undefined && savedIds.size > 0) {
+        this.recordSaved(result.saved, parentRef);
+        // Progress, not a chain this client cannot get onto: two editors
+        // typing at once conflict on most saves while every save takes some.
+        this.attempt = 1;
+        this.reportedStuck = false;
+      }
+      // What is still held: the saved part is not retrying, and not stuck.
+      const held = sent.filter((patchId) => !savedIds.has(patchId));
       // Our idea of the head was wrong, so every id we were holding on that
       // basis is suspect. Dropped rather than kept: the re-sync below replaces
       // them with what the server actually has, and a stale entry here would
@@ -854,14 +880,14 @@ export class PatchSync {
       this.savedNotInStat = [];
       this.setState({
         status: "retrying",
-        patches: sent,
+        patches: held,
         reason: "conflict",
         message: result.message,
         attempt: this.attempt,
       });
       this.events.emit({
         type: "patch:save-conflict",
-        patches: sent,
+        patches: held,
         message: result.message,
       });
       // Re-sync BEFORE the retry, and before the backoff: a conflict means our
@@ -872,7 +898,7 @@ export class PatchSync {
       // A conflict that survives a re-sync is no longer someone else being
       // quicker; it is a chain this client cannot get onto.
       if (this.attempt >= SAVE_STUCK_AFTER_ATTEMPTS) {
-        this.reportStuck(sent, "conflict", result.message);
+        this.reportStuck(held, "conflict", result.message);
       }
       await this.sleep(this.backoffMs(this.attempt));
       return this.stopped;

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { cn } from "../../designSystem/cn";
 import { CanvasPoint } from "./types";
+import { PREVIEW_VIEW_CONTROL_ATTRIBUTE } from "./placeInlineToolbar";
 
 /**
  * As far out as the window will go.
@@ -478,6 +479,11 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
       <div
         ref={windowRef}
         onScroll={onScroll}
+        /*
+         * Scrolling the window, or pinching it, is looking at the page: a
+         * text being typed in on it stays so. See `CanvasFrame`.
+         */
+        {...{ [PREVIEW_VIEW_CONTROL_ATTRIBUTE]: "" }}
         className={cn(
           /*
            * `overflow-y-scroll`, not `auto`, and that is load bearing now that

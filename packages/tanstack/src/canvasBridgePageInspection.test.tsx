@@ -170,6 +170,16 @@ describe("the canvas bridge, looked at from the Studio", () => {
         },
         answer: "quickPreviewStored",
       },
+      editInline: {
+        // Nothing offered, so nothing to edit: said, not left unanswered.
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "editInline",
+          requestId: "e1",
+          candidates: [],
+        },
+        answer: "inlineEditUnavailable",
+      },
       // Every action of `interact` is a capability of its own: answered,
       // here with why not (nothing on this page matches) or once settled.
       "interact:settle": {
