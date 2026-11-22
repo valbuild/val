@@ -39,6 +39,7 @@ type Run = {
   wiredBranch: string | null;
   warnedAboutBranch: boolean;
   warnedAboutPlatformFacts: boolean;
+  typecheckSaid: string[];
 };
 
 let probe: { fresh: Run; held: Run; elsewhere: Run };
@@ -140,4 +141,14 @@ test("the checkout is left as it was found", () => {
   // to a temporary directory, not into `.val/publish`.
   expect(probe.fresh.checkoutUntouched).toBe(true);
   expect(probe.held.checkoutUntouched).toBe(true);
+});
+
+test("the build typechecks the project, and says why when it cannot", () => {
+  // The probe's project has no pnpm-lock.yaml, so there is no layout to check
+  // in: said, and published all the same.
+  expect(probe.fresh.result.status).toBe("live");
+  expect(probe.fresh.typecheckSaid).toEqual([
+    "Typechecking",
+    "Not typechecked: there is no pnpm-lock.yaml beside its package.json, and only a pnpm project with its own lockfile is typechecked.",
+  ]);
 });

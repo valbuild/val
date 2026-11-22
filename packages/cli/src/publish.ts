@@ -24,6 +24,8 @@ export async function publish(options: {
   skipValidation?: boolean;
   /** Let a validation warning stop the publish too, as `val validate --strict`. */
   strict?: boolean;
+  /** `false` (`--no-typecheck`): build without typechecking the project. */
+  typecheck?: boolean;
 }): Promise<void> {
   // Content that does not validate is not published. This is the check that
   // lets the Studio trust a connected project's published content without
@@ -72,6 +74,7 @@ export async function publish(options: {
       ? {}
       : { linksOwnCss: options.linksOwnCss }),
     ...(options.dryRun ? { dryRun: options.dryRun } : {}),
+    ...(options.typecheck === false ? { typecheck: false } : {}),
     log: (line) => console.log(pc.dim(line)),
   });
 
