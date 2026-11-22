@@ -23,6 +23,13 @@ three add up to the turn. It also holds each tool's calls and time by name,
 the number of model round trips, and when a quick preview showed the turn's
 last write.
 
+While a turn is traced, its prompt also asks the content service for its own
+timings (`reportTimings`, answered with `ai_step_timing`): each model request
+with its time to first byte and its input tokens, cached and not. A service
+that has them fills the trace's `replies`, printed under "on the server"; one
+that does not drops the field and the trace is the tab's alone. That is the
+model's share, which the tab cannot measure from its end of the socket.
+
 ## Counted work (asserted in CI)
 
 Requests from the tab to the app's `/api/val`, each of which the app relays

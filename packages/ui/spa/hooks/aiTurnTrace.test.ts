@@ -358,6 +358,68 @@ describe("an assistant turn's trace", () => {
     expect(last().modelWaitMs).toBe(1000);
   });
 
+  test("the content service's own timings are kept beside the tab's, and are not the model answering", () => {
+    const { recorder, after, last } = trace();
+    recorder.sent(prompt("p1", { reportTimings: true }));
+    after(2000);
+    recorder.received(call("p1", "t1", "read_file"));
+    recorder.received({
+      type: "ai_step_timing",
+      id: "p1",
+      kind: "reply",
+      step: 1,
+      totalMs: 1900,
+      firstByteMs: 1200,
+      firstOutputMs: 1500,
+      inputTokens: 9000,
+      cacheReadTokens: 8000,
+      outputTokens: 40,
+      toolCalls: ["read_file"],
+    });
+    after(100);
+    recorder.sent(result("t1"));
+    after(50);
+    // Arrives while the tab waits for the model: the wait goes on.
+    recorder.received({
+      type: "ai_step_timing",
+      id: "p1",
+      kind: "tools",
+      step: 1,
+      totalMs: 140,
+      afterMs: 3,
+      toolCalls: ["read_file"],
+    });
+    after(950);
+    recorder.received({
+      type: "ai_step_timing",
+      id: "p1",
+      kind: "reply",
+      step: 2,
+      totalMs: 900,
+      inputTokens: 9100,
+      cacheReadTokens: 9000,
+    });
+    recorder.received(response("p1"));
+    const turn = last();
+    expect(turn.modelWaitMs).toBe(3000);
+    expect(turn.modelMs).toBe(3000);
+    expect(turn.replies.map((reply) => [reply.step, reply.totalMs])).toEqual([
+      [1, 1900],
+      [2, 900],
+    ]);
+    expect(turn.replies[1].firstByteMs).toBeNull();
+    expect(turn.toolRounds).toEqual([
+      { step: 1, totalMs: 140, afterMs: 3, toolCalls: ["read_file"] },
+    ]);
+    const text = formatAITurnTrace(turn);
+    expect(text).toContain(
+      "on the server: model 2.80s over 2 replies (1.20s to first byte, 1.50s to first output), 18100 input tokens (17000 from cache), 0.20s of the tab's model time is not the model",
+    );
+    expect(text).toContain(
+      "reply 1: 1.90s, first byte 1.20s, first output 1.50s, 9000 in (8000 cached), 40 out -> read_file",
+    );
+  });
+
   test("only the last few turns are kept", () => {
     const { recorder } = trace();
     for (let i = 0; i < 14; i++) {

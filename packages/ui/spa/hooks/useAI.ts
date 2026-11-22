@@ -3565,6 +3565,14 @@ export function useAI(
           "AI agent handoff message received - agents are working",
           message,
         );
+      } else if (
+        message.type === "ai_step_timing" ||
+        message.type === "ai_tool_call_progress" ||
+        message.type === "ai_thinking"
+      ) {
+        // The turn trace reads the timings at the socket (`aiTurnTrace.ts`).
+        // The other two are never asked for yet, so none arrives: named so
+        // that the exhaustive check below still fails for a new type.
       } else {
         const _exhaustiveCheck: never = message;
         Internal.log.error(
