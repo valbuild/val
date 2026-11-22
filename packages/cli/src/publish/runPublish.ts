@@ -12,7 +12,11 @@ import {
   layerRevOf,
   resolveArtifactsDir,
 } from "./artifacts";
-import { BuiltArtifacts, buildArtifacts } from "./buildArtifacts";
+import {
+  BuiltArtifacts,
+  buildArtifacts,
+  typecheckReport,
+} from "./buildArtifacts";
 import {
   PublishClient,
   UploadError,
@@ -51,6 +55,11 @@ export type PublishOptions = {
   linksOwnCss?: boolean;
   /** Verify, and stop before the pointer moves. */
   dryRun?: boolean;
+  /**
+   * Typecheck the project as it is built (default true). Reported, never
+   * refused on: see `buildArtifacts`.
+   */
+  typecheck?: boolean;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -225,12 +234,14 @@ export async function runPublish(
         git: { commit: git.commit, branch: wiredBranch },
         env,
         log,
+        ...(options.typecheck === false ? { typecheck: false } : {}),
       });
       if (build.status === "error") {
         return { status: "error", message: build.message };
       }
       built = build;
       for (const warning of build.warnings) log(`warn: ${warning}`);
+      for (const line of typecheckReport(build.typecheck)) log(line);
       const fromBuild = await collectPrebuilt(root, build.dir, log);
       if (fromBuild.status === "error") return fromBuild;
       collected = fromBuild.collected;
