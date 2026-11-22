@@ -104,8 +104,8 @@ export type ProjectSnapshot = {
     message?: string,
   ): Promise<ProposalStagedAnswer>;
   /**
-   * What is staged in `proposal` as far as this tab holds it, without
-   * asking; `undefined` when nothing is held of it.
+   * What is staged in `proposal` as this tab holds it, without asking;
+   * `undefined` when nothing current is held of it.
    */
   staged(proposal: string): ProposalStaged | undefined;
   /**
@@ -379,7 +379,9 @@ export function createProjectSnapshot(
     },
 
     staged(proposal) {
-      return held !== null && held.name === proposal ? held.staged : undefined;
+      // Only while it is current: a finding about other files than the
+      // ones staged is dropped by whoever asks, and must not be for a guess.
+      return held !== null && isCurrent(proposal) ? held.staged : undefined;
     },
 
     seqMoved() {
