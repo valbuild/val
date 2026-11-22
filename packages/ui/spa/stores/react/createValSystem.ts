@@ -663,7 +663,26 @@ export function createValSystem(
               };
             }
             if (res.status === 409) {
-              return { status: "conflict", message: res.json.message };
+              // The part of the batch saved before the conflicting patch, from
+              // a server that says (one from before this says nothing).
+              const { newPatchIds, parentRef } = res.json;
+              return {
+                status: "conflict",
+                message: res.json.message,
+                ...(newPatchIds !== undefined &&
+                newPatchIds.length > 0 &&
+                parentRef !== undefined
+                  ? {
+                      saved: {
+                        newPatchIds,
+                        parentRef,
+                        ...(res.json.headVersion !== undefined
+                          ? { headVersion: res.json.headVersion }
+                          : {}),
+                      },
+                    }
+                  : {}),
+              };
             }
             if (res.status === 400) {
               // 400 is the PERMANENT refusal, and mapping it to anything

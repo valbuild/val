@@ -23,6 +23,7 @@ const editor: AssistantSystemPromptInput = {
   webSearchSetting: false,
   page: false,
   code: null,
+  pageCheck: false,
   projectInstructions: null,
   projectMap: null,
 };
@@ -95,6 +96,14 @@ describe("the prompt in code mode", () => {
     expect(
       assistantSystemPrompt({ ...editor, projectMap: null }),
     ).not.toContain("## The project's map");
+  });
+
+  test("the page check's rules come with the code tools', before code mode's own", () => {
+    const checked = assistantSystemPrompt({ ...codeMode, pageCheck: true });
+    const pageCheck = checked.indexOf("## The page check");
+    expect(pageCheck).toBeGreaterThan(checked.indexOf("## The project's code"));
+    expect(pageCheck).toBeLessThan(checked.indexOf(CODE_MODE_PROMPT_SECTION));
+    expect(prompt).not.toContain("## The page check");
   });
 
   test("says to read together and to edit together", () => {

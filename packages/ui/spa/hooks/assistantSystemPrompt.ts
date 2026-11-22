@@ -14,6 +14,7 @@ import {
   projectInstructionsPromptSection,
 } from "../proposals/proposalCode";
 import { projectMapPromptSection } from "../proposals/projectMap";
+import { PAGE_CHECK_PROMPT_SECTION } from "../proposals/pageCheck";
 
 /**
  * The assistant's system prompt: one function, so what a model is told can
@@ -42,6 +43,8 @@ export type AssistantSystemPromptInput = {
   page: boolean;
   /** Where the code tools act; `null` where there are none (not hosted). */
   code: CodeToolsWhere | null;
+  /** A page check reads the preview after this turn's changes. */
+  pageCheck: boolean;
   /** `readProjectInstructions`, in code mode. */
   projectInstructions: string | null;
   /** `projectMapText`, in code mode. */
@@ -94,7 +97,7 @@ Each reply of yours that calls tools is a round trip the person waits for, and t
 - Read together: put every read_file, search_code and get_source you can already name in ONE reply -- the component, its .val.ts, the file that renders it. Never read one file, wait for it, then read the next.
 - Edit together: once you have read what you need, send ALL the edit_file and write_files calls of the change in ONE reply. Edits to different files and several edits to one file can go in the same reply; each sees what the one before it wrote, so no old_string may contain text an earlier edit in that reply replaces.
 - Do not read a file again to check an edit you just made: the answer says what was changed, and a refusal says why.
-- A change to a component or a style is usually: one reply that reads, one that edits, then your checks and a closing message. Before any further call, ask whether the change needs it.
+- format_files goes in the same reply as the edits, after them: it runs once they are staged. A change to a component or a style is then one reply that reads, one that edits and formats, and your closing message. Before any further call, ask whether the change needs it.
 - In code mode <picked/> can carry more: \`module\` is the project file of the Val module that \`path\` names, \`imported-by\` the files that import that module, and \`classes-in\` the files that write the element's classes, which is the component that renders it. Read those files; do not search for them.`;
 
 export function assistantSystemPrompt(
@@ -183,7 +186,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     input.settings,
   )}${webSearchRequestPromptSection(input.webSearchSetting)}${
     input.page ? PAGE_PROMPT_SECTION : ""
-  }${input.code !== null ? codeToolsPromptSection(input.code) : ""}${
+  }${input.code !== null ? codeToolsPromptSection(input.code) : ""}${input.pageCheck ? PAGE_CHECK_PROMPT_SECTION : ""}${
     input.codeMode ? CODE_MODE_PROMPT_SECTION : ""
   }${
     input.codeMode

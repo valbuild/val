@@ -23,18 +23,21 @@ lands between the two, so measure before quoting either.
 Project: `tanstack/full` from valbuild/templates, in a proposal with code mode
 on. A reply is one model response; the last one is the closing message.
 
-"Find and edit" is what the map and the code-mode rules change. "Checks" is
-`format_files`, `lint` and `typecheck`, one reply each as the prompt asks for
-them today, and `build_proposal` where a quick preview cannot show the change.
+"Before" is the prompt as it was before the map: find the files one call at a
+time, edit, `validate_content`, then `format_files`, `lint` and `typecheck`
+one reply each. "After" is the map and the code-mode rules, with the checks
+run by the Studio beside the chat: one reply that reads, one that edits and
+formats, the closing message, and `build_proposal` where a quick preview
+cannot show the change.
 
-| #   | Message                                               | Files a perfect run touches                                                                                                                                                                        | Find and edit, before | Find and edit, after | Checks | Total before | Total after |
-| --- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | -------------------- | ------ | ------------ | ----------- |
-| 1   | Make the hero heading larger                          | reads `HeroSection.tsx`, `base/SectionHeader.tsx`, `typography/Heading.tsx`; edits `HeroSection.tsx`                                                                                               | 7                     | 2                    | 3      | 11           | 6           |
-| 1p  | The same, with the heading picked: "make this larger" | the same                                                                                                                                                                                           | 6                     | 2                    | 3      | 10           | 6           |
-| 2   | Change the footer's background                        | reads and edits `src/components/Footer.tsx`                                                                                                                                                        | 5                     | 2                    | 3      | 9            | 6           |
-| 2p  | The same, with the footer picked: "darker background" | the same                                                                                                                                                                                           | 4                     | 2                    | 3      | 8            | 6           |
-| 3   | Add a subtitle field to the hero                      | reads `heroSection.val.ts`, `HeroSection.tsx`, `routes/_site.index.val.ts`; edits all three                                                                                                        | 9                     | 2                    | 4      | 14           | 7           |
-| 4   | Add a testimonials section                            | reads `AnySection.tsx`, `anySection.val.ts` and one section pair as the example; writes `testimonialsSection.val.ts` and `TestimonialsSection.tsx`; edits `anySection.val.ts` and `AnySection.tsx` | 11                    | 2                    | 4      | 16           | 7           |
+| #   | Message                                               | Files a perfect run touches                                                                                                                                                                        | Before | After |
+| --- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----- |
+| 1   | Make the hero heading larger                          | reads `HeroSection.tsx`, `base/SectionHeader.tsx`, `typography/Heading.tsx`; edits `HeroSection.tsx`                                                                                               | 11     | 3     |
+| 1p  | The same, with the heading picked: "make this larger" | the same                                                                                                                                                                                           | 10     | 3     |
+| 2   | Change the footer's background                        | reads and edits `src/components/Footer.tsx`                                                                                                                                                        | 9      | 3     |
+| 2p  | The same, with the footer picked: "darker background" | the same                                                                                                                                                                                           | 8      | 3     |
+| 3   | Add a subtitle field to the hero                      | reads `heroSection.val.ts`, `HeroSection.tsx`, `routes/_site.index.val.ts`; edits all three                                                                                                        | 14     | 4     |
+| 4   | Add a testimonials section                            | reads `AnySection.tsx`, `anySection.val.ts` and one section pair as the example; writes `testimonialsSection.val.ts` and `TestimonialsSection.tsx`; edits `anySection.val.ts` and `AnySection.tsx` | 16     | 4     |
 
 How the "before" column is counted, for task 1: `get_all_schema`,
 `search_code` for the hero, `read_file` of the section, of the header it
@@ -42,9 +45,10 @@ renders, of the heading that renders, `edit_file`, `validate_content`. Seven,
 then the three checks and the closing message. `set_session_name` is not
 counted in either column: it was often a reply of its own.
 
-"After" is two for every task because the map names the files (routes, each
-`.val.ts` and what imports it, the files by directory), so the first reply
-reads all of them, and the second sends every edit.
+"After" reads once because the map names the files (routes, each `.val.ts`
+and what imports it, the files by directory), and edits once because every
+edit of a change, and `format_files` after them, go in one reply: the tab
+applies them in the order they were written.
 
 ## How to measure
 
@@ -69,10 +73,5 @@ one's files.
   `Heading.tsx`. A model that reads one, then the next, spends three replies
   on task 1. `read_file` could answer with the project files the file
   imports, so the second reply reads the rest.
-- **The checks.** `format_files`, then `lint`, then `typecheck` are three
-  replies after every change.
-- **`typecheck`'s answer** ends with "Call build_proposal when the change is
-  complete", which asks for a build that a component or style change does
-  not need.
 - **The first message after code mode comes on** can be sent before the
   project has been read, and then has no map.
