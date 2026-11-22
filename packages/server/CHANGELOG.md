@@ -1,5 +1,22 @@
 # @valbuild/server
 
+## 0.154.0
+
+### Patch Changes
+
+- [#1067](https://github.com/valbuild/val/pull/1067) [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee) Thanks [@freekh](https://github.com/freekh)! - Two answers from `/api/val/patches` no longer tell the Studio something false when the content service behind it fails part of the way.
+
+  - **Discarding a change while the content service is down no longer looks like it worked.** If the content service answered with an error or could not be reached, `DELETE /api/val/patches` answered 200 with every patch as deleted. The Studio then forgot changes that still existed: a reload brought them back, and the next publish could ship a change you had discarded. It now answers 502 with the content service's reason, and the Studio keeps the change and says the discard failed.
+  - **An edit made while someone else is editing is no longer stuck unsaved.** A batch of edits is saved one patch at a time, so another editor's change can land between two of yours. When it did, the server answered the conflict without saying the first patch had been saved, the Studio sent that patch again, and the content service refused it as one it already had. The save then retried forever and the edit after it was never saved. The conflict now names what was saved, as the other partial failures already did, and the Studio sends only the rest.
+
+- [#1068](https://github.com/valbuild/val/pull/1068) [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1) Thanks [@freekh](https://github.com/freekh)! - Saving an edit no longer fails with `Converting circular structure to JSON` when a `.val.ts` file uses object spreads, such as `{ title: "…", ...noMedia, learnMore: null }`.
+
+  An edit to a key written out after every spread in its object is now saved, and the spread is left as it is. An edit to a key a spread supplies, or one a later spread may override, is refused with a message that names the file, the line and the spread, so you know which value to write out — before, any spread anywhere along the edited path refused the save, and the refusal itself crashed `/save` with a 500.
+
+- Updated dependencies [[`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641), [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e)]:
+  - @valbuild/ui@0.154.0
+  - @valbuild/shared@0.154.0
+
 ## 0.153.6
 
 ### Patch Changes
