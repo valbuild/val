@@ -495,6 +495,28 @@ what reports them, per key, as an `external:upload` fix — and that fix is
 deliberately NOT applied by a blanket `val validate --fix`, because applying it
 writes to a live store.
 
+**`modules()` in `val.modules.ts` keeps each module's type, and the server entry
+points read the external labels back off it.** `ValModules<Def>` is what makes
+`initValServer(valModules, config)` a type error when a registered module is
+`.external("posts")` and `config.external` does not bind `posts`
+(`ExternalOptionFor` in `externalRecords.ts`, `ExternalLabelsOfModules` in core's
+`modules.ts`). Three things about it are easy to break without noticing:
+
+- **Widening `modules()`'s return type back to plain `ValModules` turns the
+  check off everywhere**, with a green typecheck, because a project of unknown
+  modules is asked for nothing (the `string extends L` arm). The same is true of
+  one annotation in an app: `const m: ValModules = modules(...)`, or a registry
+  annotated as plain `ExternalRecords`. Both are pinned as known holes in
+  `externalOption.test.ts`.
+- **It only sees what the compiler saw.** A JavaScript project and `val validate`
+  get nothing from it, so it does not replace a startup check on the server.
+- **The entry points must stay generic over `Modules`.** Typing the parameter as
+  `ValModules` again compiles, and drops the requirement for every app.
+
+`externalOption.test.ts` in `packages/tanstack` and `packages/next` typechecks a
+small project against the real entry points and reads the diagnostics back; it
+is the only thing that would notice any of the three.
+
 ## Patches
 
 **A write's parent is the head the server REPORTS, not the last id `/stat`

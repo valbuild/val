@@ -31,6 +31,7 @@ import {
 import {
   layeredSnapshot,
   proposalSnapshotForReaders,
+  type ExternalOptionFor,
   type ValPatchStore,
 } from "@valbuild/server";
 import {
@@ -423,10 +424,14 @@ async function requestCookies(): Promise<{
  *   fetchValStega: fetchVal,
  *   fetchValRouteStega: fetchValRoute,
  * } = initValContent(config, valModules);
+ *
+ * `external` is required when `val.modules.ts` registers a `.external(label)`
+ * module, and has to bind every such label: see `ExternalOptionFor`. A project
+ * with none is asked for nothing. Pass the SAME value `initValServer` got.
  */
-export function initValContent(
-  config: ValConfig,
-  valModules: ValModules,
+export function initValContent<Modules extends ValModules>(
+  config: ValConfig & ExternalOptionFor<Modules>,
+  valModules: Modules,
   opts?: {
     /**
      * How preview mode is stored for a browser.

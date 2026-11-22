@@ -39,6 +39,27 @@ export {
   type PrettierLike,
   type ValFormatter,
 } from "@valbuild/server";
+// The external-record adapter contract, so the `server-only` file that holds a
+// project's adapters imports from the same package `initValServer` does. An
+// app does not otherwise depend on `@valbuild/server`.
+export { defineExternal, ok, err } from "@valbuild/server";
+export type {
+  AdapterFor,
+  ExternalAuthor,
+  ExternalCtx,
+  ExternalDefinition,
+  ExternalFile,
+  ExternalIssue,
+  ExternalKeyPage,
+  ExternalOptionFor,
+  ExternalRecords,
+  ExternalResult,
+  ExternalSearchHit,
+  ExternalSearchPage,
+  ExternalSort,
+  ItemOfModule,
+  Returns,
+} from "@valbuild/server";
 // Re-exported so an app that mounts the MCP endpoint through this package does
 // not also have to depend on `@valbuild/mcp` for the types it hands back.
 export type {

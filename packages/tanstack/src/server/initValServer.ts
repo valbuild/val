@@ -4,6 +4,7 @@ import {
   createValServer,
   type CommitContext,
   type CommitResult,
+  type ExternalOptionFor,
   type ValPatchStore,
   type ValContentVersion,
   type ValProposal,
@@ -298,11 +299,16 @@ function serializeCookie(name: string, cookie: ValResponseCookie): string {
   );
 }
 
-export function initValServer(
-  valModules: ValModules,
+/**
+ * `external` is required here when `val.modules.ts` registers a
+ * `.external(label)` module, and has to bind every such label: see
+ * `ExternalOptionFor`. A project with none is asked for nothing.
+ */
+export function initValServer<Modules extends ValModules>(
+  valModules: Modules,
   config: ValConfig & {
     disableCache?: boolean;
-  },
+  } & ExternalOptionFor<Modules>,
   opts?: {
     formatter?: (code: string, filePath: string) => Promise<string> | string;
     /**

@@ -18,6 +18,7 @@ export type {
   ExternalFile,
   ExternalIssue,
   ExternalKeyPage,
+  ExternalOptionFor,
   ExternalRecords,
   ExternalResult,
   ExternalSearchHit,

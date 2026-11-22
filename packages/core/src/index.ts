@@ -1,5 +1,11 @@
 export { initVal, type ConfigDirectory } from "./initVal";
-export { modules, type ValModules } from "./modules";
+export {
+  modules,
+  type ValModules,
+  type ValModuleDef,
+  type ValExternalModule,
+  type ExternalLabelsOfModules,
+} from "./modules";
 export {
   extractValModules,
   computeValModuleShas,

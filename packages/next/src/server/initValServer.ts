@@ -1,6 +1,6 @@
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { createValApiRouter } from "@valbuild/server";
-import { createValServer } from "@valbuild/server";
+import { createValServer, type ExternalOptionFor } from "@valbuild/server";
 import type { draftMode } from "next/headers";
 import { NextResponse } from "next/server";
 import { VERSION } from "../version";
@@ -107,11 +107,16 @@ type ValServerNextConfig = {
   formatter?: (code: string, filePath: string) => Promise<string> | string;
 };
 
-export function initValServer(
-  valModules: ValModules,
+/**
+ * `external` is required here when `val.modules.ts` registers a
+ * `.external(label)` module, and has to bind every such label: see
+ * `ExternalOptionFor`. A project with none is asked for nothing.
+ */
+export function initValServer<Modules extends ValModules>(
+  valModules: Modules,
   config: ValConfig & {
     disableCache?: boolean;
-  },
+  } & ExternalOptionFor<Modules>,
   nextConfig: ValServerNextConfig,
 ): {
   valNextAppRouter: ReturnType<typeof initValNextAppRouter>;

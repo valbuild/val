@@ -1,13 +1,16 @@
 import type {
   ExternalItemOf,
   ExternalLabelOf,
+  ExternalLabelsOfModules,
   ExternalReadonlyOf,
   ExternalRecordSrc,
   InferValModuleType,
   Json,
   JsonOf,
   ModuleFilePath,
+  ValExternalModule,
   ValModule,
+  ValModules,
 } from "@valbuild/core";
 
 /**
@@ -232,7 +235,7 @@ export type ExternalFile = {
 
 // #region the adapter
 
-type AnyExternalModule = ValModule<ExternalRecordSrc>;
+type AnyExternalModule = ValExternalModule;
 
 /** Read methods. Always required. */
 type ReadMethods<Item, Tx> = {
@@ -370,9 +373,49 @@ declare const BoundTag: unique symbol;
 /** What `entry()` returns: a module and its adapter, checked against each other. */
 export type BoundExternalRecord<M> = { readonly [BoundTag]: M };
 
-export type ExternalRecords = {
+declare const BoundLabels: unique symbol;
+/**
+ * What `modules({ ... })` returns: the project's adapters, by label.
+ *
+ * `Label` is the union of the labels it binds, so an entry point that knows
+ * which labels a project's modules declare can require exactly those - see
+ * {@link ExternalOptionFor}. It is one property per label rather than a bare
+ * union on purpose: a registry that binds MORE than is asked for is still
+ * accepted, and one that binds less is reported as a missing property, which
+ * names the label that is missing.
+ *
+ * The default is the widest instantiation: `ExternalRecords` on its own is "a
+ * registry, of whatever", and it is accepted wherever a specific one is asked
+ * for. So annotating a registry as plain `ExternalRecords` erases what it binds
+ * and opts out of the check, exactly as annotating `val.modules.ts` as plain
+ * `ValModules` does. Leave both to be inferred.
+ */
+export type ExternalRecords<Label extends string = string> = {
   readonly __brand: "ExternalRecords";
+  readonly [BoundLabels]: { readonly [L in Label]: true };
 };
+
+/**
+ * The `external` option of an entry point that was given `Modules`.
+ *
+ * Required, and required to bind every label, when the project registers a
+ * `.external(label)` module; optional when it registers none, so a project
+ * that does not use external records is asked for nothing.
+ *
+ * It is read off the TYPE of `val.modules.ts`, so it only sees what the
+ * compiler saw. A JavaScript project, or a `val.modules.ts` annotated as plain
+ * `ValModules`, is not checked here at all.
+ *
+ * @example
+ * // val.modules.ts registers a module that is .external("posts")
+ * initValServer(valModules, { ...config });           // error: 'external' is missing
+ * initValServer(valModules, { ...config, external }); // ok, if it binds "posts"
+ */
+export type ExternalOptionFor<Modules extends ValModules> = [
+  ExternalLabelsOfModules<Modules>,
+] extends [never]
+  ? { external?: ExternalRecords }
+  : { external: ExternalRecords<ExternalLabelsOfModules<Modules>> };
 
 export type ExternalBuilder<Tx> = {
   /**
@@ -405,7 +448,7 @@ export type ExternalBuilder<Tx> = {
             >
         : never;
     },
-  ): ExternalRecords;
+  ): ExternalRecords<keyof E & string>;
 };
 
 export type ExternalDefinition<Tx> = {

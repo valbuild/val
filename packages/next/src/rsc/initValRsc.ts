@@ -23,6 +23,7 @@ import {
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
+import type { ExternalOptionFor } from "@valbuild/server";
 import { cookies, draftMode, headers } from "next/headers";
 import {
   readerSchemaVersion,
@@ -239,9 +240,16 @@ type ValNextRscConfig = {
   cookies: typeof cookies;
 };
 
-export function initValRsc(
-  config: ValConfig,
-  valModules: ValModules,
+/**
+ * Val's content readers for Server Components.
+ *
+ * `external` is required when `val.modules.ts` registers a `.external(label)`
+ * module, and has to bind every such label: see `ExternalOptionFor`. A project
+ * with none is asked for nothing. Pass the SAME value `initValServer` got.
+ */
+export function initValRsc<Modules extends ValModules>(
+  config: ValConfig & ExternalOptionFor<Modules>,
+  valModules: Modules,
   rscNextConfig: ValNextRscConfig,
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
