@@ -598,6 +598,10 @@ export function CanvasFrame({
     if (sameDocument(held, wanted)) return;
     const swap = (): boolean => {
       if (frameHasFocus(frameRef.current)) return false;
+      // Someone is editing a text on the page. The focus alone does not
+      // say so: a press on the Studio's own formatting toolbar takes it
+      // for a moment, and a swap then would end the edit with its document.
+      if (inlineEditing.current !== null) return false;
       const at = lastLocation.current;
       swapScroll.current =
         at === null ? null : { x: at.scrollX, y: at.scrollY };

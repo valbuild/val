@@ -10,10 +10,12 @@ import {
 import {
   ANSWER_TIMEOUT_MS,
   CanvasFrame,
+  FOCUS_RECHECK_MS,
   SWAP_PAINT_MAX_MS,
   SWAP_PAINT_MS,
 } from "./CanvasFrame";
 import { withQuickPreview } from "./canvasSwap";
+import type { SourcePath } from "@valbuild/core";
 
 /**
  * A new document in the canvas -- a build served, someone else's change as a
@@ -119,6 +121,38 @@ describe("a new document while the page is in use", () => {
       x: 0,
       y: 640,
     });
+  });
+
+  test("waits while a text is being edited on the page, also when the focus is on the Studio's toolbar for it", async () => {
+    jest.useFakeTimers();
+    try {
+      const rendered = render(<Canvas documentKey={0} />);
+      const before = frameOf(rendered.container);
+      say(before, ready);
+      const path = '/content/home.val.ts?p="title"' as SourcePath;
+      say(before, {
+        val: VAL_CANVAS_MESSAGE,
+        type: "inlineEditStarted",
+        requestId: null,
+        path,
+      });
+      // The person presses Bold in the Studio: the focus is not in the page.
+      act(() => rendered.getByRole("button").focus());
+      rendered.rerender(<Canvas documentKey={1} />);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(FOCUS_RECHECK_MS * 3);
+      });
+      expect(frameOf(rendered.container)).toBe(before);
+
+      // They are done: the new document comes in.
+      say(before, { val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(FOCUS_RECHECK_MS);
+      });
+      expect(frameOf(rendered.container)).not.toBe(before);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("comes in at once when nobody is using the page", () => {

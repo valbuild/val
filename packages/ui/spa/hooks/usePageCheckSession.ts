@@ -6,6 +6,10 @@ import type {
   AIServerMessage,
 } from "./useAIWebSocket";
 import type { AssistantPage } from "../components/shell/canvas/AssistantPage";
+import {
+  quickPreviewRunner,
+  waitForStagedPreview,
+} from "../proposals/quickPreviewControl";
 import type { ProposalsClient } from "../proposals/proposalsClient";
 import type { ProjectReadDeps } from "../proposals/proposalCode";
 import {
@@ -52,6 +56,12 @@ export type PageCheckSession = {
   /** Checks left until the person writes again. */
   left: () => number;
 };
+
+/**
+ * How long a page check waits for the staged files to be in front of the
+ * person before it looks at the page anyway: a quick preview is seconds.
+ */
+export const PAGE_CHECK_PREVIEW_WAIT_MS = 20_000;
 
 /**
  * The page check (`proposals/pageCheck.ts`) as a hidden session on the
@@ -125,6 +135,29 @@ export function usePageCheckSession(options: {
         .get(name)
         .then((proposal) => proposal.staged ?? null)
         .catch(() => null)
+        .then(async (staged) => {
+          /*
+           * The check looks at the page, and the page shows what is staged
+           * only once its quick preview is in front -- which starts as the
+           * turn ends, when this does. So it waits for the preview to say
+           * so (`waitForStagedPreview`), or that it will not show them, or
+           * for the wait to run out: then it checks the page as it is.
+           * Only where a preview is being shown at all, and only for files
+           * the served build does not have.
+           */
+          if (
+            staged !== null &&
+            staged.inputs !== null &&
+            staged.buildRequired &&
+            quickPreviewRunner() !== null
+          ) {
+            await waitForStagedPreview(
+              staged.inputs,
+              PAGE_CHECK_PREVIEW_WAIT_MS,
+            );
+          }
+          return staged;
+        })
         .then((staged) => {
           if (runningRef.current?.promptId !== promptId) return;
           const inputs = staged?.inputs ?? null;
