@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { ValBuildAccess } from "./useValBuildAccess";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import {
@@ -12,7 +14,9 @@ import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import {
   CanvasFrame,
+  type InlineEditPlace,
   PageCamera,
+  PageInteractor,
   PageLogReader,
   PageReader,
 } from "./canvas/CanvasFrame";
@@ -161,6 +165,11 @@ import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useBuildEpoch } from "./canvas/useServedBuild";
+import { useCanvasInlineEdit } from "./canvas/useCanvasInlineEdit";
+import { useCanvasTextFields } from "./canvas/useCanvasTextFields";
+import { CanvasInlineRichTextToolbar } from "./canvas/CanvasInlineRichTextToolbar";
+import { CanvasInlineEditFloat } from "./canvas/CanvasInlineFieldErrors";
+import { useSelectModePreference } from "../../hooks/selectModePreference";
 import {
   useCodeModeQuickPreview,
   withQuickPreviewState,
@@ -1219,6 +1228,7 @@ function ValShellBody({
   const pageReader = useRef<PageReader | null>(null);
   const pageCamera = useRef<PageCamera | null>(null);
   const pageLogReader = useRef<PageLogReader | null>(null);
+  const pageInteractor = useRef<PageInteractor | null>(null);
   const assistantPage = useMemo(
     (): AssistantPage => ({
       codeMode: assistantPick.codeMode,
@@ -1229,10 +1239,53 @@ function ValShellBody({
       readPage: () => pageReader.current,
       screenshotPage: () => pageCamera.current,
       readPageLog: () => pageLogReader.current,
+      interactPage: () => pageInteractor.current,
     }),
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
   const documentKey = `${buildEpoch}:${codeReloads}`;
+  /**
+   * What Content's Select does with a pick. In its "Select & edit" mode a
+   * pick of a text puts the caret in it where the page shows it, and only
+   * what cannot be typed there opens in the column. See
+   * `useCanvasInlineEdit`.
+   */
+  const [selectMode, setSelectMode] = useSelectModePreference();
+  const inlineEditEnabled = selectMode === "edit" && pendingChangesLoaded;
+  const inlineEdit = useCanvasInlineEdit({ enabled: inlineEditEnabled });
+  /*
+   * What the page is told of its texts ahead of a click: so that a click
+   * on one starts the edit in the click, and an emptied one stays
+   * pointable. See `canvasTextFields.ts`.
+   */
+  const textFields = useCanvasTextFields(canvasPaths, inlineEditEnabled);
+  const offerInlineEdit = inlineEdit.offer;
+  const inlineEditRequest = inlineEdit.request;
+  const inlineEditingPath = inlineEdit.editingPath;
+  const inlineEditApplied = inlineEdit.applied;
+  const inlineEditMarked = inlineEdit.marked;
+  const onInlineEditSelection = inlineEdit.onSelection;
+  /**
+   * Where the text being typed in is, and how to get back to it: the
+   * frame's to say (`CanvasFrame`'s `onInlineEditPlace`), and the floating
+   * controls' to ask. In a ref, behind two functions that never change, so
+   * the controls are not rebuilt every time the frame hands it over.
+   */
+  const inlineEditPlace = useRef<InlineEditPlace | null>(null);
+  const onInlineEditPlace = useCallback((place: InlineEditPlace | null) => {
+    inlineEditPlace.current = place;
+  }, []);
+  const locateInlineEdit = useCallback(
+    () => inlineEditPlace.current?.locate() ?? null,
+    [],
+  );
+  const refocusInlineEdit = useCallback(() => {
+    inlineEditPlace.current?.focus();
+  }, []);
+  const onInlineEditStarted = inlineEdit.onStarted;
+  const onInlineEdit = inlineEdit.onEdit;
+  const onInlineEditEnded = inlineEdit.onEnded;
+  const takeUnavailableInlineEdit = inlineEdit.onUnavailable;
   const openPickedPath = useCallback(
     (paths: SourcePath[]): boolean => {
       const path = paths[0];
@@ -1274,6 +1327,7 @@ function ValShellBody({
     return ({
       width,
       height,
+      setDevice,
       reloadKey,
       isPicking,
       onRefreshingChange,
@@ -1314,8 +1368,15 @@ function ValShellBody({
          * field used to stay behind — a single box floating on a page that is
          * otherwise back to being a page. Leaving the mode means leaving all of
          * it.
+         *
+         * And not while a field is being typed in on the page (Select & edit):
+         * the page outlines that one itself, and the column may have
+         * another open.
          */
-        highlightedPath={tourPagePath ?? (isPicking ? focusedPath : null)}
+        highlightedPath={
+          tourPagePath ??
+          (isPicking && inlineEditingPath === null ? focusedPath : null)
+        }
         onElements={setCanvasElements}
         /*
          * Two things happen on a pick, and they belong to different owners.
@@ -1328,10 +1389,30 @@ function ValShellBody({
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
+          // Select & edit first: a text is edited where it is. What the page
+          // cannot edit in place comes back as `onInlineEditUnavailable`,
+          // and is opened as below.
+          if (offerInlineEdit(paths)) return;
           if (!openPickedPath(paths)) return;
           onPicked(paths[0] ?? null);
         }}
         onPickingStopped={onPickingStopped}
+        inlineEdit={inlineEditRequest}
+        inlineEditApply={inlineEditApplied}
+        inlineEditMarks={inlineEditMarked}
+        onInlineEditSelection={onInlineEditSelection}
+        onInlineEditPlace={onInlineEditPlace}
+        onInlineEditStarted={onInlineEditStarted}
+        textFields={textFields}
+        onInlineEdit={onInlineEdit}
+        onInlineEditEnded={onInlineEditEnded}
+        onInlineEditUnavailable={(requestId) => {
+          // What a pick does, a round trip late: the page has no element
+          // that shows one of the picked fields and nothing else.
+          const paths = takeUnavailableInlineEdit(requestId);
+          if (paths === null || !openPickedPath(paths)) return;
+          onPicked(paths[0] ?? null);
+        }}
         /*
          * The Assistant's Select: any element in code mode, a field
          * otherwise, once. `null` rather than absent while it is off, so a
@@ -1364,6 +1445,11 @@ function ValShellBody({
         onPageLogReader={(reader) => {
           pageLogReader.current = reader;
         }}
+        onPageInteractor={(interactor) => {
+          pageInteractor.current = interactor;
+        }}
+        // The toolbar's device switch: `interact_page`'s `viewport`.
+        {...(setDevice !== undefined ? { onDeviceChange: setDevice } : {})}
         onPinch={onPinch}
         onZoom={onZoom}
         /*
@@ -1392,6 +1478,18 @@ function ValShellBody({
     quickId,
     setQuickStorer,
     onQuickDocument,
+    offerInlineEdit,
+    inlineEditRequest,
+    inlineEditingPath,
+    inlineEditApplied,
+    inlineEditMarked,
+    onInlineEditSelection,
+    onInlineEditPlace,
+    onInlineEditStarted,
+    onInlineEdit,
+    onInlineEditEnded,
+    takeUnavailableInlineEdit,
+    textFields,
   ]);
 
   /**
@@ -1597,6 +1695,15 @@ function ValShellBody({
    * module from calling hooks with a path it does not have.
    */
   const updates = studioIsDeployer ? upgradeSettings : null;
+  // What the shell already asked Val Build (`useShellData`), handed on so
+  // Settings does not ask again. A stable object, or the callback below
+  // changes on every render.
+  const shellConnected = data.webComponentsUrl !== undefined;
+  const shellStudioMode = data.studioMode;
+  const valBuild = useMemo<ValBuildAccess>(
+    () => ({ connected: shellConnected, studioMode: shellStudioMode }),
+    [shellConnected, shellStudioMode],
+  );
   const settingsModule = data.settings?.moduleFilePath;
   const renderSettings = useCallback(
     () => (
@@ -1612,13 +1719,17 @@ function ValShellBody({
          * A hosted project made from a template has no settings module, and
          * Updates is what it opened Settings for: telling it how to add one
          * is for a developer, who would see it in a project without Updates.
+         * Its variables and secrets are still shown -- a hosted site is
+         * where they are set from here.
          */}
-        {(settingsModule !== undefined || updates === null) && (
-          <ValSettingsSections moduleFilePath={settingsModule} />
-        )}
+        <ValSettingsSections
+          moduleFilePath={settingsModule}
+          explainMissingModule={updates === null}
+          valBuild={valBuild}
+        />
       </>
     ),
-    [settingsModule, updates],
+    [settingsModule, updates, valBuild],
   );
   const proposals = useMemo(
     () =>
@@ -1897,6 +2008,8 @@ function ValShellBody({
             onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
             autoSave={autoPublish}
             onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
+            selectMode={selectMode}
+            onSelectModeChange={setSelectMode}
             pendingChanges={data.pendingChanges ?? 0}
             /*
              * Zeroed when the pending patches cancel out, so Review does not put a
@@ -1933,6 +2046,7 @@ function ValShellBody({
             canvasPaths={canvasPaths}
             onSelectCanvasPath={openPath}
             selectedCanvasPath={focusedPath}
+            editingCanvasPath={inlineEditingPath}
             canvasRoute={canvasUrl}
             onCanvasRouteChange={onCanvasRouteChange}
             canvasRoutes={canvasRoutes}
@@ -2034,6 +2148,36 @@ function ValShellBody({
             proposals={proposals}
           />
           {proposalDialogs}
+          {/*
+           * What floats by a text being typed in on the page: its
+           * validation errors, and the formatting controls of a richtext.
+           * The Studio's own, over the preview where the text is. In the
+           * portal, outside the preview's zoom.
+           */}
+          {inlineEdit.editingPath !== null &&
+            portalContainer !== null &&
+            portalContainer !== undefined &&
+            createPortal(
+              <CanvasInlineEditFloat
+                key={inlineEdit.editingPath}
+                path={inlineEdit.editingPath}
+                locate={locateInlineEdit}
+                toolbar={
+                  inlineEdit.richText !== null ? (
+                    <CanvasInlineRichTextToolbar
+                      key={inlineEdit.richText.path}
+                      path={inlineEdit.richText.path}
+                      value={inlineEdit.richText.value}
+                      selection={inlineEdit.richText.selection}
+                      onApply={inlineEdit.apply}
+                      onMarks={inlineEdit.mark}
+                      onRefocus={refocusInlineEdit}
+                    />
+                  ) : null
+                }
+              />,
+              portalContainer,
+            )}
           <ProposalSiteCompare
             changes={siteChanges}
             siteUrl={proposalSiteUrl}

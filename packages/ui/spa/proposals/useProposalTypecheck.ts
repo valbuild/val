@@ -52,6 +52,10 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+/** Called on every change to it: what reacts to it outside React. */
+export function subscribeProposalTypecheck(listener: () => void): () => void {
+  return subscribe(listener);
+}
 const snapshot = () => current;
 
 /** For tests: back to none. */
@@ -294,6 +298,11 @@ export async function typecheckProposal(
     return { status: "failed", message: state.message };
   }
   return { status: "nothing-staged" };
+}
+
+/** The typecheck, for what only shows it: see `useProposalTypecheck` to run one. */
+export function useTypecheckState(): ProposalTypecheckState {
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
 export function useProposalTypecheck(options: {

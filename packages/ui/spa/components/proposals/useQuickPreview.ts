@@ -19,6 +19,7 @@ import {
   serverKnownOff,
 } from "../../proposals/serverFirst";
 import { randomUUID } from "../../utils/randomUUID";
+import { reportQuickPreviewToTurnTrace } from "../../hooks/aiTurnTrace";
 import type {
   QuickPreviewResult,
   QuickPreviewTiming,
@@ -229,6 +230,13 @@ export function useQuickPreview(
         )
         .then((result) => {
           running.current = null;
+          // When the change a turn wrote is on screen: see `aiTurnTrace.ts`.
+          reportQuickPreviewToTurnTrace({
+            status: result.status,
+            auto,
+            ms: Date.now() - startedAt,
+            steps: result.timings,
+          });
           // Quiet when automatic: only what was asked for is reported
           const reported = !auto && result.status !== "skipped";
           if (reported) setLast(result);

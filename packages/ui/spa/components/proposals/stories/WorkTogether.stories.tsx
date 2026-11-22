@@ -587,6 +587,7 @@ function WatchedLiveDemo() {
   const [turnBy, setTurnBy] = useState<ProposalParticipant | null>(null);
   useEffect(() => {
     const started = new Set<string>();
+    const askers = new Map<string, ProposalParticipant>();
     const people: Record<string, ProposalParticipant> = {
       [KARI.id]: KARI,
       [OLA.id]: OLA,
@@ -596,6 +597,7 @@ function WatchedLiveDemo() {
         chat: chatRef.current,
         activeId,
         started,
+        askers,
         participantOf: (id) => people[id] ?? { id, name: id },
         setTurnBy,
         turnEnded: () => {},

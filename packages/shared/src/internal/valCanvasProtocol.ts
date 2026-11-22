@@ -24,8 +24,28 @@ import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
 import type { PageLocation, PageSnapshot } from "./pageInspection";
 import type { PageScreenshot } from "./pageScreenshot";
-import type { PageLogLevel, PageLogSnapshot } from "./pageLog";
+import type { PageLogEntry, PageLogLevel, PageLogSnapshot } from "./pageLog";
+import {
+  isPageAction,
+  PAGE_KEYS,
+  type PageAction,
+  type PageActionKind,
+  type PageInteractOutcome,
+  type PageRequest,
+  type PageState,
+} from "./pageInteraction";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
+import {
+  isInlineEditCandidate,
+  isInlineEditValue,
+  isInlineRichText,
+  isInlineSelection,
+  type InlineEditCandidate,
+  type InlineEditValue,
+  type InlineRect,
+  type InlineRichTextNode,
+  type InlineSelection,
+} from "./inlineEditing";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -85,15 +105,52 @@ export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
  * The requests a page can be asked, each answered with a message of its own
  * (`readPage` with `pageRead`, and so on), and the names a bridge lists in
  * `ready`'s `capabilities`. A capability is named after its request, so the
- * list needs no second vocabulary: a request added later -- opening a URL in
- * the page, clicking, typing -- is a new name here and in
- * {@link BRIDGE_CAPABILITIES}, and nothing else about the handshake changes.
+ * list needs no second vocabulary.
+ *
+ * ## `interact`: one request, a capability per action
+ *
+ * Using the page (`pageInteraction.ts`, the assistant's `interact_page`) is
+ * ONE request, `interact`, carrying a {@link PageAction}, answered with one
+ * `interacted`. But it is listed as a capability PER ACTION --
+ * `interact:click`, `interact:type`, `interact:press`, `interact:settle`,
+ * `interact:release` --
+ * and not as `interact` alone.
+ *
+ * Because actions will be added, and a bridge's version is the site's, not
+ * the Studio's. A capability named `interact` would say a bridge answers the
+ * request, not which actions it knows: a Studio that adds `interact:scroll`
+ * would send it to a bridge that knows `interact`, and the bridge could only
+ * say "unknown action" -- or, being older than the check, say nothing, which
+ * is the timeout this list exists to prevent. Named per action, an older
+ * bridge simply does not list the new one, and the Studio says at once which
+ * package to update, as for every other request.
+ *
+ * So adding an action costs: a member of `PageAction`, its name in
+ * `PAGE_ACTION_KINDS` and in {@link BRIDGE_CAPABILITIES}, the
+ * code that does it in `interactWithPage`, and the words for the "update"
+ * error in the Studio (`canvasCapabilities.ts`, which the compiler holds to
+ * this union). The message, its guard and both bridges stay as they are:
+ * the bridges hand every action to `interactWithPage` unread.
+ *
+ * Opening another page and changing the width are not actions: the Studio
+ * does those to the frame -- its `src`, its width, as the address bar and
+ * the device switch do -- and then asks the page to `settle`.
  */
 export type CanvasRequest =
   | "readPage"
   | "screenshotPage"
   | "readPageLog"
-  | "quickPreview";
+  | "quickPreview"
+  | "editInline"
+  | InteractCapability;
+
+/** An action of `interact`, as a capability: see {@link CanvasRequest}. */
+export type InteractCapability = `interact:${PageActionKind}`;
+
+/** The capability that answers `action`. */
+export function interactCapability(kind: PageActionKind): InteractCapability {
+  return `interact:${kind}`;
+}
 
 /**
  * Every request a bridge of THIS release answers: what both bindings send in
@@ -106,6 +163,15 @@ export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
   "screenshotPage",
   "readPageLog",
   "quickPreview",
+  "editInline",
+  // Written out, not mapped from `PAGE_ACTION_KINDS`: this module is read
+  // while `pageInteraction.ts` is still loading (it imports the inspection,
+  // which imports this). `pageInteraction.test.ts` holds the two equal.
+  "interact:settle",
+  "interact:click",
+  "interact:type",
+  "interact:press",
+  "interact:release",
 ];
 
 /**
@@ -186,6 +252,15 @@ export type ValCanvasPageMessage =
        * unreadable -- which is a preview stuck on "no answer".
        */
       capabilities?: unknown;
+      /**
+       * Which document this is: the same for every `ready` one document
+       * posts -- it posts again when draft mode or what it holds changes --
+       * and new for each document the frame loads. What tells the Studio
+       * an interaction took the frame to another page (`interactPage`), and
+       * not that the same page spoke again. Absent from a bridge of a
+       * release before it, whose every `ready` is taken as a new document.
+       */
+      document?: string;
       /**
        * Which package the bridge is, so the Studio can say what to update:
        * a {@link CanvasBridgeInfo}, read with {@link bridgeInfoOf}.
@@ -337,6 +412,29 @@ export type ValCanvasPageMessage =
     }
   | {
       /**
+       * What `interact` asked for: the action done and the page read after
+       * it settled, or why not (`pageInteraction.ts`). `leaving` is sent
+       * first when the action takes the frame to another document, whose
+       * `ready` is then asked to `settle` -- see `interact`.
+       *
+       * `outcome` is `unknown` on purpose, like `ready`'s `capabilities`:
+       * read it with {@link interactOutcomeOf}, so a shape this Studio does
+       * not know is a failed interaction rather than an unreadable message.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "interacted";
+      requestId: string;
+      outcome: unknown;
+      /**
+       * The document that answered (`ready`'s `document`). The `interact`
+       * message is posted into the page's window, where any script of the
+       * site can see it and answer first; the id it does not know is what
+       * the Studio matches, with the `requestId`.
+       */
+      document?: string;
+    }
+  | {
+      /**
        * A quick preview's files are stored in the page's worker, and a page
        * opened with its id is served them (`quickPreview.ts`) -- or why not.
        */
@@ -355,6 +453,66 @@ export type ValCanvasPageMessage =
       val: typeof VAL_CANVAS_MESSAGE;
       type: "codeChanged";
       modules: ModuleFilePath[];
+    }
+  | {
+      /**
+       * What `editInline` asked for is happening: the caret is in the field
+       * at `path`, on the page (`inlineEditing.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditStarted";
+      /**
+       * The `editInline` this answers, or `null` when there was none: the
+       * page started the edit on a click by itself, from what `textFields`
+       * last said, and said nothing of the click (no `clicked`).
+       */
+      requestId: string | null;
+      /** Which of the fields it offered. */
+      path: SourcePath;
+    }
+  | {
+      /**
+       * Something was typed into the field being edited on the page: its new
+       * value, whole. The Studio writes it as the field in its own column
+       * would.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEdit";
+      path: SourcePath;
+      value: InlineEditValue;
+    }
+  | {
+      /**
+       * A text being edited on the page: what is selected in it, and
+       * where its element is in the page's viewport. The Studio draws the
+       * field's validation errors there and, for a richtext, its formatting
+       * controls, acting on that selection (`applyInlineEdit`). Sent when
+       * either moves. A string's selection is always `null`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditSelection";
+      path: SourcePath;
+      selection: InlineSelection | null;
+      rect: InlineRect;
+      /** Where the caret itself is, when the page could say. */
+      caret?: InlineRect | null;
+    }
+  | {
+      /** Editing on the page ended: Enter, Esc, or the focus went elsewhere. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditEnded";
+      path: SourcePath;
+    }
+  | {
+      /**
+       * None of what `editInline` offered can be edited on the page: no
+       * element shows one of them and nothing else. The Studio opens the
+       * field in its own column instead.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditUnavailable";
+      /** The `editInline` this answers. */
+      requestId: string;
     };
 
 /** What the studio tells the page. */
@@ -544,6 +702,36 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
+       * Use the page (`pageInteraction.ts`): the assistant's
+       * `interact_page`. Do `action`, wait for the page to settle, and
+       * answer `interacted` with the page as it is then -- or `leaving`, if
+       * the action took the frame to another document, which answers the
+       * rest when the Studio asks it to `settle`.
+       *
+       * Asked only of a bridge whose `ready` lists the action's capability
+       * (`interact:<kind>`, see {@link CanvasRequest}), and answered only to
+       * the frame's parent at the page's own origin, as `readPage` is: it
+       * changes what the page shows, and it may reach the site's backend.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "interact";
+      requestId: string;
+      action: PageAction;
+      /** At most this many items in the outline read afterwards. */
+      maxItems?: number;
+      /** How long the page has to settle: what is left of the Studio's bound. */
+      timeoutMs?: number;
+      /** Which of the page's log to answer with: see `InteractRequest`. */
+      logFrom?: "action" | "document";
+      /**
+       * The fingerprint of the element the person allowed a click or
+       * Enter/Space on (`ActionApproval`), sent only after their Allow.
+       * Without it, such an action only asks.
+       */
+      approved?: string;
+    }
+  | {
+      /**
        * Store a quick preview's files in this origin's worker
        * (`storeQuickPreview`): the tab cannot, being another origin.
        * Answered with `quickPreviewStored`.
@@ -552,6 +740,105 @@ export type ValCanvasStudioMessage =
       type: "quickPreview";
       id: string;
       files: QuickPreviewFiles;
+    }
+  | {
+      /**
+       * Edit one of these fields ON the page (`inlineEditing.ts`): sent in
+       * answer to a `clicked`, with the fields of that element that can be
+       * typed -- a string, a richtext -- and what each holds, which is how
+       * the page tells that the element shows one of them and nothing else.
+       *
+       * The first the page can edit is edited (`inlineEditStarted`, then
+       * `inlineEdit` as it is typed and `inlineEditEnded`); when there is
+       * none it says `inlineEditUnavailable`. Asked only of a bridge whose
+       * `ready` lists `editInline`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "editInline";
+      requestId: string;
+      candidates: InlineEditCandidate[];
+    }
+  | {
+      /**
+       * The richtext being edited on the page is now this, with this
+       * selected: what one of the Studio's formatting controls made of it.
+       * The Studio has already written it; the page shows it in the copy
+       * being typed in, and goes on from there.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "applyInlineEdit";
+      /** Which field: as its `editInline` candidate named it. */
+      path: string;
+      value: InlineRichTextNode[];
+      selection: InlineSelection | null;
+    }
+  | {
+      /**
+       * The next text typed in the richtext being edited on the page has
+       * these marks (as a span's `styles`; `[]` for none), whatever the
+       * text around the caret has: one of the Studio's formatting controls
+       * pressed with nothing selected. `null` forgets them. The page
+       * forgets them too once the caret moves, as the Studio's editor does.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "markInlineEdit";
+      /** Which field: as its `editInline` candidate named it. */
+      path: string;
+      styles: string[] | null;
+      /**
+       * Where the caret was when the control was pressed. A caret that has
+       * moved since -- the message crosses the frame after the keys that
+       * moved it -- gets no mark.
+       */
+      selection: InlineSelection | null;
+    }
+  | {
+      /**
+       * Put the caret back in the text being edited on the page: the focus
+       * was in one of the Studio's controls for it, and is done there.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "focusInlineEdit";
+    }
+  | {
+      /** End whatever is being edited on the page: Select was turned off. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "stopInlineEdit";
+    }
+  | {
+      /**
+       * The page's texts, as the Studio knows them: sent whenever the paths
+       * the page reported, Select, its mode or a value changes. The page
+       * cannot tell a text from anything else -- it has no schemas -- and
+       * needs to know ahead of a click for two things:
+       *
+       * - In Select & edit, a click on an element that shows one of
+       *   `editable` and nothing else starts the edit IN the click
+       *   (`inlineEditStarted` with no `requestId`), rather than a round
+       *   trip later: keys typed straight after the click go where the
+       *   caret is, and a phone opens its keyboard, which it does only for
+       *   a focus in the tap itself. When the element no longer shows what
+       *   the Studio last said, the page asks as before (`clicked`,
+       *   `editInline`) and holds the keys pressed meanwhile
+       *   (`inlineEditKeys.ts`).
+       * - While Select is on, an element showing one of `empty` and nothing
+       *   else is given a line of room, so it can still be pointed at
+       *   (`emptyTextFields.ts`).
+       *
+       * A bridge that predates it ignores it, as it ignores any message it
+       * does not know: nothing it answered changes.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "textFields";
+      /** Select is on in Select & edit, and fields may be written. */
+      editing: boolean;
+      /**
+       * What can be typed in on the page, with what each holds now, as
+       * `editInline` offers it. Empty unless `editing`.
+       */
+      editable: InlineEditCandidate[];
+      /** The strings and richtexts on the page that are empty now. */
+      empty: string[];
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -581,11 +868,47 @@ export function isValCanvasPageMessage(
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "pageLogRead" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "interacted" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string") ||
     (message.type === "codeChanged" &&
       Array.isArray((data as { modules?: unknown }).modules) &&
-      isModulePathList((data as { modules?: unknown }).modules))
+      isModulePathList((data as { modules?: unknown }).modules)) ||
+    (message.type === "inlineEditStarted" &&
+      (typeof (data as { requestId?: unknown }).requestId === "string" ||
+        (data as { requestId?: unknown }).requestId === null) &&
+      typeof (data as { path?: unknown }).path === "string") ||
+    (message.type === "inlineEditEnded" &&
+      typeof (data as { path?: unknown }).path === "string") ||
+    (message.type === "inlineEdit" &&
+      typeof (data as { path?: unknown }).path === "string" &&
+      isInlineEditValue((data as { value?: unknown }).value)) ||
+    (message.type === "inlineEditUnavailable" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "inlineEditSelection" && isSelectionReport(data))
+  );
+}
+
+function isSelectionReport(value: object): boolean {
+  const report = value as Record<string, unknown>;
+  return (
+    typeof report.path === "string" &&
+    (report.selection === null || isInlineSelection(report.selection)) &&
+    isRect(report.rect) &&
+    (report.caret === undefined ||
+      report.caret === null ||
+      isRect(report.caret))
+  );
+}
+
+function isRect(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ["top", "left", "width", "height"].every((side) =>
+      Number.isFinite(Reflect.get(value, side)),
+    )
   );
 }
 
@@ -611,6 +934,198 @@ function isHeldVersions(value: unknown): boolean {
 export function capabilitiesOf(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.filter((item): item is string => typeof item === "string");
+}
+
+/**
+ * `outcome` on `interacted`, read leniently: `null` when it is not one this
+ * Studio knows -- a bridge newer than it, or a malformed message -- which
+ * the Studio reports as a failed interaction.
+ */
+export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
+  if (typeof value !== "object" || value === null) return null;
+  const status: unknown = Reflect.get(value, "status");
+  if (status === "refused") {
+    const error: unknown = Reflect.get(value, "error");
+    return typeof error === "string" ? { status, error } : null;
+  }
+  if (status === "leaving") {
+    const did: unknown = Reflect.get(value, "did");
+    const before: unknown = Reflect.get(value, "before");
+    return typeof did === "string" && isPageState(before)
+      ? { status, did, before }
+      : null;
+  }
+  if (status === "needs-approval") {
+    // Its shape only: what it says is the page's, and the Studio checks it
+    // before it shows any of it (`trustedApproval`).
+    const approval: unknown = Reflect.get(value, "approval");
+    if (typeof approval !== "object" || approval === null) return null;
+    const kind: unknown = Reflect.get(approval, "kind");
+    const text = (key: string): string | null => {
+      const field: unknown = Reflect.get(approval, key);
+      return typeof field === "string" ? field : null;
+    };
+    const before: unknown = Reflect.get(approval, "before");
+    const page = text("page");
+    const label = text("label");
+    if (page === null || label === null || !isPageState(before)) return null;
+    if (kind === "action") {
+      const fingerprint = text("fingerprint");
+      const action = text("action");
+      const role = text("role");
+      const tag = text("tag");
+      const key: unknown = Reflect.get(approval, "key");
+      const submits: unknown = Reflect.get(approval, "submits");
+      const pageKey = PAGE_KEYS.find((known) => known === key);
+      if (
+        fingerprint === null ||
+        role === null ||
+        tag === null ||
+        (action !== "click" && action !== "press") ||
+        (action === "press" && pageKey === undefined)
+      ) {
+        return null;
+      }
+      return {
+        status,
+        approval: {
+          kind,
+          fingerprint,
+          action,
+          ...(pageKey !== undefined ? { key: pageKey } : {}),
+          ...(typeof submits === "string" ? { submits } : {}),
+          page,
+          label,
+          role,
+          tag,
+          before,
+        },
+      };
+    }
+    if (kind === "requests") {
+      const hold = text("hold");
+      const did = text("did");
+      const requests: unknown = Reflect.get(approval, "requests");
+      if (hold === null || did === null || !Array.isArray(requests)) {
+        return null;
+      }
+      return {
+        status,
+        approval: {
+          kind,
+          hold,
+          page,
+          label,
+          did,
+          before,
+          requests: requests.filter(isPageRequest),
+        },
+      };
+    }
+    return null;
+  }
+  if (status === "done") {
+    const interaction: unknown = Reflect.get(value, "interaction");
+    if (typeof interaction !== "object" || interaction === null) return null;
+    const did: unknown = Reflect.get(interaction, "did");
+    const before: unknown = Reflect.get(interaction, "before");
+    const after: unknown = Reflect.get(interaction, "after");
+    const settled: unknown = Reflect.get(interaction, "settled");
+    const waitedMs: unknown = Reflect.get(interaction, "waitedMs");
+    const pendingRequests: unknown = Reflect.get(
+      interaction,
+      "pendingRequests",
+    );
+    const snapshot: unknown = Reflect.get(interaction, "snapshot");
+    const log: unknown = Reflect.get(interaction, "log");
+    const busy: unknown = Reflect.get(interaction, "busy");
+    if (
+      typeof did !== "string" ||
+      !isPageState(before) ||
+      !isPageState(after) ||
+      typeof settled !== "boolean" ||
+      typeof waitedMs !== "number" ||
+      typeof pendingRequests !== "number" ||
+      !isPageSnapshot(snapshot) ||
+      !Array.isArray(log)
+    ) {
+      return null;
+    }
+    return {
+      status,
+      interaction: {
+        did,
+        before,
+        after,
+        settled,
+        waitedMs,
+        pendingRequests,
+        snapshot,
+        // The page's log entries, as the page wrote them: data, passed on.
+        log: log.filter(isPageLogEntry),
+        ...(Array.isArray(Reflect.get(interaction, "blocked"))
+          ? {
+              blocked: Array.from<unknown>(
+                Reflect.get(interaction, "blocked"),
+              ).filter(isPageRequest),
+            }
+          : {}),
+        ...(Array.isArray(busy)
+          ? {
+              busy: busy.filter(
+                (item): item is "loading" | "requests" | "changing" | "width" =>
+                  item === "loading" ||
+                  item === "requests" ||
+                  item === "changing" ||
+                  item === "width",
+              ),
+            }
+          : {}),
+      },
+    };
+  }
+  return null;
+}
+
+function isPageRequest(value: unknown): value is PageRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const via: unknown = Reflect.get(value, "via");
+  const body: unknown = Reflect.get(value, "body");
+  return (
+    (via === "fetch" || via === "xhr" || via === "beacon" || via === "form") &&
+    typeof Reflect.get(value, "method") === "string" &&
+    typeof Reflect.get(value, "url") === "string" &&
+    (body === undefined || typeof body === "string")
+  );
+}
+
+function isPageState(value: unknown): value is PageState {
+  if (typeof value !== "object" || value === null) return false;
+  const url: unknown = Reflect.get(value, "url");
+  const title: unknown = Reflect.get(value, "title");
+  return (
+    typeof url === "string" &&
+    (title === undefined || typeof title === "string")
+  );
+}
+
+function isPageSnapshot(value: unknown): value is PageSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  return (
+    typeof Reflect.get(value, "url") === "string" &&
+    typeof Reflect.get(value, "title") === "string" &&
+    Array.isArray(Reflect.get(value, "outline"))
+  );
+}
+
+function isPageLogEntry(value: unknown): value is PageLogEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const level: unknown = Reflect.get(value, "level");
+  return (
+    (level === "error" || level === "warn") &&
+    typeof Reflect.get(value, "source") === "string" &&
+    typeof Reflect.get(value, "text") === "string"
+  );
 }
 
 /** `bridge` on `ready`, read leniently: a malformed one is as if absent. */
@@ -746,6 +1261,63 @@ export function isValCanvasStudioMessage(
           read.levels.every((level) => level === "error" || level === "warn")))
     );
   }
+  if (message.type === "editInline") {
+    const edit = data as Record<string, unknown>;
+    return (
+      typeof edit.requestId === "string" &&
+      Array.isArray(edit.candidates) &&
+      edit.candidates.every(isInlineEditCandidate)
+    );
+  }
+  if (message.type === "textFields") {
+    const fields = data as Record<string, unknown>;
+    return (
+      typeof fields.editing === "boolean" &&
+      Array.isArray(fields.editable) &&
+      fields.editable.every(isInlineEditCandidate) &&
+      Array.isArray(fields.empty) &&
+      fields.empty.every((path) => typeof path === "string")
+    );
+  }
+  if (message.type === "applyInlineEdit") {
+    const apply = data as Record<string, unknown>;
+    return (
+      typeof apply.path === "string" &&
+      isInlineRichText(apply.value) &&
+      (apply.selection === null || isInlineSelection(apply.selection))
+    );
+  }
+  if (message.type === "markInlineEdit") {
+    const mark = data as Record<string, unknown>;
+    return (
+      typeof mark.path === "string" &&
+      (mark.styles === null ||
+        (Array.isArray(mark.styles) &&
+          mark.styles.every((style) => typeof style === "string"))) &&
+      (mark.selection === null || isInlineSelection(mark.selection))
+    );
+  }
+  if (message.type === "interact") {
+    const field = (key: string): unknown => Reflect.get(data, key);
+    const maxItems = field("maxItems");
+    const timeoutMs = field("timeoutMs");
+    const logFrom = field("logFrom");
+    const approved = field("approved");
+    return (
+      typeof field("requestId") === "string" &&
+      isPageAction(field("action")) &&
+      (maxItems === undefined || typeof maxItems === "number") &&
+      (timeoutMs === undefined ||
+        (typeof timeoutMs === "number" &&
+          Number.isFinite(timeoutMs) &&
+          timeoutMs >= 0)) &&
+      (logFrom === undefined ||
+        logFrom === "action" ||
+        logFrom === "document") &&
+      (approved === undefined ||
+        (typeof approved === "string" && approved.length <= 2000))
+    );
+  }
   if (message.type === "readPage") {
     const read = data as Record<string, unknown>;
     return (
@@ -760,6 +1332,8 @@ export function isValCanvasStudioMessage(
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
     message.type === "sourcesSynced" ||
+    message.type === "stopInlineEdit" ||
+    message.type === "focusInlineEdit" ||
     (message.type === "confirmed" &&
       ((data as { seq?: unknown }).seq === null ||
         typeof (data as { seq?: unknown }).seq === "number"))
@@ -801,8 +1375,15 @@ function isValStudioPathname(pathname: string): boolean {
   return pathname === "/val" || pathname.startsWith("/val/");
 }
 
-/** Add the canvas marker to a page URL. */
+/**
+ * Add the canvas marker to a page URL: in its query, before any `#hash` --
+ * after it, the marker would be part of the fragment, and the page would
+ * not know it is the canvas. A relative URL stays relative.
+ */
 export function withValCanvasParam(url: string): string {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}${VAL_CANVAS_PARAM}=1`;
+  const hash = url.indexOf("#");
+  const beforeHash = hash === -1 ? url : url.slice(0, hash);
+  const fragment = hash === -1 ? "" : url.slice(hash);
+  const separator = beforeHash.includes("?") ? "&" : "?";
+  return `${beforeHash}${separator}${VAL_CANVAS_PARAM}=1${fragment}`;
 }

@@ -17,29 +17,48 @@ import type { ParentRef } from "@valbuild/shared/internal";
  * an allocation per AI tool call for no reason.
  */
 const ops = new JSONOps();
+
+/**
+ * How long after a check finishes, or a turn ends, the follow-up waits
+ * before it looks: the chat has rendered the turn's end, and checks that
+ * finish together are weighed together.
+ */
+const FOLLOW_UP_SETTLE_MS = 500;
 import { useValSystem } from "../stores/react/SystemContext";
+import { runStagedCode, type StagedCodeOutcome } from "../proposals/stagedCode";
+import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
+import { createTurnTimer, describeTurnTiming } from "./turnTiming";
+import { usePageCheckSession } from "./usePageCheckSession";
 import {
-  markStagedCodeTold,
-  runStagedCode,
-  stagedCodeNotice,
-  untoldStagedCode,
-  type StagedCodeOutcome,
-} from "../proposals/stagedCode";
+  createChecksFollowUp,
+  withRideAlong,
+} from "../proposals/checksFollowUp";
+import { subscribeBackgroundLint } from "../proposals/backgroundLint";
+import {
+  askPageCheck,
+  subscribePageCheck,
+  MESSAGE_VERIFIER_TOOL,
+  PAGE_CHECK_PROMPT_SECTION,
+  pickPageCheckModel,
+  VERIFY_TOOL,
+} from "../proposals/pageCheck";
+import {
+  scheduleBackgroundChecks,
+  stagedInputsOf,
+} from "../proposals/backgroundChecks";
 import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
-  ChatMessage,
   ChatMessageAttachment,
   SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
-import type { ToolActivity } from "../components/AIChatToolActivities";
 import {
   applyWatchedEvent,
+  toChatMessages,
   runningAsker,
   someoneElseAdded,
-  storedToolActivities,
 } from "./sharedChat";
 import { AskUserQuestionArgs } from "./askUserQuestion";
 import {
@@ -48,6 +67,11 @@ import {
   webSearchConfirmationQuestions,
   withWebSearchWaits,
 } from "./webSearchGate";
+import {
+  pageSubmitConfirmationOf,
+  refusePageApproval,
+  runGatedInteractPage,
+} from "./pageSubmitGate";
 import {
   patchChangesWebSearchSetting,
   readWebSearchSetting,
@@ -62,10 +86,6 @@ import {
   type WebSearchAsk,
 } from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
-import {
-  chatDocumentToHtmlText,
-  collectImageNodesFromDoc,
-} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -99,9 +119,17 @@ import type {
   AISession,
   AIServerMessage,
   AIToolCallMessage,
-  AIMessageContentBlock,
   AIPromptMessage,
+  AISteerMessage,
+  AIToolResultMessage,
 } from "./useAIWebSocket";
+import { reportWaitingOnPerson } from "./aiTurnTrace";
+import {
+  promptContentBlocks,
+  routeSteerStatus,
+  steerContentBlocks,
+  createSteerLedger,
+} from "./steerWire";
 import {
   AssistantSettings,
   assistantSettingsPromptSection,
@@ -152,9 +180,9 @@ import {
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
-  CODE_TOOLS,
+  assistantCodeTools,
+  stagedCode,
   codeToolsPromptSection,
-  pickedElementPrompt,
   isCodeTool,
   projectInstructionsPromptSection,
   QUICK_PREVIEW_TOOL,
@@ -168,6 +196,7 @@ import {
   NO_PREVIEW,
   PAGE_PROMPT_SECTION,
   READ_PAGE_LOG_TOOL,
+  INTERACT_PAGE_TOOL,
   READ_PAGE_TOOL,
   runReadPage,
   runReadPageLog,
@@ -177,13 +206,13 @@ import {
   takePointedAt,
   type AssistantPage,
 } from "../components/shell/canvas/AssistantPage";
-import type { PickedElement } from "@valbuild/shared/internal";
+import type { PageApproval, PickedElement } from "@valbuild/shared/internal";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
+  subscribeProposalTypecheck,
   typecheckProposal,
   typecheckStatusOf,
-  untoldTypeErrors,
 } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
@@ -1180,6 +1209,10 @@ export function useAI(
     currentProposal?.name ?? null,
     codeModeNowHere,
   );
+  const inCodeModeRef = useRef(inCodeModeNow);
+  inCodeModeRef.current = inCodeModeNow;
+  /** How long each code mode turn takes, and in which tools: `turnTiming.ts`. */
+  const turnTimer = useMemo(() => createTurnTimer(), []);
   useEffect(() => {
     if (inCodeModeNow && currentProposal !== null) {
       refreshProjectInstructions(currentProposal.name);
@@ -1206,7 +1239,8 @@ export function useAI(
   // until they do. `useAvailableAIModel` is the floor: it still answers when
   // the content server reports providers but no models, which is what an older
   // server does.
-  const { selected: selectedModel } = useAIModelSelection();
+  const { selected: selectedModel, models: availableModels } =
+    useAIModelSelection();
   const defaultModel = useAvailableAIModel();
   const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1235,6 +1269,68 @@ export function useAI(
     setSessionModel(model);
   }, []);
   const chatModel = sessionModel ?? pickedModel;
+  /**
+   * The page check (`usePageCheckSession`): a hidden session that reads the
+   * preview after a code change, beside the chat rather than in it, on the
+   * smallest model the project reaches. Only in code mode.
+   */
+  const pageCheck = usePageCheckSession({
+    sendWsMessage,
+    subscribeToWsMessages,
+    proposalName: () => currentProposalRef.current?.name ?? null,
+    page: () => (inCodeModeRef.current ? pageRef.current : null),
+    chatSessionId: () => sessionIdRef.current,
+    model: pickPageCheckModel(availableModels, chatModel),
+    proposals: codeClients.proposals,
+    siteSource: codeClients.siteSource,
+  });
+  const pageCheckRef = useRef(pageCheck);
+  pageCheckRef.current = pageCheck;
+  /**
+   * What a check found while the assistant is idle goes to it in a turn of
+   * its own, within a budget only the person refills (`checksFollowUp.ts`).
+   */
+  const followUp = useMemo(
+    () =>
+      createChecksFollowUp({
+        proposalName: () =>
+          inCodeModeRef.current
+            ? (currentProposalRef.current?.name ?? null)
+            : null,
+        idle: () => inFlightPromptIdRef.current === null,
+        stagedInputs: (name) => stagedInputsOf(codeClients.proposals, name),
+        send: (text) => chatRef.current?.sendChecksMessage(text) ?? false,
+      }),
+    [codeClients, chatRef],
+  );
+  const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** After a check or a turn: once things have settled, not on each change. */
+  const considerFollowUp = useCallback(() => {
+    if (followUpTimerRef.current !== null) {
+      clearTimeout(followUpTimerRef.current);
+    }
+    followUpTimerRef.current = setTimeout(() => {
+      followUpTimerRef.current = null;
+      void followUp.consider();
+    }, FOLLOW_UP_SETTLE_MS);
+  }, [followUp]);
+  const considerFollowUpRef = useRef(considerFollowUp);
+  considerFollowUpRef.current = considerFollowUp;
+  const haltFollowUpRef = useRef(() => followUp.halt());
+  haltFollowUpRef.current = () => followUp.halt();
+  useEffect(() => {
+    const unsubscribe = [
+      subscribeProposalTypecheck(considerFollowUp),
+      subscribeBackgroundLint(considerFollowUp),
+      subscribePageCheck(considerFollowUp),
+    ];
+    return () => {
+      for (const stop of unsubscribe) stop();
+      if (followUpTimerRef.current !== null) {
+        clearTimeout(followUpTimerRef.current);
+      }
+    };
+  }, [considerFollowUp]);
   // A chat that exists is held, however it came to exist: a first message, an
   // image attached before one, or a chat loaded from the list or the URL —
   // which may happen before the models are known, hence the wait for one.
@@ -1304,6 +1400,8 @@ export function useAI(
   const watchedActiveIdRef = useRef<string | null>(null);
   /** Watched turns whose question was seen asked, rather than joined midway. */
   const watchedStartedRef = useRef<Set<string>>(new Set());
+  /** Who asked each watched turn: see `WatchedChat.askers`. */
+  const watchedAskersRef = useRef<Map<string, ProposalParticipant>>(new Map());
   /** Remember the open chat as the server has it, and whose turn is running. */
   const takeServerMessages = useCallback(
     (sessionId: string, messages: ServerMessage[]) => {
@@ -1351,10 +1449,50 @@ export function useAI(
   const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
   // Prompts whose turn has searched the web: see `webSearchGate.ts`.
   const webSearchedPromptsRef = useRef<Set<string>>(new Set());
-  // Tool calls waiting on the person after a web search, by tool call, and
-  // the ones they allowed, which run without asking again.
-  const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
-  const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // Tool calls held for the person, by tool call, and which gate holds each:
+  // after a web search (`webSearchGate.ts`), or a form `interact_page` would
+  // submit (`pageSubmitGate.ts`). And the ones they allowed, which run again
+  // without asking -- an allowed `interact_page` may submit.
+  const gatedCallsRef = useRef<
+    Map<
+      string,
+      | { call: AIToolCallMessage; gate: "web-search" }
+      // What the page held, which the answer sends or refuses.
+      | { call: AIToolCallMessage; gate: "page-submit"; approval: PageApproval }
+    >
+  >(new Map());
+  const allowedCallsRef = useRef<Set<string>>(new Set());
+  // `interact_page` calls the person answered, to run again as exactly that
+  // answer: send (or refuse) what the page held (`pageSubmitGate.ts`).
+  const pageReleasesRef = useRef<
+    Map<string, { approval: PageApproval; allow: boolean }>
+  >(new Map());
+  // Bumped when a turn is stopped or the session changes: an `interact_page`
+  // still running from before neither asks nor answers (`isCurrent`).
+  const turnStopsRef = useRef(0);
+  /**
+   * Drop every `interact_page` waiting on the person, and tell its page to
+   * refuse what it held: the turn that asked is gone.
+   */
+  const refuseHeldPageRequests = useCallback(() => {
+    turnStopsRef.current += 1;
+    pageReleasesRef.current.clear();
+    for (const [toolCallId, held] of Array.from(gatedCallsRef.current)) {
+      if (held.gate !== "page-submit") continue;
+      gatedCallsRef.current.delete(toolCallId);
+      // Its card closes with the turn: an Allow left on screen would do
+      // nothing, which reads as having allowed something.
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      if (messageId !== undefined) {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+      pendingQuestionsRef.current.delete(toolCallId);
+      refusePageApproval(
+        pageRef.current?.interactPage() ?? null,
+        held.approval,
+      );
+    }
+  }, [chatRef]);
   // `request_web_search` cards waiting on the person, by tool call: the id of
   // the assistant message that opened each.
   const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
@@ -1364,8 +1502,73 @@ export function useAI(
     ((message: AIServerMessage) => void) | null
   >(null);
 
+  /**
+   * The messages this chat steered into its running turn, by `steerId`. A
+   * status for one is the chat's whatever the turn has done since: `too_late`
+   * comes after the turn's answer, when the prompt is no longer owned.
+   */
+  const ownSteerIdsRef = useRef<Set<string>>(new Set());
+  /** Those not settled yet, to send again after a reconnect. */
+  const steerLedgerRef = useRef(createSteerLedger());
+
   useEffect(() => {
+    /**
+     * Every answer to a tool call goes through here, so what the background
+     * checks found (`toolNotices.ts`) goes with it, whichever tool it is: the
+     * assistant hears without having stopped to ask. A tool's answer is never
+     * lost to a notice that could not be read.
+     */
+    const sendToolResult = (toolResult: AIToolResultMessage): void => {
+      const name = currentProposalRef.current?.name ?? null;
+      if (name === null) {
+        turnTimer.toolAnswered(toolResult.toolCallId);
+        sendWsMessage(toolResult);
+        return;
+      }
+      void takeToolNotices(name, () =>
+        stagedInputsOf(codeClients.proposals, name),
+      )
+        .catch((error: unknown) => {
+          Internal.log.error("Could not read the background checks:", error);
+          return {};
+        })
+        .then((notices) => {
+          turnTimer.toolAnswered(toolResult.toolCallId);
+          sendWsMessage({
+            ...toolResult,
+            result: withToolNotices(toolResult.result, notices),
+          });
+        });
+    };
     const handler = (message: AIServerMessage) => {
+      if (message.type === "ai_steer_status") {
+        const route = routeSteerStatus(
+          message,
+          ownSteerIdsRef.current,
+          watchedSessionIdRef.current !== null &&
+            watchedSessionIdRef.current === sessionIdRef.current,
+        );
+        if (route.to === "chat") {
+          steerLedgerRef.current.status(message.steerId, route.status);
+          chatRef.current?.steerStatus(
+            message.steerId,
+            route.status,
+            message.reason,
+          );
+        } else if (route.to === "watched") {
+          applyWatchedEvent(message, {
+            chat: chatRef.current,
+            activeId: watchedActiveIdRef,
+            started: watchedStartedRef.current,
+            askers: watchedAskersRef.current,
+            participantOf: participantOfRef.current,
+            setTurnBy,
+            // Not the end of a turn: nothing to read again yet.
+            turnEnded: () => {},
+          });
+        }
+        return;
+      }
       if (message.type === "ai_watching") {
         if (message.sessionId !== sessionIdRef.current) return;
         watchedSessionIdRef.current = message.sessionId;
@@ -1386,6 +1589,7 @@ export function useAI(
           chat: chatRef.current,
           activeId: watchedActiveIdRef,
           started: watchedStartedRef.current,
+          askers: watchedAskersRef.current,
           participantOf: participantOfRef.current,
           setTurnBy,
           turnEnded: (joinedMidway) => {
@@ -1419,6 +1623,24 @@ export function useAI(
       // id and is nobody's turn, so it is filtered the same way.
       if ("id" in message && !ownedPromptIdsRef.current.has(message.id)) {
         return;
+      }
+      if (message.type === "ai_tool_call") {
+        turnTimer.toolCalled(message.id, message.toolCallId, message.name);
+      } else if (
+        message.type === "ai_response" ||
+        message.type === "ai_error" ||
+        message.type === "ai_cancelled"
+      ) {
+        const timing = turnTimer.end(message.id);
+        if (timing !== null) Internal.log.info(describeTurnTiming(timing));
+        // A change not checked yet is checked now, beside what comes next.
+        if (message.type === "ai_response") {
+          pageCheckRef.current.turnEnded();
+          considerFollowUpRef.current();
+        } else {
+          // Stopped, or failed: the person decides what happens next.
+          haltFollowUpRef.current();
+        }
       }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
@@ -1480,7 +1702,7 @@ export function useAI(
         // the project says now, and ask only if it is still undecided.
         const setting = valReads.getWebSearchSetting();
         if (setting !== null || !chatRef.current) {
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result:
@@ -1524,14 +1746,14 @@ export function useAI(
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (
         message.type === "ai_tool_call" &&
-        !webAllowedCallsRef.current.has(message.toolCallId) &&
+        !allowedCallsRef.current.has(message.toolCallId) &&
         needsWebSearchConfirmation(
           message.name,
           webSearchedPromptsRef.current.has(message.id),
         )
       ) {
         if (!chatRef.current) {
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -1556,8 +1778,12 @@ export function useAI(
           message.name,
           webSearchConfirmationQuestions(message.name),
         );
-        webGatedCallsRef.current.set(message.toolCallId, message);
+        gatedCallsRef.current.set(message.toolCallId, {
+          call: message,
+          gate: "web-search",
+        });
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
+        reportWaitingOnPerson(message.toolCallId);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -1581,7 +1807,7 @@ export function useAI(
               "Cannot show ask_user_question card:",
               blockedReason,
             );
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1597,7 +1823,7 @@ export function useAI(
         // A call the person allowed after a web search has its row already.
         if (
           chatRef.current &&
-          !webAllowedCallsRef.current.has(message.toolCallId)
+          !allowedCallsRef.current.has(message.toolCallId)
         ) {
           if (activeIdRef.current !== message.id) {
             activeIdRef.current = message.id;
@@ -1618,7 +1844,7 @@ export function useAI(
           const inProposal = codeModeState().proposal;
           if (inProposal?.on === true) {
             // Nothing to ask: it is on already.
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1628,7 +1854,7 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else if (!chatRef.current) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1671,7 +1897,7 @@ export function useAI(
             "module_file_paths" in schemaArgs
               ? schemaArgs.module_file_paths
               : undefined;
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: allSchemaAnswer(schemas, asked),
@@ -1689,7 +1915,7 @@ export function useAI(
               ? valueAtPath(snapshot.data, args.path)
               : null;
           if (at !== null && at.status === "invalid") {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: at.message },
@@ -1701,7 +1927,7 @@ export function useAI(
               narrow:
                 "Read what was left out with get_source and path: the path you asked with (if any) followed by an omitted path, e.g. path: ['posts', '12'].",
             });
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1715,7 +1941,7 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -1741,7 +1967,7 @@ export function useAI(
           aiSearch
             .query(args.query, args.limit, args.offset)
             .then((searchResult) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: cappedToolResult(
@@ -1755,7 +1981,7 @@ export function useAI(
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
             .catch((err) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: String(err) },
@@ -1765,7 +1991,7 @@ export function useAI(
             });
         } else if (message.name === "validate_content") {
           const errors = aiValidation.getErrors();
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: cappedToolResult(errors, {
@@ -1782,7 +2008,7 @@ export function useAI(
           const exec = async () => {
             const parseResult = Patch.safeParse(args.patch);
             if (!parseResult.success) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1799,7 +2025,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1819,7 +2045,7 @@ export function useAI(
             const patchId = valReads.createPatchId();
             const parentRef = valReads.getParentRef();
             if (parentRef === null) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1855,7 +2081,7 @@ export function useAI(
                       .map((k) => `"${k}"`)
                       .join(", ")}.`
                   : "";
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1868,7 +2094,7 @@ export function useAI(
               return;
             }
             if (expanded.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1882,7 +2108,7 @@ export function useAI(
               return;
             }
             if (expanded.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: expanded.message },
@@ -1898,7 +2124,7 @@ export function useAI(
             );
             if (validationResult && "status" in validationResult) {
               Internal.log.error("Patch status not valid", validationResult);
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -1915,7 +2141,7 @@ export function useAI(
               );
               if (Object.keys(blockingErrors).length > 0) {
                 Internal.log.error("Patch validation failed", blockingErrors);
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId: message.toolCallId,
                   result: {
@@ -1938,7 +2164,7 @@ export function useAI(
               true,
             );
             if (res.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -1949,7 +2175,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: res.message },
@@ -1976,7 +2202,7 @@ export function useAI(
           const messageId = message.id;
           (async () => {
             if (!args.image_key || !args.module_file_path || !args.file_path) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -1994,7 +2220,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2011,7 +2237,7 @@ export function useAI(
             const isRemote = isRemoteSchema(moduleSchema);
             const parentRef = valReads.getParentRef();
             if (parentRef === null) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2061,7 +2287,7 @@ export function useAI(
                         ", ",
                       )}. Retry ${toolName} with one of these as image_key.`
                   : "";
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2092,7 +2318,7 @@ export function useAI(
             let entryKey = args.file_path;
             if (isRemote) {
               if (moduleSchema.type !== "record") {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2112,7 +2338,7 @@ export function useAI(
                 sha256: sessionRes.sha256,
               });
               if (named.status === "error") {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2133,7 +2359,7 @@ export function useAI(
             );
 
             if (buildResult.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2147,7 +2373,7 @@ export function useAI(
               return;
             }
             if (buildResult.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: buildResult.message },
@@ -2163,7 +2389,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -2179,7 +2405,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2203,7 +2429,7 @@ export function useAI(
               true,
             );
             if (patchRes.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2216,7 +2442,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: patchRes.message },
@@ -2234,7 +2460,7 @@ export function useAI(
           const messageId = message.id;
           (async () => {
             if (!args.module_file_path || !args.file_path) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2251,7 +2477,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2275,7 +2501,7 @@ export function useAI(
               sourceData,
             );
             if (buildResult.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2289,7 +2515,7 @@ export function useAI(
               return;
             }
             if (buildResult.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: buildResult.message },
@@ -2305,7 +2531,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -2321,7 +2547,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2341,7 +2567,7 @@ export function useAI(
               sessionIdRef.current,
             );
             if (patchRes.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2353,7 +2579,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: patchRes.message },
@@ -2372,7 +2598,7 @@ export function useAI(
           const schemas = valReads.getAllSchemasSnapshot();
           const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
           if (navPath === null) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -2384,7 +2610,7 @@ export function useAI(
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
           } else {
             navigate(navPath as SourcePath);
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: true },
@@ -2398,7 +2624,7 @@ export function useAI(
             browserPathname,
             (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
           );
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -2421,7 +2647,7 @@ export function useAI(
           const pathname = (message.arguments as { pathname?: string })
             .pathname;
           if (!pathname) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -2438,14 +2664,14 @@ export function useAI(
               (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
             );
             if (found) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: true, ...found },
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
@@ -2484,7 +2710,7 @@ export function useAI(
                 new Date(b.createdAt).getTime() -
                 new Date(a.createdAt).getTime(),
             );
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: cappedToolResult(
@@ -2502,7 +2728,7 @@ export function useAI(
           const sid = sessionIdRef.current;
           if (sid == null) {
             // Defensive: tool calls only run for an active session.
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: "No active session." },
@@ -2516,7 +2742,7 @@ export function useAI(
               setSessions((prev) =>
                 prev.map((s) => (s.id === sid ? { ...s, name } : s)),
               );
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: true },
@@ -2524,7 +2750,7 @@ export function useAI(
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
             .catch((err) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: { success: false, error: String(err) },
@@ -2532,6 +2758,20 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (
+          message.name === VERIFY_TOOL.name ||
+          message.name === MESSAGE_VERIFIER_TOOL.name
+        ) {
+          sendToolResult({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            ...askPageCheck(
+              pageCheckRef.current,
+              message.name,
+              message.arguments,
+            ),
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "read_page") {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
@@ -2544,7 +2784,7 @@ export function useAI(
             pointedAt: lastPointedAtRef.current ?? page?.pointedAt ?? null,
             noPage: NO_PREVIEW,
           }).then(({ result, isError }) => {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
               result,
@@ -2552,13 +2792,55 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
           });
+        } else if (message.name === INTERACT_PAGE_TOOL.name) {
+          const { toolCallId, id: messageId } = message;
+          const chat = chatRef.current;
+          const turn = turnStopsRef.current;
+          // The person's answer about what an earlier run held, if this is
+          // that call again (`answerGatedCall`).
+          const release = pageReleasesRef.current.get(toolCallId);
+          pageReleasesRef.current.delete(toolCallId);
+          void runGatedInteractPage(message.arguments, {
+            interactPage: pageRef.current?.interactPage() ?? null,
+            ...(release !== undefined ? { answered: release } : {}),
+            noPage: NO_PREVIEW,
+            isCurrent: () => turnStopsRef.current === turn,
+            // The page tried to send something: the Studio's own question
+            // on the tool's row, and the call held until it is answered.
+            ask:
+              chat === null
+                ? null
+                : (questions, approval) => {
+                    chat.askToolQuestions(messageId, toolCallId, questions);
+                    gatedCallsRef.current.set(toolCallId, {
+                      call: message,
+                      gate: "page-submit",
+                      approval,
+                    });
+                    pendingQuestionsRef.current.set(toolCallId, messageId);
+                    reportWaitingOnPerson(toolCallId);
+                  },
+            answer: ({ result, isError }) => {
+              sendToolResult({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            },
+          });
         } else if (message.name === READ_PAGE_LOG_TOOL.name) {
           const { toolCallId, id: messageId } = message;
           void runReadPageLog(message.arguments, {
             readPageLog: pageRef.current?.readPageLog() ?? null,
             noPage: NO_PREVIEW,
           }).then(({ result, isError }) => {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
               result,
@@ -2582,7 +2864,7 @@ export function useAI(
               return upload(file);
             },
           }).then(({ result, isError, images }) => {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
               result,
@@ -2597,7 +2879,7 @@ export function useAI(
           const messageId = message.id;
           void runQuickPreviewTool(quickPreviewRunner()).then(
             ({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -2610,6 +2892,7 @@ export function useAI(
           const toolCallId = message.toolCallId;
           const messageId = message.id;
           const toolName = message.name;
+          const toolArgs = message.arguments;
           const proposalName = currentProposalRef.current?.name ?? null;
           const stagedInputs = async () =>
             proposalName === null
@@ -2709,7 +2992,7 @@ export function useAI(
                     ),
                 }
               : {}),
-          }).then(async ({ result, isError }) => {
+          }).then(({ result, isError }) => {
             if (
               (toolName === "write_files" ||
                 toolName === "edit_file" ||
@@ -2717,58 +3000,33 @@ export function useAI(
                 toolName === "format_files" ||
                 toolName === "lint") &&
               !isError
-            )
+            ) {
               proposalCodeChanged();
-            // The background typecheck found errors in what is staged now,
-            // and the assistant has not heard: it hears on this answer
-            const untold =
-              proposalName === null ? null : untoldTypeErrors(proposalName);
-            // Told only of errors in what is staged now; the read that says
-            // so is given a few seconds, never the answer's whole wait
-            const notice =
-              untold !== null &&
-              (await Promise.race([
-                stagedInputs().catch(() => null),
-                new Promise<null>((resolve) =>
-                  setTimeout(() => resolve(null), 3_000),
-                ),
-              ])) === untold.inputs
-                ? untold
-                : null;
-            if (notice !== null) markTypeErrorsTold(notice.inputs);
-            // The tab's evaluation of the staged code finished after the
-            // write that started it answered: it is told on this answer
-            const staged =
-              proposalName === null ? null : untoldStagedCode(proposalName);
-            if (staged !== null) markStagedCodeTold(staged);
-            sendWsMessage({
+            }
+            // Checked beside the conversation, not in it: what the checks
+            // find reaches the assistant on a later tool answer. Only once
+            // files were staged: a lint that only looked changed nothing.
+            if (stagedCode(toolName, toolArgs, { result, isError })) {
+              if (proposalName !== null) {
+                scheduleBackgroundChecks(proposalName, {
+                  client: codeClients.proposals,
+                  siteSource: codeClients.siteSource,
+                  onTypechecked: proposalCodeChanged,
+                });
+                pageCheckRef.current.codeChanged();
+              }
+            }
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId,
-              result:
-                notice === null && staged === null
-                  ? result
-                  : {
-                      result,
-                      ...(notice !== null
-                        ? {
-                            typecheck_errors: {
-                              newErrors: notice.errors.length,
-                              errors: notice.errors.slice(0, 20),
-                              next: "The background typecheck found these in what is staged. Fix them before you build.",
-                            },
-                          }
-                        : {}),
-                      ...(staged !== null
-                        ? { valModules: stagedCodeNotice(staged) }
-                        : {}),
-                    },
+              result,
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
           });
         } else if (message.name === "show_compare_view") {
           navigate("/val/compare");
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: { success: true },
@@ -2788,7 +3046,7 @@ export function useAI(
           const messageId = message.id;
           (async () => {
             if (!args.module_file_path) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2803,7 +3061,7 @@ export function useAI(
             const isStringArray = (v: unknown): v is string[] =>
               Array.isArray(v) && v.every((p) => typeof p === "string");
             if (!isStringArray(args.destination_path)) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2820,7 +3078,7 @@ export function useAI(
               toolName === "duplicate_source" &&
               !isStringArray(args.source_path)
             ) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2837,7 +3095,7 @@ export function useAI(
             const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2876,7 +3134,7 @@ export function useAI(
               );
             }
             if (buildResult.kind === "wrong-tool") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2890,7 +3148,7 @@ export function useAI(
               return;
             }
             if (buildResult.kind === "error") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: buildResult.message },
@@ -2905,7 +3163,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: validationResult.message },
@@ -2921,7 +3179,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                sendWsMessage({
+                sendToolResult({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
@@ -2942,7 +3200,7 @@ export function useAI(
               sessionIdRef.current,
             );
             if (patchRes.status === "patch-synced") {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: {
@@ -2956,7 +3214,7 @@ export function useAI(
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result: { success: false, error: patchRes.message },
@@ -2988,7 +3246,7 @@ export function useAI(
               },
             }))
             .then(({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -3021,7 +3279,7 @@ export function useAI(
               },
             }))
             .then(({ result, isError }) => {
-              sendWsMessage({
+              sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
                 result,
@@ -3043,7 +3301,7 @@ export function useAI(
             !Array.isArray(args.path) ||
             !args.path.every((p) => typeof p === "string")
           ) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3060,7 +3318,7 @@ export function useAI(
           const schemas = valReads.getAllSchemasSnapshot();
           const moduleSchema = schemas?.[moduleFilePath];
           if (!moduleSchema) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3083,7 +3341,7 @@ export function useAI(
             args.path,
           );
           if (described.kind === "error") {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: described.message },
@@ -3095,7 +3353,7 @@ export function useAI(
           const count = Array.isArray(described.value)
             ? described.value.length
             : Object.keys(described.value as Record<string, unknown>).length;
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -3117,7 +3375,7 @@ export function useAI(
             !Array.isArray(args.path) ||
             !args.path.every((p) => typeof p === "string")
           ) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3134,7 +3392,7 @@ export function useAI(
           const schemas = valReads.getAllSchemasSnapshot();
           const moduleSchema = schemas?.[moduleFilePath];
           if (!moduleSchema) {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3157,7 +3415,7 @@ export function useAI(
             args.path,
           );
           if (described.kind === "error") {
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: { success: false, error: described.message },
@@ -3179,7 +3437,7 @@ export function useAI(
                 : described.container === "richtext"
                   ? "use count_entries to get the number of blocks"
                   : "use get_source to read the gallery's entries";
-            sendWsMessage({
+            sendToolResult({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
@@ -3204,7 +3462,7 @@ export function useAI(
               : fallback;
           const limit = toIndex(args.limit, 100);
           const offset = toIndex(args.offset, 0);
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: {
@@ -3220,7 +3478,7 @@ export function useAI(
             "Received unknown tool call in useAI",
             message.name,
           );
-          sendWsMessage({
+          sendToolResult({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
             result: { success: false, error: `Unknown tool: ${message.name}` },
@@ -3247,6 +3505,7 @@ export function useAI(
         ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
       } else if (message.type === "ai_cancelled") {
+        refuseHeldPageRequests();
         // The user asked for this, so it settles rather than fails: whatever
         // arrived before the stop stays in the transcript, and a stop before
         // any text says so instead of leaving an empty bubble behind.
@@ -3452,54 +3711,20 @@ export function useAI(
       }
       const model = sessionModelRef.current ?? chatModel;
       if (sessionModelRef.current === null) lockModel(model);
-      const baseText =
-        typeof content === "string" ? content : chatDocumentToHtmlText(content);
-      // Pull inline image nodes out of the rich document so their keys are
-      // registered as `image_key` content blocks (the protocol the server
-      // expects), not buried in the HTML text. Drop any still-pending keys —
-      // the editor should already block Send while uploads are in flight, but
-      // this is a defence-in-depth check.
-      const inlineImages =
-        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
-      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
-        .filter((n) => n.key && !n.key.startsWith("pending:"))
-        .map((n) => ({
-          key: n.key,
-          name: n.alt || "inline image",
-          mimeType: n.mimeType,
-          previewUrl: n.previewUrl,
-        }));
-      const mergedAttachments: ChatMessageAttachment[] = [];
-      const seenKeys = new Set<string>();
-      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
-        if (seenKeys.has(a.key)) continue;
-        seenKeys.add(a.key);
-        mergedAttachments.push(a);
-      }
-      let augmentedText = baseText;
-      if (mergedAttachments.length > 0) {
-        const lines = mergedAttachments.map(
-          (a) => `- ${a.name}: image_key="${a.key}"`,
-        );
-        augmentedText =
-          baseText +
-          "\n\n[Attached images — when calling convert_session_image_to_patch, " +
-          "use the exact image_key string from this list (NOT any vision-system file id):\n" +
-          lines.join("\n") +
-          "]";
-      }
       const pointedAt = takePointedAt(context, pageRef.current);
       lastPointedAtRef.current = pointedAt;
-      if (pointedAt !== null) {
-        augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
-      }
-      const contentBlocks: AIMessageContentBlock[] = [
-        { type: "text", text: augmentedText },
-        ...mergedAttachments.map((attachment) => ({
-          type: "image_key" as const,
-          key: attachment.key,
-        })),
-      ];
+      // What the checks found that the assistant has not heard goes with
+      // what the person writes; the Studio's own message is nothing else.
+      const fromPerson = context?.fromChecks !== true;
+      const checksProposal = currentProposalRef.current?.name ?? null;
+      const rideAlong =
+        fromPerson && checksProposal !== null && inCodeModeRef.current
+          ? followUp.rideAlong(checksProposal)
+          : null;
+      const contentBlocks = withRideAlong(
+        promptContentBlocks(content, attachments, pointedAt),
+        rideAlong?.text ?? null,
+      );
       // Only where the Studio can show one, and its server has them: the
       // Studio's shell, once a list came back. Anywhere else the assistant
       // would offer something that fails, or that nobody can open.
@@ -3523,6 +3748,8 @@ export function useAI(
       if (inCodeMode && currentProposalRef.current !== null) {
         refreshProjectInstructions(currentProposalRef.current.name);
       }
+      /** Whether a page check reads the preview after this turn's changes. */
+      const pageChecked = inCodeMode && pageCheckRef.current.canCheck();
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
@@ -3637,7 +3864,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                       : { kind: "site" },
                   )
                 : ""
-            }${
+            }${pageChecked ? PAGE_CHECK_PROMPT_SECTION : ""}${
               inCodeMode
                 ? projectInstructionsPromptSection(projectInstructions)
                 : ""
@@ -3650,16 +3877,18 @@ Do not describe what you will do unless you do it for clarification — just do 
                   // In the Studio: the page in its preview. Without
                   // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.
                   ...(pageRef.current !== null
-                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL]
+                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL, INTERACT_PAGE_TOOL]
                     : []),
                   // Hosted only: see `hostedRef`.
                   ...(hostedRef.current
-                    ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                    ? [...assistantCodeTools(), REQUEST_CODE_MODE_TOOL]
                     : []),
                   // A quick preview is shown in a proposal's preview.
                   ...(hostedRef.current && currentProposalRef.current !== null
                     ? [QUICK_PREVIEW_TOOL]
                     : []),
+                  // The page check reads that preview, in code mode.
+                  ...(pageChecked ? [VERIFY_TOOL, MESSAGE_VERIFIER_TOOL] : []),
                 ],
                 valReads.getAssistantSettings().webSearch === true,
               ),
@@ -3672,6 +3901,12 @@ Do not describe what you will do unless you do it for clarification — just do 
       if (sent) {
         inFlightPromptIdRef.current = message.id;
         ownedPromptIdsRef.current.add(message.id);
+        if (inCodeModeRef.current) turnTimer.start(message.id);
+        rideAlong?.sent();
+        if (fromPerson) {
+          pageCheckRef.current.personWrote();
+          followUp.personWrote();
+        }
       }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
@@ -3682,6 +3917,67 @@ Do not describe what you will do unless you do it for clarification — just do 
     },
     [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
   );
+
+  /**
+   * Send a message into this chat's running turn (`ai_steer`): the agent
+   * reads it at its next step. False when there is no turn of this chat's to
+   * send it into, or no socket: the chat queues it instead. What becomes of
+   * it comes back as `ai_steer_status`, to `AIChatHandle.steerStatus`.
+   */
+  const steerMessage = useCallback(
+    (
+      content: string | ChatDocument,
+      attachments: ChatMessageAttachment[] | undefined,
+      context: SendContext | undefined,
+      steerId: string,
+    ): boolean => {
+      const promptId = inFlightPromptIdRef.current;
+      const sessionId = sessionIdRef.current;
+      if (promptId === null || sessionId === null) return false;
+      const blocks = steerContentBlocks(
+        promptContentBlocks(
+          content,
+          attachments,
+          takePointedAt(context, pageRef.current),
+        ),
+      );
+      // Nothing to say: the server refuses an empty steer.
+      if (blocks === null) return false;
+      const message: AISteerMessage = {
+        type: "ai_steer",
+        id: promptId,
+        sessionId,
+        steerId,
+        message: blocks,
+      };
+      const sent = sendWsMessage(message);
+      if (sent) {
+        ownSteerIdsRef.current.add(steerId);
+        steerLedgerRef.current.sent(message);
+        // Steered into the turn, it is still the person writing: the checks
+        // and follow-ups it allows start over (`checksFollowUp.ts`).
+        pageCheckRef.current.personWrote();
+        followUp.personWrote();
+      }
+      return sent;
+    },
+    [sendWsMessage, followUp],
+  );
+
+  /**
+   * The socket came back: what was accepted and not read yet is sent again,
+   * with the same steerId. The server does not read one twice, and answers
+   * `too_late` for a turn that is gone, which queues it here as usual.
+   */
+  const wasConnectedRef = useRef(isWsConnected);
+  useEffect(() => {
+    const reconnected = isWsConnected && !wasConnectedRef.current;
+    wasConnectedRef.current = isWsConnected;
+    if (!reconnected) return;
+    for (const message of steerLedgerRef.current.toResend()) {
+      sendWsMessage(message);
+    }
+  }, [isWsConnected, sendWsMessage]);
 
   // A question card keeps the turn open (and the composer disabled) until a
   // result is delivered, so a socket that dropped while the user was deciding
@@ -3711,6 +4007,8 @@ Do not describe what you will do unless you do it for clarification — just do 
    * connection cannot leave the chat wedged mid-turn with no way out.
    */
   const cancel = useCallback((): boolean => {
+    // Whatever the page holds for this turn is refused with it.
+    refuseHeldPageRequests();
     const id = inFlightPromptIdRef.current;
     // Nothing is running as far as we know, but the composer is showing a stop
     // button, so something is out of step. Settle locally rather than leaving
@@ -3741,24 +4039,43 @@ Do not describe what you will do unless you do it for clarification — just do 
       setIsStreaming(false);
     }
     return true;
-  }, [sendWsMessage, chatRef]);
+  }, [sendWsMessage, chatRef, refuseHeldPageRequests]);
 
   /**
-   * The person answered the Studio's question about a call after a web search
-   * (or closed it, `null`): run the call, or tell the model they said no.
+   * The person answered the Studio's question about a call it held -- after
+   * a web search, or before a form submit -- or closed it (`null`): run the
+   * call again, allowed, or tell the model they said no.
    */
-  const answerWebSearchConfirmation = useCallback(
+  const answerGatedCall = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
-      const call = webGatedCallsRef.current.get(toolCallId);
-      if (call === undefined) return false;
-      webGatedCallsRef.current.delete(toolCallId);
+      const held = gatedCallsRef.current.get(toolCallId);
+      if (held === undefined) return false;
+      gatedCallsRef.current.delete(toolCallId);
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
-      const confirmation = webSearchConfirmationOf(answers);
+      const confirmation =
+        held.gate === "page-submit"
+          ? pageSubmitConfirmationOf(answers)
+          : webSearchConfirmationOf(answers);
       if (confirmation.allow) {
-        webAllowedCallsRef.current.add(toolCallId);
-        handleServerMessageRef.current?.(call);
+        allowedCallsRef.current.add(toolCallId);
+        if (held.gate === "page-submit") {
+          // As that answer: the action on exactly the element shown, or
+          // exactly the requests shown, sent.
+          pageReleasesRef.current.set(toolCallId, {
+            approval: held.approval,
+            allow: true,
+          });
+        }
+        handleServerMessageRef.current?.(held.call);
         return true;
+      }
+      if (held.gate === "page-submit") {
+        // The page drops what it held, and its request fails as an abort.
+        refusePageApproval(
+          pageRef.current?.interactPage() ?? null,
+          held.approval,
+        );
       }
       if (messageId !== undefined) {
         chatRef.current?.errorToolCall(messageId, toolCallId);
@@ -3851,7 +4168,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
       if (answerWebSearchRequest(toolCallId, answers)) return;
-      if (answerWebSearchConfirmation(toolCallId, answers)) return;
+      if (answerGatedCall(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3866,7 +4183,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     [
       sendWsMessage,
       failUndeliveredQuestion,
-      answerWebSearchConfirmation,
+      answerGatedCall,
       answerWebSearchRequest,
     ],
   );
@@ -3874,7 +4191,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
       if (answerWebSearchRequest(toolCallId, null)) return;
-      if (answerWebSearchConfirmation(toolCallId, null)) return;
+      if (answerGatedCall(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3890,7 +4207,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     [
       sendWsMessage,
       failUndeliveredQuestion,
-      answerWebSearchConfirmation,
+      answerGatedCall,
       answerWebSearchRequest,
     ],
   );
@@ -4009,12 +4326,13 @@ Do not describe what you will do unless you do it for clarification — just do 
           isError: true,
         });
       }
+      refuseHeldPageRequests();
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
-      webGatedCallsRef.current.clear();
+      gatedCallsRef.current.clear();
       webSearchRequestsRef.current.clear();
     },
-    [sendWsMessage],
+    [sendWsMessage, refuseHeldPageRequests],
   );
 
   const newSession = useCallback(() => {
@@ -4107,7 +4425,8 @@ Do not describe what you will do unless you do it for clarification — just do 
       return;
     }
     const sessionId = currentSessionId;
-    sendWsMessage({ type: "ai_watch_session", sessionId });
+    // `steering`: this Studio reads `ai_steer_status` inside `ai_watched`.
+    sendWsMessage({ type: "ai_watch_session", sessionId, steering: true });
     return () => {
       sendWsMessage({ type: "ai_unwatch_session", sessionId });
       if (watchedSessionIdRef.current === sessionId) {
@@ -4230,6 +4549,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    steerMessage,
     captureSendContext,
     uploadAiImage,
     isStreaming,
@@ -4257,6 +4577,31 @@ Do not describe what you will do unless you do it for clarification — just do 
      * to change it: see `sessionModel`.
      */
     sessionModel,
+    /**
+     * The checks that run beside the chat in code mode, for `ChecksBar`;
+     * `null` elsewhere.
+     */
+    checks:
+      inCodeModeNow && currentProposal !== null
+        ? {
+            proposalName: currentProposal.name,
+            retryPageCheck: () => {
+              pageCheck.verify(null);
+            },
+            pageCheckCanRun: () =>
+              !pageCheck.canCheck()
+                ? "no-preview"
+                : pageCheck.left() > 0
+                  ? "yes"
+                  : "limited",
+            retryChecks: () =>
+              scheduleBackgroundChecks(currentProposal.name, {
+                client: codeClients.proposals,
+                siteSource: codeClients.siteSource,
+                onTypechecked: proposalCodeChanged,
+              }),
+          }
+        : null,
   };
 }
 
@@ -4291,38 +4636,3 @@ const SHARED_CHAT_POLL_MS = 4000;
  * refused send, never two turns at once.
  */
 const STALE_TURN_MS = 2 * 60 * 1000;
-
-function toChatMessages(
-  sessionId: string,
-  messages: ServerMessage[],
-  participantOf: (id: string) => ProposalParticipant,
-): ChatMessage[] {
-  const chat: ChatMessage[] = [];
-  /** The tools the last question's turn called: they go on its answer. */
-  let toolActivities: ToolActivity[] = [];
-  for (const m of messages) {
-    if (m.role !== "user" && m.role !== "assistant") continue;
-    // Numbered among the messages shown, as they always were.
-    const id = `history-${sessionId}-${chat.length}`;
-    if (m.role === "user") {
-      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
-      chat.push({
-        id,
-        role: "user",
-        content: m.content,
-        status: "complete",
-        ...(m.authorId ? { author: participantOf(m.authorId) } : {}),
-      });
-      continue;
-    }
-    chat.push({
-      id,
-      role: "assistant",
-      content: m.content,
-      status: "complete",
-      ...(toolActivities.length > 0 ? { toolActivities } : {}),
-    });
-    toolActivities = [];
-  }
-  return chat;
-}

@@ -1,0 +1,197 @@
+import {
+  BODY_EXCERPT_LENGTH,
+  MAX_HELD_REQUESTS,
+  VAL_CANVAS_PARAM,
+  type PageApproval,
+  type PageRequest,
+} from "@valbuild/shared/internal";
+
+/**
+ * The page a path names, on the site the preview shows -- or why it cannot
+ * be opened there: the assistant's `interact_page` with `open`.
+ *
+ * The frame never leaves the site: a path on another origin is refused, and
+ * so is the Studio itself (a Studio in its own preview) and Val's API, which
+ * is not a page. What is left is a path, query and hash on `origin`, without
+ * the canvas's own parameter, which the frame adds back.
+ */
+export function sitePathOf(
+  path: string,
+  origin: string,
+): { path: string } | { error: string } {
+  let url: URL;
+  try {
+    url = new URL(path, origin);
+  } catch {
+    return {
+      error: `${JSON.stringify(path)} is not an address. Give a path on the site, such as /about.`,
+    };
+  }
+  if (url.origin !== origin) {
+    return {
+      error: `Only pages of this site can be opened in the preview, and ${JSON.stringify(path)} is on ${url.origin}. Give a path on this site, such as /about.`,
+    };
+  }
+  const studio =
+    url.pathname === "/val" ||
+    url.pathname.startsWith("/val/") ||
+    url.pathname === "/api/val" ||
+    url.pathname.startsWith("/api/val/");
+  if (studio) {
+    return {
+      error: `${url.pathname} is Val itself, not a page of the site: open one of the site's own pages.`,
+    };
+  }
+  url.searchParams.delete(VAL_CANVAS_PARAM);
+  return { path: `${url.pathname}${url.search}${url.hash}` };
+}
+
+/**
+ * How much longer than the page's own wait the Studio waits for its answer:
+ * the read after it settles, and the trip back.
+ */
+export const INTERACT_ANSWER_MARGIN_MS = 3000;
+
+/**
+ * Why the page would not do an action, in the page's words: its refusals
+ * name its own elements -- their ids, names, text -- so the answer says
+ * whose words they are (`PAGE_DATA_PROVENANCE`) and keeps them short.
+ */
+export class PageRefusedError extends Error {
+  constructor(message: string) {
+    super(clampPageText(message, 600));
+    this.name = "PageRefusedError";
+  }
+}
+
+/** Text from the page, cut to `length`. */
+export function clampPageText(text: string, length: number): string {
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+/** The methods a held request may be shown with: the ones that send. */
+const SENDING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** A role a card may name; anything else is shown as "element". */
+const KNOWN_ROLES = new Set([
+  "button",
+  "link",
+  "text field",
+  "checkbox",
+  "radio",
+  "list",
+  "menuitem",
+  "tab",
+  "switch",
+  "option",
+  "combobox",
+  "textbox",
+]);
+
+/** Page text for a card: shortened, its own quote marks taken out. */
+function quotable(text: string, length: number): string {
+  return clampPageText(
+    text.replace(/["'`\u201c\u201d\u2018\u2019]/g, "").trim(),
+    length,
+  );
+}
+
+/**
+ * What the page asked the person about, checked before the Studio shows
+ * any of it -- or why it cannot be shown.
+ *
+ * Every field came from the page, and not only from Val's code there: the
+ * `interact` message is posted into the page's window, where any script of
+ * the site sees it and can answer first. So nothing is taken on trust:
+ *
+ * - text is shortened and its quote marks taken out, so it can be shown as
+ *   one quoted piece of the page's words and nothing more;
+ * - a role must be one the Studio knows, a tag plain letters;
+ * - a held request's method must be one that sends data, its address on
+ *   this site (the bridge refuses others; anything that says otherwise is
+ *   not the bridge), and there may be no more of them than the card shows
+ *   ({@link MAX_HELD_REQUESTS}, the bridge's own cap): the person sees all
+ *   that Allow sends, or is not asked.
+ */
+export function trustedApproval(
+  approval: PageApproval,
+  origin: string,
+): { approval: PageApproval } | { error: string } {
+  const page = sitePathOf(approval.page, origin);
+  const pagePath = "path" in page ? clampPageText(page.path, 200) : "this page";
+  const before = { url: clampPageText(approval.before.url, 200) };
+  if (approval.kind === "action") {
+    const tag = /^[a-z][a-z0-9-]{0,19}$/.test(approval.tag)
+      ? approval.tag
+      : "element";
+    return {
+      approval: {
+        kind: "action",
+        fingerprint: approval.fingerprint,
+        action: approval.action,
+        ...(approval.key !== undefined ? { key: approval.key } : {}),
+        ...(approval.submits !== undefined
+          ? { submits: quotable(approval.submits, 60) }
+          : {}),
+        page: pagePath,
+        label: quotable(approval.label, 60),
+        role: KNOWN_ROLES.has(approval.role) ? approval.role : tag,
+        tag,
+        before,
+      },
+    };
+  }
+  if (approval.requests.length === 0) {
+    return { error: "The page asked about sending nothing: nothing was sent." };
+  }
+  if (approval.requests.length > MAX_HELD_REQUESTS) {
+    return {
+      error: `The page tried to send ${approval.requests.length} requests, more than the ${MAX_HELD_REQUESTS} the person can be shown at once: nothing was sent.`,
+    };
+  }
+  const requests: PageRequest[] = [];
+  for (const request of approval.requests) {
+    const method = request.method.toUpperCase();
+    if (!SENDING_METHODS.has(method)) {
+      return {
+        error: `The page asked about a request this Studio does not show (method ${clampPageText(JSON.stringify(request.method), 20)}): nothing was sent.`,
+      };
+    }
+    let url: URL;
+    try {
+      url = new URL(request.url, origin);
+    } catch {
+      return {
+        error:
+          "The page tried to send a request whose address could not be read: nothing was sent.",
+      };
+    }
+    if (request.url === "" || url.origin !== origin) {
+      return {
+        error:
+          request.url === ""
+            ? "The page tried to send a request whose address could not be read: nothing was sent."
+            : `The page tried to send data to another site (${clampPageText(url.origin, 80)}), which is never allowed from the preview: nothing was sent.`,
+      };
+    }
+    requests.push({
+      via: request.via,
+      method,
+      url: clampPageText(`${url.pathname}${url.search}`, 200),
+      ...(request.body !== undefined
+        ? { body: quotable(request.body, BODY_EXCERPT_LENGTH) }
+        : {}),
+    });
+  }
+  return {
+    approval: {
+      kind: "requests",
+      hold: approval.hold,
+      page: pagePath,
+      label: quotable(approval.label, 60),
+      did: clampPageText(approval.did, 200),
+      before,
+      requests,
+    },
+  };
+}
