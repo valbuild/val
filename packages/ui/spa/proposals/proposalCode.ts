@@ -490,7 +490,8 @@ export const QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
   description:
     "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
-    "Where Val Build makes quick previews, one runs by itself after each change, so call this only to see the change now, or when none ran. " +
+    "Where Val Build makes quick previews, one runs by itself for the whole change, when your turn ends or once you have not written for a few seconds. " +
+    "So call this only to read the page yourself before the turn ends, or when the preview does not show what is staged. " +
     "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
     "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
     "Answers once the page shows it, with what each step took.",
