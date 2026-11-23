@@ -1,2 +1,5 @@
 export { parseEditorDocument } from "./parseEditorDocument";
-export { serializeEditorDocument } from "./serializeEditorDocument";
+export {
+  marksToStyles,
+  serializeEditorDocument,
+} from "./serializeEditorDocument";

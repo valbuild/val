@@ -40,8 +40,13 @@ export * from "./getErrorMessageFromUnknownJson";
 export * from "./zod/SerializedSchema";
 export * from "./valCanvasProtocol";
 export * from "./elementPicker";
+export * from "./inlineEditing";
+export * from "./inlineEditKeys";
+export * from "./emptyTextFields";
 export * from "./pageInspection";
 export * from "./pageScreenshot";
+export * from "./pageLog";
+export * from "./pageInteraction";
 export * from "./quickPreview";
 // Schema-shaped helpers that both realms need: the Studio's chat tools run in
 // the browser, and the MCP tool registry in @valbuild/server runs server-side,

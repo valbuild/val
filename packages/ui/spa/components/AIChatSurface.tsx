@@ -15,6 +15,7 @@ import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { AiSetup } from "./shell/AiSetup";
 import { ShareChatLink } from "./proposals/ShareChatLink";
 import { useAssistantPage } from "./shell/canvas/AssistantPage";
+import { ChecksBar, FIX_IT_MESSAGE } from "./ChecksBar";
 
 /**
  * The assistant, wired.
@@ -36,10 +37,6 @@ import { useAssistantPage } from "./shell/canvas/AssistantPage";
  * transcript on screen — and that is read back from the service by session id.
  * What is genuinely lost is a turn in flight, whose tool calls have nobody to
  * answer them until the panel is open again.
- *
- * NOT the on-page overlay's copy — `ValOverlay` mounts its own `useAI`, because
- * its session id is seeded from `sessionStorage` rather than from the studio's
- * URL, which is how the two hand a conversation back and forth.
  */
 export function AIChatSurface({ className }: { className?: string }) {
   /**
@@ -84,6 +81,7 @@ function ConnectedChat({ className }: { className?: string }) {
   const {
     sendMessage,
     captureSendContext,
+    steerMessage,
     uploadAiImage,
     isConnected,
     authError,
@@ -101,6 +99,7 @@ function ConnectedChat({ className }: { className?: string }) {
     cancel,
     shared,
     sessionModel,
+    checks,
   } = useAI(chatRef, {
     initialSessionId: initialSessionIdRef.current,
     page,
@@ -164,7 +163,19 @@ function ConnectedChat({ className }: { className?: string }) {
       className={className}
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
+      onSteerMessage={steerMessage}
       onCaptureSendContext={captureSendContext}
+      aboveComposer={
+        checks !== null ? (
+          <ChecksBar
+            proposalName={checks.proposalName}
+            onFixIt={() => chatRef.current?.sendUserMessage(FIX_IT_MESSAGE)}
+            retryPageCheck={checks.retryPageCheck}
+            pageCheckCanRun={checks.pageCheckCanRun}
+            retryChecks={checks.retryChecks}
+          />
+        ) : undefined
+      }
       pointedAt={page?.pointedAt ?? null}
       onClearPointedAt={page ? () => page.setPointedAt(null) : undefined}
       onCancel={cancel}

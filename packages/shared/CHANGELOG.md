@@ -1,5 +1,87 @@
 # @valbuild/shared
 
+## 0.154.0
+
+### Patch Changes
+
+- [#1060](https://github.com/valbuild/val/pull/1060) [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea) Thanks [@freekh](https://github.com/freekh)! - The assistant can now use the page in the preview, not only read it. A new `interact_page` tool opens a path on the site, clicks an element, types into a field, presses a key (Enter, Escape, Tab, the arrows), or shows the page at phone, tablet or desktop width — and answers with the page as it is afterwards: it waits for the page to settle (no changes and no requests in flight for a moment, at most 15 seconds), then gives the page's outline, whether the address or title changed, and what the page logged as going wrong since. When the page is still busy after that, the answer says so instead of describing it as finished. The assistant is told to use it to check its own changes: after a quick preview or a build, open the route, try what changed, and read the log.
+
+  The preview is the real site, talking to its real backend. What is enforced:
+
+  - **Every click, and every Enter or Space, asks you first.** A card in the chat — written by the Studio, not the assistant — names the element as the page shows it (its label, what it is, the page it is on, and whether Enter would submit its form), and nothing reaches the page until you allow it. Allow does exactly that, once, on that element; if the element changed in the meantime, you are asked again.
+  - **While the assistant types, presses other keys, or waits for a page it opened or resized to settle,** requests the page makes with any method but `GET`, `HEAD` and `OPTIONS` are held until the page settles, and a card shows each one — its method, its address and an excerpt of what it sends. Allow sends exactly those, as they were; Don't allow, or stopping the answer, drops them and the page sees them fail.
+  - **Sends of data to another site** (`POST`, `PUT`, `PATCH`, `DELETE`, forms, beacons) are refused, and so are links and forms that go to another site or open a new window. It never types into a password field.
+  - After a web search in the same answer, the assistant asks before it uses the preview at all.
+
+  What is **not** covered:
+
+  - requests a page sends while it loads, after `open` or after any navigation, and requests sent later on their own (an autosave after a delay);
+  - requests made through a `fetch` or `XMLHttpRequest` the page's code captured before the action (some libraries do this), and XHRs opened before it;
+  - `GET`, `HEAD` and `OPTIONS` requests — a `GET` to another site can still carry data in its address — and image or script loads;
+  - WebSockets, workers and embedded frames;
+  - script navigations and redirects, which can still leave the site; and plain links, which can have side effects of their own, such as a logout or unsubscribe link.
+
+  The ask-first rule is `interact_page`'s, not the whole session's: `quick_preview` runs code the assistant wrote in the preview, and what that code does is not asked about.
+
+  Reading pages needs no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.
+
+- [#1053](https://github.com/valbuild/val/pull/1053) [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1) Thanks [@freekh](https://github.com/freekh)! - **Select & edit.** Text can now be edited where it is, in the Studio's preview, instead of in the column beside it. Select has a menu beside it with two modes:
+
+  - **Select** opens the field you click in the column, as before. It is the mode Select starts in.
+  - **Select & edit** puts the caret in the text you click, on the page. The mode you used last is remembered per browser.
+
+  In Select & edit:
+
+  - **Strings** — a headline, a label, a link's words. Enter ends the edit (in a `.multiline()` string it is a new line), Esc ends it too.
+  - **Richtext** rendered with `ValRichText` — type and delete anywhere, Enter splits a paragraph, heading or list item, Backspace and Delete join them. Formatting controls float beside the text: bold, italic, strikethrough, links, headings and lists, whichever the field's schema allows. They are the same controls the field has in the column, and pressed with only a caret they apply to what you type next. Undo and redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y) go back over typing, Enter, Backspace and the controls alike.
+
+  The caret goes in as you click, so you can start typing straight away. A text you have emptied stays on the page as a line you can click while Select is on, in either mode, so you can pick it or type in it again; with Select off the page is laid out as before.
+
+  While you type, the "On this page" column scrolls to the same field and shows it selected, with what you type appearing in it. A validation error for the field shows by the text on the page as well as in the column, and goes when you fix it. Zooming the preview, fitting it or changing its width does not end the edit: the caret stays in the text and you can keep typing. Reloading the page, changing its address or leaving the preview ends the edit, and what you typed is saved.
+
+  Everything else still opens in the column when clicked: a field that is not a text (an image, a number, a date), a text the page shows as part of something larger (inside a sentence, in an `alt` or `href`), a richtext rendered with a `transform` that changes its structure, and a `readonly` field. Images cannot be added to a richtext from the page yet.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to use it. A site on an older version is unaffected: in either mode, every click opens the field in the column.
+
+- [#1067](https://github.com/valbuild/val/pull/1067) [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee) Thanks [@freekh](https://github.com/freekh)! - Two answers from `/api/val/patches` no longer tell the Studio something false when the content service behind it fails part of the way.
+
+  - **Discarding a change while the content service is down no longer looks like it worked.** If the content service answered with an error or could not be reached, `DELETE /api/val/patches` answered 200 with every patch as deleted. The Studio then forgot changes that still existed: a reload brought them back, and the next publish could ship a change you had discarded. It now answers 502 with the content service's reason, and the Studio keeps the change and says the discard failed.
+  - **An edit made while someone else is editing is no longer stuck unsaved.** A batch of edits is saved one patch at a time, so another editor's change can land between two of yours. When it did, the server answered the conflict without saying the first patch had been saved, the Studio sent that patch again, and the content service refused it as one it already had. The save then retried forever and the edit after it was never saved. The conflict now names what was saved, as the other partial failures already did, and the Studio sends only the rest.
+
+## 0.153.6
+
+### Patch Changes
+
+- [#1047](https://github.com/valbuild/val/pull/1047) [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf) Thanks [@freekh](https://github.com/freekh)! - The assistant can now see what went wrong on the page in the preview. A new `read_page_log` tool reads the page's console errors and warnings, uncaught exceptions, unhandled promise rejections, images, scripts and stylesheets that did not load, and `fetch` requests that failed or answered 400 or more, so a section that is blank because its component threw no longer looks like a section with nothing in it. Every `read_page` answer also counts them, and names the Val modules the page read. The log is kept only in the Studio's preview, never on a visitor's page, and leaves Val's own requests and log lines out.
+
+  The preview now says which requests it answers. When the site runs an older `@valbuild/next` or `@valbuild/tanstack` than the Studio, a page tool it cannot answer fails at once with which package to update, and to which version, instead of waiting for an answer that never comes. Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `read_page_log`.
+
+- [#1057](https://github.com/valbuild/val/pull/1057) [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4) Thanks [@freekh](https://github.com/freekh)! - Security fixes. Update if you run Val's dev server, or have deployed a site without `VAL_API_KEY` and `VAL_SECRET`.
+
+  - **`/api/val/files` serves media only.** It answered any path in the project, without a sign-in: `/api/val/files/.env` returned the file. It now serves files under `/public`, and their drafts, and nothing else.
+  - **An upload cannot be written outside Val's patch store.** A file's path and a patch's id are checked before anything is written or read, so a path with `..` in it is refused.
+  - **In local filesystem mode, the API answers only your own Studio.** A request from another site's page is refused, and so is one addressed to a host name that is not `localhost` or an IP address. If you develop on another name (`my-app.test`, a tunnel that passes its own `Host`), list it in the `VAL_ALLOWED_HOSTS` environment variable, comma separated.
+  - **A deployed site without credentials no longer serves the API.** Without `VAL_API_KEY` and `VAL_SECRET` an app runs in local filesystem mode, which has no sign-in. With `NODE_ENV=production` it now refuses, and says what to set.
+  - **`redirect_to` stays on your site.** `/api/val/logout`, `/enable`, `/disable` and `/authorize` redirected to any URL they were given. They now accept a path, or a URL on the same site.
+  - **Draft mode is turned on after sign-in**, not when the sign-in starts, so a visitor who is not signed in can no longer switch it on.
+  - `image-size`, `simple-git` and `zod` are updated past their published advisories.
+
+- [#1054](https://github.com/valbuild/val/pull/1054) [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f) Thanks [@freekh](https://github.com/freekh)! - In code mode:
+
+  - **Build progress.** While Val Build builds the preview, the Studio shows how far it is: waiting in the queue, then the builder's steps ("Building the site"), then checking the page and serving it. The refresh button beside the preview fills as a ring as the build goes, and its tooltip says the step and the percent.
+  - **The preview's refresh button is just the icon.** The words that sat beside it ("Up to date", "Save to update", "Updating 42%") are gone. The state shows on the icon itself: it turns while updating, fills as a ring while building, shows a dot when Save would update the preview, and turns red when the preview could not be updated. The tooltip and screen readers still say it in words.
+  - **The `</>` button on the site** is the same size as the other buttons in the top bar.
+
+## 0.153.5
+
+### Patch Changes
+
+- [#1037](https://github.com/valbuild/val/pull/1037) [`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d) Thanks [@freekh](https://github.com/freekh)! - The assistant's default model is now chosen by Val Build, not built into the Studio, so it can change for every project without a Val upgrade. It starts on the newest Claude Sonnet the project's Anthropic key can reach, or, with only an OpenAI key, the newest GPT of OpenAI's balanced tier (such as `gpt-6.1-sol`). A model an editor has picked themselves is still remembered and still wins. The built-in fallback catalog, used only when the models cannot be listed, now offers the Claude 5.5 models.
+- Updated dependencies [[`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f)]:
+  - @valbuild/core@0.153.5
+
 ## 0.153.1
 
 ### Patch Changes

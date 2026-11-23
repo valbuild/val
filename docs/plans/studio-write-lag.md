@@ -9,7 +9,7 @@ measured, what was changed, and what it costs now.
 ## How it is measured
 
 Three scripts, the same field: the TanStack showcase's `/landing` in the
-canvas, Edit on, the hero title picked on the page so the cursor is in its
+canvas, Select on, the hero title picked on the page so the cursor is in its
 field in "On this page", then characters typed 120 ms apart. How to run them
 is at the top of each file. None is a test: they type into real content
 and discard every unsaved patch, so no Playwright project picks them up.

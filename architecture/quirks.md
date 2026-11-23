@@ -1447,6 +1447,37 @@ The fix is on the site, not the Studio: set an explicit background on `body`.
 A page that paints its own background is opaque in both contexts and none of
 the above applies. Neither Tailwind v3 nor v4 preflight sets one for you.
 
+## The canvas holds two `<iframe>`s during a swap, and the old one must not move
+
+A new document of the same page -- a build served, a quick preview -- loads
+in a second `<iframe>` behind the one on screen, which stays until the new one
+has said `ready` AND has something in its `<body>` (`CanvasFrame`'s `leaving`,
+`frameHasContent`): `ready` is the page's bridge mounting, and a quick preview
+renders in the browser after that, from a `<body>` its own script emptied. It used to be
+one frame re-keyed, which is a blank page from the moment the new document is
+asked for until it has rendered: in code mode that was once per file the
+assistant wrote, and was reported as "code mode flashes after writes".
+
+Two things follow, and both cost time once:
+
+- **An `<iframe>` that is moved in the DOM loads its page again.** The frame
+  being replaced is the same element as before (same React key), and it stays
+  where it is only because the new frame is rendered BEFORE it in the list:
+  React inserts the new one and leaves the old one alone. Put the old one
+  first and React moves it, which reloads it, which is the blank page back --
+  with nothing failing but `canvasSwap.test.tsx`, which checks the element was
+  never removed.
+- **"The frame" is not `querySelector("iframe")` alone any more.** The first
+  `<iframe>` in the canvas is always the live one -- the one the protocol
+  talks to -- and the one on top, while there are two, is the last
+  (`data-val-canvas-leaving`). A test or a tool that wants what the person
+  SEES wants the last; one that wants the page being loaded wants the first.
+
+The status while it happens is `swapping`, not `connecting`: nothing is
+missing from view, so `CanvasPreviewNotice` says nothing, and the page cannot
+be edited or handed a quick preview until it is `live` again. A reload the
+person asked for and another route are not swaps and load in the open.
+
 ## `?val_canvas` marks only the first document in the canvas
 
 The Studio loads the canvas at `/page?val_canvas=1`, and the provider used to
@@ -1753,3 +1784,26 @@ row being typed in was gone. `examples/tanstack/vite.config.ts` lists them in
 back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
 see it. An app that installs Val from npm is not affected:
 `@valbuild/tanstack` is pre-bundled there, with what it imports lazily.
+
+## fs mode refuses requests that are not the Studio's own
+
+Symptom: every `/api/val` request answers 403 in local dev, with a message
+naming `VAL_ALLOWED_HOSTS`, or one about another site, or one about
+`VAL_API_KEY` and `VAL_SECRET`.
+
+fs mode has no sign-in, so `requestGuard.ts` decides which requests it answers
+at all, before any route:
+
+- `NODE_ENV=production` with no credentials: refused. `next build && next
+start` (or `vite preview`) of an app in fs mode is this case, so a production
+  build tried locally has no Studio. Set the credentials, or use the dev server.
+- An `Origin` that is neither `Host` nor `X-Forwarded-Host`: refused. A proxy
+  that rewrites `Host` without setting `X-Forwarded-Host` looks like this.
+- A `Host` that is not `localhost`, `*.localhost` or an IP address: refused,
+  unless it is in `VAL_ALLOWED_HOSTS` (comma separated, no port). That is DNS
+  rebinding, and it is also `my-app.test` in `/etc/hosts`.
+
+`/analytics` is exempt (a beacon writes nothing in fs mode), and so are the
+Studio's static files. http and memory mode are not checked here: they have a
+session. The MCP endpoint has its own, stricter, copy of the rule in
+`@valbuild/mcp`.

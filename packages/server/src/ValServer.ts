@@ -52,6 +52,7 @@ import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
 import { z } from "zod";
 import { parseRangeHeader } from "./httpRange";
+import { isPublicFilePath, isSafePatchId } from "./safeFilePath";
 import {
   isHlsPlaylistPath,
   rewriteDraftPlaylist,
@@ -623,7 +624,8 @@ export const ValServer = (
       `${redirectUrl.origin}${options.route}`,
       token,
     );
-    await callbacks.onEnable(true);
+    // Draft mode is NOT turned on here: nobody has signed in yet, and this
+    // is reachable by anyone. `/callback` turns it on, once they have.
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
@@ -1332,19 +1334,34 @@ export const ValServer = (
         },
       };
     }
-    const saved = await saveBeforeCode(
+    const saved = await saveBeforeCodeOutcome(
       cookies,
       "Saved before the code was changed",
     );
-    return saved === null
-      ? null
-      : {
-          status: saved.status,
-          json: {
-            message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
-            details: { code: "save-failed" },
-          },
-        };
+    if ("saved" in saved) {
+      const savedFirst = saved.saved;
+      const staged = await proxyProposalsApi(
+        path,
+        "POST",
+        profileId,
+        JSON.stringify(body ?? {}),
+      );
+      /*
+       * `savedFirst` goes with content's answer: the tab that staged holds
+       * the proposal's files (`projectSnapshot.ts` in `@valbuild/ui`), and a
+       * save made here wrote `.val.ts` files it did not write itself.
+       */
+      return staged.status === 200 && isJsonObject(staged.json)
+        ? { status: 200, json: { ...staged.json, savedFirst } }
+        : staged;
+    }
+    return {
+      status: saved.status,
+      json: {
+        message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
+        details: { code: "save-failed" },
+      },
+    };
   };
 
   /**
@@ -1355,6 +1372,20 @@ export const ValServer = (
     cookies: Parameters<typeof getAuth>[0],
     message: string,
   ): Promise<{ status: number; message: string } | null> => {
+    const outcome = await saveBeforeCodeOutcome(cookies, message);
+    return "saved" in outcome ? null : outcome;
+  };
+
+  /**
+   * {@link saveBeforeCode}, saying whether anything was saved: `saved: false`
+   * when nothing was pending. What a staging's answer tells the tab
+   * (`savedFirst`), which holds the proposal's files and has to know whether
+   * a save changed a `.val.ts` under them.
+   */
+  const saveBeforeCodeOutcome = async (
+    cookies: Parameters<typeof getAuth>[0],
+    message: string,
+  ): Promise<{ saved: boolean } | { status: number; message: string }> => {
     const chain = await serverOps.fetchPatches({ excludePatchOps: true });
     if (chain.error) {
       return { status: 502, message: chain.error.message };
@@ -1362,9 +1393,9 @@ export const ValServer = (
     const pending = chain.patches
       .filter((patch) => patch.appliedAt === null)
       .map((patch) => patch.patchId);
-    if (pending.length === 0) return null;
+    if (pending.length === 0) return { saved: false };
     const saved = await saveChanges(cookies, { patchIds: pending, message });
-    if (saved.status === 200) return null;
+    if (saved.status === 200) return { saved: true };
     const said =
       "message" in saved.json && typeof saved.json.message === "string"
         ? saved.json.message
@@ -1884,6 +1915,9 @@ export const ValServer = (
           },
           valSecret,
         );
+        // Signed in: now draft mode, which `/authorize` used to turn on for
+        // whoever asked.
+        await callbacks.onEnable(true);
 
         return {
           status: 302,
@@ -2379,7 +2413,7 @@ export const ValServer = (
         }
         const pathParts = req.path.split("/");
         const patchId = pathParts[1] as PatchId;
-        const isValidPatchId = patchId.length === 36;
+        const isValidPatchId = patchId.length === 36 && isSafePatchId(patchId);
         const isValidEndpoint =
           pathParts[0] === "" && isValidPatchId && pathParts[2] === "files";
         if (!isValidEndpoint) {
@@ -2712,12 +2746,20 @@ export const ValServer = (
           );
           if (result.isErr(createPatchRes)) {
             if (createPatchRes.error.errorType === "patch-head-conflict") {
+              /*
+               * The patches before this one in the batch ARE saved: each is
+               * its own write, and someone else's can land between two of
+               * ours. Reported as a 200 would report them, so the client does
+               * not send them again -- the content service refuses a patch it
+               * already has.
+               */
               return {
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
                   message:
                     "The change was written against a different starting point than the server has.",
+                  ...savedSoFar(),
                 },
               };
             } else if (createPatchRes.error.errorType === "plan-refused") {
@@ -2894,6 +2936,25 @@ export const ValServer = (
         }
         const ids = query.id;
         const deleteRes = await serverOps.deletePatches(ids);
+        if ("error" in deleteRes && deleteRes.error !== undefined) {
+          /*
+           * The store failed -- the content service, or in fs mode the patch
+           * store's lock or log -- so nothing is known to be deleted.
+           * Answered as a failure, never as the 200 below: that names every
+           * id as deleted, and the Studio forgets patches that still exist --
+           * a reload brings the change back, and the next publish ships it.
+           */
+          Internal.log.error("Failed to delete patches", deleteRes.error);
+          return {
+            status: 502,
+            json: {
+              message: deleteRes.error.message,
+              ...(typeof deleteRes.error.details === "string"
+                ? { details: deleteRes.error.details }
+                : {}),
+            },
+          };
+        }
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           Internal.log.error("Failed to delete patches", deleteRes.errors);
           return {
@@ -4595,6 +4656,19 @@ export const ValServer = (
         // nothing fetches it backend-to-backend. Neither half of the argument
         // above transfers. See architecture/media.md, "Why /files has no auth,
         // and /history/files does".
+        // Media and nothing else. This route has no auth (above), so what it
+        // serves is decided by the path: a file under /public, which the site
+        // serves anyway, or a draft of one. Without this it answered any path
+        // in the project -- `.env`, the source -- and in http mode asked the
+        // content service for it with the project's api key.
+        if (!isPublicFilePath(filePath)) {
+          return {
+            status: 404,
+            json: {
+              message: "File not found",
+            },
+          };
+        }
         const remote = query.remote === "true";
         const patchId = query.patch_id;
         if (!patchId && isHttpOps(serverOps) && remote) {
@@ -5376,4 +5450,8 @@ function sourceFilePatchErrorsOf(json: unknown): string[] {
     }
   }
   return messages;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

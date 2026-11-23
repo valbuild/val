@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+import { storesReceived } from "./intake";
 
 /**
  * Pay the app's first-use costs before the suite starts timing anything.
@@ -108,19 +109,10 @@ async function warm(request: APIRequestContext, url: string): Promise<void> {
 /** The store system has taken the project in. See `openStudio`. */
 async function waitForIntake(page: Page, what: string): Promise<void> {
   await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: COMPILE_TIMEOUT,
-        message: `${what} never took the project in`,
-      },
-    )
+    .poll(() => storesReceived(page), {
+      timeout: COMPILE_TIMEOUT,
+      message: `${what} never took the project in`,
+    })
     .toBe(true);
 }
 

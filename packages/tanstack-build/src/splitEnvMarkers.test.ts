@@ -1,5 +1,4 @@
-import { execFileSync } from "child_process";
-import path from "path";
+import { runProbe } from "./__fixtures__/runProbe";
 
 /**
  * A split route's deferred half gets the env-marker transform too.
@@ -33,19 +32,7 @@ type Probe = {
 let probe: Probe;
 
 beforeAll(() => {
-  const out = execFileSync(
-    path.join(__dirname, "..", "node_modules", ".bin", "tsx"),
-    [path.join(__dirname, "__fixtures__", "splitEnvMarkersProbe.ts")],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  // tsx's WASI warnings share stdout's stream in some shells; take the last
-  // line that parses rather than assuming the output is only JSON.
-  const line = out
-    .trim()
-    .split("\n")
-    .reverse()
-    .find((candidate) => candidate.startsWith("{"));
-  probe = JSON.parse(line!) as Probe;
+  probe = runProbe<Probe>("splitEnvMarkersProbe.ts");
 }, 300_000);
 
 describe("a split route's deferred half", () => {

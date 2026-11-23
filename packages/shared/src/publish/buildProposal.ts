@@ -366,7 +366,24 @@ export const SERVER_BUILD_WAIT_MS = 4 * 60_000;
  */
 export type ServerBuildStep =
   | { kind: "reading" }
-  | { kind: "on-server"; since: number };
+  | {
+      kind: "on-server";
+      since: number;
+      /** What Val Build says of it, when it says (`buildProgress`). */
+      progress?: ServerBuildProgress | null;
+    };
+
+/**
+ * How far the platform's build is (valbuild/home
+ * `GET /proposals/:name/build-progress`): its place in the queue, the step
+ * the builder says it is at, and `built` once the builder is done and the
+ * build is being checked and served.
+ */
+export type ServerBuildProgress = {
+  queued: number | null;
+  step: { label: string; index: number; of: number } | null;
+  built: boolean;
+};
 
 /** The calls a build by the platform makes. An error carries content's `status`. */
 export type ServerBuildClient<P extends BuiltProposal> = Pick<
@@ -375,6 +392,15 @@ export type ServerBuildClient<P extends BuiltProposal> = Pick<
 > & {
   /** Ask the platform to build the staged files `inputs` names: `/build` without a publish. */
   askBuild(name: string, inputs: string): Promise<P>;
+  /**
+   * How far the build of `inputs` is, or `null` when that cannot be told:
+   * content from before it said, or a build of other files. Optional: a
+   * client without it shows the build without progress.
+   */
+  buildProgress?(
+    name: string,
+    inputs: string,
+  ): Promise<ServerBuildProgress | null>;
 };
 
 /**
@@ -500,10 +526,15 @@ export async function buildProposalOnServer<P extends BuiltProposal>(deps: {
       continue;
     }
     if (proposal === ABORTED) return abortedOutcome(signal);
-    // Said again, so a watchdog sees it waiting, not stalled.
-    step({ kind: "on-server", since });
     const outcome = settled(proposal);
     if (outcome !== null) return outcome;
+    // Said again, so a watchdog sees it waiting, not stalled -- with how far
+    // it is, when Val Build says. Never a reason to stop waiting.
+    const progress =
+      deps.client.buildProgress === undefined
+        ? null
+        : await deps.client.buildProgress(deps.name, inputs).catch(() => null);
+    step({ kind: "on-server", since, progress });
   }
   return {
     status: "failed",

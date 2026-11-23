@@ -1,5 +1,50 @@
 # @valbuild/server
 
+## 0.154.0
+
+### Patch Changes
+
+- [#1067](https://github.com/valbuild/val/pull/1067) [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee) Thanks [@freekh](https://github.com/freekh)! - Two answers from `/api/val/patches` no longer tell the Studio something false when the content service behind it fails part of the way.
+
+  - **Discarding a change while the content service is down no longer looks like it worked.** If the content service answered with an error or could not be reached, `DELETE /api/val/patches` answered 200 with every patch as deleted. The Studio then forgot changes that still existed: a reload brought them back, and the next publish could ship a change you had discarded. It now answers 502 with the content service's reason, and the Studio keeps the change and says the discard failed.
+  - **An edit made while someone else is editing is no longer stuck unsaved.** A batch of edits is saved one patch at a time, so another editor's change can land between two of yours. When it did, the server answered the conflict without saying the first patch had been saved, the Studio sent that patch again, and the content service refused it as one it already had. The save then retried forever and the edit after it was never saved. The conflict now names what was saved, as the other partial failures already did, and the Studio sends only the rest.
+
+- [#1068](https://github.com/valbuild/val/pull/1068) [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1) Thanks [@freekh](https://github.com/freekh)! - Saving an edit no longer fails with `Converting circular structure to JSON` when a `.val.ts` file uses object spreads, such as `{ title: "…", ...noMedia, learnMore: null }`.
+
+  An edit to a key written out after every spread in its object is now saved, and the spread is left as it is. An edit to a key a spread supplies, or one a later spread may override, is refused with a message that names the file, the line and the spread, so you know which value to write out — before, any spread anywhere along the edited path refused the save, and the refusal itself crashed `/save` with a 500.
+
+- Updated dependencies [[`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641), [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e)]:
+  - @valbuild/ui@0.154.0
+  - @valbuild/shared@0.154.0
+
+## 0.153.6
+
+### Patch Changes
+
+- [#1057](https://github.com/valbuild/val/pull/1057) [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4) Thanks [@freekh](https://github.com/freekh)! - Security fixes. Update if you run Val's dev server, or have deployed a site without `VAL_API_KEY` and `VAL_SECRET`.
+
+  - **`/api/val/files` serves media only.** It answered any path in the project, without a sign-in: `/api/val/files/.env` returned the file. It now serves files under `/public`, and their drafts, and nothing else.
+  - **An upload cannot be written outside Val's patch store.** A file's path and a patch's id are checked before anything is written or read, so a path with `..` in it is refused.
+  - **In local filesystem mode, the API answers only your own Studio.** A request from another site's page is refused, and so is one addressed to a host name that is not `localhost` or an IP address. If you develop on another name (`my-app.test`, a tunnel that passes its own `Host`), list it in the `VAL_ALLOWED_HOSTS` environment variable, comma separated.
+  - **A deployed site without credentials no longer serves the API.** Without `VAL_API_KEY` and `VAL_SECRET` an app runs in local filesystem mode, which has no sign-in. With `NODE_ENV=production` it now refuses, and says what to set.
+  - **`redirect_to` stays on your site.** `/api/val/logout`, `/enable`, `/disable` and `/authorize` redirected to any URL they were given. They now accept a path, or a URL on the same site.
+  - **Draft mode is turned on after sign-in**, not when the sign-in starts, so a visitor who is not signed in can no longer switch it on.
+  - `image-size`, `simple-git` and `zod` are updated past their published advisories.
+
+- Updated dependencies [[`a561665`](https://github.com/valbuild/val/commit/a5616659c202eaa5ad61e1a035c9b9ca2a007e9a), [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf), [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4), [`3944e3e`](https://github.com/valbuild/val/commit/3944e3e3c33678bca2a0aa46fcc0f4adbf8c2ba5), [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f), [`2c98fcc`](https://github.com/valbuild/val/commit/2c98fcc776f15c979dae74a1a86ca91cad70e7de), [`0dd664f`](https://github.com/valbuild/val/commit/0dd664f7bde9bfb552ecd643b2345998c69d5914)]:
+  - @valbuild/ui@0.153.6
+  - @valbuild/shared@0.153.6
+
+## 0.153.5
+
+### Patch Changes
+
+- [#1037](https://github.com/valbuild/val/pull/1037) [`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d) Thanks [@freekh](https://github.com/freekh)! - The assistant's default model is now chosen by Val Build, not built into the Studio, so it can change for every project without a Val upgrade. It starts on the newest Claude Sonnet the project's Anthropic key can reach, or, with only an OpenAI key, the newest GPT of OpenAI's balanced tier (such as `gpt-6.1-sol`). A model an editor has picked themselves is still remembered and still wins. The built-in fallback catalog, used only when the models cannot be listed, now offers the Claude 5.5 models.
+- Updated dependencies [[`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d), [`aa26301`](https://github.com/valbuild/val/commit/aa26301afae68d31f37341b84ee3fd23ee532b45), [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f), [`f488c90`](https://github.com/valbuild/val/commit/f488c907fc3f22a33d64ea7ac36f513c405389a2)]:
+  - @valbuild/ui@0.153.5
+  - @valbuild/shared@0.153.5
+  - @valbuild/core@0.153.5
+
 ## 0.153.4
 
 ### Patch Changes

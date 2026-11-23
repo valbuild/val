@@ -1,9 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bridgeAnswers,
+  bridgeInfoOf,
+  capabilitiesOf,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  INTERACT_SETTLE_TIMEOUT_MS,
+  interactCapability,
+  interactOutcomeOf,
   isValCanvasPageMessage,
+  type CanvasRequest,
+  type InlineEditCandidate,
+  type InlineEditValue,
+  type InlineRect,
+  type InlineRichTextNode,
+  type InlineSelection,
+  type PageAction,
+  type PageInteraction,
+  type PageInteractOutcome,
+  type PageApproval,
+  type PageState,
   type PageLocation,
+  type PageLogLevel,
+  type PageLogSnapshot,
   type PageScreenshot,
   type PageSnapshot,
   type QuickPreviewFiles,
@@ -20,8 +39,15 @@ import { useValSystem } from "../../../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
-import { CanvasPoint } from "./types";
+import { CANVAS_DEVICE_WIDTHS, CanvasDevice, CanvasPoint } from "./types";
 import {
+  INTERACT_ANSWER_MARGIN_MS,
+  PageRefusedError,
+  sitePathOf,
+  trustedApproval,
+} from "./canvasInteraction";
+import {
+  frameHasContent,
   frameHasFocus,
   sameDocument,
   withQuickPreview,
@@ -36,6 +62,17 @@ import {
   type HeldVersions,
 } from "../../../stores/react/sourceRelay";
 import type { ModuleVersion } from "@valbuild/shared/internal";
+import { unansweredRequestError, type FrameBridge } from "./canvasCapabilities";
+import {
+  INLINE_TOOLBAR_ATTRIBUTE,
+  PREVIEW_VIEW_CONTROL_ATTRIBUTE,
+  type InlineEditLocation,
+  type ViewportBox,
+} from "./placeInlineToolbar";
+import {
+  type CanvasTextFields,
+  NO_CANVAS_TEXT_FIELDS,
+} from "./canvasTextFields";
 
 /**
  * How the frame is currently doing.
@@ -66,6 +103,20 @@ type FrameState =
  * it is telling someone to enable a mode that is already on.
  */
 export const ANSWER_TIMEOUT_MS = 8000;
+
+/**
+ * How often a document swapped in is looked at, once it has said it is
+ * there, for something rendered in it: the one it replaces is taken off the
+ * screen when there is, and never before one look.
+ */
+export const SWAP_PAINT_MS = 50;
+
+/**
+ * How long that goes on at most. A page that says it is there and has
+ * nothing in its `<body>` is a blank page by its own design, and it is
+ * shown as one.
+ */
+export const SWAP_PAINT_MAX_MS = 3_000;
 
 /** How often a new document held for a focused page looks again. */
 export const FOCUS_RECHECK_MS = 500;
@@ -147,6 +198,74 @@ export type CanvasFrameProps = {
   /** Esc on the page while `isPicking`. */
   onPickingStopped?: () => void;
   /**
+   * Editing on the page (Select & edit: `useCanvasInlineEdit`). A new request
+   * asks the page to put the caret in one of these fields where it shows
+   * it; `null` ends an edit that is going on. The page answers each
+   * request once, with `onInlineEditStarted` or `onInlineEditUnavailable`
+   * -- at once, without asking, when its bridge predates editing in place.
+   */
+  inlineEdit?: {
+    requestId: string;
+    candidates: InlineEditCandidate[];
+  } | null;
+  /**
+   * The caret is in the field at `path`, on the page: in answer to
+   * `requestId`, or -- `null` -- started by the page on a click, from
+   * `textFields`. False: the Studio will not have it, and the page is told
+   * to stop.
+   */
+  onInlineEditStarted?: (requestId: string | null, path: SourcePath) => boolean;
+  /**
+   * What the page is told of its texts ahead of a click, while Select is on:
+   * what lets it start an edit in the click itself, and keep an emptied
+   * text pointable. See `canvasTextFields.ts`.
+   */
+  textFields?: CanvasTextFields;
+  /** Something was typed there: the field's new value, whole. */
+  onInlineEdit?: (path: SourcePath, value: InlineEditValue) => void;
+  /**
+   * The edit ended: on the page (Enter, Esc, the focus going elsewhere), or
+   * with the document it was in, when the frame loads another.
+   */
+  onInlineEditEnded?: (path: SourcePath) => void;
+  /** The page can edit none of what was offered. */
+  onInlineEditUnavailable?: (requestId: string) => void;
+  /**
+   * What is selected in a richtext being edited on the page: what the
+   * Studio's formatting controls act on.
+   */
+  onInlineEditSelection?: (
+    path: SourcePath,
+    selection: InlineSelection | null,
+  ) => void;
+  /**
+   * What one of those controls made of the document: sent to the page when
+   * `id` changes, to be shown in the text being typed in.
+   */
+  inlineEditApply?: {
+    id: number;
+    path: SourcePath;
+    value: InlineRichTextNode[];
+    selection: InlineSelection | null;
+  } | null;
+  /**
+   * A control pressed with only a caret: the marks the next text typed on
+   * the page has. Sent to the page when `id` changes.
+   */
+  inlineEditMarks?: {
+    id: number;
+    path: SourcePath;
+    styles: string[] | null;
+    selection: InlineSelection | null;
+  } | null;
+  /**
+   * Handed the way to find the text being edited in the Studio's own
+   * viewport, and to put the focus back in it -- and `null` when the frame
+   * goes. The frame is the one that knows: it is scaled and moved, and the
+   * page only knows where things are inside itself.
+   */
+  onInlineEditPlace?: (place: InlineEditPlace | null) => void;
+  /**
    * A two-finger gesture on the page.
    *
    * Relayed rather than observed: a frame keeps its own touches, so nothing the
@@ -208,11 +327,80 @@ export type CanvasFrameProps = {
    */
   onPageCamera?: (camera: PageCamera | null) => void;
   /**
+   * Handed the way to read what the page logged as going wrong
+   * (`readPageLog`), and `null` when the frame goes: the assistant's
+   * `read_page_log`.
+   */
+  onPageLogReader?: (reader: PageLogReader | null) => void;
+  /**
    * Handed the way to store a quick preview's files in the page's worker
    * (`quickPreview`), and `null` when the frame goes.
    */
   onQuickPreviewStorer?: (store: QuickPreviewStorer | null) => void;
+  /**
+   * Handed the way to use the page (`interact`), and `null` when the frame
+   * goes: the assistant's `interact_page`.
+   */
+  onPageInteractor?: (interactor: PageInteractor | null) => void;
+  /**
+   * Change the width the page is shown at, as the toolbar's device switch
+   * does: what `interact_page`'s `viewport` calls, so there is one way the
+   * preview is sized. Absent where the width is not the frame's to change
+   * (Review's comparison sets it for both sides).
+   */
+  onDeviceChange?: (device: CanvasDevice) => void;
 };
+
+/** Where the text being edited on the page is, and how to get back to it. */
+export type InlineEditPlace = {
+  /** `null` while the page has not said, or nothing is being edited. */
+  locate: () => InlineEditLocation | null;
+  /** Put the focus back in the page, where the caret is. */
+  focus: () => void;
+};
+
+/**
+ * What `interact_page` asks of the preview: an action on the page, or one
+ * the Studio does to the frame -- open a path on the site, change its width
+ * -- after which the page is asked to `settle`.
+ */
+export type PageInteractRequest = {
+  action:
+    | PageAction
+    | { kind: "open"; path: string }
+    | { kind: "viewport"; device: CanvasDevice };
+  /** At most this many items in the outline read afterwards. */
+  maxItems?: number;
+  /**
+   * The fingerprint of the element the person allowed this click or
+   * Enter/Space on (`ActionApproval`). Set by the Studio's gate after the
+   * person's Allow, never from the model's arguments.
+   */
+  approved?: string;
+};
+
+/** What the preview answers `interact_page`. */
+export type PageInteractAnswer =
+  | {
+      status: "done";
+      interaction: PageInteraction;
+      /** The action took the frame to another document. */
+      navigated: boolean;
+    }
+  /**
+   * The page tried to send data, held unsent: the person has to allow it,
+   * which is a `release` of `approval.hold`. Checked by the Studio
+   * (`trustedApproval`) before it is handed on.
+   */
+  | { status: "needs-approval"; approval: PageApproval };
+
+/**
+ * Use the page: see `pageInteraction.ts`. Rejects with what to tell the
+ * model when it cannot be done.
+ */
+export type PageInteractor = (
+  request: PageInteractRequest,
+) => Promise<PageInteractAnswer>;
 
 /** Store a quick preview's files at the page's origin: see `quickPreview.ts`. */
 export type QuickPreviewStorer = (
@@ -236,6 +424,12 @@ export const PAGE_READ_TIMEOUT_MS = 5000;
 export type PageCamera = (options: {
   fullPage?: boolean;
 }) => Promise<PageScreenshot>;
+
+/** Read what the page logged as going wrong: see `pageLog.ts`. */
+export type PageLogReader = (options: {
+  sinceNavigation?: boolean;
+  levels?: PageLogLevel[];
+}) => Promise<PageLogSnapshot>;
 
 /** How long a page is given to draw itself: a long page with many images is slow. */
 export const PAGE_SCREENSHOT_TIMEOUT_MS = 30_000;
@@ -274,6 +468,16 @@ export function CanvasFrame({
   onPickElement,
   onElementPickingStopped,
   onPickingStopped,
+  inlineEdit = null,
+  onInlineEditStarted,
+  onInlineEdit,
+  onInlineEditEnded,
+  onInlineEditUnavailable,
+  onInlineEditSelection,
+  inlineEditApply = null,
+  inlineEditMarks = null,
+  onInlineEditPlace,
+  textFields,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -285,7 +489,10 @@ export function CanvasFrame({
   scrollTo = null,
   onPageReader,
   onPageCamera,
+  onPageLogReader,
   onQuickPreviewStorer,
+  onPageInteractor,
+  onDeviceChange,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const valSystem = useValSystem();
@@ -328,6 +535,17 @@ export function CanvasFrame({
    * deciding what to send, and written from a message handler.
    */
   const pickedHere = useRef<SourcePath | null>(null);
+  /**
+   * The field being edited on the page, from the page saying it started
+   * until it says it ended. A ref: it is read to decide what to send and to
+   * say an edit ended with its document, never rendered.
+   */
+  const inlineEditing = useRef<SourcePath | null>(null);
+  /** Where the page last said that text and its caret are, inside itself. */
+  const inlineRects = useRef<{
+    rect: InlineRect;
+    caret: InlineRect | null;
+  } | null>(null);
 
   /*
    * The document the frame holds, which follows the one asked for
@@ -353,14 +571,59 @@ export function CanvasFrame({
   } | null>(null);
   /** Where a document swapped in is scrolled to, once it is there. */
   const swapScroll = useRef<{ x: number; y: number } | null>(null);
+  /*
+   * The document a swap replaces, left on screen over the one loading under
+   * it until that one says it is there: the page it shows is taken away when
+   * there is another to look at, never for a blank frame. `epoch` is the
+   * {@link documentEpoch} the swap was made at -- the next one is the new
+   * document's.
+   *
+   * Only for a swap: the same page, as another build or quick preview. A
+   * reload the person asked for and another route load in the open, as they
+   * did, because what was there is what they asked to be rid of.
+   */
+  const [leaving, setLeaving] = useState<{
+    key: string;
+    src: string;
+    epoch: number;
+  } | null>(null);
+  /**
+   * How many swaps there have been, in the frame's key: a swap is always a
+   * new `<iframe>`, also back to a document the canvas held a moment ago.
+   * Without it that frame's key is the one still leaving, React hands the
+   * old element back as the frame, and the canvas waits for a `ready` that
+   * document said long ago.
+   */
+  const [swaps, setSwaps] = useState(0);
+  /** The frame as it is rendered now, for the swap to leave on screen. */
+  const frameNow = useRef<{
+    key: string;
+    src: string;
+    epoch: number;
+    answered: boolean;
+  } | null>(null);
   useEffect(() => {
     if (sameDocument(held, wanted)) return;
     const swap = (): boolean => {
       if (frameHasFocus(frameRef.current)) return false;
+      // Someone is editing a text on the page. The focus alone does not
+      // say so: a press on the Studio's own formatting toolbar takes it
+      // for a moment, and a swap then would end the edit with its document.
+      if (inlineEditing.current !== null) return false;
       const at = lastLocation.current;
       swapScroll.current =
         at === null ? null : { x: at.scrollX, y: at.scrollY };
       setSwapAt(at === null ? null : { at, url });
+      const now = frameNow.current;
+      setLeaving((before) => {
+        if (now === null) return before;
+        // One still leaving: it stays, over a document nobody has seen yet.
+        if (before !== null) return { ...before, epoch: now.epoch };
+        // A page that never answered is not worth keeping on screen.
+        if (!now.answered) return null;
+        return { key: now.key, src: now.src, epoch: now.epoch };
+      });
+      setSwaps((count) => count + 1);
       setHeld(wanted);
       return true;
     };
@@ -398,8 +661,112 @@ export function CanvasFrame({
     [origin],
   );
 
+  /**
+   * What the document said it answers (`ready`), and the modules it read:
+   * `null` until it says. A ref, as it is read when a request is made,
+   * not rendered.
+   */
+  const bridge = useRef<FrameBridge | null>(null);
+  const bridgeHolds = useRef<readonly ModuleFilePath[]>(NO_HOLDS);
+  /** Why the page will not answer `request`: see `unansweredRequestError`. */
+  const unanswered = useCallback((request: CanvasRequest): Error | null => {
+    const error = unansweredRequestError(request, bridge.current);
+    return error === null ? null : new Error(error);
+  }, []);
+
+  /**
+   * How many documents have said `ready`, and who is waiting for the next:
+   * an interaction that took the frame to another document (`interactPage`).
+   * Refs, as they are read and written by handlers, never rendered.
+   */
+  const documentsSeen = useRef(0);
+  /** The last document's id (`ready`'s `document`), where it said one. */
+  const lastDocument = useRef<string | null>(null);
+  const documentWaiters = useRef(new Set<() => void>());
+  /**
+   * `interact` requests the page has not answered yet, by id, with the
+   * document they were sent to: an answer from any other is not theirs.
+   */
+  const interactions = useRef(
+    new Map<
+      string,
+      {
+        document: string | null;
+        answer: (outcome: PageInteractOutcome | null) => void;
+      }
+    >(),
+  );
+  /**
+   * Interactions waiting on the frame, told when the Studio loads it again
+   * itself -- a new build, a quick preview, another route: that document is
+   * not one the action took the page to, and must not be read as if it were.
+   */
+  const interruptions = useRef(new Set<(error: Error) => void>());
+  const frameIdentity = `${frameSrc}\n${reloadKey}\n${held.documentKey}`;
+  const frameKey = `${frameSrc}-${reloadKey}-${held.documentKey}-${swaps}`;
+  frameNow.current = {
+    key: frameKey,
+    src: frameSrc,
+    epoch: documentEpoch,
+    answered: state.status === "ready",
+  };
+  // Another page, or a reload asked for: nothing of the last one is kept.
+  const lastAsked = useRef({ url, reloadKey });
+  useEffect(() => {
+    if (
+      lastAsked.current.url === url &&
+      lastAsked.current.reloadKey === reloadKey
+    ) {
+      return;
+    }
+    lastAsked.current = { url, reloadKey };
+    setLeaving(null);
+  }, [url, reloadKey]);
+  // The new document is there (and has had a moment to paint), or will not
+  // be: either way the old one has nothing left to stand in for.
+  const leavingEpoch = leaving?.epoch ?? null;
+  useEffect(() => {
+    if (leavingEpoch === null) return;
+    if (state.status === "no-answer") {
+      setLeaving(null);
+      return;
+    }
+    if (documentEpoch === leavingEpoch) return;
+    /*
+     * It said it is there, which is its bridge mounting, not its page being
+     * drawn: a quick preview renders in the browser from an emptied
+     * `<body>`, and a route can still be loading its own code. So the old
+     * document goes when the new one has something in it.
+     */
+    let looks = 0;
+    const timer = setInterval(() => {
+      looks += 1;
+      if (
+        frameHasContent(frameRef.current) ||
+        looks * SWAP_PAINT_MS >= SWAP_PAINT_MAX_MS
+      ) {
+        setLeaving(null);
+      }
+    }, SWAP_PAINT_MS);
+    return () => clearInterval(timer);
+  }, [leavingEpoch, documentEpoch, state.status]);
+  const isSwapping = leaving !== null && leaving.key !== frameKey;
+  const lastFrameIdentity = useRef(frameIdentity);
+  useEffect(() => {
+    if (lastFrameIdentity.current === frameIdentity) return;
+    lastFrameIdentity.current = frameIdentity;
+    const error = new Error(
+      "The Studio loaded the preview again while the action ran (a new build, a quick preview, or another page picked in the Studio), so what happened after it cannot be told apart. Read the page with read_page, and do the action again if it is still needed.",
+    );
+    for (const interrupt of Array.from(interruptions.current)) {
+      interrupt(error);
+    }
+  }, [frameIdentity]);
+
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
+    bridge.current = null;
+    bridgeHolds.current = NO_HOLDS;
     setState({ status: "waiting" });
     onRefreshingChange?.(false);
   }, [frameSrc, reloadKey, held.documentKey, onRefreshingChange]);
@@ -422,6 +789,23 @@ export function CanvasFrame({
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
+        // Read leniently: a shape this Studio does not expect is as if
+        // absent, never a reason to ignore the page altogether.
+        const capabilities = capabilitiesOf(message.capabilities);
+        const info = bridgeInfoOf(message.bridge);
+        bridge.current = {
+          ...(capabilities !== undefined ? { capabilities } : {}),
+          ...(info !== undefined ? { bridge: info } : {}),
+        };
+        bridgeHolds.current = message.holds ?? NO_HOLDS;
+        // A new document: an edit that was going on in the last one went
+        // with it, and that page is not there to say so.
+        const cutShort = inlineEditing.current;
+        if (cutShort !== null) {
+          inlineEditing.current = null;
+          inlineRects.current = null;
+          onInlineEditEnded?.(cutShort);
+        }
         setState({
           status: "ready",
           draftMode: message.draftMode,
@@ -434,6 +818,15 @@ export function CanvasFrame({
         // before the editor picks one, not after (`BuildCode`)
         valSystem?.system.checkCodeNow();
         setDocumentEpoch((epoch) => epoch + 1);
+        // An interaction waiting for another document (`interactPage`):
+        // this one, unless it is the same document speaking again.
+        const document =
+          typeof message.document === "string" ? message.document : null;
+        if (document === null || document !== lastDocument.current) {
+          lastDocument.current = document;
+          documentsSeen.current += 1;
+          for (const waiter of Array.from(documentWaiters.current)) waiter();
+        }
         onDocument?.({ quick: heldQuick.current });
         setIsEnabling(false);
         // A new document says again what it could not read, if anything.
@@ -481,6 +874,47 @@ export function CanvasFrame({
         onCodeChanged?.(message.modules);
       } else if (message.type === "componentEdit") {
         onComponentEdit?.(message.edit);
+      } else if (message.type === "inlineEditStarted") {
+        inlineEditing.current = message.path;
+        if (onInlineEditStarted?.(message.requestId, message.path) === false) {
+          inlineEditing.current = null;
+          send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+        }
+      } else if (message.type === "inlineEdit") {
+        onInlineEdit?.(message.path, message.value);
+      } else if (message.type === "inlineEditEnded") {
+        if (inlineEditing.current === message.path) {
+          inlineEditing.current = null;
+          inlineRects.current = null;
+        }
+        onInlineEditEnded?.(message.path);
+      } else if (message.type === "inlineEditSelection") {
+        if (inlineEditing.current !== message.path) return;
+        inlineRects.current = {
+          rect: message.rect,
+          caret: message.caret ?? null,
+        };
+        onInlineEditSelection?.(message.path, message.selection);
+      } else if (message.type === "inlineEditUnavailable") {
+        onInlineEditUnavailable?.(message.requestId);
+      } else if (message.type === "pageLogRead") {
+        const reading = logReadings.current.get(message.requestId);
+        if (reading === undefined) return;
+        logReadings.current.delete(message.requestId);
+        reading(message);
+      } else if (message.type === "interacted") {
+        const interacting = interactions.current.get(message.requestId);
+        if (interacting === undefined) return;
+        // Answered by the document it was asked of, or it is not the answer:
+        // any script of the site sees the request in its window.
+        if (
+          interacting.document !== null &&
+          message.document !== interacting.document
+        ) {
+          return;
+        }
+        interactions.current.delete(message.requestId);
+        interacting.answer(interactOutcomeOf(message.outcome));
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -494,12 +928,18 @@ export function CanvasFrame({
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
   }, [
+    send,
     valSystem,
     onElements,
     onPick,
     onPickElement,
     onElementPickingStopped,
     onPickingStopped,
+    onInlineEditStarted,
+    onInlineEdit,
+    onInlineEditEnded,
+    onInlineEditUnavailable,
+    onInlineEditSelection,
     onPinch,
     onZoom,
     onRefreshingChange,
@@ -519,6 +959,8 @@ export function CanvasFrame({
   const readPage = useCallback<PageReader>(
     (options) =>
       new Promise<PageSnapshot>((resolve, reject) => {
+        const refused = unanswered("readPage");
+        if (refused !== null) return reject(refused);
         const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timer = setTimeout(() => {
           readings.current.delete(requestId);
@@ -530,8 +972,12 @@ export function CanvasFrame({
         }, PAGE_READ_TIMEOUT_MS);
         readings.current.set(requestId, (answer) => {
           clearTimeout(timer);
-          if (answer.snapshot !== null) resolve(answer.snapshot);
-          else reject(new Error(answer.error ?? "The page could not be read."));
+          if (answer.snapshot !== null) {
+            // What the page read, which the page said in `ready`.
+            resolve({ ...answer.snapshot, modules: [...bridgeHolds.current] });
+          } else {
+            reject(new Error(answer.error ?? "The page could not be read."));
+          }
         });
         send({
           val: VAL_CANVAS_MESSAGE,
@@ -545,13 +991,60 @@ export function CanvasFrame({
             : {}),
         });
       }),
-    [send],
+    [send, unanswered],
   );
   useEffect(() => {
     if (onPageReader === undefined) return;
     onPageReader(readPage);
     return () => onPageReader(null);
   }, [onPageReader, readPage]);
+
+  /** `readPageLog` requests the page has not answered yet, by id. */
+  const logReadings = useRef(
+    new Map<
+      string,
+      (answer: Extract<ValCanvasPageMessage, { type: "pageLogRead" }>) => void
+    >(),
+  );
+  const readPageLog = useCallback<PageLogReader>(
+    (options) =>
+      new Promise<PageLogSnapshot>((resolve, reject) => {
+        const refused = unanswered("readPageLog");
+        if (refused !== null) return reject(refused);
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timer = setTimeout(() => {
+          logReadings.current.delete(requestId);
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading: try again in a moment.",
+            ),
+          );
+        }, PAGE_READ_TIMEOUT_MS);
+        logReadings.current.set(requestId, (answer) => {
+          clearTimeout(timer);
+          if (answer.log !== null) resolve(answer.log);
+          else
+            reject(
+              new Error(answer.error ?? "The page's log could not be read."),
+            );
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "readPageLog",
+          requestId,
+          ...(options.sinceNavigation !== undefined
+            ? { sinceNavigation: options.sinceNavigation }
+            : {}),
+          ...(options.levels !== undefined ? { levels: options.levels } : {}),
+        });
+      }),
+    [send, unanswered],
+  );
+  useEffect(() => {
+    if (onPageLogReader === undefined) return;
+    onPageLogReader(readPageLog);
+    return () => onPageLogReader(null);
+  }, [onPageLogReader, readPageLog]);
 
   /** `screenshotPage` requests the page has not answered yet, by id. */
   const shootings = useRef(
@@ -565,6 +1058,8 @@ export function CanvasFrame({
   const screenshotPage = useCallback<PageCamera>(
     (options) =>
       new Promise<PageScreenshot>((resolve, reject) => {
+        const refused = unanswered("screenshotPage");
+        if (refused !== null) return reject(refused);
         const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timer = setTimeout(() => {
           shootings.current.delete(requestId);
@@ -591,7 +1086,7 @@ export function CanvasFrame({
             : {}),
         });
       }),
-    [send],
+    [send, unanswered],
   );
   useEffect(() => {
     if (onPageCamera === undefined) return;
@@ -604,6 +1099,8 @@ export function CanvasFrame({
   const storeQuickPreview = useCallback<QuickPreviewStorer>(
     (id, files) =>
       new Promise<void>((resolve, reject) => {
+        const refused = unanswered("quickPreview");
+        if (refused !== null) return reject(refused);
         const timer = setTimeout(() => {
           storings.current.delete(id);
           reject(
@@ -619,13 +1116,307 @@ export function CanvasFrame({
         });
         send({ val: VAL_CANVAS_MESSAGE, type: "quickPreview", id, files });
       }),
-    [send],
+    [send, unanswered],
   );
   useEffect(() => {
     if (onQuickPreviewStorer === undefined) return;
     onQuickPreviewStorer(storeQuickPreview);
     return () => onQuickPreviewStorer(null);
   }, [onQuickPreviewStorer, storeQuickPreview]);
+
+  /**
+   * Wait until a document after the `seen`th says `ready`, until `deadline`.
+   * Counted rather than awaited from now, so a document that arrived while
+   * nobody was waiting yet is not waited for again.
+   */
+  const nextDocument = useCallback(
+    (seen: number, deadline: number) =>
+      new Promise<void>((resolve, reject) => {
+        if (documentsSeen.current > seen) return resolve();
+        const timer = setTimeout(
+          () => {
+            documentWaiters.current.delete(arrived);
+            interruptions.current.delete(interrupted);
+            reject(
+              new Error(
+                `The preview started loading another page, and none arrived within ${Math.round(INTERACT_SETTLE_TIMEOUT_MS / 1000)} seconds. It may still be loading (read_page in a moment says), it may have downloaded a file, or it went to a page that is not the site's own -- which the Studio cannot read.`,
+              ),
+            );
+          },
+          Math.max(0, deadline - Date.now()),
+        );
+        const arrived = () => {
+          clearTimeout(timer);
+          documentWaiters.current.delete(arrived);
+          interruptions.current.delete(interrupted);
+          resolve();
+        };
+        const interrupted = (error: Error) => {
+          clearTimeout(timer);
+          documentWaiters.current.delete(arrived);
+          interruptions.current.delete(interrupted);
+          reject(error);
+        };
+        documentWaiters.current.add(arrived);
+        interruptions.current.add(interrupted);
+      }),
+    [],
+  );
+
+  /**
+   * Ask the page to do one action and wait for its answer -- or for the
+   * next document, when the page was replaced without saying so first.
+   */
+  const askToInteract = useCallback(
+    (
+      action: PageAction,
+      options: {
+        deadline: number;
+        maxItems?: number;
+        logFrom?: "action" | "document";
+        approved?: string;
+      },
+    ) =>
+      new Promise<PageInteractOutcome | "replaced">((resolve, reject) => {
+        // A bridge that cannot hold what the page sends is never asked to
+        // act: `release` is how it answers the person.
+        const refused =
+          unanswered(interactCapability(action.kind)) ??
+          unanswered("interact:release");
+        if (refused !== null) return reject(refused);
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const remaining = Math.max(0, options.deadline - Date.now());
+        const done = () => {
+          clearTimeout(timer);
+          interactions.current.delete(requestId);
+          documentWaiters.current.delete(replaced);
+          interruptions.current.delete(interrupted);
+        };
+        const interrupted = (error: Error) => {
+          done();
+          reject(error);
+        };
+        interruptions.current.add(interrupted);
+        const timer = setTimeout(() => {
+          done();
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading: read_page in a moment says what it shows.",
+            ),
+          );
+        }, remaining + INTERACT_ANSWER_MARGIN_MS);
+        const replaced = () => {
+          done();
+          resolve("replaced");
+        };
+        documentWaiters.current.add(replaced);
+        interactions.current.set(requestId, {
+          document: lastDocument.current,
+          answer: (outcome) => {
+            done();
+            if (outcome === null) {
+              reject(
+                new Error(
+                  "The page answered in a way this Studio does not understand: its Val package may be newer than the Studio. Reload the Studio.",
+                ),
+              );
+            } else {
+              resolve(outcome);
+            }
+          },
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId,
+          action,
+          timeoutMs: remaining,
+          ...(options.maxItems !== undefined
+            ? { maxItems: options.maxItems }
+            : {}),
+          ...(options.logFrom !== undefined
+            ? { logFrom: options.logFrom }
+            : {}),
+          ...(options.approved !== undefined
+            ? { approved: options.approved }
+            : {}),
+        });
+      }),
+    [send, unanswered],
+  );
+
+  const sizeTo = useRef(onDeviceChange);
+  sizeTo.current = onDeviceChange;
+  const interactPage = useCallback<PageInteractor>(
+    async (request) => {
+      // The one bound on all of it: see `INTERACT_SETTLE_TIMEOUT_MS`.
+      const deadline = Date.now() + INTERACT_SETTLE_TIMEOUT_MS;
+      const maxItems = request.maxItems;
+      const where = (): PageState => ({
+        url: lastLocation.current?.path ?? url,
+      });
+
+      /**
+       * What the page asked the person about, checked before any of it is
+       * shown -- every field of it is the page's (`trustedApproval`). What
+       * cannot be shown is refused, and the page told so, which drops what
+       * it held.
+       */
+      const approvalAnswer = (approval: PageApproval): PageInteractAnswer => {
+        const trusted = trustedApproval(approval, origin);
+        if ("error" in trusted) {
+          if (approval.kind === "requests") {
+            void askToInteract(
+              { kind: "release", hold: approval.hold, allow: false },
+              { deadline: Date.now() + INTERACT_ANSWER_MARGIN_MS },
+            ).catch(() => {});
+          }
+          throw new PageRefusedError(trusted.error);
+        }
+        return { status: "needs-approval", approval: trusted.approval };
+      };
+
+      /**
+       * The document the action took the frame to, once it said `ready`:
+       * asked to settle and read, its log from when it started loading.
+       * Again for each document after it -- a redirect, a page that
+       * navigates on load -- until one stays, or the time is up.
+       */
+      const settleNewDocument = async (
+        seen: number,
+        did: string,
+        before: PageState,
+      ): Promise<PageInteractAnswer> => {
+        for (;;) {
+          await nextDocument(seen, deadline);
+          // The one bound holds here too: a page that reloads itself, or
+          // redirects to itself, would otherwise be followed for ever.
+          if (Date.now() >= deadline) {
+            throw new Error(
+              `The page kept loading new pages -- a redirect or a reload that repeats -- and did not stay on one within ${Math.round(INTERACT_SETTLE_TIMEOUT_MS / 1000)} seconds. read_page_log may say why.`,
+            );
+          }
+          seen = documentsSeen.current;
+          const outcome = await askToInteract(
+            { kind: "settle" },
+            {
+              deadline,
+              logFrom: "document",
+              ...(maxItems !== undefined ? { maxItems } : {}),
+            },
+          );
+          if (outcome === "replaced" || outcome.status === "leaving") {
+            continue;
+          }
+          if (outcome.status === "refused") {
+            throw new PageRefusedError(outcome.error);
+          }
+          if (outcome.status === "needs-approval") {
+            // The new page tried to send something while it settled, after
+            // it said `ready`: held, and asked about like any other. What it
+            // sent while it LOADED, before then, was not held -- nothing
+            // runs in a document before it does.
+            return approvalAnswer(outcome.approval);
+          }
+          return {
+            status: "done",
+            interaction: { ...outcome.interaction, did, before },
+            navigated: true,
+          };
+        }
+      };
+
+      const action = request.action;
+      if (action.kind === "open") {
+        // Asked before navigating, so a page that cannot answer is refused
+        // with nothing changed.
+        const refused =
+          unanswered("interact:settle") ?? unanswered("interact:release");
+        if (refused !== null) throw refused;
+        const target = sitePathOf(action.path, origin);
+        if ("error" in target) throw new Error(target.error);
+        const frame = frameRef.current;
+        if (frame === null) throw new Error("The preview is not open.");
+        const before = where();
+        const seen = documentsSeen.current;
+        // As turning preview mode on does: a navigation of the frame, which
+        // the new document answers with `ready`. What the frame said so far
+        // stands until it does: a navigation that never lands (a hash on
+        // the same page, an empty answer, a download) leaves it as it was.
+        frame.src = withValCanvasParam(
+          withQuickPreview(target.path, heldQuick.current),
+        );
+        return settleNewDocument(seen, `opened ${target.path}`, before);
+      }
+
+      let did: string | null = null;
+      let outcome: PageInteractOutcome | "replaced";
+      const seen = documentsSeen.current;
+      if (action.kind === "viewport") {
+        const resize = sizeTo.current;
+        if (resize === undefined) {
+          throw new Error(
+            "The preview's width is set by what it is shown beside here, not by the preview: it cannot be changed from the assistant.",
+          );
+        }
+        // Asked before resizing, so an older page is refused with nothing
+        // changed.
+        const refused =
+          unanswered("interact:settle") ?? unanswered("interact:release");
+        if (refused !== null) throw refused;
+        const width = CANVAS_DEVICE_WIDTHS[action.device];
+        did = `set the preview to ${action.device} width (${width}px)`;
+        // The settle is asked for FIRST, so its hold is up before the page
+        // is resized -- best effort: the page hears the message and the
+        // resize as two separate tasks, in the order the browser runs them.
+        const settling = askToInteract(
+          { kind: "settle", width },
+          { deadline, ...(maxItems !== undefined ? { maxItems } : {}) },
+        );
+        resize(action.device);
+        outcome = await settling;
+      } else {
+        outcome = await askToInteract(action, {
+          deadline,
+          ...(maxItems !== undefined ? { maxItems } : {}),
+          ...(request.approved !== undefined
+            ? { approved: request.approved }
+            : {}),
+        });
+      }
+      if (outcome === "replaced") {
+        // Gone without saying so first: the next document says what it is.
+        return settleNewDocument(
+          seen,
+          did ?? `did ${action.kind} on the page, and it loaded another`,
+          where(),
+        );
+      }
+      switch (outcome.status) {
+        case "leaving":
+          return settleNewDocument(seen, outcome.did, outcome.before);
+        case "needs-approval":
+          return approvalAnswer(outcome.approval);
+        case "refused":
+          throw new PageRefusedError(outcome.error);
+        case "done":
+          return {
+            status: "done",
+            interaction:
+              did === null
+                ? outcome.interaction
+                : { ...outcome.interaction, did },
+            navigated: false,
+          };
+      }
+    },
+    [askToInteract, nextDocument, unanswered, origin, url],
+  );
+  useEffect(() => {
+    if (onPageInteractor === undefined) return;
+    onPageInteractor(interactPage);
+    return () => onPageInteractor(null);
+  }, [onPageInteractor, interactPage]);
 
   // A document swapped in, scrolled to where the one before it was.
   useEffect(() => {
@@ -655,6 +1446,216 @@ export function CanvasFrame({
   useEffect(() => {
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
+
+  /*
+   * Editing on the page. Each request is asked once, by its id -- the
+   * candidates are a new array every time and say nothing about whether the
+   * request is new.
+   */
+  const inlineRequestId = inlineEdit?.requestId ?? null;
+  const inlineCandidates = useRef(inlineEdit?.candidates ?? []);
+  inlineCandidates.current = inlineEdit?.candidates ?? [];
+  const unavailable = useRef(onInlineEditUnavailable);
+  unavailable.current = onInlineEditUnavailable;
+  useEffect(() => {
+    if (inlineRequestId === null) {
+      // Withdrawn while the caret is still on the page: the page is told.
+      // An edit the page ended itself needs nothing said.
+      if (inlineEditing.current !== null) {
+        send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+      }
+      return;
+    }
+    // A page whose bridge predates editing in place never answers: said for
+    // it, so the pick opens the field in the column as it always did.
+    if (!bridgeAnswers(bridge.current?.capabilities, "editInline")) {
+      unavailable.current?.(inlineRequestId);
+      return;
+    }
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "editInline",
+      requestId: inlineRequestId,
+      candidates: inlineCandidates.current,
+    });
+  }, [send, inlineRequestId]);
+  /*
+   * The page's texts, said ahead of a click: whenever what would be said
+   * changes, and again to every new document. Only while Select is on --
+   * the page uses it for nothing else, and a value per edit is a message
+   * per edit -- and compared by value, as every render builds it afresh.
+   */
+  const sentTextFields =
+    textFields === undefined
+      ? undefined
+      : isPicking
+        ? textFields
+        : NO_CANVAS_TEXT_FIELDS;
+  const textFieldsKey = useMemo(
+    () =>
+      sentTextFields === undefined ? null : JSON.stringify(sentTextFields),
+    [sentTextFields],
+  );
+  const textFieldsToSend = useRef(sentTextFields);
+  textFieldsToSend.current = sentTextFields;
+  useEffect(() => {
+    const fields = textFieldsToSend.current;
+    if (fields === undefined || documentEpoch === 0) return;
+    send({ val: VAL_CANVAS_MESSAGE, type: "textFields", ...fields });
+  }, [send, textFieldsKey, documentEpoch]);
+
+  // Leaving Select leaves all of it, the caret on the page included.
+  useEffect(() => {
+    if (!isPicking && inlineEditing.current !== null) {
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    }
+  }, [send, isPicking]);
+
+  // What one of the Studio's formatting controls made of the text.
+  const applyId = inlineEditApply?.id ?? null;
+  const applying = useRef(inlineEditApply);
+  applying.current = inlineEditApply;
+  useEffect(() => {
+    const apply = applying.current;
+    if (applyId === null || apply === null) return;
+    if (inlineEditing.current !== apply.path) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "applyInlineEdit",
+      path: apply.path,
+      value: apply.value,
+      selection: apply.selection,
+    });
+  }, [send, applyId]);
+  // ...and what a control pressed with only a caret means for the next text.
+  const marksId = inlineEditMarks?.id ?? null;
+  const marking = useRef(inlineEditMarks);
+  marking.current = inlineEditMarks;
+  useEffect(() => {
+    const marks = marking.current;
+    if (marksId === null || marks === null) return;
+    if (inlineEditing.current !== marks.path) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "markInlineEdit",
+      path: marks.path,
+      styles: marks.styles,
+      selection: marks.selection,
+    });
+  }, [send, marksId]);
+
+  const locateInlineEdit = useCallback((): InlineEditLocation | null => {
+    const frame = frameRef.current;
+    const at = inlineRects.current;
+    if (frame === null || at === null || inlineEditing.current === null) {
+      return null;
+    }
+    const box = frame.getBoundingClientRect();
+    // The frame is laid out at the page's own size and then scaled: what
+    // the page measured in its pixels is that many of these.
+    const scale = frame.offsetWidth > 0 ? box.width / frame.offsetWidth : 1;
+    const inStudio = (rect: InlineRect): ViewportBox => ({
+      top: box.top + rect.top * scale,
+      left: box.left + rect.left * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    });
+    return {
+      field: inStudio(at.rect),
+      caret: at.caret === null ? null : inStudio(at.caret),
+      clip: visibleBox(frame),
+    };
+  }, []);
+  const focusFrame = useCallback(() => {
+    // The frame, and then the text in it: a document that lost the focus
+    // to the one around it has forgotten which of its elements had it.
+    frameRef.current?.contentWindow?.focus();
+    send({ val: VAL_CANVAS_MESSAGE, type: "focusInlineEdit" });
+  }, [send]);
+
+  /*
+   * A press anywhere in the Studio ends the edit, but for two kinds of
+   * thing.
+   *
+   * The page no longer ends it when the focus leaves for the Studio -- it
+   * cannot tell the controls from the rest (`onFocusOut` in
+   * `inlineEditing.ts`) -- so the Studio says. On `window`, capturing, and
+   * by the composed path: the Studio is in a shadow root, and from outside
+   * it every press looks like a press on its host.
+   *
+   * What does not end it:
+   *
+   * - **The floating controls** (`INLINE_TOOLBAR_ATTRIBUTE`): they act on
+   *   the text being typed in.
+   * - **The preview's view controls** (`PREVIEW_VIEW_CONTROL_ATTRIBUTE`):
+   *   zoom in and out, fit, the device widths, and the window the page is
+   *   scrolled and pinched in. They change how the page is LOOKED at and
+   *   leave the document as it is, and someone zooming in to see what they
+   *   are typing is still typing it. The floating controls follow the text
+   *   (they ask where it is every frame), and once the press is over the
+   *   caret is put back in the text: the button took the focus.
+   *
+   * Everything else ends it, deliberately: the reload button and the
+   * address bar replace the document the caret is in, Exit Preview and
+   * turning Select off leave the mode, and a press in the column is the
+   * person turning to the column. Ending writes what was typed at once
+   * (`useCanvasInlineEdit`'s `onEnded`), so none of them loses a letter.
+   */
+  const viewControlRelease = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const forgetRelease = () => {
+      viewControlRelease.current?.();
+      viewControlRelease.current = null;
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      forgetRelease();
+      const editing = inlineEditing.current;
+      if (editing === null) return;
+      const path = event.composedPath();
+      const on = (attribute: string) =>
+        path.some(
+          (target) =>
+            target instanceof Element && target.hasAttribute(attribute),
+        );
+      if (on(INLINE_TOOLBAR_ATTRIBUTE)) return;
+      if (on(PREVIEW_VIEW_CONTROL_ATTRIBUTE)) {
+        /*
+         * Back to the text once the press is done, and after what it did
+         * (a click comes after the release). Only if it is still the same
+         * edit, and forgotten at the next press: a scrollbar being dragged
+         * may never say it was released.
+         */
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const onRelease = () => {
+          window.removeEventListener("pointerup", onRelease, true);
+          window.removeEventListener("pointercancel", onRelease, true);
+          timer = setTimeout(() => {
+            timer = null;
+            if (inlineEditing.current === editing) focusFrame();
+          }, 0);
+        };
+        window.addEventListener("pointerup", onRelease, true);
+        window.addEventListener("pointercancel", onRelease, true);
+        viewControlRelease.current = () => {
+          window.removeEventListener("pointerup", onRelease, true);
+          window.removeEventListener("pointercancel", onRelease, true);
+          if (timer !== null) clearTimeout(timer);
+        };
+        return;
+      }
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      forgetRelease();
+    };
+  }, [send, focusFrame]);
+  useEffect(() => {
+    if (onInlineEditPlace === undefined) return;
+    onInlineEditPlace({ locate: locateInlineEdit, focus: focusFrame });
+    return () => onInlineEditPlace(null);
+  }, [onInlineEditPlace, locateInlineEdit, focusFrame]);
 
   // Whole, every time, and again for every new document: a reload starts the
   // page's picker afresh.
@@ -882,7 +1883,9 @@ export function CanvasFrame({
       : isEnabling
         ? "enabling"
         : state.status === "waiting"
-          ? "connecting"
+          ? isSwapping
+            ? "swapping"
+            : "connecting"
           : state.draftMode
             ? "live"
             : "preview-off";
@@ -903,12 +1906,44 @@ export function CanvasFrame({
         // Remounting is the reload: assigning the same `src` to a live frame is
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
-        key={`${frameSrc}-${reloadKey}-${held.documentKey}`}
+        key={frameKey}
         src={frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
       />
+      {/*
+       * The document a swap replaces, over the one loading under it. It is
+       * the element that WAS the frame (same key), and it must never be
+       * moved in the DOM: an `<iframe>` that is moved loads its page again,
+       * which is the blank frame this is here to avoid. AFTER the frame in
+       * this list for that reason -- React puts the new frame in before it
+       * and leaves it where it is -- and `canvasSwap.test.tsx` holds it to
+       * that. Out of reach: a click or a key press in a page about to go
+       * would be lost with it.
+       */}
+      {leaving !== null && leaving.key !== frameKey && (
+        <iframe
+          key={leaving.key}
+          src={leaving.src}
+          title=""
+          aria-hidden
+          tabIndex={-1}
+          data-val-canvas-leaving=""
+          style={{
+            width,
+            height,
+            border: "none",
+            display: "block",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+          referrerPolicy="same-origin"
+        />
+      )}
       {/*
        * Nothing is drawn over the page here any more.
        *
@@ -927,4 +1962,41 @@ export function CanvasFrame({
 function enableUrlOf(frameSrc: string): string {
   const redirectTo = new URL(frameSrc, window.origin).toString();
   return `/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
+}
+
+/**
+ * The part of an element that is on screen: its box, cut down by every
+ * ancestor that clips what overflows it, and by the window.
+ *
+ * The frame is scaled and panned inside the preview's pane, so its own box
+ * can reach under the Studio's column or past the pane's edge. Controls
+ * placed by that box would be drawn over the column, or cut off.
+ */
+function visibleBox(element: Element): ViewportBox {
+  const box = element.getBoundingClientRect();
+  let top = Math.max(box.top, 0);
+  let left = Math.max(box.left, 0);
+  let bottom = Math.min(box.bottom, window.innerHeight);
+  let right = Math.min(box.right, window.innerWidth);
+  for (
+    let ancestor = element.parentElement;
+    ancestor !== null;
+    ancestor = ancestor.parentElement
+  ) {
+    const style = getComputedStyle(ancestor);
+    if (style.overflowX === "visible" && style.overflowY === "visible") {
+      continue;
+    }
+    const clip = ancestor.getBoundingClientRect();
+    top = Math.max(top, clip.top);
+    left = Math.max(left, clip.left);
+    bottom = Math.min(bottom, clip.bottom);
+    right = Math.min(right, clip.right);
+  }
+  return {
+    top,
+    left,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
 }

@@ -13,12 +13,14 @@ import {
 import { canBuildHere } from "../../publish/handoff";
 import { quickPreviewInTab } from "../../proposals/buildInTab";
 import { quickPreviewOnServer } from "../../proposals/quickPreviewOnServer";
+import { setStagedPreview } from "../../proposals/quickPreviewControl";
 import {
   markServerOff,
   serverFirst,
   serverKnownOff,
 } from "../../proposals/serverFirst";
 import { randomUUID } from "../../utils/randomUUID";
+import { reportQuickPreviewToTurnTrace } from "../../hooks/aiTurnTrace";
 import type {
   QuickPreviewResult,
   QuickPreviewTiming,
@@ -74,10 +76,22 @@ export function useQuickPreview(
     work: Promise<QuickPreviewResult>;
     auto: boolean;
   } | null>(null);
-  /** A change came while one ran: another automatic one after it. */
-  const autoAgain = useRef(false);
+  /**
+   * A change came while one ran: another automatic one after it, of the
+   * newest inputs asked for (`null`: whatever is staged then).
+   */
+  const autoAgain = useRef<{ inputs: string | null } | null>(null);
   /** The staged inputs the last quick preview shown was of. */
   const shownInputs = useRef<string | null>(null);
+  /** Whether the quick preview shown is of the staged files `inputs` name. */
+  const isShown = useCallback(
+    (inputs: string) => shownInputs.current === inputs,
+    [],
+  );
+  /** The canvas went back to a served build: no quick preview is shown. */
+  const forgetShown = useCallback(() => {
+    shownInputs.current = null;
+  }, []);
 
   /**
    * `auto`: one started by itself after a change, and only
@@ -86,33 +100,74 @@ export function useQuickPreview(
    * what is staged shown already) and nothing when it fails: the person did
    * not ask, and a change half-way through an edit is often one that does
    * not build. A change while one runs is shown after it, never dropped.
+   * `inputs`: what is staged, when the caller knows -- the staging answered
+   * it -- so nothing is read, and nothing is built, to learn that the
+   * preview already shows it.
    *
    * One asked for -- the button, the assistant's `quick_preview` -- never
    * joins an automatic one, whose files may be older than the ask: it waits
    * for it, then makes its own.
    */
   const run = useCallback(
-    (options?: { auto?: boolean }): Promise<QuickPreviewResult> => {
+    (options?: {
+      auto?: boolean;
+      inputs?: string;
+    }): Promise<QuickPreviewResult> => {
       const auto = options?.auto === true;
+      const known = auto ? options?.inputs : undefined;
       const now = running.current;
       if (now !== null) {
         if (auto) {
-          autoAgain.current = true;
+          autoAgain.current = { inputs: known ?? null };
           return now.work;
         }
         if (!now.auto) return now.work;
         return now.work.then(() => run());
       }
+      /*
+       * Skipped before anything was asked for, and still said to the turn
+       * trace: it is how the turn's write became visible, or already was
+       * (`aiTurnTrace.ts`). In no time, with no steps.
+       */
+      const skippedBeforeItStarted = () =>
+        reportQuickPreviewToTurnTrace({
+          status: "skipped",
+          auto,
+          ms: 0,
+          steps: [],
+        });
       if (auto && serverKnownOff("quick-preview")) {
+        if (known !== undefined) {
+          setStagedPreview({ inputs: known, status: "off" });
+        }
+        skippedBeforeItStarted();
         return Promise.resolve({
           status: "skipped",
           reason: "off",
           timings: [],
         });
       }
+      // Shown already: nothing to build to find that out.
+      if (known !== undefined && known === shownInputs.current) {
+        setStagedPreview({ inputs: known, status: "shown" });
+        skippedBeforeItStarted();
+        return Promise.resolve({
+          status: "skipped",
+          reason: "shown",
+          timings: [],
+        });
+      }
       const startedAt = Date.now();
       const timings: QuickPreviewTiming[] = [];
-      let stepNow = { label: "Reading the proposal", at: startedAt };
+      let stepNow = {
+        label:
+          known !== undefined
+            ? "Building on Val Build"
+            : "Reading the proposal",
+        at: startedAt,
+      };
+      /** The staged inputs this one is of, once known. */
+      let ofInputs: string | null = known ?? null;
       const step = (label: string) => {
         const at = Date.now();
         timings.push({ step: stepNow.label, ms: at - stepNow.at });
@@ -137,7 +192,7 @@ export function useQuickPreview(
           if (label !== stepNow.label) step(label);
         };
         const built = auto
-          ? await quickPreviewOnServer(name, proposals, onStep)
+          ? await quickPreviewOnServer(name, proposals, onStep, known)
           : await serverFirst(
               () => quickPreviewOnServer(name, proposals, onStep),
               // Safari, an iPhone: bundled in a builder tab, as a build is there.
@@ -178,6 +233,7 @@ export function useQuickPreview(
           "inputs" in built && typeof built.inputs === "string"
             ? built.inputs
             : null;
+        if (builtInputs !== null) ofInputs = builtInputs;
         if (
           auto &&
           builtInputs !== null &&
@@ -229,6 +285,32 @@ export function useQuickPreview(
         )
         .then((result) => {
           running.current = null;
+          // Said for whoever staged the files and waits to know they are
+          // seen (`waitForStagedPreview`): only once the page has said it is
+          // there, or it is known it will not be.
+          if (ofInputs !== null) {
+            if (result.status === "shown") {
+              setStagedPreview({ inputs: ofInputs, status: "shown" });
+            } else if (result.status === "failed") {
+              setStagedPreview({
+                inputs: ofInputs,
+                status: "failed",
+                message: result.message,
+              });
+            } else {
+              setStagedPreview({
+                inputs: ofInputs,
+                status: result.reason === "off" ? "off" : "shown",
+              });
+            }
+          }
+          // When the change a turn wrote is on screen: see `aiTurnTrace.ts`.
+          reportQuickPreviewToTurnTrace({
+            status: result.status,
+            auto,
+            ms: Date.now() - startedAt,
+            steps: result.timings,
+          });
           // Quiet when automatic: only what was asked for is reported
           const reported = !auto && result.status !== "skipped";
           if (reported) setLast(result);
@@ -237,9 +319,13 @@ export function useQuickPreview(
               ? { status: "failed", message: result.message }
               : { status: "idle" },
           );
-          if (autoAgain.current) {
-            autoAgain.current = false;
-            void run({ auto: true });
+          const again = autoAgain.current;
+          if (again !== null) {
+            autoAgain.current = null;
+            void run({
+              auto: true,
+              ...(again.inputs !== null ? { inputs: again.inputs } : {}),
+            });
           }
           return result;
         });
@@ -263,8 +349,21 @@ export function useQuickPreview(
       setStorer,
       onFront,
       dismiss,
+      isShown,
+      forgetShown,
       blocked: inTab?.blocked === true,
     }),
-    [state, last, shownId, run, setStorer, onFront, dismiss, inTab],
+    [
+      state,
+      last,
+      shownId,
+      run,
+      setStorer,
+      onFront,
+      dismiss,
+      isShown,
+      forgetShown,
+      inTab,
+    ],
   );
 }

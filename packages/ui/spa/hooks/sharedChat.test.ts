@@ -1,9 +1,11 @@
+import { CHECKS_MESSAGE_MARKER } from "../proposals/checksMessage";
 import type { ProposalParticipant } from "../components/proposals/types";
 import {
   applyWatchedEvent,
   runningAsker,
   someoneElseAdded,
   storedToolActivities,
+  toChatMessages,
   watchedQuestionText,
   type WatchedChat,
 } from "./sharedChat";
@@ -80,9 +82,11 @@ describe("applyWatchedEvent", () => {
         addToolCall: record("tool"),
         completeToolCall: record("toolDone"),
         errorToolCall: record("toolFailed"),
+        showSteer: record("showSteer"),
       },
       activeId: { current: null },
       started: new Set(),
+      askers: new Map(),
       participantOf: (id) => (id === KARI ? KARI_P : { id, name: "?" }),
       setTurnBy: (by) => turnBy.push(by),
       turnEnded: (joinedMidway) => ended.push(joinedMidway),
@@ -132,6 +136,69 @@ describe("applyWatchedEvent", () => {
     // Kari holds the chat until the turn ends, and then nobody does.
     expect(turnBy).toEqual([KARI_P, null]);
     // The question was seen asked, so the chat is not shown again.
+    expect(ended).toEqual([false]);
+  });
+
+  test("a message the asker steered into their turn shows the turn whole when it ends", () => {
+    const { calls, ended, send } = watching();
+    send({
+      type: "ai_turn_started",
+      id: "q1",
+      sessionId: "chat-1",
+      authorId: KARI,
+      message: "Shorter title?",
+    });
+    send({ type: "ai_streaming", id: "q1", chunk: "Looking" });
+    send({
+      type: "ai_steer_status",
+      id: "q1",
+      steerId: "s1",
+      status: "accepted",
+    });
+    // Accepted is the asker's business; nothing to show for it.
+    expect(calls).toHaveLength(3);
+    send({
+      type: "ai_steer_status",
+      id: "q1",
+      steerId: "s1",
+      status: "delivered",
+    });
+    send({ type: "ai_turn_ended", id: "q1", sessionId: "chat-1" });
+    // Its text is not relayed, so the chat is read again, which has it in
+    // the place it was delivered.
+    expect(ended).toEqual([true]);
+  });
+
+  test("a delivered steer that says what was sent is shown at once, in Kari's name", () => {
+    const { calls, ended, send } = watching();
+    send({
+      type: "ai_turn_started",
+      id: "q1",
+      sessionId: "chat-1",
+      authorId: KARI,
+      message: "Fix the typos",
+    });
+    send({ type: "ai_streaming", id: "q1", chunk: "Looking" });
+    send({
+      type: "ai_steer_status",
+      id: "q1",
+      steerId: "s1",
+      status: "delivered",
+      message: [{ type: "text", text: "Only the blog posts" }],
+    });
+    expect(calls[calls.length - 1]).toEqual([
+      "showSteer",
+      "s1",
+      {
+        id: "s1",
+        role: "user",
+        content: "Only the blog posts",
+        status: "complete",
+        author: KARI_P,
+      },
+    ]);
+    send({ type: "ai_turn_ended", id: "q1", sessionId: "chat-1" });
+    // Shown already: no need to read the chat again.
     expect(ended).toEqual([false]);
   });
 
@@ -356,6 +423,141 @@ describe("storedToolActivities", () => {
       ]),
     ).toEqual([
       { toolCallId: "t1", name: "ask_user_question", status: "complete" },
+    ]);
+  });
+});
+
+describe("toChatMessages", () => {
+  test("what rode along with the person's message is not shown as theirs when the chat is loaded again", () => {
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Make the header blue" },
+            {
+              type: "text",
+              text: '<background_checks>\n{"typecheck_errors":{}}\n</background_checks>',
+            },
+          ],
+        },
+        {
+          role: "user",
+          content:
+            'And the footer\n\n<background_checks>\n{"lint_problems":{}}\n</background_checks>',
+        },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => m.content)).toEqual([
+      [{ type: "text", text: "Make the header blue" }],
+      "And the footer",
+    ]);
+  });
+
+  test("the Studio's message for its background checks loads as the notice it was shown as, not as the person's", () => {
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        { role: "user", content: "Make the hero blue", authorId: "kari" },
+        { role: "assistant", content: "Done." },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${CHECKS_MESSAGE_MARKER} The checks found problems.\n\n{}`,
+            },
+          ],
+          authorId: "kari",
+        },
+        { role: "assistant", content: "Fixed the type error." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => [m.role, m.fromChecks, m.author?.id])).toEqual([
+      ["user", undefined, "kari"],
+      ["assistant", undefined, undefined],
+      ["user", true, undefined],
+      ["assistant", undefined, undefined],
+    ]);
+  });
+
+  test("tools run before a steer that came before any text stay with the turn", () => {
+    const call = (name: string) => ({
+      toolCallId: `call-${name}`,
+      name,
+      isError: false,
+    });
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: "Fix the typos",
+          toolCalls: [call("search_content")],
+        },
+        // No assistant row: it had written nothing when the steer was read.
+        {
+          role: "user",
+          content: "Only the blog posts",
+          toolCalls: [call("create_patch")],
+        },
+        { role: "assistant", content: "Fixed the 4 posts." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(
+      chat.map((m) => [
+        m.role,
+        m.content,
+        m.toolActivities?.map((t) => t.name),
+      ]),
+    ).toEqual([
+      ["user", "Fix the typos", undefined],
+      ["assistant", "", ["search_content"]],
+      ["user", "Only the blog posts", undefined],
+      ["assistant", "Fixed the 4 posts.", ["create_patch"]],
+    ]);
+    expect(new Set(chat.map((m) => m.id)).size).toBe(chat.length);
+  });
+
+  test("a steered message sits between the parts of the answer, with the tools of each part", () => {
+    const call = (name: string) => ({
+      toolCallId: `call-${name}`,
+      name,
+      isError: false,
+    });
+    const chat = toChatMessages(
+      "chat-1",
+      [
+        {
+          role: "user",
+          content: "Fix the typos",
+          toolCalls: [call("search_content")],
+        },
+        { role: "assistant", content: "Found 12 pages." },
+        {
+          role: "user",
+          content: "Only the blog posts",
+          toolCalls: [call("create_patch")],
+        },
+        { role: "assistant", content: "Fixed the 4 posts." },
+      ],
+      (id) => ({ id, name: id }),
+    );
+    expect(chat.map((m) => [m.role, m.content])).toEqual([
+      ["user", "Fix the typos"],
+      ["assistant", "Found 12 pages."],
+      ["user", "Only the blog posts"],
+      ["assistant", "Fixed the 4 posts."],
+    ]);
+    expect(chat[1].toolActivities?.map((t) => t.name)).toEqual([
+      "search_content",
+    ]);
+    expect(chat[3].toolActivities?.map((t) => t.name)).toEqual([
+      "create_patch",
     ]);
   });
 });

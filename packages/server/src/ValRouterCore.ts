@@ -1,5 +1,6 @@
 import { Internal } from "@valbuild/core";
 import { resolveRedirectTo } from "./redirectTo";
+import { refuseUnsafeRequest } from "./requestGuard";
 import {
   Api,
   ApiEndpoint,
@@ -102,6 +103,10 @@ export function createValRequestHandler<Res>(
         Api as any;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyValServer = valServer as any;
+      const refused = refuseUnsafeRequest(valServer, req, reqApiRoutePath);
+      if (refused !== null) {
+        return refused;
+      }
       const method = req.method?.toUpperCase();
       let route = null;
       let path: string | undefined = undefined;
@@ -251,7 +256,12 @@ export function createValRequestHandler<Res>(
         typeof query.redirect_to === "string" &&
         query.redirect_to !== ""
       ) {
-        const resolved = resolveRedirectTo(query.redirect_to, url.origin);
+        // Behind a proxy `url` can be an internal address: the site's own
+        // name is then in `Host` or `X-Forwarded-Host`.
+        const resolved = resolveRedirectTo(query.redirect_to, url.origin, [
+          req.headers.get("host"),
+          req.headers.get("x-forwarded-host")?.split(",")[0]?.trim(),
+        ]);
         if (!resolved.ok) {
           return { status: 400, json: { message: resolved.message } };
         }

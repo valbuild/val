@@ -3,7 +3,11 @@
 import "../../stores/react/testPolyfills";
 import { render, screen } from "@testing-library/react";
 import type { ProposalUpgrade } from "../../proposals/proposalsClient";
-import { UpgradeProposalNotice } from "./UpgradeProposalNotice";
+import {
+  UpgradeProposalNotice,
+  changeText,
+  describeUpgrade,
+} from "./UpgradeProposalNotice";
 
 /*
  * The Studio at an upgrade proposal's address: it looks like the site as it
@@ -99,4 +103,89 @@ test("security fixes are counted", () => {
   );
   expect(screen.getByText("This proposal fixes security issues")).toBeTruthy();
   expect(screen.getByText(/fixes 2 security issues/)).toBeTruthy();
+});
+
+test("a range that moved alone reads as the range", () => {
+  render(
+    <UpgradeProposalNotice
+      upgrade={upgrade({
+        changes: [
+          {
+            name: "typescript",
+            from: "6.0.3",
+            to: "6.0.3",
+            fromRange: "^6.0.2",
+            toRange: "^6.0.3",
+            kind: null,
+          },
+        ],
+      })}
+    />,
+  );
+  expect(screen.getByText(/range \^6\.0\.2 → \^6\.0\.3/)).toBeTruthy();
+});
+
+test("changeText: the versions, else the range when only it moved", () => {
+  const change = (
+    over: Partial<ProposalUpgrade["changes"][number]>,
+  ): ProposalUpgrade["changes"][number] => ({
+    name: "typescript",
+    from: "6.0.3",
+    to: "6.0.3",
+    kind: null,
+    ...over,
+  });
+  expect(
+    changeText(
+      change({ from: "6.0.2", fromRange: "^6.0.2", toRange: "^6.0.3" }),
+    ),
+  ).toBe("6.0.2 → 6.0.3");
+  expect(changeText(change({ fromRange: "^6.0.2", toRange: "^6.0.3" }))).toBe(
+    "range ^6.0.2 → ^6.0.3",
+  );
+  // From a Val Build that does not send the ranges: as before.
+  expect(changeText(change({}))).toBe("6.0.3 → 6.0.3");
+  expect(changeText(change({ from: null, toRange: "^6.0.3" }))).toBe(
+    "new → 6.0.3",
+  );
+  expect(changeText(change({ to: null, fromRange: "^6.0.2" }))).toBe(
+    "6.0.3 → removed",
+  );
+});
+
+test("Val is named only when its version moved", () => {
+  const rangeOnly = {
+    name: "@valbuild/tanstack",
+    from: "0.150.0",
+    to: "0.150.0",
+    fromRange: "^0.149.0",
+    toRange: "^0.150.0",
+    kind: null,
+  };
+  expect(
+    describeUpgrade(
+      upgrade({
+        changes: [
+          rangeOnly,
+          { name: "vite", from: "7.1.2", to: "7.1.5", kind: "patch" },
+        ],
+      }),
+    ),
+  ).toEqual({ val: null, others: 2, fixes: 0 });
+  // Another Val package that did move is named instead.
+  expect(
+    describeUpgrade(
+      upgrade({
+        changes: [
+          rangeOnly,
+          {
+            name: "@valbuild/cli",
+            from: "0.149.4",
+            to: "0.150.0",
+            kind: "minor",
+          },
+        ],
+      }),
+    ).val,
+  ).toBe("Val 0.149.4 → 0.150.0");
 });

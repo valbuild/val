@@ -938,6 +938,13 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts                                       # ~4 min
 ```
 
+`chromium-proposal` (`e2e/proposal/`) is a third copy of `examples/tanstack`,
+in proxy mode at a PROPOSAL's address (`VAL_E2E_PROPOSAL`, read by the
+example's `src/val/server.ts`), on the same mock content host: the only place
+a real browser drives code mode. The mock's Val Build makes quick previews
+there once a spec turns them on (`mock.quickPreviews()`), with no files in
+them, and its scripted assistant takes a `pause` step between tool calls.
+
 `webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
 in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`
 runs the builder-tab spec (`tanstack-http/publishHandoff`) there. Each is

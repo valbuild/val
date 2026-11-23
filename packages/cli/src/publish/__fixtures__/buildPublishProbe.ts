@@ -108,6 +108,8 @@ type Report = {
   warnedAboutBranch: boolean;
   /** Whether it said the platform sent no pins or exports -- which it did. */
   warnedAboutPlatformFacts: boolean;
+  /** What it said of the typecheck. */
+  typecheckSaid: string[];
 };
 
 /** A 1x1 PNG: small enough to inline, so the page carries it as a data URI. */
@@ -229,6 +231,7 @@ async function publishOnce(
     warnedAboutBranch: logged.some(
       (line) => line.startsWith("warn:") && line.includes("publishes"),
     ),
+    typecheckSaid: logged.filter((line) => /typecheck/i.test(line)),
   };
 }
 

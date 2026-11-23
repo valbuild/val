@@ -93,7 +93,7 @@ test("typing without a pause", async ({ page }) => {
   await expect(page.getByRole("tab", { name: /On this page \d/ })).toBeVisible({
     timeout: 60_000,
   });
-  await page.getByRole("button", { name: "Edit on the page" }).click();
+  await page.getByRole("button", { name: "Select on the page" }).click();
   const frame = page.frameLocator('iframe[title="Preview of /landing"]');
   const title = frame.locator("main h1").first();
   const titleText = (await title.innerText()).trim();

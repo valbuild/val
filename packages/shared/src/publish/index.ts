@@ -85,6 +85,7 @@ export {
   type BuiltProposal,
   type ServerBuildClient,
   type ServerBuildStep,
+  type ServerBuildProgress,
   type ProposalBuildClient,
   type ProposalBuildOutcome,
   type ProposalBuildStep,

@@ -357,6 +357,15 @@ full at the route itself in `ValServer.ts`; the short version is that guessing
 one is infeasible, shimming it into a frontend is work, and the prize is an
 image about to be published anyway.
 
+**What it serves is decided by the path, since nothing else decides it.** A
+path under `/public` (`isPublicFilePath` in `safeFilePath.ts`), which the site
+serves anyway, or a draft of one. It used to answer any path in the project —
+`/api/val/files/.env` — and in http mode asked the content service for it with
+the project's api key. A media path outside `/public` is a remote ref or an
+absolute URL the site serves itself, and neither comes through here without a
+`patch_id`. The same file holds the rule for what an upload and a patch's `file`
+op may name, and for a patch id used as a directory name.
+
 **`/api/val/history/files` is authenticated**, and neither half of that argument
 transfers to it:
 

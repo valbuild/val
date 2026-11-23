@@ -4,6 +4,16 @@ import viteReact from "@vitejs/plugin-react";
 
 export default defineConfig({
   /*
+   * `PUBLIC_` reaches the browser, as it does on Val's platform, where a
+   * project's `PUBLIC_` variables are `import.meta.env.NAME` in the browser
+   * and everything else is `process.env.NAME` on the server only
+   * (`@valbuild/tanstack-build`'s `envFor`). Vite lets only `VITE_` through by
+   * default, so without this a `PUBLIC_` value from `.env` is there hosted and
+   * missing in `vite dev`. And ONLY `PUBLIC_`: a `VITE_` name would reach the
+   * browser here and not on the platform.
+   */
+  envPrefix: "PUBLIC_",
+  /*
    * Overridable for the e2e suite, which can run a second dev server of this
    * app in proxy mode beside the fs-mode one (see `playwright.config.ts`). Two
    * servers re-optimizing dependencies into one cache delete each other's
@@ -39,12 +49,23 @@ export default defineConfig({
    * test on a fresh checkout lost what it was editing to that reload. An app
    * that installs Val from npm has none of this, since `@valbuild/tanstack` is
    * pre-bundled with everything it imports, lazily or not.
+   *
+   * `modern-screenshot` and `@vercel/stega` are the same case, and were left
+   * to be found at run time: every cold start discovered both after the page
+   * had begun loading, and whether that reloaded the page ("optimized
+   * dependencies changed. reloading") was a race the Studio's import order
+   * decided. A change that moved one import took the first cold `/val` load
+   * from never reloading to reloading one time in five, and the e2e warm-ups
+   * failed on it. When a cold `vite dev` logs "dependencies optimized: x"
+   * after its first bundling, x belongs in this list.
    */
   optimizeDeps: {
     include: [
       "@valbuild/tanstack > @valbuild/shared > zod",
       "@valbuild/tanstack > @valbuild/shared > zod-validation-error",
       "@valbuild/tanstack > @valbuild/shared > flexsearch",
+      "@valbuild/tanstack > @valbuild/shared > modern-screenshot",
+      "@valbuild/tanstack > @valbuild/react > @vercel/stega",
     ],
   },
   plugins: [

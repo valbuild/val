@@ -1,16 +1,24 @@
+import { changesCode } from "./changesCode";
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
+import type { PickedSources } from "./projectMap";
 import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import { lintWithValRules, pathsToLint } from "./lintCode";
-import { codeModeOffMessage, type CodeModeNow } from "./codeMode";
+import {
+  codeModeOffMessage,
+  codeModeRefusalOf,
+  type CodeModeNow,
+} from "./codeMode";
 import {
   markStagedCodeTold,
   stagedCodeNotice,
   type StagedCodeOutcome,
+  type StagedCodeReach,
 } from "./stagedCode";
+import { createProjectSnapshot, type ProjectSnapshot } from "./projectSnapshot";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -71,13 +79,60 @@ const LIST_FILES_TOOL: AITool = {
 const READ_FILE_TOOL: AITool = {
   name: "read_file",
   description:
-    "Read one file of the project's code, as list_files names it. In a proposal, the proposal's version of it.",
+    "Read one file of the project's code, as list_files names it. In a proposal, the proposal's version of it. " +
+    "With offset and limit, only those lines: the text comes back exactly as it is in the file, without line numbers, so a piece of it can be passed to edit_file as old_string. " +
+    "search_code gives the line numbers to start from.",
   parameters: {
     type: "object",
     properties: {
       path: { type: "string", description: "e.g. 'src/components/Hero.tsx'." },
+      offset: {
+        type: "number",
+        description:
+          "The first line to read, counting from 1. Without it, from the start.",
+      },
+      limit: {
+        type: "number",
+        description:
+          "How many lines to read. Without it, to the end of the file.",
+      },
     },
     required: ["path"],
+  },
+};
+
+const EDIT_FILE_TOOL: AITool = {
+  name: "edit_file",
+  description:
+    "Change part of one file of the project's code: replace old_string with new_string, exactly. " +
+    "old_string must be the file's text exactly as read_file gives it, indentation and line breaks included, and must match once: " +
+    "add the lines around it until it does, or set replace_all to change every match. " +
+    "Use this for every change to a file that exists; use write_files for a new file, a deletion, or rewriting most of a file. " +
+    "Only in a proposal, and staged there as write_files stages.",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "e.g. 'src/components/Hero.tsx'." },
+      old_string: {
+        type: "string",
+        description: "The text to replace, exactly as it is in the file.",
+      },
+      new_string: {
+        type: "string",
+        description: "What replaces it. Empty to delete old_string.",
+      },
+      replace_all: {
+        type: "boolean",
+        description:
+          "Replace every match of old_string, not just one. Default false.",
+      },
+      message: {
+        type: "string",
+        description:
+          "What the change does, in a sentence, for the proposal's history.",
+      },
+    },
+    required: ["path", "old_string", "new_string"],
   },
 };
 
@@ -85,6 +140,7 @@ const WRITE_FILES_TOOL: AITool = {
   name: "write_files",
   description:
     "Change the project's code: write whole files (the full new text of each), or delete one with null. " +
+    "For a change to part of a file that exists, use edit_file: it sends only what changes. " +
     "Only in a proposal -- the site's code is changed by merging a proposal, never directly. " +
     "Content is not code: change Val content with create_patch, not by rewriting a .val.ts. " +
     "A .val.ts IS written here when its schema changes. " +
@@ -227,7 +283,7 @@ const FORMAT_FILES_TOOL: AITool = {
   name: "format_files",
   description:
     "Format the proposal's files the way the project formats them -- Prettier, with the project's config -- " +
-    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files, before typecheck. " +
+    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files. " +
     "A config it cannot read (JavaScript or YAML, plugins) is reported, not guessed at.",
   parameters: {
     type: "object",
@@ -254,7 +310,9 @@ const LINT_TOOL: AITool = {
     "Check the proposal's files with Val's lint rules -- the ones a developer's editor runs: a c.define path that is not the file's own, " +
     "a module missing from val.modules.ts, c.define content that is a variable (it validates, then fails at publish), " +
     "an import a .val file may not make. When one fires, something is wrong: fix it. " +
-    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). Call it after format_files, with typecheck.",
+    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). " +
+    "The Studio lints what you stage by itself after each change, and what it finds comes with a tool answer as lint_problems: " +
+    "call this to fix what the rules can fix (fix: true), or to lint other files, not to check each change.",
   parameters: {
     type: "object",
     properties: {
@@ -273,10 +331,22 @@ const LINT_TOOL: AITool = {
   },
 };
 
+/**
+ * The code tools the assistant is offered: {@link CODE_TOOLS} without
+ * `typecheck`, which waits for the typecheck. The Studio typechecks what is
+ * staged by itself and tells the assistant (`toolNotices.ts`), so a turn
+ * never waits on it. `typecheck` still runs when called, for a chat that
+ * began with it.
+ */
+export function assistantCodeTools(): AITool[] {
+  return CODE_TOOLS.filter((tool) => tool.name !== TYPECHECK_TOOL.name);
+}
+
 export const CODE_TOOLS: AITool[] = [
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
   SEARCH_CODE_TOOL,
+  EDIT_FILE_TOOL,
   WRITE_FILES_TOOL,
   FORMAT_FILES_TOOL,
   LINT_TOOL,
@@ -289,6 +359,83 @@ export const CODE_TOOLS: AITool[] = [
 ];
 
 /**
+ * Whether a code tool's answer says it staged files: what makes the
+ * background checks and the page check run. A `lint` without `fix`, or a
+ * `format_files` that changed nothing, changed no code, and checking it again
+ * would spend a page check on nothing.
+ */
+export function stagedCode(
+  name: string,
+  args: unknown,
+  answer: CodeToolAnswer,
+): boolean {
+  if (answer.isError) return false;
+  if (name === "write_files" || name === "edit_file") return true;
+  const result = isRecord(answer.result) ? answer.result : {};
+  if (name === "lint") {
+    const fixed = result["fixedAndStaged"];
+    return Array.isArray(fixed) && fixed.length > 0;
+  }
+  if (name === "format_files") {
+    const input = isRecord(args) ? args : {};
+    const files = result["files"];
+    return (
+      input["write"] !== false &&
+      Array.isArray(files) &&
+      files.some((file) => isRecord(file) && file["status"] === "changed")
+    );
+  }
+  return false;
+}
+
+/**
+ * The code tools that only read: what the page check is given
+ * (`pageCheck.ts`), which must never change the proposal it is checking.
+ */
+export const READ_ONLY_CODE_TOOLS: AITool[] = [
+  LIST_FILES_TOOL,
+  READ_FILE_TOOL,
+  SEARCH_CODE_TOOL,
+];
+
+/**
+ * One of {@link READ_ONLY_CODE_TOOLS}, run as the assistant's are
+ * (`runCodeTool`), with everything that could write, build or typecheck
+ * refused: a call of any other tool is refused before it runs.
+ */
+export async function runReadOnlyCodeTool(
+  name: string,
+  args: unknown,
+  deps: ProjectReadDeps,
+): Promise<CodeToolAnswer> {
+  const refuse = (): never => {
+    throw new Error(`${name} only reads here: nothing can be changed.`);
+  };
+  if (!READ_ONLY_CODE_TOOLS.some((tool) => tool.name === name)) {
+    return {
+      result: {
+        success: false,
+        error: `${name} is not one of the tools here: ${READ_ONLY_CODE_TOOLS.map((tool) => tool.name).join(", ")}.`,
+      },
+      isError: true,
+    };
+  }
+  return runCodeTool(name, args, {
+    proposal: deps.proposal,
+    client: { files: deps.client.files, stageFiles: refuse },
+    siteSource: deps.siteSource,
+    build: {
+      start: refuse,
+      running: () => null,
+      report: () => ({ status: "idle", last: null }),
+      cancel: () => false,
+    },
+    typecheck: refuse,
+    offerProposal: () => {},
+  });
+}
+
+/**
  * The assistant asking for code mode: a card in the chat with a button that
  * turns it on (`CodeModeRequestCard`), or on the site opens the `</>` menu to
  * choose a proposal. The turn waits on it, as on a question.
@@ -296,7 +443,7 @@ export const CODE_TOOLS: AITool[] = [
 export const REQUEST_CODE_MODE_TOOL: AITool = {
   name: "request_code_mode",
   description:
-    "Ask the person to turn on code mode, which lets you change the proposal's code (write_files, format_files, lint with fix). " +
+    "Ask the person to turn on code mode, which lets you change the proposal's code (edit_file, write_files, format_files, lint with fix). " +
     "Call it when a request needs a code change -- a new component, a layout, a field the schema does not have -- and a code tool refused because code mode is off, " +
     "or before you start such a change. The person sees a card with a button; the call answers once they turn it on or say not now. " +
     "On the site the button lets them choose a proposal to open in code mode: the change is made there, not here. Content changes never need it.",
@@ -343,7 +490,8 @@ export const QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
   description:
     "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
-    "Where Val Build makes quick previews, one runs by itself after each change, so call this only to see the change now, or when none ran. " +
+    "Where Val Build makes quick previews, one runs by itself for the whole change, when your turn ends or once you have not written for a few seconds. " +
+    "So call this only to read the page yourself before the turn ends, or when the preview does not show what is staged. " +
     "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
     "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
     "Answers once the page shows it, with what each step took.",
@@ -418,19 +566,20 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   const here =
     where.kind === "proposal"
       ? "This Studio is in a proposal: changes go into it."
-      : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
+      : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call edit_file or write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (edit_file, write_files), format it (format_files) and build it (build_proposal). The Studio checks it for you. Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
-- Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
-- write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
-- The preview: a second after files are staged, the preview shows them as a quick preview by itself -- components, layout, styles and text, in seconds, without a build. Call quick_preview only to see a change now, or when none ran. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build.
-- A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
+- Find before you read: search_code finds where something is defined or rendered, with its line, then read_file the lines around it (offset, limit) rather than the whole file when the file is long.
+- Change a file that exists with edit_file: old_string is copied exactly from what read_file gave you, with enough lines around it to match once, and only what changes is sent. Make several edit_file calls for several places. Use write_files for a new file, to delete one (null), or when most of a file changes; it takes each file's WHOLE new text. Read a file before you change it.
+- After changing code, call format_files so the files are formatted as the project's are. Then carry on, or end your turn: never wait to check. The Studio typechecks and lints what you staged by itself, beside you, and a page check reads the preview once your turn ends. What they find comes back to you, as below; typecheck_status says where the typecheck is, without waiting. The person can write while the checks run, so end the turn as soon as the change is staged. Tell them it is in the preview, not on the site: the site changes when the proposal is published.
+- The preview: when you finish, or once you have not written for a few seconds, the preview shows what is staged as a quick preview by itself -- components, layout, styles and text, without a build, and one quick preview for the whole change, not one per file. Do not call quick_preview to show the person a change: ending your turn shows it. Call it only when you need to read the page yourself before the turn ends (read_page, interact_page), or when the preview does not show what is staged. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build. The code you stage runs in the preview, on the real site, without asking the person: interact_page asks before each click and holds what the page sends, but that is interact_page's rule, not your code's -- never stage code that sends, deletes or buys by itself.
+- A tool's answer can carry \`typecheck_errors\` or \`lint_problems\`: the background typecheck or Val's lint rules found these in what is staged, after a change. Fix them before you build.
+- What those checks find after your turn ends comes as a message that starts with [Background checks], sent by the Studio and not by the person, or at the end of the person's next message inside <background_checks>. Fix what is still there; do not thank the person for it.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
-- Code mode: in a proposal, the tools that change code (write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
+- Code mode: in a proposal, the tools that change code (edit_file, write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
 - ${here}`;
 }
 
@@ -439,17 +588,31 @@ Besides content, you can read the project's code (list_files, read_file, search_
  * after the person's message, which the prompt explains (`PAGE_PROMPT_SECTION`
  * in `hooks/pageTools.ts`). Attribute values are escaped, so text on the
  * customer's page cannot close the tag and pass for the person's words.
+ *
+ * In code mode it also names where the element is in the code, as far as
+ * the tab can tell (`pickedElementSources`), so the model reads those files
+ * instead of searching for them.
  */
-export function pickedElementPrompt(picked: PickedElement): string {
+export function pickedElementPrompt(
+  picked: PickedElement,
+  sources: PickedSources = {},
+): string {
   const attribute = (name: string, value: string) =>
     ` ${name}="${escapePickedText(value)}"`;
+  const files = (name: string, paths: string[] | undefined) =>
+    paths !== undefined && paths.length > 0
+      ? attribute(name, paths.join(", "))
+      : "";
   return `<picked${attribute("tag", picked.tag)}${
     picked.classes.length > 0
       ? attribute("classes", picked.classes.join(" "))
       : ""
   }${attribute("selector", picked.selector)}${
     picked.valPath !== undefined ? attribute("path", picked.valPath) : ""
-  }${attribute("text", picked.text)}/>`;
+  }${sources.module !== undefined ? attribute("module", sources.module) : ""}${files(
+    "imported-by",
+    sources.importedBy,
+  )}${files("classes-in", sources.classesIn)}${attribute("text", picked.text)}/>`;
 }
 
 function escapePickedText(value: string): string {
@@ -471,6 +634,12 @@ export type CodeToolDeps = {
   client: Pick<ProposalsClient, "files" | "stageFiles">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
+  /**
+   * The project as this tab holds it, for the life of the chat
+   * (`projectSnapshot.ts`): what the tools read from and stage through.
+   * Absent: `client` and `siteSource` are asked on every call.
+   */
+  snapshot?: ProjectSnapshot;
   /** The proposal's build: start or join it, see where it is, stop it. */
   build: ProposalBuildControl;
   /** For tests: waiting. */
@@ -497,31 +666,38 @@ export type CodeToolDeps = {
    */
   codeMode?: () => Promise<CodeModeNow>;
   /**
+   * Code mode as this tab last heard it (`codeModeState`), without asking;
+   * `null` when it has not heard. While it says on, a write does not ask
+   * (`codeMode`) first: Val's server refuses a write while code mode is off
+   * (`beforeProposalCodeWrite`), and that refusal is answered in the same
+   * words. Absent: every write asks first.
+   */
+  codeModeHere?: () => boolean | null;
+  /** A person's name by profile id, for who turned code mode off. */
+  nameOf?: (profileId: string) => string | null;
+  /**
    * Evaluate the staged code in this tab and swap its schema in
    * (`runStagedCode`): started after each `write_files`, and its outcome
    * goes with the answer when it is done in time. Absent: nothing is
    * evaluated, and the schema arrives with a build.
    */
   evaluateStaged?: () => Promise<StagedCodeOutcome>;
+  /**
+   * Whether a write of these paths can change what `evaluateStaged` finds
+   * (`stagedCodeReach`): a write that cannot is answered at once, and one
+   * that may is evaluated without the answer waiting for it. Absent: every
+   * write waits, as one that can.
+   */
+  stagedCodeReach?: (paths: string[]) => StagedCodeReach;
 };
 
 /**
- * How long `write_files` waits for the staged code's evaluation before it
- * answers without it: seconds is normal, and the outcome otherwise reaches
- * the assistant with its next tool answer (`untoldStagedCode`).
+ * How long a write that can change the Val modules waits for the staged
+ * code's evaluation before it answers without it: seconds is normal, and the
+ * outcome otherwise reaches the assistant with its next tool answer
+ * (`untoldStagedCode`).
  */
 const STAGED_CODE_WAIT_SECONDS = 20;
-
-/**
- * The tools that change the proposal's code: refused while code mode is off.
- * Reading it, typechecking it and building what is staged change nothing.
- */
-function changesCode(name: string, input: Record<string, unknown>): boolean {
-  if (name === "write_files") return true;
-  if (name === "format_files") return input["write"] !== false;
-  if (name === "lint") return input["fix"] === true;
-  return false;
-}
 
 /**
  * The proposal's build, as the assistant's tools reach it: `useProposalBuild`'s
@@ -593,7 +769,40 @@ const MAX_READ_CHARS = 200_000;
 const MAX_SEARCHED_CHARS = 1_000_000;
 const MAX_MATCH_LINE_CHARS = 300;
 
-export async function runCodeTool(
+/**
+ * The code-changing tool calls running in each proposal, as one chain.
+ *
+ * The server sends every tool call of one model reply at once, and the
+ * Studio starts each as it arrives. Two `edit_file` calls on one file would
+ * both read the same text, both stage, and the second would overwrite the
+ * first while both answer success. So the tools that change code
+ * (`changesCode`) run one at a time per proposal, each after the one before
+ * has staged, and so each reads what the one before wrote. Reading does not
+ * wait.
+ */
+const codeWrites = new Map<string, Promise<unknown>>();
+
+export function runCodeTool(
+  name: string,
+  args: unknown,
+  deps: CodeToolDeps,
+): Promise<CodeToolAnswer> {
+  const input = isRecord(args) ? args : {};
+  if (deps.proposal === null || !changesCode(name, input)) {
+    return runCodeToolNow(name, args, deps);
+  }
+  const proposalName = deps.proposal.name;
+  const before = codeWrites.get(proposalName) ?? Promise.resolve();
+  // `runCodeToolNow` answers its own failures, so the chain never rejects.
+  const run = before.then(() => runCodeToolNow(name, args, deps));
+  codeWrites.set(proposalName, run);
+  void run.then(() => {
+    if (codeWrites.get(proposalName) === run) codeWrites.delete(proposalName);
+  });
+  return run;
+}
+
+async function runCodeToolNow(
   name: string,
   args: unknown,
   deps: CodeToolDeps,
@@ -603,44 +812,76 @@ export async function runCodeTool(
     isError: true,
   });
   const input = isRecord(args) ? args : {};
+  const snapshot = snapshotOf(deps);
   try {
     if (
       deps.proposal !== null &&
       deps.codeMode !== undefined &&
-      changesCode(name, input)
+      changesCode(name, input) &&
+      // On, as far as this tab has heard: the server's refusal is the
+      // answer if it has been turned off since (the catch below).
+      deps.codeModeHere?.() !== true
     ) {
       const mode = await deps.codeMode();
       if (!mode.on) return fail(codeModeOffMessage(mode));
     }
-    /** `work`, or `null` once `seconds` have passed without it. */
-    const within = async <T>(
-      work: Promise<T>,
-      seconds: number,
-    ): Promise<T | null> => {
-      let clear = () => {};
-      const timeout =
-        deps.sleep !== undefined
-          ? deps.sleep(seconds * 1000).then(() => null)
-          : new Promise<null>((resolve) => {
-              // Cleared when the work wins: a wait left behind would hold
-              // the page for minutes after it is answered.
-              const timer = setTimeout(() => resolve(null), seconds * 1000);
-              clear = () => clearTimeout(timer);
-            });
-      try {
-        return await Promise.race([work, timeout]);
-      } finally {
-        clear();
+    const within = <T>(work: Promise<T>, seconds: number) =>
+      withinSeconds(deps.sleep, work, seconds);
+    if (
+      deps.proposal === null &&
+      (name === "write_files" || name === "edit_file")
+    ) {
+      deps.offerProposal();
+      return fail(
+        "The site's code is changed in a proposal, never directly, and this Studio is on the site. " +
+          "The person has been offered to open a proposal: ask them to, and make the change there.",
+      );
+    }
+    if (name === "edit_file" && deps.proposal !== null) {
+      const path = input["path"];
+      const oldString = input["old_string"];
+      const newString = input["new_string"];
+      const replaceAll = input["replace_all"];
+      if (typeof path !== "string" || path === "") {
+        return fail("path must be the file's path, as list_files names it.");
       }
-    };
-    if (name === "write_files") {
-      if (deps.proposal === null) {
-        deps.offerProposal();
+      if (typeof oldString !== "string" || typeof newString !== "string") {
+        return fail("old_string and new_string must both be text.");
+      }
+      if (replaceAll !== undefined && typeof replaceAll !== "boolean") {
+        return fail("replace_all must be true or false.");
+      }
+      const { project } = await snapshot.read(deps.proposal.name, "to-write");
+      const filePath = path.replace(/^\/+/, "");
+      const text = project[filePath];
+      if (text === undefined) {
         return fail(
-          "The site's code is changed in a proposal, never directly, and this Studio is on the site. " +
-            "The person has been offered to open a proposal: ask them to, and make the change there.",
+          `There is no file ${path}. edit_file changes a file that exists: create a new one with write_files, or find the right path with list_files.`,
         );
       }
+      const edit = editText(text, oldString, newString, replaceAll === true);
+      if (edit.status !== "edited") return fail(edit.message);
+      const message =
+        typeof input["message"] === "string" ? input["message"] : undefined;
+      const answer = await stageCode(
+        deps,
+        snapshot,
+        deps.proposal.name,
+        { [filePath]: edit.text },
+        message,
+      );
+      return isRecord(answer.result)
+        ? {
+            ...answer,
+            result: {
+              ...answer.result,
+              replaced: edit.replaced,
+              line: edit.line,
+            },
+          }
+        : answer;
+    }
+    if (name === "write_files" && deps.proposal !== null) {
       const files = input["files"];
       if (!isRecord(files) || Object.keys(files).length === 0) {
         return fail(
@@ -658,44 +899,14 @@ export async function runCodeTool(
       }
       const message =
         typeof input["message"] === "string" ? input["message"] : undefined;
-      const staged = await deps.client.stageFiles(
+      // Awaited here, so a refused staging is answered by the catch below
+      return await stageCode(
+        deps,
+        snapshot,
         deps.proposal.name,
         written,
         message,
       );
-      // The tab evaluates `val.modules` as the staging left it, and swaps the
-      // schema in: what moved, or why it does not run, goes with this answer
-      // when it is done in time, else with the next one.
-      const evaluation = deps.evaluateStaged?.();
-      const evaluated =
-        evaluation === undefined
-          ? undefined
-          : await within(evaluation, STAGED_CODE_WAIT_SECONDS);
-      if (evaluated !== undefined && evaluated !== null) {
-        markStagedCodeTold(evaluated);
-      }
-      return {
-        result: {
-          success: true,
-          staged: staged.staged.files,
-          buildRequired: staged.staged.buildRequired,
-          next: !staged.staged.buildRequired
-            ? "The preview already shows these files."
-            : "The preview shows them as a quick preview by itself in a moment. Call build_proposal once the change is complete.",
-          ...(evaluated === undefined
-            ? {}
-            : {
-                valModules:
-                  evaluated === null
-                    ? {
-                        status: "evaluating",
-                        note: "The Studio is still reading val.modules; what it finds comes with your next tool answer.",
-                      }
-                    : stagedCodeNotice(evaluated),
-              }),
-        },
-        isError: false,
-      };
     }
     if (name === "typecheck_status") {
       if (deps.proposal === null || deps.typecheckStatus === undefined) {
@@ -714,7 +925,7 @@ export async function runCodeTool(
           ...(status.current
             ? {}
             : {
-                note: "This check is of files staged before the last change: call typecheck once your edits are done.",
+                note: "This check is of files staged before the last change. The Studio typechecks the files as they are now by itself, and what it finds comes with a tool answer: do not wait for it.",
               }),
         },
         isError: false,
@@ -810,16 +1021,11 @@ export async function runCodeTool(
         isError: false,
       };
     }
-    // Reading: the proposal's project, or the site's.
-    const site = (await deps.siteSource()) ?? {};
-    let own: Record<string, string | null> = {};
-    let staged: ProposalStaged | null = null;
-    if (deps.proposal !== null) {
-      const read = await deps.client.files(deps.proposal.name);
-      own = read.files;
-      staged = read.staged;
-    }
-    const project = proposalProject(site, own);
+    const { project, staged } = await snapshot.read(
+      deps.proposal?.name ?? null,
+      // What a write is made from is checked, not only held.
+      changesCode(name, input) ? "to-write" : undefined,
+    );
     if (name === "list_files") {
       const prefix = typeof input["prefix"] === "string" ? input["prefix"] : "";
       const paths = Object.keys(project)
@@ -880,7 +1086,7 @@ export async function runCodeTool(
       }
       const write = input["write"] !== false;
       if (write && Object.keys(changed).length > 0) {
-        await deps.client.stageFiles(deps.proposal.name, changed, "Format");
+        await snapshot.stage(deps.proposal.name, changed, "Format");
       }
       const failed = files.some((f) => f.status === "failed");
       return {
@@ -919,7 +1125,7 @@ export async function runCodeTool(
       const lintCode = deps.lintCode ?? lintWithValRules;
       const { messages, fixed } = await lintCode(project, paths, { fix });
       if (Object.keys(fixed).length > 0) {
-        await deps.client.stageFiles(deps.proposal.name, fixed, "Lint fixes");
+        await snapshot.stage(deps.proposal.name, fixed, "Lint fixes");
       }
       return {
         result: {
@@ -980,21 +1186,474 @@ export async function runCodeTool(
           `There is no file ${path}. list_files names the files there are.`,
         );
       }
+      const offset = input["offset"];
+      const limit = input["limit"];
+      const isStaged =
+        staged !== null ? { staged: staged.files.includes(path) } : {};
+      if (offset === undefined && limit === undefined) {
+        if (text.length <= MAX_READ_CHARS) {
+          return { result: { path, text, ...isStaged }, isError: false };
+        }
+        const part = readLines(text, 1, null);
+        if (part.status === "read") {
+          return {
+            result: {
+              path,
+              text: part.text,
+              ...(part.truncated !== undefined
+                ? { truncated: part.truncated }
+                : {}),
+              ...isStaged,
+            },
+            isError: false,
+          };
+        }
+      }
+      if (
+        (offset !== undefined && !isPositiveInteger(offset)) ||
+        (limit !== undefined && !isPositiveInteger(limit))
+      ) {
+        return fail(
+          "offset and limit must be whole numbers from 1: offset is the first line to read, limit how many lines.",
+        );
+      }
+      const part = readLines(
+        text,
+        typeof offset === "number" ? offset : 1,
+        typeof limit === "number" ? limit : null,
+      );
+      if (part.status === "past-the-end") {
+        return fail(
+          `${path} has ${part.totalLines} lines, so there is no line ${String(offset)}.`,
+        );
+      }
       return {
         result: {
           path,
-          text:
-            text.length > MAX_READ_CHARS ? text.slice(0, MAX_READ_CHARS) : text,
-          ...(text.length > MAX_READ_CHARS ? { truncated: true } : {}),
-          ...(staged !== null ? { staged: staged.files.includes(path) } : {}),
+          text: part.text,
+          startLine: part.startLine,
+          endLine: part.endLine,
+          totalLines: part.totalLines,
+          ...(part.truncated !== undefined
+            ? { truncated: part.truncated }
+            : {}),
+          ...isStaged,
         },
         isError: false,
       };
     }
     return fail(`Unknown code tool ${name}.`);
   } catch (error) {
+    // Code mode was turned off since this tab last heard: the server
+    // refused the write, and the model is told who did, as it is when the
+    // tab asks first.
+    const off = codeModeRefusalOf(
+      error,
+      deps.nameOf ?? (() => null),
+      Date.now(),
+    );
+    if (off !== null) return fail(codeModeOffMessage(off));
     return fail(messageOf(error));
   }
+}
+
+/** The snapshot the tools go through: the chat's, or one for this call. */
+function snapshotOf(deps: ProjectReadDeps): ProjectSnapshot {
+  return (
+    deps.snapshot ??
+    createProjectSnapshot({
+      client: deps.client,
+      siteSource: deps.siteSource,
+      // No `seq`: never current, so every read asks.
+      seq: () => null,
+    })
+  );
+}
+
+/** `work`, or `null` once `seconds` have passed without it. */
+async function withinSeconds<T>(
+  sleep: CodeToolDeps["sleep"],
+  work: Promise<T>,
+  seconds: number,
+): Promise<T | null> {
+  let clear = () => {};
+  const timeout =
+    sleep !== undefined
+      ? sleep(seconds * 1000).then(() => null)
+      : new Promise<null>((resolve) => {
+          // Cleared when the work wins: a wait left behind would hold
+          // the page for minutes after it is answered.
+          const timer = setTimeout(() => resolve(null), seconds * 1000);
+          clear = () => clearTimeout(timer);
+        });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clear();
+  }
+}
+
+/**
+ * Stage files the assistant wrote in the proposal, and answer with what
+ * that did: the one way code is written, whether it came whole
+ * (`write_files`) or as a replacement in a file (`edit_file`).
+ */
+async function stageCode(
+  deps: CodeToolDeps,
+  snapshot: ProjectSnapshot,
+  proposalName: string,
+  written: Record<string, string | null>,
+  message: string | undefined,
+): Promise<CodeToolAnswer> {
+  const staged = await snapshot.stage(proposalName, written, message);
+  /*
+   * The tab evaluates `val.modules` as the staging left it, and swaps the
+   * schema in: what moved, or why it does not run, goes with this answer
+   * when it is done in time, else with the next one. Only a write that can
+   * change it is waited for: a component `val.modules.ts` never imports
+   * changes no schema, and its answer does not wait for one to be read.
+   */
+  const reach: StagedCodeReach =
+    deps.evaluateStaged === undefined
+      ? "cannot"
+      : (deps.stagedCodeReach?.(Object.keys(written)) ?? "can");
+  const evaluation = reach === "cannot" ? undefined : deps.evaluateStaged?.();
+  const evaluated =
+    evaluation === undefined || reach !== "can"
+      ? undefined
+      : await withinSeconds(deps.sleep, evaluation, STAGED_CODE_WAIT_SECONDS);
+  if (evaluated !== undefined && evaluated !== null) {
+    markStagedCodeTold(evaluated);
+  }
+  return {
+    result: {
+      success: true,
+      staged: staged.staged.files,
+      buildRequired: staged.staged.buildRequired,
+      next: !staged.staged.buildRequired
+        ? "The preview already shows these files."
+        : "The preview shows them as a quick preview by itself when you finish, or once you have not written for a few seconds: one quick preview for the change, not one per file. No build is needed to see components, styles and text; build only for what a quick preview cannot show, once, when the request is finished.",
+      ...(evaluated === undefined
+        ? {}
+        : {
+            valModules:
+              evaluated === null
+                ? {
+                    status: "evaluating",
+                    note: "The Studio is still reading val.modules; what it finds comes with your next tool answer.",
+                  }
+                : stagedCodeNotice(evaluated),
+          }),
+    },
+    isError: false,
+  };
+}
+
+/** What the code tools read the project through. */
+export type ProjectReadDeps = Pick<
+  CodeToolDeps,
+  "proposal" | "siteSource" | "snapshot"
+> & {
+  client: Pick<ProposalsClient, "files"> &
+    Partial<Pick<ProposalsClient, "stageFiles">>;
+};
+
+/**
+ * The project the code tools read: the proposal's (the site's files with
+ * the proposal's laid over), or the site's on the site. Paths are relative
+ * to the project root. From the chat's snapshot where there is one
+ * (`projectSnapshot.ts`), which asks only when what it holds is not current.
+ */
+export async function readProject(deps: ProjectReadDeps): Promise<{
+  project: Record<string, string>;
+  staged: ProposalStaged | null;
+}> {
+  return snapshotOf(deps).read(deps.proposal?.name ?? null);
+}
+
+/** What `edit_file` made of a file, or why it did not. */
+export type TextEdit =
+  | { status: "edited"; text: string; replaced: number; line: number }
+  | { status: "refused"; message: string };
+
+/**
+ * `edit_file`'s replacement: `oldString` must be in `text` exactly, once
+ * unless `replaceAll`. A refusal says what to do instead, since the model
+ * reads it and tries again.
+ *
+ * A file with Windows line breaks is matched with them, and new_string is
+ * written with them: the model writes `\n`, and would otherwise never match
+ * such a file, or would put bare `\n` into it.
+ *
+ * Whether `oldString` is unique counts overlapping matches too: "aa" in
+ * "aaa" is two places it could mean, not one.
+ */
+export function editText(
+  text: string,
+  oldString: string,
+  newString: string,
+  replaceAll: boolean,
+): TextEdit {
+  if (oldString === "") {
+    return {
+      status: "refused",
+      message:
+        "old_string is empty: give the text to replace. To write a new file, or a whole file, use write_files.",
+    };
+  }
+  if (oldString === newString) {
+    return {
+      status: "refused",
+      message: "old_string and new_string are the same: nothing would change.",
+    };
+  }
+  const crlf = text.includes("\r\n");
+  let from = oldString;
+  const to = crlf ? newString.replace(/\r?\n/g, "\r\n") : newString;
+  let at = matchesOf(text, from);
+  if (
+    at.length === 0 &&
+    crlf &&
+    !oldString.includes("\r\n") &&
+    oldString.includes("\n")
+  ) {
+    from = oldString.replace(/\n/g, "\r\n");
+    at = matchesOf(text, from);
+  }
+  if (at.length === 0) {
+    const firstLine = oldString
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line !== "");
+    const near =
+      firstLine === undefined
+        ? []
+        : text
+            .split("\n")
+            .flatMap((line, index) =>
+              line.includes(firstLine) ? [index + 1] : [],
+            )
+            .slice(0, 5);
+    return {
+      status: "refused",
+      message:
+        "old_string is not in the file. It has to match exactly, indentation, quotes and line breaks included: read_file the lines you are changing and copy old_string from that text." +
+        (near.length > 0
+          ? ` Its first line is on ${near.length === 1 ? "line" : "lines"} ${near.join(", ")}, so what follows it differs: read from there.`
+          : ""),
+    };
+  }
+  const overlapping = overlappingMatchesOf(text, from);
+  if (overlapping.length > 1 && !replaceAll) {
+    const lines = [
+      ...new Set(overlapping.slice(0, 10).map((index) => lineOf(text, index))),
+    ];
+    return {
+      status: "refused",
+      message:
+        `old_string matches ${overlapping.length} times (${overlapping.length > 10 ? "first on lines" : lines.length === 1 ? "line" : "lines"} ${lines.join(", ")}), so it is not clear which to change. ` +
+        "Add lines around it to old_string until it matches once, or set replace_all: true to change every match.",
+    };
+  }
+  const replacing = replaceAll ? at : at.slice(0, 1);
+  let edited = "";
+  let previous = 0;
+  for (const index of replacing) {
+    edited += text.slice(previous, index) + to;
+    previous = index + from.length;
+  }
+  edited += text.slice(previous);
+  return {
+    status: "edited",
+    text: edited,
+    replaced: replacing.length,
+    line: lineOf(text, replacing[0]),
+  };
+}
+
+/** Where `search` starts in `text`, each time, overlapping ones included. */
+function overlappingMatchesOf(text: string, search: string): number[] {
+  const at: number[] = [];
+  let index = text.indexOf(search);
+  while (index !== -1) {
+    at.push(index);
+    index = text.indexOf(search, index + 1);
+  }
+  return at;
+}
+
+/** Where `search` starts in `text`, each time, not overlapping. */
+function matchesOf(text: string, search: string): number[] {
+  const at: number[] = [];
+  let index = text.indexOf(search);
+  while (index !== -1) {
+    at.push(index);
+    index = text.indexOf(search, index + search.length);
+  }
+  return at;
+}
+
+/** The line, from 1, that the character at `index` is on. */
+function lineOf(text: string, index: number): number {
+  let line = 1;
+  for (let i = text.indexOf("\n"); i !== -1 && i < index; ) {
+    line++;
+    i = text.indexOf("\n", i + 1);
+  }
+  return line;
+}
+
+/** Lines of a file, as `read_file` answers them. */
+export type ReadLines =
+  | {
+      status: "read";
+      /** Exactly as in the file: its line breaks, and no line numbers. */
+      text: string;
+      startLine: number;
+      endLine: number;
+      totalLines: number;
+      /** Set when not all that was asked for fits in one answer. */
+      truncated?: string;
+    }
+  | { status: "past-the-end"; totalLines: number };
+
+/**
+ * Lines `start` to `start + limit - 1` of `text` (to the end when `limit`
+ * is `null`), cut at a line's end to fit `MAX_READ_CHARS`. The text is the
+ * file's own, so any part of it can be given back to `edit_file`.
+ */
+export function readLines(
+  text: string,
+  start: number,
+  limit: number | null,
+): ReadLines {
+  const lines = text.split("\n");
+  const totalLines =
+    text === "" ? 0 : text.endsWith("\n") ? lines.length - 1 : lines.length;
+  if (start > Math.max(totalLines, 1)) {
+    return { status: "past-the-end", totalLines };
+  }
+  // starts[i]: where line i + 1 starts.
+  const starts: number[] = [];
+  let position = 0;
+  for (const line of lines) {
+    starts.push(position);
+    position += line.length + 1;
+  }
+  /** Where line `n` ends, its line break included. */
+  const endOf = (n: number) => (n < lines.length ? starts[n] : text.length);
+  const from = starts[start - 1] ?? 0;
+  const wanted =
+    limit === null ? totalLines : Math.min(totalLines, start + limit - 1);
+  let end = Math.max(wanted, start);
+  if (endOf(end) - from <= MAX_READ_CHARS || totalLines === 0) {
+    return {
+      status: "read",
+      text: text.slice(from, endOf(end)),
+      startLine: start,
+      endLine: Math.min(end, totalLines),
+      totalLines,
+    };
+  }
+  while (end > start && endOf(end) - from > MAX_READ_CHARS) end--;
+  if (endOf(end) - from > MAX_READ_CHARS) {
+    // One line longer than an answer: minified or generated.
+    return {
+      status: "read",
+      text: text.slice(from, from + MAX_READ_CHARS),
+      startLine: start,
+      endLine: start,
+      totalLines,
+      truncated: `Line ${start} alone is longer than ${MAX_READ_CHARS} characters, so only its start is here: the file is probably minified or generated, and not one to edit.`,
+    };
+  }
+  return {
+    status: "read",
+    text: text.slice(from, endOf(end)),
+    startLine: start,
+    endLine: end,
+    totalLines,
+    truncated:
+      `Lines ${start}-${end} of ${totalLines} are what fits in one answer (${MAX_READ_CHARS} characters). ` +
+      `Read on with offset: ${end + 1}${end + 1 <= wanted ? `, limit: ${wanted - end}` : ""}, or search_code for the part you need.`,
+  };
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+/**
+ * The project's own instructions for anyone changing its code, at the root:
+ * read in this order, each one that exists.
+ */
+export const PROJECT_INSTRUCTION_FILES: readonly string[] = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  ".claude/CLAUDE.md",
+];
+
+/** At most this much of the project's instructions goes in the prompt. */
+export const MAX_PROJECT_INSTRUCTIONS_CHARS = 20_000;
+
+/**
+ * The project's instructions (`PROJECT_INSTRUCTION_FILES`), read as
+ * `read_file` reads them, cut to `MAX_PROJECT_INSTRUCTIONS_CHARS`. `null`
+ * when there are none: most projects have none, and that is not worth a
+ * word.
+ */
+export async function readProjectInstructions(
+  deps: ProjectReadDeps,
+): Promise<string | null> {
+  const { project } = await readProject(deps);
+  return projectInstructionsOf(project);
+}
+
+/** {@link readProjectInstructions}, of a project already read. */
+export function projectInstructionsOf(
+  project: Record<string, string>,
+): string | null {
+  const found = PROJECT_INSTRUCTION_FILES.flatMap((path) => {
+    const text = project[path];
+    return text === undefined || text.trim() === ""
+      ? []
+      : [{ path, text: text.trim() }];
+  });
+  if (found.length === 0) return null;
+  let budget = MAX_PROJECT_INSTRUCTIONS_CHARS;
+  const parts: string[] = [];
+  for (const { path, text } of found) {
+    if (budget <= 0) {
+      parts.push(`### ${path}\n(Not included: read_file ${path} to read it.)`);
+      continue;
+    }
+    const fits = text.length <= budget;
+    parts.push(
+      `### ${path}\n${fits ? text : text.slice(0, budget)}${
+        fits
+          ? ""
+          : `\n(Cut here: the rest is ${text.length - budget} more characters. read_file ${path} for it.)`
+      }`,
+    );
+    budget -= text.length;
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * The project's instructions, as the prompt carries them: under a heading
+ * that says whose they are, so they are not taken for Val's.
+ */
+export function projectInstructionsPromptSection(
+  instructions: string | null,
+): string {
+  if (instructions === null) return "";
+  return `
+
+## The project's own instructions
+The project's repository has these instructions for anyone working on its code. They are the project's, written by its developers, not Val's: follow them when you change its code, unless they conflict with what the person asks or with the rules above.
+
+${instructions}`;
 }
 
 /** One line that matched, where it is. */

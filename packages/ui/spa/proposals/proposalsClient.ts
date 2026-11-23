@@ -7,12 +7,16 @@ import {
   type BuildTargetResponse,
   type SchemaError,
 } from "@valbuild/shared/internal";
-import { StudioPublishError } from "@valbuild/shared/publish";
+import {
+  StudioPublishError,
+  type ServerBuildProgress,
+} from "@valbuild/shared/publish";
 import type {
   ProposalJobState,
   ProposalPerson,
   ProposalSummary,
 } from "../components/proposals/types";
+import { proposalStaged } from "./proposalBuildStore";
 
 /**
  * Proposals, as a Studio tab speaks them: through this deployment's
@@ -63,6 +67,11 @@ const UpgradeJson = z.object({
       name: z.string(),
       from: z.string().nullable(),
       to: z.string().nullable(),
+      // The specifier, before and after: pnpm moves a range up to the
+      // version already installed, a change with no new version. Absent
+      // from a Val Build that does not send them yet.
+      fromRange: z.string().nullish(),
+      toRange: z.string().nullish(),
       kind: z.enum(["major", "minor", "patch"]).nullable().catch(null),
     }),
   ),
@@ -230,7 +239,19 @@ const FilesAnswer = z.object({
   files: z.record(z.string(), z.string().nullable()),
   staged: Staged,
 });
-const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
+const StagedAnswer = z.object({
+  commit: z.string(),
+  staged: Staged,
+  /**
+   * Whether Val's server saved pending content changes before it staged
+   * (`beforeProposalCodeWrite`): a save writes `.val.ts` files the caller
+   * did not, so what it holds of the proposal's files is no longer all of
+   * them (`projectSnapshot.ts`). Absent where the server did not say.
+   */
+  savedFirst: z.boolean().optional(),
+});
+/** What a staging answers. */
+export type ProposalStagedAnswer = z.infer<typeof StagedAnswer>;
 
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
@@ -244,6 +265,18 @@ const ListAnswer = z.object({
   siteCodeMode: z.boolean().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
+const BuildProgressAnswer = z.object({
+  progress: z
+    .object({
+      inputs: z.string().nullable(),
+      queued: z.number().nullable(),
+      step: z
+        .object({ label: z.string(), index: z.number(), of: z.number() })
+        .nullable(),
+      built: z.boolean(),
+    })
+    .nullable(),
+});
 const LockfileAnswer = z.object({ dependencies: Dependencies });
 const TypecheckAnswer = z.object({ typecheck: TypecheckJson });
 const MergeCheck = z.object({
@@ -748,6 +781,16 @@ export type ProposalsClient = {
    */
   askBuild(name: string, inputs: string): Promise<ProposalJson>;
   /**
+   * How far Val Build's build of the staged files `inputs` names is
+   * (valbuild/home `GET /proposals/:name/build-progress`), or `null` when it
+   * cannot be told: no build runs, a build of other files, or content from
+   * before it said (404).
+   */
+  buildProgress(
+    name: string,
+    inputs: string,
+  ): Promise<ServerBuildProgress | null>;
+  /**
    * Ask Val Build for a quick preview of its staged files `inputs` names
    * (`quickPreviewOnServer`): the browser half of their build, for the
    * page's quick preview worker, answered when it is built. Nothing is
@@ -852,13 +895,18 @@ export function createProposalsClient(options: {
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
     files: async (name) =>
       FilesAnswer.parse(await call(`${at(name)}/files`, "GET")),
-    stageFiles: async (name, files, message) =>
-      StagedAnswer.parse(
+    stageFiles: async (name, files, message) => {
+      const answer = StagedAnswer.parse(
         await call(`${at(name)}/files`, "POST", {
           files,
           ...(message !== undefined ? { message } : {}),
         }),
-      ),
+      );
+      // Announced from here, so every staging this Studio makes is: what
+      // shows the change starts from this answer, not from another read.
+      proposalStaged(name, answer.staged);
+      return answer;
+    },
     buildTarget: async (name) => {
       const answer = await call(`${at(name)}/build-target`, "GET");
       return {
@@ -874,6 +922,19 @@ export function createProposalsClient(options: {
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     askBuild: (name, inputs) => one(`${at(name)}/build`, "POST", { inputs }),
+    buildProgress: async (name, inputs) => {
+      const answer = BuildProgressAnswer.safeParse(
+        await call(`${at(name)}/build-progress`, "GET").catch(() => null),
+      );
+      const progress = answer.success ? answer.data.progress : null;
+      return progress === null || progress.inputs !== inputs
+        ? null
+        : {
+            queued: progress.queued,
+            step: progress.step,
+            built: progress.built,
+          };
+    },
     quickPreview: async (name, inputs) =>
       QuickPreviewAnswer.parse(
         await call(`${at(name)}/quick-preview`, "POST", { inputs }),

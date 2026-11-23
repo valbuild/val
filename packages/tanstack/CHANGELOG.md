@@ -1,5 +1,87 @@
 # @valbuild/tanstack
 
+## 0.154.0
+
+### Patch Changes
+
+- [#1060](https://github.com/valbuild/val/pull/1060) [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea) Thanks [@freekh](https://github.com/freekh)! - The assistant can now use the page in the preview, not only read it. A new `interact_page` tool opens a path on the site, clicks an element, types into a field, presses a key (Enter, Escape, Tab, the arrows), or shows the page at phone, tablet or desktop width — and answers with the page as it is afterwards: it waits for the page to settle (no changes and no requests in flight for a moment, at most 15 seconds), then gives the page's outline, whether the address or title changed, and what the page logged as going wrong since. When the page is still busy after that, the answer says so instead of describing it as finished. The assistant is told to use it to check its own changes: after a quick preview or a build, open the route, try what changed, and read the log.
+
+  The preview is the real site, talking to its real backend. What is enforced:
+
+  - **Every click, and every Enter or Space, asks you first.** A card in the chat — written by the Studio, not the assistant — names the element as the page shows it (its label, what it is, the page it is on, and whether Enter would submit its form), and nothing reaches the page until you allow it. Allow does exactly that, once, on that element; if the element changed in the meantime, you are asked again.
+  - **While the assistant types, presses other keys, or waits for a page it opened or resized to settle,** requests the page makes with any method but `GET`, `HEAD` and `OPTIONS` are held until the page settles, and a card shows each one — its method, its address and an excerpt of what it sends. Allow sends exactly those, as they were; Don't allow, or stopping the answer, drops them and the page sees them fail.
+  - **Sends of data to another site** (`POST`, `PUT`, `PATCH`, `DELETE`, forms, beacons) are refused, and so are links and forms that go to another site or open a new window. It never types into a password field.
+  - After a web search in the same answer, the assistant asks before it uses the preview at all.
+
+  What is **not** covered:
+
+  - requests a page sends while it loads, after `open` or after any navigation, and requests sent later on their own (an autosave after a delay);
+  - requests made through a `fetch` or `XMLHttpRequest` the page's code captured before the action (some libraries do this), and XHRs opened before it;
+  - `GET`, `HEAD` and `OPTIONS` requests — a `GET` to another site can still carry data in its address — and image or script loads;
+  - WebSockets, workers and embedded frames;
+  - script navigations and redirects, which can still leave the site; and plain links, which can have side effects of their own, such as a logout or unsubscribe link.
+
+  The ask-first rule is `interact_page`'s, not the whole session's: `quick_preview` runs code the assistant wrote in the preview, and what that code does is not asked about.
+
+  Reading pages needs no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.
+
+- [#1053](https://github.com/valbuild/val/pull/1053) [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1) Thanks [@freekh](https://github.com/freekh)! - **Select & edit.** Text can now be edited where it is, in the Studio's preview, instead of in the column beside it. Select has a menu beside it with two modes:
+
+  - **Select** opens the field you click in the column, as before. It is the mode Select starts in.
+  - **Select & edit** puts the caret in the text you click, on the page. The mode you used last is remembered per browser.
+
+  In Select & edit:
+
+  - **Strings** — a headline, a label, a link's words. Enter ends the edit (in a `.multiline()` string it is a new line), Esc ends it too.
+  - **Richtext** rendered with `ValRichText` — type and delete anywhere, Enter splits a paragraph, heading or list item, Backspace and Delete join them. Formatting controls float beside the text: bold, italic, strikethrough, links, headings and lists, whichever the field's schema allows. They are the same controls the field has in the column, and pressed with only a caret they apply to what you type next. Undo and redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y) go back over typing, Enter, Backspace and the controls alike.
+
+  The caret goes in as you click, so you can start typing straight away. A text you have emptied stays on the page as a line you can click while Select is on, in either mode, so you can pick it or type in it again; with Select off the page is laid out as before.
+
+  While you type, the "On this page" column scrolls to the same field and shows it selected, with what you type appearing in it. A validation error for the field shows by the text on the page as well as in the column, and goes when you fix it. Zooming the preview, fitting it or changing its width does not end the edit: the caret stays in the text and you can keep typing. Reloading the page, changing its address or leaving the preview ends the edit, and what you typed is saved.
+
+  Everything else still opens in the column when clicked: a field that is not a text (an image, a number, a date), a text the page shows as part of something larger (inside a sentence, in an `alt` or `href`), a richtext rendered with a `transform` that changes its structure, and a `readonly` field. Images cannot be added to a richtext from the page yet.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to use it. A site on an older version is unaffected: in either mode, every click opens the field in the column.
+
+- Updated dependencies [[`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641), [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e)]:
+  - @valbuild/ui@0.154.0
+  - @valbuild/shared@0.154.0
+  - @valbuild/server@0.154.0
+  - @valbuild/react@0.154.0
+  - @valbuild/language-server@0.154.0
+  - @valbuild/mcp@0.154.0
+
+## 0.153.6
+
+### Patch Changes
+
+- [#1047](https://github.com/valbuild/val/pull/1047) [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf) Thanks [@freekh](https://github.com/freekh)! - The assistant can now see what went wrong on the page in the preview. A new `read_page_log` tool reads the page's console errors and warnings, uncaught exceptions, unhandled promise rejections, images, scripts and stylesheets that did not load, and `fetch` requests that failed or answered 400 or more, so a section that is blank because its component threw no longer looks like a section with nothing in it. Every `read_page` answer also counts them, and names the Val modules the page read. The log is kept only in the Studio's preview, never on a visitor's page, and leaves Val's own requests and log lines out.
+
+  The preview now says which requests it answers. When the site runs an older `@valbuild/next` or `@valbuild/tanstack` than the Studio, a page tool it cannot answer fails at once with which package to update, and to which version, instead of waiting for an answer that never comes. Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `read_page_log`.
+
+- Updated dependencies [[`a561665`](https://github.com/valbuild/val/commit/a5616659c202eaa5ad61e1a035c9b9ca2a007e9a), [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf), [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4), [`3944e3e`](https://github.com/valbuild/val/commit/3944e3e3c33678bca2a0aa46fcc0f4adbf8c2ba5), [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f), [`2c98fcc`](https://github.com/valbuild/val/commit/2c98fcc776f15c979dae74a1a86ca91cad70e7de), [`0dd664f`](https://github.com/valbuild/val/commit/0dd664f7bde9bfb552ecd643b2345998c69d5914)]:
+  - @valbuild/ui@0.153.6
+  - @valbuild/shared@0.153.6
+  - @valbuild/server@0.153.6
+  - @valbuild/mcp@0.153.6
+  - @valbuild/react@0.153.6
+  - @valbuild/language-server@0.153.6
+
+## 0.153.5
+
+### Patch Changes
+
+- Updated dependencies [[`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d), [`aa26301`](https://github.com/valbuild/val/commit/aa26301afae68d31f37341b84ee3fd23ee532b45), [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f), [`f488c90`](https://github.com/valbuild/val/commit/f488c907fc3f22a33d64ea7ac36f513c405389a2)]:
+  - @valbuild/ui@0.153.5
+  - @valbuild/server@0.153.5
+  - @valbuild/shared@0.153.5
+  - @valbuild/core@0.153.5
+  - @valbuild/react@0.153.5
+  - @valbuild/language-server@0.153.5
+  - @valbuild/mcp@0.153.5
+
 ## 0.153.4
 
 ### Patch Changes

@@ -29,8 +29,24 @@ import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
-import { isValCanvasFrame } from "@valbuild/shared/client";
+import {
+  installPageLogInCanvasFrame,
+  isValCanvasFrame,
+} from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
+
+/*
+ * What goes wrong on the page, kept from now on when this document is in the
+ * Studio's canvas: the assistant's `read_page_log` (`pageLog.ts`). Here, when
+ * the module is evaluated, rather than when the bridge mounts, because that
+ * is after hydration -- and a hydration error is one of the things it is for.
+ * Only in a frame the Studio holds, and only with Val enabled in this
+ * browser, which is what mounts the bridge (`mountOverlay`): a visitor's
+ * page, a canvas URL opened in a tab of its own, and the server are left
+ * as they are. The demo, which mounts the bridge without the cookie, starts
+ * the log when the bridge mounts instead.
+ */
+installPageLogInCanvasFrame(() => hasValEnableCookie(document.cookie));
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.

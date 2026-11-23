@@ -2,6 +2,7 @@ import { Internal } from "@valbuild/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
+import { studioAITurnTrace, withTraceRequest } from "./aiTurnTrace";
 import {
   resolvePreferredModel,
   writePreferredModel,
@@ -374,11 +375,123 @@ export const AIUsageMessage = z.object({
 });
 export type AIUsageMessage = z.infer<typeof AIUsageMessage>;
 
+/**
+ * How long one step of the turn took, measured on the content service: the
+ * model's share of a turn, which the tab cannot see from its end of the
+ * socket. Sent only when the prompt asked (`reportTimings`). Whole
+ * milliseconds.
+ *
+ * - `reply`: one model request. `firstByteMs` is until the provider's first
+ *   stream event (it was reading the prompt, which is what caching
+ *   shortens), `firstOutputMs` until the first text, thinking or tool call.
+ *   `inputTokens` is everything the model read; the two cache counts are
+ *   parts of it.
+ * - `tools`: from that reply's tool calls going out to the tab until the
+ *   last result came back, and `afterMs` from then until the next model
+ *   request could be made.
+ *
+ * `step` counts the model's replies from 1, and a `tools` step has the
+ * number of the reply that asked for them.
+ */
+export const AIStepTimingMessage = z.object({
+  type: z.literal("ai_step_timing"),
+  id: z.string(),
+  // A kind this client does not know is kept as it came rather than failing
+  // the parse: the trace ignores what it cannot place.
+  kind: z.string(),
+  step: z.number(),
+  totalMs: z.number(),
+  firstByteMs: z.number().optional(),
+  firstOutputMs: z.number().optional(),
+  afterMs: z.number().optional(),
+  inputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheWriteTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  toolCalls: z.array(z.string()).optional(),
+});
+export type AIStepTimingMessage = z.infer<typeof AIStepTimingMessage>;
+
+/**
+ * A tool call the model is still writing: its name first, then what is
+ * complete of its arguments. Sent only when the prompt asked
+ * (`reportToolCallProgress`): the chat shows a row for the call while it is
+ * written. Nothing is ever run from it: `ai_tool_call` is the call.
+ */
+export const AIToolCallProgressMessage = z.object({
+  type: z.literal("ai_tool_call_progress"),
+  id: z.string(),
+  toolCallId: z.string(),
+  name: z.string(),
+  /** `writing`, or `dropped` when the model abandoned the call. */
+  status: z.string(),
+  argumentChars: z.number().optional(),
+  /** The short string arguments that are complete, such as `path`. */
+  arguments: z.record(z.string(), z.string()).optional(),
+  /** For object arguments, their keys: `write_files`' file names. */
+  keys: z.record(z.string(), z.array(z.string())).optional(),
+});
+export type AIToolCallProgressMessage = z.infer<
+  typeof AIToolCallProgressMessage
+>;
+
+/**
+ * A piece of the summary of the model's thinking, to show while waiting: not
+ * part of the answer, and not saved. Sent only when the prompt asked
+ * (`reportThinking`): the chat shows its last line.
+ */
+export const AIThinkingMessage = z.object({
+  type: z.literal("ai_thinking"),
+  id: z.string(),
+  chunk: z.string(),
+});
+export type AIThinkingMessage = z.infer<typeof AIThinkingMessage>;
+
 export const AIMessageContentBlock = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
   z.object({ type: z.literal("image_key"), key: z.string() }),
 ]);
 export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
+
+// --- Steering a running turn ---
+
+/**
+ * What became of a message sent into a running turn (`ai_steer`).
+ *
+ * - `accepted`: queued for the running turn.
+ * - `delivered`: the agent has it, at a step boundary. Watchers get this too.
+ * - `too_late`: the turn ended without another step; send it as the next
+ *   prompt.
+ * - `rejected`: not taken; `reason` says why.
+ */
+export const AISteerStatus = z.enum([
+  "accepted",
+  "delivered",
+  "too_late",
+  "rejected",
+]);
+export type AISteerStatus = z.infer<typeof AISteerStatus>;
+
+/**
+ * `status` is a plain string here, and narrowed to `AISteerStatus` where it is
+ * read: a status the server has and this client does not is ignored, rather
+ * than failing the parse of the whole message.
+ */
+export const AISteerStatusMessage = z.object({
+  type: z.literal("ai_steer_status"),
+  /** The running prompt's id. */
+  id: z.string(),
+  steerId: z.string(),
+  status: z.string(),
+  reason: z.string().optional(),
+  /**
+   * On `delivered`: what was sent, so a watcher (or the asker's other tab)
+   * can show it where it was read. Optional; without it, the chat is read
+   * again when the turn ends.
+   */
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]).optional(),
+});
+export type AISteerStatusMessage = z.infer<typeof AISteerStatusMessage>;
 
 // --- A shared chat, watched (valbuild/home docs/proposals.md, Flow H) ---
 
@@ -426,6 +539,7 @@ export const AIWatchedMessage = z.object({
     AICancelledMessage,
     AIErrorMessage,
     AITurnEndedEvent,
+    AISteerStatusMessage,
   ]),
 });
 export type AIWatchedMessage = z.infer<typeof AIWatchedMessage>;
@@ -449,6 +563,10 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIUsageMessage,
   AIWatchedMessage,
   AIWatchingMessage,
+  AISteerStatusMessage,
+  AIStepTimingMessage,
+  AIToolCallProgressMessage,
+  AIThinkingMessage,
 ]);
 
 export type AIServerMessage = z.infer<typeof AIServerMessage>;
@@ -471,6 +589,16 @@ export const AIPromptMessage = z.object({
   hidden: z.boolean().optional(),
   /** Ask for `ai_usage` messages while the turn runs. */
   reportUsage: z.boolean().optional(),
+  /**
+   * Ask for `ai_step_timing` messages. Set where every prompt leaves
+   * (`send`), and only while debug is on: they are for the turn trace. A
+   * content service that does not know the field drops it.
+   */
+  reportTimings: z.boolean().optional(),
+  /** Ask for `ai_tool_call_progress` messages: a row for a call being written. */
+  reportToolCallProgress: z.boolean().optional(),
+  /** Ask for `ai_thinking` messages: one line of the model's thinking. */
+  reportThinking: z.boolean().optional(),
   /**
    * The proposal the Studio is in, by name. A chat created with one belongs to
    * it, and everyone on the project can read and continue it (valbuild/home
@@ -531,6 +659,20 @@ export type AIGetSessionsWithMessagesMessage = z.infer<
   typeof AIGetSessionsWithMessagesMessage
 >;
 
+/**
+ * A message for the turn that is running: the agent reads it at its next
+ * step, instead of after the turn. `id` is the running `ai_prompt`'s id,
+ * `steerId` the client's own, which every `ai_steer_status` carries back.
+ */
+export const AISteerMessage = z.object({
+  type: z.literal("ai_steer"),
+  id: z.string(),
+  sessionId: z.string(),
+  steerId: z.string(),
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]),
+});
+export type AISteerMessage = z.infer<typeof AISteerMessage>;
+
 /** Stop an in-flight prompt. `id` is the id of the `ai_prompt` to stop. */
 export const AICancelMessage = z.object({
   type: z.literal("ai_cancel"),
@@ -550,6 +692,11 @@ export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
 export const AIWatchSessionMessage = z.object({
   type: z.literal("ai_watch_session"),
   sessionId: z.string(),
+  /**
+   * Relay `ai_steer_status` inside `ai_watched` too. Opt-in, because a
+   * Studio released before steering would fail to parse it.
+   */
+  steering: z.boolean().optional(),
 });
 export type AIWatchSessionMessage = z.infer<typeof AIWatchSessionMessage>;
 
@@ -561,6 +708,7 @@ export type AIUnwatchSessionMessage = z.infer<typeof AIUnwatchSessionMessage>;
 
 export type AIClientMessage =
   | AIPromptMessage
+  | AISteerMessage
   | AIToolResultMessage
   | AICancelMessage
   | AIUnhideSessionMessage
@@ -761,6 +909,8 @@ export function useAIWebSocket(
             );
             return;
           }
+          // Before the handlers: one of them may answer a tool call at once.
+          studioAITurnTrace.received(parsed.data);
           for (const handler of handlersRef.current) {
             handler(parsed.data);
           }
@@ -770,6 +920,7 @@ export function useAIWebSocket(
       };
 
       ws.onclose = () => {
+        studioAITurnTrace.disconnected();
         setIsConnected(false);
         if (wsRef.current === ws) {
           wsRef.current = null;
@@ -842,7 +993,12 @@ export function useAIWebSocket(
 
   const send = useCallback((message: AIClientMessage): boolean => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
+      // While debug is on, the turn is traced (`aiTurnTrace.ts`), and the
+      // content service is asked for its side of it: the model's share.
+      const sent = withTraceRequest(message);
+      wsRef.current.send(JSON.stringify(sent));
+      // Where every prompt and every tool result leaves.
+      studioAITurnTrace.sent(sent);
       return true;
     }
     Internal.log.debug("AI WebSocket not open, cannot send");

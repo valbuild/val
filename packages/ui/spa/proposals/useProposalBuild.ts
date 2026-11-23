@@ -38,14 +38,17 @@ export {
   proposalBuildControl,
   proposalBuildState,
   proposalCodeChanged,
+  proposalStaged,
   requestProposal,
   resetProposalBuild,
   runProposalBuild,
   runningProposalBuild,
+  setAssistantWorking,
   type BuildTiming,
   type LastBuild,
   type ProposalBuildRun,
   type ProposalBuildState,
+  type StagedNow,
 } from "./proposalBuildStore";
 
 /**

@@ -172,7 +172,7 @@ export function moveTarget(from: number, slot: number): number | null {
  * The controls exist only when three things are true: the page is in the
  * canvas frame, so there is a Studio to hear what was asked for; the list
  * has a path, which it has when the page is showing draft content; and the
- * Studio's Edit is on. Anywhere else this is one element and its children.
+ * Studio's Select is on. Anywhere else this is one element and its children.
  */
 export function ValComponentList({
   path,
@@ -242,7 +242,7 @@ function sendEdit(edit: ValCanvasComponentEdit) {
 }
 
 /**
- * Whether the Studio's Edit is on, which the canvas bridge says on `<html>`
+ * Whether the Studio's Select is on, which the canvas bridge says on `<html>`
  * ({@link VAL_CANVAS_EDITING_ATTRIBUTE}). Off, the page in the canvas is a
  * page - read and clicked as a visitor would - and nothing is drawn on it.
  */

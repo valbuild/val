@@ -15,8 +15,7 @@ function Launcher({ holdOpen }: { holdOpen: boolean }) {
   return (
     <>
       <OverlayMenuLauncher
-        orientation="horizontal"
-        dock="right-bottom"
+        placement={{ edge: "bottom", offset: 1 }}
         mark={<span>V</span>}
         holdOpen={holdOpen}
       >
@@ -66,6 +65,43 @@ describe("OverlayMenuLauncher holdOpen", () => {
     fireEvent.mouseLeave(root());
     expect(menuToggle().getAttribute("aria-expanded")).toBe("true");
     rerender(<Launcher holdOpen={false} />);
+    expect(menuToggle().getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("OverlayMenuLauncher while dragged", () => {
+  test("collapses, and forgets that it was pinned", () => {
+    const { rerender } = render(
+      <OverlayMenuLauncher
+        placement={{ edge: "right", offset: 0.5 }}
+        mark={<span>V</span>}
+      >
+        <button type="button">Publish</button>
+      </OverlayMenuLauncher>,
+    );
+    fireEvent.click(menuToggle());
+    expect(menuToggle().getAttribute("aria-expanded")).toBe("true");
+    rerender(
+      <OverlayMenuLauncher
+        placement={{ edge: "right", offset: 0.5 }}
+        mark={<span>V</span>}
+        dragging
+      >
+        <button type="button">Publish</button>
+      </OverlayMenuLauncher>,
+    );
+    expect(menuToggle().getAttribute("aria-expanded")).toBe("false");
+    // Hovering while carried does not open it either.
+    fireEvent.mouseEnter(root());
+    expect(menuToggle().getAttribute("aria-expanded")).toBe("false");
+    rerender(
+      <OverlayMenuLauncher
+        placement={{ edge: "bottom", offset: 0.2 }}
+        mark={<span>V</span>}
+      >
+        <button type="button">Publish</button>
+      </OverlayMenuLauncher>,
+    );
     expect(menuToggle().getAttribute("aria-expanded")).toBe("false");
   });
 });

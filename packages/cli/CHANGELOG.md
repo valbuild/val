@@ -1,5 +1,44 @@
 # @valbuild/cli
 
+## 0.154.0
+
+### Patch Changes
+
+- Updated dependencies [[`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1)]:
+  - @valbuild/shared@0.154.0
+  - @valbuild/server@0.154.0
+  - @valbuild/tanstack-build@0.154.0
+  - @valbuild/language-server@0.154.0
+
+## 0.153.6
+
+### Patch Changes
+
+- [#1057](https://github.com/valbuild/val/pull/1057) [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4) Thanks [@freekh](https://github.com/freekh)! - Security fixes. Update if you run Val's dev server, or have deployed a site without `VAL_API_KEY` and `VAL_SECRET`.
+
+  - **`/api/val/files` serves media only.** It answered any path in the project, without a sign-in: `/api/val/files/.env` returned the file. It now serves files under `/public`, and their drafts, and nothing else.
+  - **An upload cannot be written outside Val's patch store.** A file's path and a patch's id are checked before anything is written or read, so a path with `..` in it is refused.
+  - **In local filesystem mode, the API answers only your own Studio.** A request from another site's page is refused, and so is one addressed to a host name that is not `localhost` or an IP address. If you develop on another name (`my-app.test`, a tunnel that passes its own `Host`), list it in the `VAL_ALLOWED_HOSTS` environment variable, comma separated.
+  - **A deployed site without credentials no longer serves the API.** Without `VAL_API_KEY` and `VAL_SECRET` an app runs in local filesystem mode, which has no sign-in. With `NODE_ENV=production` it now refuses, and says what to set.
+  - **`redirect_to` stays on your site.** `/api/val/logout`, `/enable`, `/disable` and `/authorize` redirected to any URL they were given. They now accept a path, or a URL on the same site.
+  - **Draft mode is turned on after sign-in**, not when the sign-in starts, so a visitor who is not signed in can no longer switch it on.
+  - `image-size`, `simple-git` and `zod` are updated past their published advisories.
+
+- Updated dependencies [[`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf), [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4), [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f)]:
+  - @valbuild/shared@0.153.6
+  - @valbuild/server@0.153.6
+  - @valbuild/language-server@0.153.6
+
+## 0.153.5
+
+### Patch Changes
+
+- Updated dependencies [[`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d), [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f)]:
+  - @valbuild/server@0.153.5
+  - @valbuild/shared@0.153.5
+  - @valbuild/core@0.153.5
+  - @valbuild/language-server@0.153.5
+
 ## 0.153.4
 
 ### Patch Changes
