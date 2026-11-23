@@ -10,7 +10,6 @@ import { storesReceived } from "./intake";
 // nothing links `@valbuild/*` into a `node_modules` it can resolve from — the
 // same reason `e2e/http/httpMode.ts` reaches into `packages/server/src`.
 import type { PatchId } from "../packages/core/src";
-import { chunkPatchIds } from "../packages/ui/spa/stores/react/patchIdChunks";
 
 /**
  * Shared helpers for the two Studio suites.
@@ -99,20 +98,12 @@ export async function navigateStudio(page: Page, route: string): Promise<void> {
  * Without this the chain grows on every run, `/stat` gets slower, and eventually
  * a test fails for a reason that has nothing to do with the code under test.
  *
- * ## Chunked, for the same reason the product chunks
+ * ## One request, with the ids in the body
  *
- * One `id=` per patch in a single URL is exactly the 431 that
- * `large-patch-chain.spec.ts` exists to pin, and this helper is the one place
- * that would hit it hardest: an interrupted run of that spec leaves 650
- * fabricated patches on disk, so the very next run's cleanup would build a
- * ~30KB query, be refused before the handler saw it, and fail in `beforeEach`
- * — wedging the suite in a state no later cleanup could get out of, because
- * every later cleanup is this same request.
- *
- * `chunkPatchIds` is the product's own splitter (`discardPatches` in
- * `createValSystem.ts` uses it for the same endpoint), so the budget is shared
- * rather than a second guess at the limit. Sequential for the reason that call
- * site gives: each delete changes the chain the next is computed against.
+ * As the Studio's own discard sends them (`discardPatches` in
+ * `createValSystem.ts`). One `id=` per patch on the URL is exactly the 431
+ * that `large-patch-chain.spec.ts` exists to pin, and an interrupted run of
+ * that spec leaves 650 fabricated patches on disk for this helper to clear.
  */
 export async function clearPatchChain(
   request: APIRequestContext,
@@ -121,15 +112,13 @@ export async function clearPatchChain(
   expect(listed.ok()).toBe(true);
   const body = (await listed.json()) as { patches: { patchId: string }[] };
   const patchIds = body.patches.map((patch) => patch.patchId as PatchId);
-  for (const chunk of chunkPatchIds(patchIds, "id")) {
-    const query = chunk
-      .map((patchId) => `id=${encodeURIComponent(patchId)}`)
-      .join("&");
-    const deleted = await request.delete(`/api/val/patches?${query}`);
-    expect(deleted.ok(), "could not clear the example app's patch chain").toBe(
-      true,
-    );
-  }
+  if (patchIds.length === 0) return;
+  const deleted = await request.delete("/api/val/patches", {
+    data: { ids: patchIds },
+  });
+  expect(deleted.ok(), "could not clear the example app's patch chain").toBe(
+    true,
+  );
 }
 
 /**

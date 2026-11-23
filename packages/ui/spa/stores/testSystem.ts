@@ -837,7 +837,7 @@ export function initTestSystem(
       if (discardFailure !== null) {
         const message = discardFailure;
         discardFailure = null;
-        return { status: "error", message };
+        return { status: "error", message, discarded: [] };
       }
       const deleted: PatchId[] = [];
       for (const patchId of patchIds) {
