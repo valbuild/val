@@ -4,6 +4,10 @@ import path from "path";
 import zlib from "zlib";
 import type { BuildTarget, PublishArtifact } from "@valbuild/tanstack-build";
 import type { VendorLayer } from "@valbuild/tanstack-build/node";
+import {
+  typecheckInstalled,
+  type InstalledTypecheck,
+} from "@valbuild/shared/typecheck/node";
 
 /**
  * `val publish`'s build: the site, built from the checkout, as the artifacts
@@ -41,8 +45,13 @@ export type BuiltArtifacts =
       /** The base layer this was built against: the build target's `base.rev`. */
       baseRev: string;
       warnings: string[];
+      /** The project's typecheck, made on the install the layer was built from. */
+      typecheck: BuildTypecheck;
     }
   | { status: "error"; message: string };
+
+/** `off` when the build was asked not to typecheck (`--no-typecheck`). */
+export type BuildTypecheck = InstalledTypecheck | { status: "off" };
 
 type TanstackBuild = typeof import("@valbuild/tanstack-build");
 type TanstackBuildNode = typeof import("@valbuild/tanstack-build/node");
@@ -337,6 +346,12 @@ export async function buildArtifacts(options: {
   log?: (line: string) => void;
   /** Where to write; a fresh temporary directory by default. */
   outDir?: string;
+  /**
+   * Typecheck the project too, on the install the layer is built from, so
+   * the declarations are read from disk rather than fetched again. Reported,
+   * never refused on. On by default.
+   */
+  typecheck?: boolean;
 }): Promise<BuiltArtifacts> {
   const log = options.log ?? (() => {});
   const loaded = await loadBuilder();
@@ -430,11 +445,26 @@ export async function buildArtifacts(options: {
       warnings.push(`${specifier} is not in the dependency layer: ${reason}`);
     }
 
-    log("Building the site");
     const fileBased = await node.isFileBased(root);
     const files = fileBased
       ? await node.generateRouteTree(root, sources)
       : sources;
+
+    /*
+     * The typecheck, while the install is here: the one `typecheckProject` the
+     * Studio and the upgrade page run, reading the declarations this layer
+     * was just built from instead of fetching them. Of the files this build
+     * builds -- wired, and with the generated route tree a checkout may not
+     * have -- since there is no site to compare with here, and an import of a
+     * file only the build makes is not an error in the project.
+     */
+    let typecheck: BuildTypecheck = { status: "off" };
+    if (options.typecheck !== false) {
+      log("Typechecking");
+      typecheck = await typecheckInstalled({ root, files });
+    }
+
+    log("Building the site");
     /*
      * The project's copy of the splitter first, then the one beside this CLI
      * -- where a package manager puts an optional peer the project installed
@@ -493,6 +523,7 @@ export async function buildArtifacts(options: {
       ...(layerRev !== undefined ? { layerRev } : {}),
       baseRev: target.base.rev,
       warnings,
+      typecheck,
     };
   } catch (e) {
     return {
@@ -501,5 +532,57 @@ export async function buildArtifacts(options: {
         e instanceof Error ? e.message.split("\n")[0] : String(e)
       }`,
     };
+  }
+}
+
+/** At most this many type errors are printed; the count says how many there were. */
+const SHOWN_TYPE_ERRORS = 20;
+
+/**
+ * What `val publish` prints of the typecheck. Type errors are warnings: a
+ * project's own CI decides whether they stop it, and a publish that has run
+ * this long is not the place to find out the build is blocked.
+ */
+export function typecheckReport(typecheck: BuildTypecheck): string[] {
+  switch (typecheck.status) {
+    case "off":
+      return [];
+    case "skipped":
+      return [`Not typechecked: ${typecheck.reason}.`];
+    case "failed":
+      return [
+        `warn: the project could not be typechecked: ${typecheck.message}`,
+      ];
+    case "checked": {
+      const { errors, missing } = typecheck.result;
+      const lines: string[] = [];
+      if (errors.length === 0) {
+        lines.push("Typechecked: no type errors.");
+      } else {
+        lines.push(
+          `warn: ${errors.length} type error${errors.length === 1 ? "" : "s"} (published anyway; --no-typecheck skips the check):`,
+        );
+        for (const error of errors.slice(0, SHOWN_TYPE_ERRORS)) {
+          const at =
+            error.file === null
+              ? error.tsconfig
+              : `${error.file}${error.line !== null ? `:${error.line}:${error.column ?? 1}` : ""}`;
+          lines.push(
+            `warn:   ${at} TS${error.code} ${error.message.split("\n")[0]}`,
+          );
+        }
+        if (errors.length > SHOWN_TYPE_ERRORS) {
+          lines.push(`warn:   and ${errors.length - SHOWN_TYPE_ERRORS} more`);
+        }
+      }
+      if (missing.length > 0) {
+        lines.push(
+          `warn: the types of ${missing.length} package${missing.length === 1 ? " were" : "s were"} not installed, ` +
+            `so errors about ${missing.length === 1 ? "it" : "them"} may be missing or wrong: ` +
+            missing.map((pkg) => `${pkg.name}@${pkg.version}`).join(", "),
+        );
+      }
+      return lines;
+    }
   }
 }

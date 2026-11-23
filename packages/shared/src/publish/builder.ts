@@ -35,11 +35,17 @@ export type StudioBuilder = {
   buildInputId: Builder["buildInputId"];
   /**
    * A tree's Val modules, as one module to evaluate: see `bundleValModules`.
-   * The Studio evaluates the code and nothing else; what each module depends
-   * on is for the server build (`moduleDependencies`), so it is not asked of
-   * the builder here.
+   * The Studio evaluates the code; what each module depends on is for the
+   * server build (`moduleDependencies`), and tells the Studio which files a
+   * write has to touch to change the evaluation (`stagedCodeReach` in
+   * `@valbuild/ui`).
    */
   bundleValModules: (
     ...args: Parameters<Builder["bundleValModules"]>
-  ) => Promise<Pick<Awaited<ReturnType<Builder["bundleValModules"]>>, "code">>;
+  ) => Promise<
+    Pick<Awaited<ReturnType<Builder["bundleValModules"]>>, "code"> &
+      Partial<
+        Pick<Awaited<ReturnType<Builder["bundleValModules"]>>, "dependencies">
+      >
+  >;
 };

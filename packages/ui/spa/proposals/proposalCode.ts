@@ -7,12 +7,18 @@ import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import { lintWithValRules, pathsToLint } from "./lintCode";
-import { codeModeOffMessage, type CodeModeNow } from "./codeMode";
+import {
+  codeModeOffMessage,
+  codeModeRefusalOf,
+  type CodeModeNow,
+} from "./codeMode";
 import {
   markStagedCodeTold,
   stagedCodeNotice,
   type StagedCodeOutcome,
+  type StagedCodeReach,
 } from "./stagedCode";
+import { createProjectSnapshot, type ProjectSnapshot } from "./projectSnapshot";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -627,6 +633,12 @@ export type CodeToolDeps = {
   client: Pick<ProposalsClient, "files" | "stageFiles">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
+  /**
+   * The project as this tab holds it, for the life of the chat
+   * (`projectSnapshot.ts`): what the tools read from and stage through.
+   * Absent: `client` and `siteSource` are asked on every call.
+   */
+  snapshot?: ProjectSnapshot;
   /** The proposal's build: start or join it, see where it is, stop it. */
   build: ProposalBuildControl;
   /** For tests: waiting. */
@@ -653,18 +665,36 @@ export type CodeToolDeps = {
    */
   codeMode?: () => Promise<CodeModeNow>;
   /**
+   * Code mode as this tab last heard it (`codeModeState`), without asking;
+   * `null` when it has not heard. While it says on, a write does not ask
+   * (`codeMode`) first: Val's server refuses a write while code mode is off
+   * (`beforeProposalCodeWrite`), and that refusal is answered in the same
+   * words. Absent: every write asks first.
+   */
+  codeModeHere?: () => boolean | null;
+  /** A person's name by profile id, for who turned code mode off. */
+  nameOf?: (profileId: string) => string | null;
+  /**
    * Evaluate the staged code in this tab and swap its schema in
    * (`runStagedCode`): started after each `write_files`, and its outcome
    * goes with the answer when it is done in time. Absent: nothing is
    * evaluated, and the schema arrives with a build.
    */
   evaluateStaged?: () => Promise<StagedCodeOutcome>;
+  /**
+   * Whether a write of these paths can change what `evaluateStaged` finds
+   * (`stagedCodeReach`): a write that cannot is answered at once, and one
+   * that may is evaluated without the answer waiting for it. Absent: every
+   * write waits, as one that can.
+   */
+  stagedCodeReach?: (paths: string[]) => StagedCodeReach;
 };
 
 /**
- * How long `write_files` waits for the staged code's evaluation before it
- * answers without it: seconds is normal, and the outcome otherwise reaches
- * the assistant with its next tool answer (`untoldStagedCode`).
+ * How long a write that can change the Val modules waits for the staged
+ * code's evaluation before it answers without it: seconds is normal, and the
+ * outcome otherwise reaches the assistant with its next tool answer
+ * (`untoldStagedCode`).
  */
 const STAGED_CODE_WAIT_SECONDS = 20;
 
@@ -781,11 +811,15 @@ async function runCodeToolNow(
     isError: true,
   });
   const input = isRecord(args) ? args : {};
+  const snapshot = snapshotOf(deps);
   try {
     if (
       deps.proposal !== null &&
       deps.codeMode !== undefined &&
-      changesCode(name, input)
+      changesCode(name, input) &&
+      // On, as far as this tab has heard: the server's refusal is the
+      // answer if it has been turned off since (the catch below).
+      deps.codeModeHere?.() !== true
     ) {
       const mode = await deps.codeMode();
       if (!mode.on) return fail(codeModeOffMessage(mode));
@@ -816,7 +850,7 @@ async function runCodeToolNow(
       if (replaceAll !== undefined && typeof replaceAll !== "boolean") {
         return fail("replace_all must be true or false.");
       }
-      const { project } = await readProject(deps);
+      const { project } = await snapshot.read(deps.proposal.name, "to-write");
       const filePath = path.replace(/^\/+/, "");
       const text = project[filePath];
       if (text === undefined) {
@@ -830,6 +864,7 @@ async function runCodeToolNow(
         typeof input["message"] === "string" ? input["message"] : undefined;
       const answer = await stageCode(
         deps,
+        snapshot,
         deps.proposal.name,
         { [filePath]: edit.text },
         message,
@@ -864,7 +899,13 @@ async function runCodeToolNow(
       const message =
         typeof input["message"] === "string" ? input["message"] : undefined;
       // Awaited here, so a refused staging is answered by the catch below
-      return await stageCode(deps, deps.proposal.name, written, message);
+      return await stageCode(
+        deps,
+        snapshot,
+        deps.proposal.name,
+        written,
+        message,
+      );
     }
     if (name === "typecheck_status") {
       if (deps.proposal === null || deps.typecheckStatus === undefined) {
@@ -979,7 +1020,11 @@ async function runCodeToolNow(
         isError: false,
       };
     }
-    const { project, staged } = await readProject(deps);
+    const { project, staged } = await snapshot.read(
+      deps.proposal?.name ?? null,
+      // What a write is made from is checked, not only held.
+      changesCode(name, input) ? "to-write" : undefined,
+    );
     if (name === "list_files") {
       const prefix = typeof input["prefix"] === "string" ? input["prefix"] : "";
       const paths = Object.keys(project)
@@ -1040,7 +1085,7 @@ async function runCodeToolNow(
       }
       const write = input["write"] !== false;
       if (write && Object.keys(changed).length > 0) {
-        await deps.client.stageFiles(deps.proposal.name, changed, "Format");
+        await snapshot.stage(deps.proposal.name, changed, "Format");
       }
       const failed = files.some((f) => f.status === "failed");
       return {
@@ -1079,7 +1124,7 @@ async function runCodeToolNow(
       const lintCode = deps.lintCode ?? lintWithValRules;
       const { messages, fixed } = await lintCode(project, paths, { fix });
       if (Object.keys(fixed).length > 0) {
-        await deps.client.stageFiles(deps.proposal.name, fixed, "Lint fixes");
+        await snapshot.stage(deps.proposal.name, fixed, "Lint fixes");
       }
       return {
         result: {
@@ -1198,8 +1243,30 @@ async function runCodeToolNow(
     }
     return fail(`Unknown code tool ${name}.`);
   } catch (error) {
+    // Code mode was turned off since this tab last heard: the server
+    // refused the write, and the model is told who did, as it is when the
+    // tab asks first.
+    const off = codeModeRefusalOf(
+      error,
+      deps.nameOf ?? (() => null),
+      Date.now(),
+    );
+    if (off !== null) return fail(codeModeOffMessage(off));
     return fail(messageOf(error));
   }
+}
+
+/** The snapshot the tools go through: the chat's, or one for this call. */
+function snapshotOf(deps: ProjectReadDeps): ProjectSnapshot {
+  return (
+    deps.snapshot ??
+    createProjectSnapshot({
+      client: deps.client,
+      siteSource: deps.siteSource,
+      // No `seq`: never current, so every read asks.
+      seq: () => null,
+    })
+  );
 }
 
 /** `work`, or `null` once `seconds` have passed without it. */
@@ -1232,17 +1299,26 @@ async function withinSeconds<T>(
  */
 async function stageCode(
   deps: CodeToolDeps,
+  snapshot: ProjectSnapshot,
   proposalName: string,
   written: Record<string, string | null>,
   message: string | undefined,
 ): Promise<CodeToolAnswer> {
-  const staged = await deps.client.stageFiles(proposalName, written, message);
-  // The tab evaluates `val.modules` as the staging left it, and swaps the
-  // schema in: what moved, or why it does not run, goes with this answer
-  // when it is done in time, else with the next one.
-  const evaluation = deps.evaluateStaged?.();
+  const staged = await snapshot.stage(proposalName, written, message);
+  /*
+   * The tab evaluates `val.modules` as the staging left it, and swaps the
+   * schema in: what moved, or why it does not run, goes with this answer
+   * when it is done in time, else with the next one. Only a write that can
+   * change it is waited for: a component `val.modules.ts` never imports
+   * changes no schema, and its answer does not wait for one to be read.
+   */
+  const reach: StagedCodeReach =
+    deps.evaluateStaged === undefined
+      ? "cannot"
+      : (deps.stagedCodeReach?.(Object.keys(written)) ?? "can");
+  const evaluation = reach === "cannot" ? undefined : deps.evaluateStaged?.();
   const evaluated =
-    evaluation === undefined
+    evaluation === undefined || reach !== "can"
       ? undefined
       : await withinSeconds(deps.sleep, evaluation, STAGED_CODE_WAIT_SECONDS);
   if (evaluated !== undefined && evaluated !== null) {
@@ -1273,28 +1349,25 @@ async function stageCode(
 }
 
 /** What the code tools read the project through. */
-export type ProjectReadDeps = Pick<CodeToolDeps, "proposal" | "siteSource"> & {
-  client: Pick<ProposalsClient, "files">;
+export type ProjectReadDeps = Pick<
+  CodeToolDeps,
+  "proposal" | "siteSource" | "snapshot"
+> & {
+  client: Pick<ProposalsClient, "files"> &
+    Partial<Pick<ProposalsClient, "stageFiles">>;
 };
 
 /**
  * The project the code tools read: the proposal's (the site's files with
  * the proposal's laid over), or the site's on the site. Paths are relative
- * to the project root.
+ * to the project root. From the chat's snapshot where there is one
+ * (`projectSnapshot.ts`), which asks only when what it holds is not current.
  */
 export async function readProject(deps: ProjectReadDeps): Promise<{
   project: Record<string, string>;
   staged: ProposalStaged | null;
 }> {
-  const site = (await deps.siteSource()) ?? {};
-  let own: Record<string, string | null> = {};
-  let staged: ProposalStaged | null = null;
-  if (deps.proposal !== null) {
-    const read = await deps.client.files(deps.proposal.name);
-    own = read.files;
-    staged = read.staged;
-  }
-  return { project: proposalProject(site, own), staged };
+  return snapshotOf(deps).read(deps.proposal?.name ?? null);
 }
 
 /** What `edit_file` made of a file, or why it did not. */

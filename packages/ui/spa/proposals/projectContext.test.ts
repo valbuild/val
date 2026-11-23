@@ -1,5 +1,6 @@
 import type { PickedElement } from "@valbuild/shared/internal";
 import { readProjectContext } from "./projectContext";
+import { createProjectSnapshot } from "./projectSnapshot";
 import { pickedElementSources } from "./projectMap";
 import { pickedElementPrompt } from "./proposalCode";
 
@@ -45,6 +46,39 @@ describe("what the assistant is told about the project in code mode", () => {
     expect(context.mapText).toContain(
       "content/home.val.ts <- src/About.tsx, src/Home.tsx",
     );
+  });
+
+  test("through the snapshot: asked once, and the map is made once, until the project moves", async () => {
+    let fileReads = 0;
+    let seq = 1;
+    const client = {
+      files: async () => {
+        fileReads++;
+        return {
+          files: { "src/New.tsx": `// read ${fileReads}` },
+          staged: NOTHING_STAGED,
+        };
+      },
+    };
+    const siteSource = async () => SITE;
+    const snapshot = createProjectSnapshot({
+      client,
+      siteSource,
+      seq: () => seq,
+      stagedNow: async () => null,
+    });
+    const deps = { proposal: { name: "p1" }, client, siteSource, snapshot };
+    const first = await readProjectContext(deps);
+    const second = await readProjectContext(deps);
+    expect(fileReads).toBe(1);
+    expect(second).toBe(first);
+    // The project moved: what is held is not current, and it is read again.
+    seq = 2;
+    snapshot.seqMoved();
+    const third = await readProjectContext(deps);
+    expect(fileReads).toBe(2);
+    expect(third).not.toBe(first);
+    expect(third.mapText).toContain("src/: Home.tsx, New.tsx");
   });
 
   test("a picked element names its module, who imports it, and its component", async () => {

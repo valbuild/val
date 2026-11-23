@@ -1334,19 +1334,34 @@ export const ValServer = (
         },
       };
     }
-    const saved = await saveBeforeCode(
+    const saved = await saveBeforeCodeOutcome(
       cookies,
       "Saved before the code was changed",
     );
-    return saved === null
-      ? null
-      : {
-          status: saved.status,
-          json: {
-            message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
-            details: { code: "save-failed" },
-          },
-        };
+    if ("saved" in saved) {
+      const savedFirst = saved.saved;
+      const staged = await proxyProposalsApi(
+        path,
+        "POST",
+        profileId,
+        JSON.stringify(body ?? {}),
+      );
+      /*
+       * `savedFirst` goes with content's answer: the tab that staged holds
+       * the proposal's files (`projectSnapshot.ts` in `@valbuild/ui`), and a
+       * save made here wrote `.val.ts` files it did not write itself.
+       */
+      return staged.status === 200 && isJsonObject(staged.json)
+        ? { status: 200, json: { ...staged.json, savedFirst } }
+        : staged;
+    }
+    return {
+      status: saved.status,
+      json: {
+        message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
+        details: { code: "save-failed" },
+      },
+    };
   };
 
   /**
@@ -1357,6 +1372,20 @@ export const ValServer = (
     cookies: Parameters<typeof getAuth>[0],
     message: string,
   ): Promise<{ status: number; message: string } | null> => {
+    const outcome = await saveBeforeCodeOutcome(cookies, message);
+    return "saved" in outcome ? null : outcome;
+  };
+
+  /**
+   * {@link saveBeforeCode}, saying whether anything was saved: `saved: false`
+   * when nothing was pending. What a staging's answer tells the tab
+   * (`savedFirst`), which holds the proposal's files and has to know whether
+   * a save changed a `.val.ts` under them.
+   */
+  const saveBeforeCodeOutcome = async (
+    cookies: Parameters<typeof getAuth>[0],
+    message: string,
+  ): Promise<{ saved: boolean } | { status: number; message: string }> => {
     const chain = await serverOps.fetchPatches({ excludePatchOps: true });
     if (chain.error) {
       return { status: 502, message: chain.error.message };
@@ -1364,9 +1393,9 @@ export const ValServer = (
     const pending = chain.patches
       .filter((patch) => patch.appliedAt === null)
       .map((patch) => patch.patchId);
-    if (pending.length === 0) return null;
+    if (pending.length === 0) return { saved: false };
     const saved = await saveChanges(cookies, { patchIds: pending, message });
-    if (saved.status === 200) return null;
+    if (saved.status === 200) return { saved: true };
     const said =
       "message" in saved.json && typeof saved.json.message === "string"
         ? saved.json.message
@@ -5421,4 +5450,8 @@ function sourceFilePatchErrorsOf(json: unknown): string[] {
     }
   }
   return messages;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

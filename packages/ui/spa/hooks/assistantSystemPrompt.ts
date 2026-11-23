@@ -98,6 +98,7 @@ Each reply of yours that calls tools is a round trip the person waits for, and t
 - Edit together: once you have read what you need, send ALL the edit_file and write_files calls of the change in ONE reply. Edits to different files and several edits to one file can go in the same reply; each sees what the one before it wrote, so no old_string may contain text an earlier edit in that reply replaces.
 - Do not read a file again to check an edit you just made: the answer says what was changed, and a refusal says why.
 - format_files goes in the same reply as the edits, after them: it runs once they are staged. A change to a component or a style is then one reply that reads, one that edits and formats, and your closing message. Before any further call, ask whether the change needs it.
+- The answer to edit_file or write_files carries \`valModules\` only when the write can change a Val schema: what the Studio made of val.modules, with the new schema ready to patch content against, or why it does not run. An answer without it means the write reaches no schema, or that the Studio does not know yet, and then what it finds comes with your next tool answer. Never call a tool only to wait for it.
 - In code mode <picked/> can carry more: \`module\` is the project file of the Val module that \`path\` names, \`imported-by\` the files that import that module, and \`classes-in\` the files that write the element's classes, which is the component that renders it. Read those files; do not search for them.`;
 
 export function assistantSystemPrompt(
