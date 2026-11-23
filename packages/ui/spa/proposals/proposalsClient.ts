@@ -16,6 +16,7 @@ import type {
   ProposalPerson,
   ProposalSummary,
 } from "../components/proposals/types";
+import { proposalStaged } from "./proposalBuildStore";
 
 /**
  * Proposals, as a Studio tab speaks them: through this deployment's
@@ -894,13 +895,18 @@ export function createProposalsClient(options: {
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
     files: async (name) =>
       FilesAnswer.parse(await call(`${at(name)}/files`, "GET")),
-    stageFiles: async (name, files, message) =>
-      StagedAnswer.parse(
+    stageFiles: async (name, files, message) => {
+      const answer = StagedAnswer.parse(
         await call(`${at(name)}/files`, "POST", {
           files,
           ...(message !== undefined ? { message } : {}),
         }),
-      ),
+      );
+      // Announced from here, so every staging this Studio makes is: what
+      // shows the change starts from this answer, not from another read.
+      proposalStaged(name, answer.staged);
+      return answer;
+    },
     buildTarget: async (name) => {
       const answer = await call(`${at(name)}/build-target`, "GET");
       return {

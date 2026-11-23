@@ -354,7 +354,9 @@ type AiScriptStep =
    * An `ai_usage` report — sent only if the prompt asked for them
    * (`reportUsage`), as the real service does.
    */
-  | { type: "usage"; outputTokens: number; estimated?: boolean };
+  | { type: "usage"; outputTokens: number; estimated?: boolean }
+  /** The model thinking between two steps: nothing is sent for `ms`. */
+  | { type: "pause"; ms: number };
 
 type AiScript = {
   steps: AiScriptStep[];
@@ -512,10 +514,21 @@ type State = {
    * Set by a test (`PUT /__test__/project-source`), as a publish would.
    */
   projectSource: Record<string, string> | null;
+  /**
+   * Val Build's quick preview (`POST /proposals/:name/quick-preview`): `null`
+   * while Val Build does not build this project, which is the default and
+   * what every spec that builds in the tab expects. Turned on by a test
+   * (`POST /__test__/quick-preview`), which also says how long one takes;
+   * `made` is every one answered, with the staged inputs it was of.
+   */
+  quickPreview: { delayMs: number } | null;
+  quickPreviewsMade: { proposal: string; inputs: string }[];
 };
 
 function emptyState(): State {
   return {
+    quickPreview: null,
+    quickPreviewsMade: [],
     patches: new Map(),
     proposals: new Map(),
     proposalsEnabled: false,
@@ -2474,6 +2487,10 @@ async function playAiTurn(
       send({ type: "ai_streaming", id: messageId, chunk: step.text });
       continue;
     }
+    if (step.type === "pause") {
+      await new Promise((resolve) => setTimeout(resolve, step.ms));
+      continue;
+    }
     if (step.type === "usage") {
       if (prompt.reportUsage) {
         send({
@@ -4217,10 +4234,35 @@ async function proposalsRoute(
     case "POST /build":
       await proposalServeBuild(req, res, proposal);
       return;
-    // Val Build's quick preview, which the mock does not make either.
-    case "POST /quick-preview":
-      serverBuildsOff(res);
+    /*
+     * Val Build's quick preview, which the mock does not make unless a test
+     * turned it on. Nothing is bundled: it answers no files, which is a quick
+     * preview whose browser half is the served build's, and all a test of
+     * WHEN one is made and how the canvas takes it needs.
+     */
+    case "POST /quick-preview": {
+      const quick = state.quickPreview;
+      if (quick === null) {
+        serverBuildsOff(res);
+        return;
+      }
+      const body = await readJsonBody<{ inputs?: unknown }>(req);
+      const inputs = stagedJson(proposal).inputs;
+      if (inputs === null || body?.inputs !== inputs) {
+        json(res, 409, {
+          statusCode: 409,
+          message: "The staged files changed since this was asked for.",
+          details: { code: "inputs-moved" },
+        });
+        return;
+      }
+      if (quick.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, quick.delayMs));
+      }
+      state.quickPreviewsMade.push({ proposal: proposal.name, inputs });
+      json(res, 200, { inputs, files: {} });
       return;
+    }
     case "POST /close":
     case "POST /reopen":
       proposal.status = route === "POST /close" ? "closed" : "open";
@@ -4338,6 +4380,20 @@ const controlPlane: Handler = async (req, res, url) => {
     const body = await readJsonBody<{ enabled?: boolean }>(req);
     state.publishJobsEnabled = body?.enabled !== false;
     json(res, 200, { ok: true, enabled: state.publishJobsEnabled });
+    return;
+  }
+  if (action === "quick-preview" && req.method === "POST") {
+    // Val Build makes quick previews for this project, each taking `delayMs`.
+    const body = await readJsonBody<{ enabled?: boolean; delayMs?: number }>(
+      req,
+    );
+    state.quickPreview =
+      body?.enabled === false ? null : { delayMs: body?.delayMs ?? 0 };
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (action === "quick-previews" && req.method === "GET") {
+    json(res, 200, { made: state.quickPreviewsMade });
     return;
   }
   if (action === "proposals-enabled" && req.method === "POST") {

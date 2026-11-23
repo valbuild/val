@@ -1,7 +1,14 @@
 /** @jest-environment jsdom */
 import { act, renderHook } from "@testing-library/react";
 import type { PageSnapshot } from "@valbuild/shared/internal";
-import { usePageCheckSession } from "./usePageCheckSession";
+import {
+  PAGE_CHECK_PREVIEW_WAIT_MS,
+  usePageCheckSession,
+} from "./usePageCheckSession";
+import {
+  setQuickPreviewRunner,
+  setStagedPreview,
+} from "../proposals/quickPreviewControl";
 import type {
   AIClientMessage,
   AIModel,
@@ -82,7 +89,7 @@ const page: Pick<AssistantPage, "readPage" | "readPageLog"> = {
   readPageLog: () => null,
 };
 
-function render(ws = socket(), withPage = true) {
+function render(ws = socket(), withPage = true, staged = STAGED) {
   const hook = renderHook(() =>
     usePageCheckSession({
       sendWsMessage: ws.send,
@@ -92,7 +99,7 @@ function render(ws = socket(), withPage = true) {
       chatSessionId: () => "chat-1",
       model: MODEL,
       proposals: {
-        get: async () => proposal,
+        get: async () => ({ ...proposal, staged }),
         files: async () => ({
           files: { "src/Hero.tsx": "<h1>Spring</h1>" },
           staged: STAGED,
@@ -120,6 +127,7 @@ const flush = () => act(async () => {});
 
 describe("the page check's session", () => {
   beforeEach(() => {
+    setStagedPreview(null);
     resetPageCheck();
     resetBackgroundLint();
     resetProposalTypecheck();
@@ -146,6 +154,58 @@ describe("the page check's session", () => {
       name: NAME,
       inputs: INPUTS,
     });
+  });
+
+  test("it looks at the page once the staged files are in front, not while the quick preview is still on its way", async () => {
+    // The shell shows quick previews here: there is something to wait for.
+    const unregister = setQuickPreviewRunner(async () => ({
+      status: "shown",
+      ms: 0,
+      timings: [],
+    }));
+    try {
+      const { ws, hook } = render(socket(), true, {
+        ...STAGED,
+        buildRequired: true,
+      });
+      hook.result.current.verify(null);
+      await flush();
+      // Asked for, with the page still the last build's: nothing is sent.
+      expect(ws.prompts()).toHaveLength(0);
+      // The page says it is the quick preview of these files.
+      act(() => setStagedPreview({ inputs: INPUTS, status: "shown" }));
+      await flush();
+      expect(ws.prompts()).toHaveLength(1);
+    } finally {
+      unregister();
+    }
+  });
+
+  test("a quick preview that never says so does not hold the check for good", async () => {
+    jest.useFakeTimers();
+    const unregister = setQuickPreviewRunner(async () => ({
+      status: "shown",
+      ms: 0,
+      timings: [],
+    }));
+    try {
+      const { ws, hook } = render(socket(), true, {
+        ...STAGED,
+        buildRequired: true,
+      });
+      hook.result.current.verify(null);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(PAGE_CHECK_PREVIEW_WAIT_MS - 1);
+      });
+      expect(ws.prompts()).toHaveLength(0);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1);
+      });
+      expect(ws.prompts()).toHaveLength(1);
+    } finally {
+      unregister();
+      jest.useRealTimers();
+    }
   });
 
   test("its tools are answered here, a note from the assistant rides on the next answer, and its report reaches the assistant", async () => {

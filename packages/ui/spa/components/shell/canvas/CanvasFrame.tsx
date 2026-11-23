@@ -46,6 +46,7 @@ import {
   trustedApproval,
 } from "./canvasInteraction";
 import {
+  frameHasContent,
   frameHasFocus,
   sameDocument,
   withQuickPreview,
@@ -101,6 +102,20 @@ type FrameState =
  * it is telling someone to enable a mode that is already on.
  */
 export const ANSWER_TIMEOUT_MS = 8000;
+
+/**
+ * How often a document swapped in is looked at, once it has said it is
+ * there, for something rendered in it: the one it replaces is taken off the
+ * screen when there is, and never before one look.
+ */
+export const SWAP_PAINT_MS = 50;
+
+/**
+ * How long that goes on at most. A page that says it is there and has
+ * nothing in its `<body>` is a blank page by its own design, and it is
+ * shown as one.
+ */
+export const SWAP_PAINT_MAX_MS = 3_000;
 
 /** How often a new document held for a focused page looks again. */
 export const FOCUS_RECHECK_MS = 500;
@@ -548,14 +563,59 @@ export function CanvasFrame({
   } | null>(null);
   /** Where a document swapped in is scrolled to, once it is there. */
   const swapScroll = useRef<{ x: number; y: number } | null>(null);
+  /*
+   * The document a swap replaces, left on screen over the one loading under
+   * it until that one says it is there: the page it shows is taken away when
+   * there is another to look at, never for a blank frame. `epoch` is the
+   * {@link documentEpoch} the swap was made at -- the next one is the new
+   * document's.
+   *
+   * Only for a swap: the same page, as another build or quick preview. A
+   * reload the person asked for and another route load in the open, as they
+   * did, because what was there is what they asked to be rid of.
+   */
+  const [leaving, setLeaving] = useState<{
+    key: string;
+    src: string;
+    epoch: number;
+  } | null>(null);
+  /**
+   * How many swaps there have been, in the frame's key: a swap is always a
+   * new `<iframe>`, also back to a document the canvas held a moment ago.
+   * Without it that frame's key is the one still leaving, React hands the
+   * old element back as the frame, and the canvas waits for a `ready` that
+   * document said long ago.
+   */
+  const [swaps, setSwaps] = useState(0);
+  /** The frame as it is rendered now, for the swap to leave on screen. */
+  const frameNow = useRef<{
+    key: string;
+    src: string;
+    epoch: number;
+    answered: boolean;
+  } | null>(null);
   useEffect(() => {
     if (sameDocument(held, wanted)) return;
     const swap = (): boolean => {
       if (frameHasFocus(frameRef.current)) return false;
+      // Someone is editing a text on the page. The focus alone does not
+      // say so: a press on the Studio's own formatting toolbar takes it
+      // for a moment, and a swap then would end the edit with its document.
+      if (inlineEditing.current !== null) return false;
       const at = lastLocation.current;
       swapScroll.current =
         at === null ? null : { x: at.scrollX, y: at.scrollY };
       setSwapAt(at === null ? null : { at, url });
+      const now = frameNow.current;
+      setLeaving((before) => {
+        if (now === null) return before;
+        // One still leaving: it stays, over a document nobody has seen yet.
+        if (before !== null) return { ...before, epoch: now.epoch };
+        // A page that never answered is not worth keeping on screen.
+        if (!now.answered) return null;
+        return { key: now.key, src: now.src, epoch: now.epoch };
+      });
+      setSwaps((count) => count + 1);
       setHeld(wanted);
       return true;
     };
@@ -635,6 +695,54 @@ export function CanvasFrame({
    */
   const interruptions = useRef(new Set<(error: Error) => void>());
   const frameIdentity = `${frameSrc}\n${reloadKey}\n${held.documentKey}`;
+  const frameKey = `${frameSrc}-${reloadKey}-${held.documentKey}-${swaps}`;
+  frameNow.current = {
+    key: frameKey,
+    src: frameSrc,
+    epoch: documentEpoch,
+    answered: state.status === "ready",
+  };
+  // Another page, or a reload asked for: nothing of the last one is kept.
+  const lastAsked = useRef({ url, reloadKey });
+  useEffect(() => {
+    if (
+      lastAsked.current.url === url &&
+      lastAsked.current.reloadKey === reloadKey
+    ) {
+      return;
+    }
+    lastAsked.current = { url, reloadKey };
+    setLeaving(null);
+  }, [url, reloadKey]);
+  // The new document is there (and has had a moment to paint), or will not
+  // be: either way the old one has nothing left to stand in for.
+  const leavingEpoch = leaving?.epoch ?? null;
+  useEffect(() => {
+    if (leavingEpoch === null) return;
+    if (state.status === "no-answer") {
+      setLeaving(null);
+      return;
+    }
+    if (documentEpoch === leavingEpoch) return;
+    /*
+     * It said it is there, which is its bridge mounting, not its page being
+     * drawn: a quick preview renders in the browser from an emptied
+     * `<body>`, and a route can still be loading its own code. So the old
+     * document goes when the new one has something in it.
+     */
+    let looks = 0;
+    const timer = setInterval(() => {
+      looks += 1;
+      if (
+        frameHasContent(frameRef.current) ||
+        looks * SWAP_PAINT_MS >= SWAP_PAINT_MAX_MS
+      ) {
+        setLeaving(null);
+      }
+    }, SWAP_PAINT_MS);
+    return () => clearInterval(timer);
+  }, [leavingEpoch, documentEpoch, state.status]);
+  const isSwapping = leaving !== null && leaving.key !== frameKey;
   const lastFrameIdentity = useRef(frameIdentity);
   useEffect(() => {
     if (lastFrameIdentity.current === frameIdentity) return;
@@ -1764,7 +1872,9 @@ export function CanvasFrame({
       : isEnabling
         ? "enabling"
         : state.status === "waiting"
-          ? "connecting"
+          ? isSwapping
+            ? "swapping"
+            : "connecting"
           : state.draftMode
             ? "live"
             : "preview-off";
@@ -1785,12 +1895,44 @@ export function CanvasFrame({
         // Remounting is the reload: assigning the same `src` to a live frame is
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
-        key={`${frameSrc}-${reloadKey}-${held.documentKey}`}
+        key={frameKey}
         src={frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
       />
+      {/*
+       * The document a swap replaces, over the one loading under it. It is
+       * the element that WAS the frame (same key), and it must never be
+       * moved in the DOM: an `<iframe>` that is moved loads its page again,
+       * which is the blank frame this is here to avoid. AFTER the frame in
+       * this list for that reason -- React puts the new frame in before it
+       * and leaves it where it is -- and `canvasSwap.test.tsx` holds it to
+       * that. Out of reach: a click or a key press in a page about to go
+       * would be lost with it.
+       */}
+      {leaving !== null && leaving.key !== frameKey && (
+        <iframe
+          key={leaving.key}
+          src={leaving.src}
+          title=""
+          aria-hidden
+          tabIndex={-1}
+          data-val-canvas-leaving=""
+          style={{
+            width,
+            height,
+            border: "none",
+            display: "block",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+          referrerPolicy="same-origin"
+        />
+      )}
       {/*
        * Nothing is drawn over the page here any more.
        *

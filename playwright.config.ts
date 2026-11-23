@@ -5,8 +5,10 @@ import {
   MOCK_CONTENT_PORT,
   MOCK_INITIAL_COMMIT,
   MOCK_PROJECT,
+  MOCK_PROPOSAL,
   MOCK_SECRET,
   HTTP_APP_PORT,
+  PROPOSAL_APP_PORT,
 } from "./e2e/http/config";
 import { TANSTACK_APP_PORT } from "./e2e/tanstack/config";
 import { TANSTACK_APP_URL } from "./e2e/apps";
@@ -147,6 +149,12 @@ const needsHttpApp =
       willRun("webkit-http-warmup")));
 
 /**
+ * `examples/tanstack` a third time, in proxy mode at a PROPOSAL's address
+ * (`e2e/proposal/`), against the same mock content host.
+ */
+const needsProposalApp = willRun("chromium-proposal");
+
+/**
  * End-to-end tests for the Val Studio.
  *
  * These exist because of what the unit tests could not see. Removing
@@ -260,6 +268,7 @@ export default defineConfig({
         "http/**",
         "tanstack/**",
         "tanstack-http/**",
+        "proposal/**",
         "screens.spec.ts",
       ],
       use: {
@@ -347,6 +356,25 @@ export default defineConfig({
       testMatch: "tanstack-http/warm.setup.ts",
       use: {
         baseURL: `http://localhost:${HTTP_APP_PORT}`,
+        launchOptions: {
+          ...(PREINSTALLED_CHROMIUM !== undefined
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      /**
+       * A proposal in code mode (`e2e/proposal/`): the third copy of
+       * `examples/tanstack`, at a proposal's address. Its specs open the
+       * Studio themselves with a generous first timeout, so it has no
+       * warm-up project of its own.
+       */
+      name: "chromium-proposal",
+      testMatch: "proposal/**/*.spec.ts",
+      use: {
+        baseURL: `http://localhost:${PROPOSAL_APP_PORT}`,
         launchOptions: {
           ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
@@ -494,7 +522,7 @@ export default defineConfig({
           },
         ]
       : []),
-    ...(needsHttpApp
+    ...(needsHttpApp || needsProposalApp
       ? [
           {
             // The fake content.val.build. Must be up before the app below: the app
@@ -529,6 +557,10 @@ export default defineConfig({
                 : { MOCK_CONTENT_SOURCE_MODE: "connected" }),
             },
           },
+        ]
+      : []),
+    ...(needsHttpApp
+      ? [
           {
             /**
              * `examples/tanstack` again, in proxy mode.
@@ -573,6 +605,34 @@ export default defineConfig({
                     VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
                     VAL_GIT_BRANCH: "main",
                   }),
+              VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+              VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+            },
+          },
+        ]
+      : []),
+    ...(needsProposalApp
+      ? [
+          {
+            /**
+             * And a third time, at a proposal's address: the same proxy mode
+             * and the same mock, with `VAL_E2E_PROPOSAL` naming the proposal
+             * this server is at the address of (`examples/tanstack`'s
+             * `src/val/server.ts`). No fixtures: the showcase's own pages are
+             * all a proposal's preview needs.
+             */
+            command: `pnpm exec vite dev --port ${PROPOSAL_APP_PORT} --strictPort`,
+            url: `http://localhost:${PROPOSAL_APP_PORT}`,
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/tanstack",
+            env: {
+              VAL_E2E_VITE_CACHE_DIR: "node_modules/.vite-proposal",
+              VAL_E2E_PROPOSAL: MOCK_PROPOSAL,
+              VAL_API_KEY: MOCK_API_KEY,
+              VAL_SECRET: MOCK_SECRET,
+              VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+              VAL_GIT_BRANCH: "main",
               VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
               VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
             },
