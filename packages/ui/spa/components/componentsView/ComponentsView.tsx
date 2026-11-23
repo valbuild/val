@@ -14,14 +14,11 @@ import {
   ChevronRight,
   FlaskConical,
   LayoutGrid,
-  Monitor,
   RotateCw,
   Search,
   Send,
-  Smartphone,
   Sparkles,
   Square,
-  Tablet,
 } from "lucide-react";
 import {
   useCallback,
@@ -65,12 +62,14 @@ import {
 } from "../../utils/componentReview";
 import { ComponentFrame, type ComponentFrameStatus } from "./ComponentFrame";
 import { SelectButton } from "../shell/SelectButton";
+import { CanvasDeviceButtons } from "../shell/canvas/CanvasToolbar";
+import { CANVAS_GROUND } from "../shell/canvas/CanvasWindow";
+import { CANVAS_DEVICE_WIDTHS } from "../shell/canvas/types";
 import {
   useSelectModePreference,
   type CanvasSelectMode,
 } from "../../hooks/selectModePreference";
 import {
-  DEVICES,
   getComponentsUrlState,
   subscribeComponentsUrlState,
   updateComponentsUrlState,
@@ -390,6 +389,7 @@ function NoComponents() {
   );
 }
 
+/** The canvas's own screen buttons (`CanvasDeviceButtons`), in a group like its toolbar's. */
 function DeviceSwitch({
   device,
   onDevice,
@@ -397,36 +397,13 @@ function DeviceSwitch({
   device: Device;
   onDevice: (device: Device) => void;
 }) {
-  const icons: Record<Device, ReactNode> = {
-    mobile: <Smartphone size={14} />,
-    tablet: <Tablet size={14} />,
-    desktop: <Monitor size={14} />,
-  };
   return (
     <div
-      role="radiogroup"
+      role="group"
       aria-label="Screen"
-      className="inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border-primary"
+      className="inline-flex items-center gap-0.5 p-0.5 border rounded-lg border-border-float bg-bg-float"
     >
-      {DEVICES.map((option) => (
-        <button
-          key={option.device}
-          type="button"
-          role="radio"
-          aria-checked={device === option.device}
-          aria-label={`${option.label}, ${option.width}px`}
-          title={`${option.label}, ${option.width}px`}
-          onClick={() => onDevice(option.device)}
-          className={cn(
-            "flex items-center justify-center h-7 w-8 rounded transition-colors",
-            device === option.device
-              ? "bg-bg-secondary text-fg-primary"
-              : "text-fg-tertiary hover:text-fg-primary",
-          )}
-        >
-          {icons[option.device]}
-        </button>
-      ))}
+      <CanvasDeviceButtons device={device} onDeviceChange={onDevice} />
     </div>
   );
 }
@@ -437,10 +414,7 @@ function cardMinWidth(device: Device): number {
 }
 
 function widthOf(device: Device): number {
-  return (
-    DEVICES.find((option) => option.device === device)?.width ??
-    DEVICES[DEVICES.length - 1].width
-  );
+  return CANVAS_DEVICE_WIDTHS[device];
 }
 
 /** Every component, side by side. */
@@ -1660,7 +1634,12 @@ function StageHeader({ children }: { children: ReactNode }) {
 
 function StagePanel({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex-1 min-h-0 overflow-y-auto border rounded-xl border-border-float bg-bg-canvas scrollbar-slim [background-image:radial-gradient(var(--border-float)_1px,transparent_1px)] [background-size:24px_24px]">
+    <div
+      className={cn(
+        "relative flex-1 min-h-0 overflow-y-auto border rounded-xl border-border-float scrollbar-slim",
+        CANVAS_GROUND,
+      )}
+    >
       {children}
     </div>
   );

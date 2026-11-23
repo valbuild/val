@@ -1,18 +1,12 @@
-/**
- * The screens a component can be laid out at in the Components view.
- * Mobile first: the narrowest, and the one most often broken.
- */
-export type Device = "mobile" | "tablet" | "desktop";
+import type { CanvasDevice } from "../shell/canvas/types";
 
-export const DEVICES: readonly {
-  device: Device;
-  label: string;
-  width: number;
-}[] = [
-  { device: "mobile", label: "Phone", width: 390 },
-  { device: "tablet", label: "Tablet", width: 820 },
-  { device: "desktop", label: "Desktop", width: 1280 },
-];
+/**
+ * The screen a component is laid out at: the canvas's own widths
+ * (`CANVAS_DEVICE_WIDTHS`), so a component here is the width it is there.
+ */
+export type Device = CanvasDevice;
+
+const SCREENS: readonly Device[] = ["desktop", "tablet", "mobile"];
 
 /**
  * What the Components view is showing, kept in the address so it can be
@@ -69,9 +63,7 @@ export function readComponentsUrlState(search: string): ComponentsUrlState {
     instance: Number.isInteger(use) && use >= 1 ? use - 1 : 0,
     example: params.get("example") === "1",
     layout: params.get("layout") === "all" ? "all" : "one",
-    device:
-      DEVICES.find((option) => option.device === screen)?.device ??
-      DEFAULT_DEVICE,
+    device: SCREENS.find((option) => option === screen) ?? DEFAULT_DEVICE,
   };
 }
 

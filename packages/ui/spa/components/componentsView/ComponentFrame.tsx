@@ -9,6 +9,7 @@ import {
 import { cn } from "../designSystem/cn";
 import { componentPreviewUrl } from "../../utils/componentReview";
 import { withQuickPreview } from "../shell/canvas/canvasSwap";
+import { enableUrlOf } from "../shell/canvas/CanvasFrame";
 import { useComponentsCode } from "./componentsCode";
 
 /**
@@ -253,10 +254,4 @@ export function ComponentFrame({
       )}
     </div>
   );
-}
-
-/** The preview, through `/api/val/enable`: sets the draft cookie, then lands on it. */
-function enableUrlOf(previewUrl: string): string {
-  const redirectTo = new URL(previewUrl, window.location.origin).toString();
-  return `/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
 }

@@ -38,6 +38,48 @@ const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
  * Floats over the canvas rather than sitting above it, so the canvas keeps
  * the full height — the same reasoning as the shell's other bars.
  */
+/**
+ * The preview's screen widths, as buttons: the canvas's toolbar and the
+ * Components view both lay a page out at one of `CANVAS_DEVICE_WIDTHS`, and
+ * are switched with these.
+ */
+export function CanvasDeviceButtons({
+  device,
+  onDeviceChange,
+  size = "h-7 w-7",
+}: {
+  device: CanvasDevice;
+  onDeviceChange: (device: CanvasDevice) => void;
+  /** The buttons' size classes: tap-sized where the toolbar is docked. */
+  size?: string;
+}) {
+  return (
+    <>
+      {DEVICES.map((option) => {
+        const Icon = DEVICE_ICON[option];
+        return (
+          <button
+            key={option}
+            type="button"
+            {...VIEW_CONTROL}
+            aria-label={`${option} width`}
+            aria-pressed={device === option}
+            onClick={() => onDeviceChange(option)}
+            className={cn(
+              cn("grid place-items-center rounded-md", size),
+              device === option
+                ? "bg-bg-float-raised text-fg-primary"
+                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+            )}
+          >
+            <Icon size={14} />
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
 export function CanvasToolbar({
   device,
   onDeviceChange,
@@ -112,28 +154,13 @@ export function CanvasToolbar({
         className,
       )}
     >
-      {onDeviceChange !== undefined &&
-        DEVICES.map((option) => {
-          const Icon = DEVICE_ICON[option];
-          return (
-            <button
-              key={option}
-              type="button"
-              {...VIEW_CONTROL}
-              aria-label={`${option} width`}
-              aria-pressed={device === option}
-              onClick={() => onDeviceChange(option)}
-              className={cn(
-                cn("grid place-items-center rounded-md", size),
-                device === option
-                  ? "bg-bg-float-raised text-fg-primary"
-                  : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-              )}
-            >
-              <Icon size={14} />
-            </button>
-          );
-        })}
+      {onDeviceChange !== undefined && (
+        <CanvasDeviceButtons
+          device={device}
+          onDeviceChange={onDeviceChange}
+          size={size}
+        />
+      )}
       {onDeviceChange !== undefined && <Divider />}
       <button
         type="button"

@@ -1959,7 +1959,7 @@ export function CanvasFrame({
 }
 
 /** The page, through `/api/val/enable`: sets the cookie, then lands on the page. */
-function enableUrlOf(frameSrc: string): string {
+export function enableUrlOf(frameSrc: string): string {
   const redirectTo = new URL(frameSrc, window.origin).toString();
   return `/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
 }
