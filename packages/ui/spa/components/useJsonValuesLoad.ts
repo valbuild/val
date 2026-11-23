@@ -1,7 +1,7 @@
 import { useValSystem } from "../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef } from "react";
-import { useAllSources, useSchemas } from "./ValFieldProvider";
+import { useAllSourcesWhen, useSchemas } from "./ValFieldProvider";
 import {
   JsonValuesLoadQuery,
   allJsonValuesModules,
@@ -165,8 +165,12 @@ function useJsonValuesLoad(
 ): JsonValuesLoadStatus {
   const val = useValSystem();
   // Subscribing to sources is what re-renders this hook as batches land: a
-  // batch arriving bumps its module, which is a `source:change`.
-  useAllSources();
+  // batch arriving bumps its module, which is a `source:change`. Only while
+  // there is something whose loading could be reported: with nothing to load
+  // the answer is `success` whatever the sources do, and this is reached from
+  // every field (`useKeysOf`) and from the shell (the search), which each
+  // rendered for every write anywhere to hand the same answer back.
+  useAllSourcesWhen(moduleFilePaths !== null && moduleFilePaths.length > 0);
 
   // The module list as a primitive, so effects key on its CONTENT: the schema
   // record is rebuilt every render, so `moduleFilePaths` is a fresh array every

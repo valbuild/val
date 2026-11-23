@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 import { Json, ModuleFilePath } from "@valbuild/core";
 import { System } from "../stores/createSystem";
 import { useValSystem } from "../stores/react/SystemContext";
+import { sameFields, useStoreValue } from "../stores/react/useStoreValue";
 import { settingsModuleFilePath } from "./assistantSettings";
 
 /**
@@ -32,49 +33,49 @@ export type SettingsModuleSource = {
  * `readThemeSettings`, `readAssistantSettings`, `readStudioSettings` — which is
  * what makes those testable without a store.
  *
- * Two subscriptions rather than one, because two different things change:
- * intake replaces the whole schema map at once, and a patch changes the source
+ * Two events rather than one, because two different things change: intake
+ * replaces the whole schema map at once, and a patch changes the source
  * afterwards.
+ *
+ * The answer is kept while it is the same module and the same source object
+ * (`moduleSource` is stable while the module's view is). Every source change
+ * in the project reaches here, and the settings module is almost never what
+ * changed: this used to hand back a new object for each, so `ValProvider`,
+ * the theme and the shell rendered for every field write anywhere.
  */
 export function useSettingsModuleSourceOf(
   system: System | null,
 ): SettingsModuleSource {
-  const subscribeToSources = useCallback(
+  const subscribe = useCallback(
     (onChange: () => void) => {
       if (system === null) return () => {};
-      return system.sourceStore.events.on("source:change", onChange);
+      const offSources = system.sourceStore.events.on(
+        "source:change",
+        onChange,
+      );
+      const offSchemas = system.schemaStore.events.on("schema:init", onChange);
+      return () => {
+        offSources();
+        offSchemas();
+      };
     },
     [system],
   );
-  const sourcesVersion = useSyncExternalStore(
-    subscribeToSources,
-    useCallback(
-      () => (system === null ? 0 : system.sourceStore.sourcesVersion()),
-      [system],
-    ),
-    () => 0,
-  );
-  const subscribeToSchemas = useCallback(
-    (onChange: () => void) => {
-      if (system === null) return () => {};
-      return system.schemaStore.events.on("schema:init", onChange);
-    },
+  /*
+   * Whether to look again: any source change, and the count of modules with a
+   * schema -- `SchemaStore` keeps versions per module and has no global one,
+   * and intake replaces the whole map at once.
+   */
+  const version = useCallback(
+    () =>
+      system === null
+        ? ""
+        : `${system.sourceStore.sourcesVersion()}:${
+            Object.keys(system.schemaStore.all()).length
+          }`,
     [system],
   );
-  // The count of modules with a schema: `SchemaStore` keeps versions per module
-  // and has no global one, and intake replaces the whole map at once.
-  const schemasVersion = useSyncExternalStore(
-    subscribeToSchemas,
-    useCallback(
-      () =>
-        system === null ? 0 : Object.keys(system.schemaStore.all()).length,
-      [system],
-    ),
-    () => 0,
-  );
-  return useMemo((): SettingsModuleSource => {
-    void sourcesVersion;
-    void schemasVersion;
+  const read = useCallback((): SettingsModuleSource => {
     if (system === null) {
       return { moduleFilePath: null, source: undefined };
     }
@@ -86,7 +87,8 @@ export function useSettingsModuleSourceOf(
       moduleFilePath,
       source: system.sourceStore.moduleSource(moduleFilePath),
     };
-  }, [system, sourcesVersion, schemasVersion]);
+  }, [system]);
+  return useStoreValue(subscribe, read, { version, isSame: sameFields });
 }
 
 /** The same, for a caller inside the system context. */

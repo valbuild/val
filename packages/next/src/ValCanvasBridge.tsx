@@ -6,6 +6,11 @@ import {
   BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  isOnValCanvasControls,
+  VAL_CANVAS_EDITING_ATTRIBUTE,
+  VAL_CANVAS_SELECTION_PROPERTY,
+  VAL_COMPONENT_ATTRIBUTE,
+  VAL_COMPONENT_DRAGGING_ATTRIBUTE,
   EMPTY_TEXT_RULES,
   holdKeys,
   installPageLog,
@@ -131,6 +136,13 @@ export function ValCanvasBridge({
   // installed once and would otherwise close over the first value forever.
   const pickingRef = React.useRef(false);
   pickingRef.current = picking;
+  // Said on the document too, for the controls `ValComponentEditor` draws:
+  // they are shown only while Select is on.
+  React.useEffect(() => {
+    const root = document.documentElement;
+    root.toggleAttribute(VAL_CANVAS_EDITING_ATTRIBUTE, picking);
+    return () => root.removeAttribute(VAL_CANVAS_EDITING_ATTRIBUTE);
+  }, [picking]);
   /**
    * Picking ANY element (`pickElements`), as the studio last said. `null`
    * until it says.
@@ -775,6 +787,9 @@ export function ValCanvasBridge({
     const onClick = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      // Val's own controls on a list of components, not the page's content:
+      // the click is theirs, wherever in the page they are drawn.
+      if (isOnValCanvasControls(target)) return;
       // A click in the field being typed in places the caret, and that is
       // all it does: it is neither a pick nor a click on the link or button
       // the text happens to be in. (The caret is the mousedown's, so
@@ -1033,9 +1048,16 @@ export function ValCanvasBridge({
       // close the selector early.
       dangerouslySetInnerHTML={{
         __html: [
+          `:root { ${VAL_CANVAS_SELECTION_PROPERTY}: ${selectionColors.selection}; }`,
+          // Not around a component's item: its controls outline it, and two
+          // boxes on one element is one too many. The conditions are in
+          // `:where()`, which counts for nothing: this rule must stay as
+          // weak as `[data-val-path]` alone, or it beats the outline of the
+          // field the Studio is on (`highlightRule`, below) and that field
+          // looks like every other one while Select is on.
           picking
-            ? `[data-val-path] { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
-[data-val-path]:hover { outline: 2px solid ${selectionColors.selection}; }`
+            ? `:where(:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}])) [data-val-path]:where(:not([${VAL_COMPONENT_ATTRIBUTE}])) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
+:where(:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}])) [data-val-path]:where(:not([${VAL_COMPONENT_ATTRIBUTE}])):hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
           // The one rule here that moves the page, and only while Select is
           // on: an emptied text's line of room, without which it cannot be
