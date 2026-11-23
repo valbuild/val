@@ -37,7 +37,6 @@ import {
   askPageCheck,
   subscribePageCheck,
   MESSAGE_VERIFIER_TOOL,
-  PAGE_CHECK_PROMPT_SECTION,
   pickPageCheckModel,
   VERIFY_TOOL,
 } from "../proposals/pageCheck";
@@ -77,7 +76,6 @@ import {
   readWebSearchSetting,
   REQUEST_WEB_SEARCH_TOOL_NAME,
   webSearchRequestOutcome,
-  webSearchRequestPromptSection,
   webSearchRequestQuestions,
   webSearchSettingOps,
   withWebSearchRequest,
@@ -132,7 +130,6 @@ import {
 } from "./steerWire";
 import {
   AssistantSettings,
-  assistantSettingsPromptSection,
   NO_ASSISTANT_SETTINGS,
   readAssistantSettings,
   settingsModuleFilePath,
@@ -182,11 +179,8 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   assistantCodeTools,
   stagedCode,
-  codeToolsPromptSection,
   isCodeTool,
-  projectInstructionsPromptSection,
   QUICK_PREVIEW_TOOL,
-  readProjectInstructions,
   REQUEST_CODE_MODE_TOOL,
   runCodeTool,
   runQuickPreviewTool,
@@ -194,7 +188,6 @@ import {
 import { quickPreviewRunner } from "../proposals/quickPreviewControl";
 import {
   NO_PREVIEW,
-  PAGE_PROMPT_SECTION,
   READ_PAGE_LOG_TOOL,
   INTERACT_PAGE_TOOL,
   READ_PAGE_TOOL,
@@ -229,7 +222,16 @@ import {
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
-import { assistantPersona, isInCodeMode } from "./assistantPersona";
+import { isInCodeMode } from "./assistantPersona";
+import {
+  readProjectContext,
+  type ProjectContext,
+} from "../proposals/projectContext";
+import {
+  pickedElementSources,
+  type PickedSources,
+} from "../proposals/projectMap";
+import { assistantSystemPrompt } from "./assistantSystemPrompt";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
 import { allSchemaAnswer } from "./allSchemaAnswer";
@@ -719,22 +721,6 @@ const GET_RECORD_KEYS_TOOL: AITool = {
     required: ["module_file_path", "path"],
   },
 };
-/**
- * What the system prompt says about sketchpads, when they are offered: see
- * `sketchpadsOn` where the prompt is sent.
- */
-const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad, highlight_sketchpad_blocks, clear_sketchpad_highlights: see "Sketchpads" below.
-
-## Sketchpads
-A sketchpad is a rough page -- headings, text, boxes, columns -- that you and the person work out before anything is built. It is kept on the server for the project, not in this chat: it outlives the conversation, and anyone on the project can open it.
-- When a request changes how a page is laid out (new sections, moving things, a new page), offer to sketch it first with ask_user_question: options "Sketch it first" and "Just do it". Do not insist; "Just do it" is a full answer.
-- create_sketchpad returns an id. Remember it, and use it for the rest of the conversation instead of making another.
-- The person can change the sketchpad at any time. Before you change it or build from it, read_sketchpad, and write with the version you read.
-- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content. A \`--- /route\` line names the page the blocks under it are about.
-- A box whose kind is not a kind of section the site's schema has needs code. Before building one, point at those blocks with highlight_sketchpad_blocks and ask the person whether to go on; clear the highlights once they answer.
-- An image in a box is a path the content has, \`session:<image_key>\` for one in this chat (put it in the site with the image tools first), or a web address.
-`;
-
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -1172,31 +1158,33 @@ export function useAI(
   const hostedRef = useRef(valMode === "http");
   hostedRef.current = valMode === "http";
   /**
-   * The project's own instructions (`AGENTS.md`, `CLAUDE.md`), for the
-   * prompt in code mode: read as `read_file` reads the proposal's files, so
-   * a message is never held for them. Read when code mode comes on, and
-   * again after each message, so a change to them reaches the next one.
+   * The project's own instructions (`AGENTS.md`, `CLAUDE.md`) and the map
+   * of its files, for the prompt in code mode: read as `read_file` reads
+   * the proposal's files, so a message is never held for them. Read when
+   * code mode comes on, and again after each message, so a change to the
+   * files reaches the next one. The same files give the same text, so a
+   * turn that moved nothing leaves the prompt as it was.
    */
-  const projectInstructionsRef = useRef<{
+  const projectContextRef = useRef<{
     proposal: string;
-    text: string | null;
+    context: ProjectContext;
   } | null>(null);
-  const refreshProjectInstructions = useCallback(
+  const refreshProjectContext = useCallback(
     (proposal: string) => {
-      readProjectInstructions({
+      readProjectContext({
         proposal: { name: proposal },
         client: codeClients.proposals,
         siteSource: codeClients.siteSource,
         snapshot: codeClients.snapshot,
       })
-        .then((text) => {
-          projectInstructionsRef.current = { proposal, text };
+        .then((context) => {
+          projectContextRef.current = { proposal, context };
         })
         .catch((error) => {
           // Without them the assistant works as it would in a project that
-          // has none; read_file can still read them.
+          // has none, finding its way with list_files and read_file.
           Internal.log.debug(
-            "Could not read the project's instructions for the assistant:",
+            "Could not read the project's instructions and map for the assistant:",
             error,
           );
         });
@@ -1211,13 +1199,35 @@ export function useAI(
   );
   const inCodeModeRef = useRef(inCodeModeNow);
   inCodeModeRef.current = inCodeModeNow;
+  /** The project as last read for this proposal, in code mode; else `null`. */
+  const projectContextNow = useCallback((): ProjectContext | null => {
+    const read = projectContextRef.current;
+    return inCodeModeRef.current &&
+      read !== null &&
+      read.proposal === currentProposalRef.current?.name
+      ? read.context
+      : null;
+  }, []);
+  /**
+   * Where a picked element is in the code, in code mode: the model reads
+   * those files instead of searching for them (`pickedElementSources`).
+   */
+  const pickedSourcesOf = useCallback(
+    (pointedAt: PickedElement | null): PickedSources => {
+      const context = projectContextNow();
+      return pointedAt !== null && context !== null
+        ? pickedElementSources(pointedAt, context.project, context.map)
+        : {};
+    },
+    [projectContextNow],
+  );
   /** How long each code mode turn takes, and in which tools: `turnTiming.ts`. */
   const turnTimer = useMemo(() => createTurnTimer(), []);
   useEffect(() => {
     if (inCodeModeNow && currentProposal !== null) {
-      refreshProjectInstructions(currentProposal.name);
+      refreshProjectContext(currentProposal.name);
     }
-  }, [inCodeModeNow, currentProposal?.name, refreshProjectInstructions]);
+  }, [inCodeModeNow, currentProposal?.name, refreshProjectContext]);
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   // Read by the image tools when they run, through a ref so a bucket being
   // picked does not re-subscribe the tool handler.
@@ -3714,7 +3724,12 @@ export function useAI(
           ? followUp.rideAlong(checksProposal)
           : null;
       const contentBlocks = withRideAlong(
-        promptContentBlocks(content, attachments, pointedAt),
+        promptContentBlocks(
+          content,
+          attachments,
+          pointedAt,
+          pickedSourcesOf(pointedAt),
+        ),
         rideAlong?.text ?? null,
       );
       // Only where the Studio can show one, and its server has them: the
@@ -3731,14 +3746,9 @@ export function useAI(
         currentProposalRef.current?.name ?? null,
         codeModeState().proposal,
       );
-      const readInstructions = projectInstructionsRef.current;
-      const projectInstructions =
-        readInstructions !== null &&
-        readInstructions.proposal === currentProposalRef.current?.name
-          ? readInstructions.text
-          : null;
+      const projectContext = inCodeMode ? projectContextNow() : null;
       if (inCodeMode && currentProposalRef.current !== null) {
-        refreshProjectInstructions(currentProposalRef.current.name);
+        refreshProjectContext(currentProposalRef.current.name);
       }
       /** Whether a page check reads the preview after this turn's changes. */
       const pageChecked = inCodeMode && pageCheckRef.current.canCheck();
@@ -3767,100 +3777,21 @@ export function useAI(
             ...(valReads.getAssistantSettings().webSearch
               ? { webSearch: true }
               : {}),
-            systemPrompt: `${assistantPersona(inCodeMode)}
-
-## User message format (HTML-esque rich text)
-The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
-- Block tags: <p>, <h1>, <h2>, <h3>, <blockquote>, <ul>, <ol>, <li>.
-- Inline marks: <strong>, <em>, <del>, <code>.
-- Line break: <br/>.
-- Non-standard self-closing tags:
-  - <field path="..."/>: the user explicitly pointed at this Val source path. Treat it as if they typed and named that path; when relevant, call get_source on the corresponding module to read the current value and reference the field by its friendly name in your reply.
-  - <img key="..."/>: an inline image attached by the user. The key is the same as an image_key content block — use it with convert_session_image_to_patch / add_session_image_to_gallery as you would any other session image. Do not try to fetch the URL of an inline image.
-Plain user messages without tags should be treated as plain text.
-
-## Understanding where user is
-If the get_current_context pathname starts with /val, the user is in the Val Studio. 
-
-## Automatically gather context
-If the user asks a question that requires context, use the get_current_context tool to get more context about the users location. They might be looking at a specific page or content item, and that can help you answer their question better.
-Example: if user asks "what is the title?" You should check the current context to figure out if they are on a source path that has a title and tell them this.
-
-## Tools
-Always call get_all_schema first unless the question clearly does not require it. Then:
-- get_source: read the current content of a module before making changes.
-- search_content: find content by keyword across all modules.
-- validate_content: check for errors — call this after every change.
-- create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
-- add_session_image_to_gallery: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to add it as an entry in an images gallery (s.imagedir()) — the file_path doubles as the entry key. Needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. For plain image fields (s.image()) and inline images inside richtext, do NOT use this tool — use create_patch with a session-key value (see the create_patch description above for the sentinel format) instead.
-- remove_image_gallery_entry: remove an existing entry from an images gallery (s.imagedir()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
-- get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
-- navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
-- get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
-- set_session_name: give the current chat session a short, descriptive name once the topic is clear. Call this at least once per session, early in the conversation. Max 5 words, plain language (e.g. 'Update homepage hero text'). If there is a title or a topic use it directly.
-- get_source_path_from_route: given a URL path like '/blogs/blog-1', find which Next.js page module it belongs to and return the source path. Use this when the user mentions a specific page URL or route.
-- ask_user_question: ask the user 1-4 structured clarification questions at once, rendered together in one card. Each question is single-select by default; set multiSelect: true on a question to let the user pick multiple options (e.g. "Which sections should I update?"). You may set defaults (option indices to pre-select) to bias toward the most likely answer. Use ONLY when the user's request is ambiguous and a small set of concrete options would resolve it (e.g. "Which page should I update — Home, About, or Contact?"). When several clarifications are needed, group them into a SINGLE call rather than asking sequentially. Do NOT use for open-ended questions or yes/no checks — just ask in plain text instead. Never call this more than once in a row; if the user answered with custom "Other" text, proceed with that — do not re-ask. If the tool result is an error (user cancelled), drop the structured-question approach and ask once in plain text instead.
-${sketchpadsOn ? SKETCHPADS_PROMPT_SECTION : ""}
-## navigate_to: how to build a source path
-A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
-Example: /content/authors.val.ts?p="jane" navigates to the "jane" entry in the authors module.
-Example: /content/posts.val.ts?p=0."title" navigates to the title of the first post.
-When the user wants to see something inside a module, navigate directly to the relevant field.
-Never tell the user to navigate manually — offer to navigate for them instead. After navigating, do not repeat what you already described.
-
-## Understanding content types
-- object: a group of fields
-- record: a collection of items with the same shape (e.g. blog posts, products)
-  - router: next-app-router / tanstack-router — pages in this site, shown under "Pages" in the left menu
-  - router: external-url-router — external links, shown under "External Sites" in the left menu
-  - mediaType: "images", "videos" or "files" — a media gallery grouped by directory
-- array: an ordered list of items
-- string / number / boolean / date: plain values
-- richtext: array of block nodes as JSON
-  - block tags: p, h1-h6, ul, ol — each has a children array
-  - list structure: ul/ol > {tag:"li", children:[{tag:"p",...}]}
-  - inline nodes (appear inside block children): span, a, img, br
-    - span: {tag:"span", styles:["bold"|"italic"|"line-through"], children:["text"]}
-    - a: {tag:"a", href:"...", children:[...]}
-    - img: {tag:"img", src:{...}} — cannot be added via assistant (no file system access)
-    - br: {tag:"br"}
-  - example: [{tag:"p",children:["Hello ",{tag:"span",styles:["bold"],children:["World"]}]}]
-  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have ul: true, then ul is not allowed. The schema.options type is like this: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
-- image / file: cannot be changed through this assistant (no file system access). If the user needs to add one, navigate to the matching media gallery.
-- union: a value that must match exactly one of several allowed shapes. Two kinds:
-  - string union: key is a literal schema, all items are literals. The value is one fixed string chosen from a set (e.g. "draft", "published", "archived"). Patch by replacing the string with one of the allowed values.
-  - tagged union (object union): key is a plain string (the discriminant field name), all items are objects. The active variant is identified by the literal value at that key field (e.g. { type: "image", url: "..." } vs { type: "video", src: "..." }). When patching, you must keep the discriminant key consistent with the rest of the object's fields for the chosen variant.
-
-## When you cannot make a change
-Never ask the user to apply changes themselves. Instead:
-- For images, files, or rich text: navigate to the relevant location and explain what to do there.
-- For errors you cannot fix: explain clearly and ask the user for clarification.
-- If there is a validation error after a change, try to fix it.
-
-
-## When user asks to create something they usually want you to create patches
-THIS IS IMPORTANT: If it is not possible to create something (for example: user wants a blog article but there are no blog pages), asks for clarification.
-Do not describe what you will do unless you do it for clarification — just do it and navigate the user to it (if they are not at the relevant location already). After creating something new (a new page), always navigate the user to it.
-
-## Style
-- Be concise and friendly.
-- This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
-- Confirm changes in plain language after every successful update.
-- If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
-              valReads.getAssistantSettings(),
-            )}${webSearchRequestPromptSection(valReads.getWebSearchSetting())}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
-              hostedRef.current
-                ? codeToolsPromptSection(
-                    currentProposalRef.current !== null
-                      ? { kind: "proposal" }
-                      : { kind: "site" },
-                  )
-                : ""
-            }${pageChecked ? PAGE_CHECK_PROMPT_SECTION : ""}${
-              inCodeMode
-                ? projectInstructionsPromptSection(projectInstructions)
-                : ""
-            }`,
+            systemPrompt: assistantSystemPrompt({
+              codeMode: inCodeMode,
+              sketchpads: sketchpadsOn,
+              settings: valReads.getAssistantSettings(),
+              webSearchSetting: valReads.getWebSearchSetting(),
+              page: pageRef.current !== null,
+              code: hostedRef.current
+                ? currentProposalRef.current !== null
+                  ? { kind: "proposal" }
+                  : { kind: "site" }
+                : null,
+              pageCheck: pageChecked,
+              projectInstructions: projectContext?.instructions ?? null,
+              projectMap: projectContext?.mapText ?? null,
+            }),
             tools: withWebSearchRequest(
               withWebSearchWaits(
                 [
@@ -3907,7 +3838,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
+    [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectContext],
   );
 
   /**
@@ -3926,11 +3857,13 @@ Do not describe what you will do unless you do it for clarification — just do 
       const promptId = inFlightPromptIdRef.current;
       const sessionId = sessionIdRef.current;
       if (promptId === null || sessionId === null) return false;
+      const steeredAt = takePointedAt(context, pageRef.current);
       const blocks = steerContentBlocks(
         promptContentBlocks(
           content,
           attachments,
-          takePointedAt(context, pageRef.current),
+          steeredAt,
+          pickedSourcesOf(steeredAt),
         ),
       );
       // Nothing to say: the server refuses an empty steer.

@@ -2,6 +2,7 @@ import { changesCode } from "./changesCode";
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
+import type { PickedSources } from "./projectMap";
 import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
@@ -489,7 +490,8 @@ export const QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
   description:
     "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
-    "Where Val Build makes quick previews, one runs by itself after each change, so call this only to see the change now, or when none ran. " +
+    "Where Val Build makes quick previews, one runs by itself for the whole change, when your turn ends or once you have not written for a few seconds. " +
+    "So call this only to read the page yourself before the turn ends, or when the preview does not show what is staged. " +
     "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
     "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
     "Answers once the page shows it, with what each step took.",
@@ -573,7 +575,7 @@ Besides content, you can read the project's code (list_files, read_file, search_
 - Find before you read: search_code finds where something is defined or rendered, with its line, then read_file the lines around it (offset, limit) rather than the whole file when the file is long.
 - Change a file that exists with edit_file: old_string is copied exactly from what read_file gave you, with enough lines around it to match once, and only what changes is sent. Make several edit_file calls for several places. Use write_files for a new file, to delete one (null), or when most of a file changes; it takes each file's WHOLE new text. Read a file before you change it.
 - After changing code, call format_files so the files are formatted as the project's are. Then carry on, or end your turn: never wait to check. The Studio typechecks and lints what you staged by itself, beside you, and a page check reads the preview once your turn ends. What they find comes back to you, as below; typecheck_status says where the typecheck is, without waiting. The person can write while the checks run, so end the turn as soon as the change is staged. Tell them it is in the preview, not on the site: the site changes when the proposal is published.
-- The preview: a second after files are staged, the preview shows them as a quick preview by itself -- components, layout, styles and text, in seconds, without a build. Call quick_preview only to see a change now, or when none ran. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build. The code you stage runs in the preview, on the real site, without asking the person: interact_page asks before each click and holds what the page sends, but that is interact_page's rule, not your code's -- never stage code that sends, deletes or buys by itself.
+- The preview: when you finish, or once you have not written for a few seconds, the preview shows what is staged as a quick preview by itself -- components, layout, styles and text, without a build, and one quick preview for the whole change, not one per file. Do not call quick_preview to show the person a change: ending your turn shows it. Call it only when you need to read the page yourself before the turn ends (read_page, interact_page), or when the preview does not show what is staged. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build. The code you stage runs in the preview, on the real site, without asking the person: interact_page asks before each click and holds what the page sends, but that is interact_page's rule, not your code's -- never stage code that sends, deletes or buys by itself.
 - A tool's answer can carry \`typecheck_errors\` or \`lint_problems\`: the background typecheck or Val's lint rules found these in what is staged, after a change. Fix them before you build.
 - What those checks find after your turn ends comes as a message that starts with [Background checks], sent by the Studio and not by the person, or at the end of the person's next message inside <background_checks>. Fix what is still there; do not thank the person for it.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
@@ -586,17 +588,31 @@ Besides content, you can read the project's code (list_files, read_file, search_
  * after the person's message, which the prompt explains (`PAGE_PROMPT_SECTION`
  * in `hooks/pageTools.ts`). Attribute values are escaped, so text on the
  * customer's page cannot close the tag and pass for the person's words.
+ *
+ * In code mode it also names where the element is in the code, as far as
+ * the tab can tell (`pickedElementSources`), so the model reads those files
+ * instead of searching for them.
  */
-export function pickedElementPrompt(picked: PickedElement): string {
+export function pickedElementPrompt(
+  picked: PickedElement,
+  sources: PickedSources = {},
+): string {
   const attribute = (name: string, value: string) =>
     ` ${name}="${escapePickedText(value)}"`;
+  const files = (name: string, paths: string[] | undefined) =>
+    paths !== undefined && paths.length > 0
+      ? attribute(name, paths.join(", "))
+      : "";
   return `<picked${attribute("tag", picked.tag)}${
     picked.classes.length > 0
       ? attribute("classes", picked.classes.join(" "))
       : ""
   }${attribute("selector", picked.selector)}${
     picked.valPath !== undefined ? attribute("path", picked.valPath) : ""
-  }${attribute("text", picked.text)}/>`;
+  }${sources.module !== undefined ? attribute("module", sources.module) : ""}${files(
+    "imported-by",
+    sources.importedBy,
+  )}${files("classes-in", sources.classesIn)}${attribute("text", picked.text)}/>`;
 }
 
 function escapePickedText(value: string): string {
@@ -1316,7 +1332,7 @@ async function stageCode(
       buildRequired: staged.staged.buildRequired,
       next: !staged.staged.buildRequired
         ? "The preview already shows these files."
-        : "The preview shows them as a quick preview by itself when you finish, or once you have not written for a few seconds: one quick preview for the change, not one per file. Call build_proposal once the change is complete.",
+        : "The preview shows them as a quick preview by itself when you finish, or once you have not written for a few seconds: one quick preview for the change, not one per file. No build is needed to see components, styles and text; build only for what a quick preview cannot show, once, when the request is finished.",
       ...(evaluated === undefined
         ? {}
         : {
@@ -1590,6 +1606,13 @@ export async function readProjectInstructions(
   deps: ProjectReadDeps,
 ): Promise<string | null> {
   const { project } = await readProject(deps);
+  return projectInstructionsOf(project);
+}
+
+/** {@link readProjectInstructions}, of a project already read. */
+export function projectInstructionsOf(
+  project: Record<string, string>,
+): string | null {
   const found = PROJECT_INSTRUCTION_FILES.flatMap((path) => {
     const text = project[path];
     return text === undefined || text.trim() === ""
