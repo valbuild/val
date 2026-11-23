@@ -444,7 +444,7 @@ function Board({
   const [noAnswer, setNoAnswer] = useState(false);
   return (
     <div className="flex flex-col min-h-full" data-testid="components-board">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b bg-bg-float border-border-primary">
+      <header className="sticky top-0 z-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b bg-bg-float border-border-primary">
         <div className="flex items-center gap-2">
           <Blocks size={18} className="text-fg-secondary" />
           <h1 className="text-base font-medium text-fg-primary">Components</h1>
@@ -778,7 +778,7 @@ function ComponentDetail({
 
   return (
     <div className="flex flex-col min-h-full" data-testid="component-detail">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-bg-float border-border-primary">
+      <header className="sticky top-0 z-5 flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-bg-float border-border-primary">
         <Button
           variant="ghost"
           size="xs"
@@ -1071,7 +1071,7 @@ function ComponentSearch({ components }: { components: StudioComponent[] }) {
           role="listbox"
           aria-label="Components found"
           data-testid="component-search-results"
-          className="absolute right-0 z-30 mt-1 overflow-y-auto border rounded-lg shadow-lg w-80 max-h-96 border-border-primary bg-bg-primary"
+          className="absolute right-0 z-50 mt-1 overflow-y-auto border rounded-lg shadow-lg w-80 max-h-96 border-border-primary bg-bg-primary"
         >
           {hits.length === 0 ? (
             <p className="px-3 py-2 text-sm text-fg-tertiary">
