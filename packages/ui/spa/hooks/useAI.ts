@@ -218,6 +218,7 @@ import {
   proposalCodeChanged,
   requestProposal,
   proposalBuildControl,
+  setAssistantWorking,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import {
@@ -1243,6 +1244,12 @@ export function useAI(
   const defaultModel = useAvailableAIModel();
   const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
+  // The one bit of the turn the preview needs: while the assistant works,
+  // more writes may follow the last one (`useCodeModeQuickPreview`).
+  useEffect(() => {
+    setAssistantWorking(isStreaming);
+    return () => setAssistantWorking(false);
+  }, [isStreaming]);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);

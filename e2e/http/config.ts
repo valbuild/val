@@ -56,3 +56,16 @@ export const MOCK_INITIAL_COMMIT = "mockcommit0";
 
 /** `val.config.ts`'s `root`, which the content host joins paths against. */
 export const MOCK_ROOT = "/examples/tanstack";
+
+/**
+ * Where the copy of `examples/tanstack` that serves a PROPOSAL's address
+ * listens (`e2e/proposal/`): proxy mode again, against the same mock, told
+ * with `VAL_E2E_PROPOSAL` that it is at the address of {@link MOCK_PROPOSAL}.
+ * A third server because which proposal a server is at the address of is
+ * decided when it starts, as it is on the platform: one isolate, one
+ * proposal.
+ */
+export const PROPOSAL_APP_PORT = 3460;
+
+/** The proposal that app is at the address of: twenty hex characters. */
+export const MOCK_PROPOSAL = "e2e0c0de000000000001";
