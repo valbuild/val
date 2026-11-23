@@ -98,3 +98,38 @@ test("a search finds the content of a component, and opens that use", async ({
     "2 of 3",
   );
 });
+
+test("a page's components, stacked as its content has them", async ({
+  page,
+}) => {
+  await openStudio(page, "/val/components");
+  await page.getByRole("radio", { name: "Pages" }).click();
+  await page
+    .getByTestId("component-pages-list")
+    .getByRole("button", { name: /\/landing/ })
+    .click();
+  await expect(page).toHaveURL(/mode=pages/);
+  // The sections one after another, the cards inside the columns section
+  const blocks = page.getByTestId("component-pages").locator("section");
+  await expect(blocks.first()).toContainText("Hero");
+  const columns = page.getByTestId("component-block-Columns");
+  await expect(columns.getByTestId("component-block-Card")).toHaveCount(3);
+  await expect(
+    page
+      .frameLocator('iframe[title^="Hero at"]')
+      .getByText("Ship content, not tickets"),
+  ).toBeVisible({ timeout: 30_000 });
+  // Picking one in the outline shows its fields in Content
+  await page
+    .getByTestId("component-page-outline")
+    .getByRole("button", { name: /^Columns/ })
+    .click();
+  await expect(page).toHaveURL(/block=/);
+  await expect(page.getByTestId("component-page-outline")).toContainText(
+    "Heading",
+  );
+  // The same Select as beside a page's preview
+  await expect(
+    page.getByRole("button", { name: "Stop selecting on the page" }),
+  ).toBeVisible();
+});

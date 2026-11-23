@@ -7,6 +7,7 @@ import type {
   SourcePath,
 } from "@valbuild/core";
 import { sourcePathOfItem } from "./sourcePathOfItem";
+import { pageRouteOf } from "./componentReview";
 
 /**
  * EXPERIMENTAL: a component the project links to an object
@@ -421,4 +422,119 @@ function isAtOrBelow(path: string, ancestor: string): boolean {
   // A module root has no `?p=`; anything below it adds one
   const separator = ancestor.includes("?p=") ? "." : "?p=";
   return path.startsWith(ancestor + separator);
+}
+
+/** One use of a component on a page, with the uses inside it. */
+export type ComponentUse = {
+  path: SourcePath;
+  component: StudioComponent;
+  /** Its position in `component.instances`. */
+  instance: number;
+  /** The uses inside this one, in content order: a list of cards in a section. */
+  children: ComponentUse[];
+};
+
+/**
+ * A page, as far as its components go: the entry of a router of this site's
+ * pages (keyed by its route), or a module that is not one.
+ */
+export type ComponentPage = {
+  /** The source path the page is at: what the view's address names. */
+  key: SourcePath | ModuleFilePath;
+  /** Its route, or the module's file path. */
+  label: string;
+  route: string | null;
+  moduleFilePath: ModuleFilePath;
+  /** The uses on the page that are inside no other use, in content order. */
+  uses: ComponentUse[];
+  /** Every use on the page, nested ones too. */
+  count: number;
+};
+
+/**
+ * EXPERIMENTAL: the pages that use components, each with its uses as a tree
+ * in the order the content has them - a list of sections one after another,
+ * and a list of cards inside a section under that section.
+ *
+ * The walk is the one {@link collectComponents} does, in document order, so
+ * an ancestor always comes before what is inside it and a stack is enough to
+ * nest them.
+ */
+export function componentPages(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+  sources: Record<ModuleFilePath, Json>,
+  components: readonly StudioComponent[],
+): ComponentPage[] {
+  const byId = new Map(
+    components.map((component) => [component.id, component]),
+  );
+  const pages = new Map<string, ComponentPage>();
+  const stacks = new Map<string, ComponentUse[]>();
+  const moduleFilePaths = (Object.keys(schemas) as ModuleFilePath[]).sort();
+  for (const moduleFilePath of moduleFilePaths) {
+    if (!(moduleFilePath in sources)) continue;
+    walkSource(
+      schemas[moduleFilePath],
+      sources[moduleFilePath],
+      moduleFilePath,
+      0,
+      (object, path) => {
+        const component = byId.get(componentIdOf(object));
+        if (component === undefined) return;
+        const route = pageRouteOf(path, schemas);
+        const key: SourcePath | ModuleFilePath =
+          route === null
+            ? moduleFilePath
+            : sourcePathOfItem(moduleFilePath, route);
+        let page = pages.get(key);
+        if (page === undefined) {
+          page = {
+            key,
+            label: route ?? moduleFilePath,
+            route,
+            moduleFilePath,
+            uses: [],
+            count: 0,
+          };
+          pages.set(key, page);
+          stacks.set(key, []);
+        }
+        const use: ComponentUse = {
+          path,
+          component,
+          instance: component.instances.indexOf(path),
+          children: [],
+        };
+        const stack = stacks.get(key) ?? [];
+        while (
+          stack.length > 0 &&
+          !isAtOrBelow(path, stack[stack.length - 1].path)
+        ) {
+          stack.pop();
+        }
+        const parent = stack[stack.length - 1];
+        if (parent === undefined) {
+          page.uses.push(use);
+        } else {
+          parent.children.push(use);
+        }
+        stack.push(use);
+        page.count++;
+      },
+    );
+  }
+  return [...pages.values()];
+}
+
+/** The deepest use, among `uses` and the uses inside them, that `path` is at or inside. */
+export function deepestUseAt(
+  uses: readonly ComponentUse[],
+  path: string,
+): ComponentUse | null {
+  for (const use of uses) {
+    if (isAtOrBelow(path, use.path)) {
+      return deepestUseAt(use.children, path) ?? use;
+    }
+  }
+  return null;
 }

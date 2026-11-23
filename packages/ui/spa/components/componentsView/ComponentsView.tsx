@@ -15,7 +15,6 @@ import {
   FlaskConical,
   LayoutGrid,
   Monitor,
-  MousePointerClick,
   RotateCw,
   Search,
   Send,
@@ -49,7 +48,11 @@ import { useValSystem } from "../../stores/react/SystemContext";
 import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
 import {
   collectComponents,
+  componentPages,
   componentSearchHits,
+  deepestUseAt,
+  type ComponentPage,
+  type ComponentUse,
   type ComponentSearchHit,
   type StudioComponent,
 } from "../../utils/collectComponents";
@@ -61,6 +64,11 @@ import {
   VAL_COMPONENT_PREVIEW_ROUTE,
 } from "../../utils/componentReview";
 import { ComponentFrame, type ComponentFrameStatus } from "./ComponentFrame";
+import { SelectButton } from "../shell/SelectButton";
+import {
+  useSelectModePreference,
+  type CanvasSelectMode,
+} from "../../hooks/selectModePreference";
 import {
   DEVICES,
   getComponentsUrlState,
@@ -77,6 +85,7 @@ type ComponentsViewData =
       schemas: Record<ModuleFilePath, SerializedSchema>;
       sources: Record<ModuleFilePath, Json>;
       components: StudioComponent[];
+      pages: ComponentPage[];
       state: ComponentsUrlState;
       update: (next: Partial<ComponentsUrlState>) => void;
       /** The component open, or `null` on the board. */
@@ -95,12 +104,19 @@ function useComponentsView(): ComponentsViewData {
     () => (schemas === null ? null : collectComponents(schemas, sources)),
     [schemas, sources],
   );
+  const pages = useMemo(
+    () =>
+      schemas === null || components === null
+        ? null
+        : componentPages(schemas, sources, components),
+    [schemas, sources, components],
+  );
   const state = useSyncExternalStore(
     subscribeComponentsUrlState,
     getComponentsUrlState,
     getComponentsUrlState,
   );
-  if (components === null || schemas === null) {
+  if (components === null || schemas === null || pages === null) {
     return { status: "loading" };
   }
   const selected =
@@ -113,6 +129,7 @@ function useComponentsView(): ComponentsViewData {
     schemas,
     sources,
     components,
+    pages,
     state,
     update: updateComponentsUrlState,
     selected,
@@ -147,6 +164,9 @@ export function ComponentsStage() {
   }
   if (view.components.length === 0) {
     return <NoComponents />;
+  }
+  if (view.state.mode === "pages") {
+    return <PagesStage view={view} />;
   }
   if (view.selected === null) {
     return (
@@ -188,6 +208,9 @@ export function ComponentsContent() {
         <Spinner />
       </div>
     );
+  }
+  if (view.state.mode === "pages") {
+    return <PagesContent view={view} />;
   }
   if (view.selected === null) {
     return (
@@ -443,79 +466,80 @@ function Board({
   );
   const [noAnswer, setNoAnswer] = useState(false);
   return (
-    <div className="flex flex-col min-h-full" data-testid="components-board">
-      <header className="sticky top-0 z-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b bg-bg-float border-border-primary">
+    <StageLayout testId="components-board">
+      <StageHeader>
         <div className="flex items-center gap-2">
-          <Blocks size={18} className="text-fg-secondary" />
-          <h1 className="text-base font-medium text-fg-primary">Components</h1>
+          <ModeSwitch mode="components" />
           <span className="text-sm text-fg-tertiary">
             {components.length}{" "}
             {components.length === 1 ? "component" : "components"} · {uses}{" "}
             {uses === 1 ? "use" : "uses"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
           <ComponentSearch components={components} />
           <DeviceSwitch device={device} onDevice={onDevice} />
         </div>
-      </header>
-      {missing && (
-        <p className="px-4 pt-3 text-sm text-fg-secondary">
-          The component in the address is not in the project any more, or its
-          fields changed. Pick it again below.
-        </p>
-      )}
-      {noAnswer && <NoPreviewRoute />}
-      <ul
-        className="grid gap-4 p-4"
-        style={{
-          gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth(device)}px, 1fr))`,
-        }}
-      >
-        {components.map((component) => {
-          const first = component.instances[0];
-          return (
-            <li key={component.id}>
-              <button
-                type="button"
-                onClick={() => onOpen(component)}
-                data-testid={`component-card-${component.name}`}
-                className="flex flex-col w-full overflow-hidden text-left transition-colors border rounded-lg border-border-primary hover:border-border-secondary bg-bg-primary group"
-              >
-                <div className="w-full border-b border-border-primary bg-bg-secondary">
-                  {first !== undefined ? (
-                    <ComponentFrame
-                      path={first}
-                      width={widthOf(device)}
-                      maxHeight={260}
-                      lazy
-                      contentVersion={moduleSourceOf(sources, first)}
-                      title={`${component.name}, as first used`}
-                      onStatus={(status) =>
-                        status === "no-answer" && setNoAnswer(true)
-                      }
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-32 px-4 text-xs text-center text-fg-tertiary">
-                      Not used in any content yet
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-baseline justify-between gap-2 px-3 py-2">
-                  <span className="font-medium truncate text-fg-primary">
-                    {component.name}
-                  </span>
-                  <span className="text-xs shrink-0 text-fg-tertiary">
-                    {component.instances.length}{" "}
-                    {component.instances.length === 1 ? "use" : "uses"}
-                  </span>
-                </div>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+      </StageHeader>
+      <StagePanel>
+        {missing && (
+          <p className="px-4 pt-3 text-sm text-fg-secondary">
+            The component in the address is not in the project any more, or its
+            fields changed. Pick it again below.
+          </p>
+        )}
+        {noAnswer && <NoPreviewRoute />}
+        <ul
+          className="grid gap-4 p-4"
+          style={{
+            gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth(device)}px, 1fr))`,
+          }}
+        >
+          {components.map((component) => {
+            const first = component.instances[0];
+            return (
+              <li key={component.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(component)}
+                  data-testid={`component-card-${component.name}`}
+                  className="flex flex-col w-full overflow-hidden text-left transition-colors border rounded-lg border-border-primary hover:border-border-secondary bg-bg-primary group"
+                >
+                  <div className="w-full border-b border-border-primary bg-bg-secondary">
+                    {first !== undefined ? (
+                      <ComponentFrame
+                        path={first}
+                        width={widthOf(device)}
+                        maxHeight={260}
+                        lazy
+                        contentVersion={moduleSourceOf(sources, first)}
+                        title={`${component.name}, as first used`}
+                        onStatus={(status) =>
+                          status === "no-answer" && setNoAnswer(true)
+                        }
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-32 px-4 text-xs text-center text-fg-tertiary">
+                        Not used in any content yet
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2 px-3 py-2">
+                    <span className="font-medium truncate text-fg-primary">
+                      {component.name}
+                    </span>
+                    <span className="text-xs shrink-0 text-fg-tertiary">
+                      {component.instances.length}{" "}
+                      {component.instances.length === 1 ? "use" : "uses"}
+                    </span>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </StagePanel>
+    </StageLayout>
   );
 }
 
@@ -564,7 +588,7 @@ function ComponentDetail({
   const example =
     state.example && component.hasExample && instance !== undefined;
   const [reloadKey, setReloadKey] = useState(0);
-  const [picking, setPicking] = useState(true);
+  const select = useStageSelect();
   const [noAnswer, setNoAnswer] = useState(false);
   const onStatus = useCallback((status: ComponentFrameStatus) => {
     setNoAnswer(status === "no-answer");
@@ -626,13 +650,6 @@ function ComponentDetail({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [step, stepComponent]);
-
-  const onPick = useCallback((paths: SourcePath[]) => {
-    const picked = paths[0];
-    if (picked === undefined) return;
-    // In the Content pane, when it is open: the fields of the use on screen
-    scrollToStudioPath(picked);
-  }, []);
 
   const shownLabel = instance === undefined ? null : labelOf(instance);
   const stage = (
@@ -757,8 +774,8 @@ function ComponentDetail({
                 path={instance}
                 example={example}
                 width={widthOf(state.device)}
-                picking={picking && !example}
-                onPick={onPick}
+                picking={select.picking && !example}
+                onPick={select.onPick}
                 reloadKey={reloadKey}
                 contentVersion={moduleSourceOf(sources, instance)}
                 title={`${component.name}: ${example ? "example" : (shownLabel?.title ?? "")}`}
@@ -777,8 +794,9 @@ function ComponentDetail({
   );
 
   return (
-    <div className="flex flex-col min-h-full" data-testid="component-detail">
-      <header className="sticky top-0 z-5 flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-bg-float border-border-primary">
+    <StageLayout testId="component-detail">
+      <StageHeader>
+        <ModeSwitch mode="components" />
         <Button
           variant="ghost"
           size="xs"
@@ -847,19 +865,7 @@ function ComponentDetail({
               Example
             </ToolbarToggle>
           )}
-          {state.layout === "one" && (
-            <ToolbarToggle
-              pressed={picking}
-              label={
-                picking
-                  ? "Clicking content opens its field. Turn off to use the component as on the site"
-                  : "Click content to open its field"
-              }
-              onClick={() => setPicking((current) => !current)}
-            >
-              <MousePointerClick size={14} />
-            </ToolbarToggle>
-          )}
+          {state.layout === "one" && <StageSelectButton select={select} />}
           <ToolbarToggle
             label="Load the component again (after its code changed)"
             onClick={() => setReloadKey((current) => current + 1)}
@@ -867,15 +873,17 @@ function ComponentDetail({
             <RotateCw size={14} />
           </ToolbarToggle>
         </div>
-      </header>
-      <div className="flex flex-col gap-3 p-4">
-        <AskAboutComponent
-          component={component}
-          shown={instance === undefined ? null : { path: instance, example }}
-        />
-        {stage}
-      </div>
-    </div>
+      </StageHeader>
+      <StagePanel>
+        <div className="flex flex-col gap-3 p-4">
+          <AskAboutComponent
+            component={component}
+            shown={instance === undefined ? null : { path: instance, example }}
+          />
+          {stage}
+        </div>
+      </StagePanel>
+    </StageLayout>
   );
 }
 
@@ -1147,4 +1155,513 @@ function useComponentSearch(
     [found, components],
   );
   return { hits, isSearching };
+}
+
+type ReadyView = Extract<ComponentsViewData, { status: "ready" }>;
+
+/** Components, or Pages: what the view lists. Opening the other keeps the screen width. */
+function ModeSwitch({ mode }: { mode: ComponentsUrlState["mode"] }) {
+  const options: { mode: ComponentsUrlState["mode"]; label: string }[] = [
+    { mode: "components", label: "Components" },
+    { mode: "pages", label: "Pages" },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="List"
+      className="inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border-primary"
+    >
+      {options.map((option) => (
+        <button
+          key={option.mode}
+          type="button"
+          role="radio"
+          aria-checked={mode === option.mode}
+          onClick={() =>
+            mode !== option.mode &&
+            updateComponentsUrlState({
+              mode: option.mode,
+              page: null,
+              block: null,
+            })
+          }
+          className={cn(
+            "h-7 px-2.5 rounded text-sm transition-colors",
+            mode === option.mode
+              ? "bg-bg-secondary text-fg-primary font-medium"
+              : "text-fg-tertiary hover:text-fg-primary",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type StageSelect = {
+  picking: boolean;
+  setPicking: (picking: boolean) => void;
+  mode: CanvasSelectMode;
+  setMode: (mode: CanvasSelectMode) => void;
+  onPick: (paths: SourcePath[]) => void;
+};
+
+/**
+ * The stage's Select: the same button, the same two modes and the same
+ * remembered choice as Content's Select beside a page's preview
+ * (`SelectButton`, `useSelectModePreference`).
+ *
+ * - **Select** opens the picked field in the Content pane: scrolled to.
+ * - **Select & edit** does that and puts the caret in it. On a page the
+ *   caret goes into the text where the page shows it; a component preview
+ *   is rendered by the preview route, which does not take part in editing
+ *   on the page, so here it goes into the field in Content.
+ */
+function useStageSelect(onPicked?: (path: SourcePath) => void): StageSelect {
+  const [picking, setPicking] = useState(true);
+  const [mode, setMode] = useSelectModePreference();
+  const onPickedRef = useRef(onPicked);
+  onPickedRef.current = onPicked;
+  const onPick = useCallback(
+    (paths: SourcePath[]) => {
+      const picked = paths[0];
+      if (picked === undefined) return;
+      onPickedRef.current?.(picked);
+      scrollToStudioPath(picked);
+      if (mode === "edit") focusStudioField(picked);
+    },
+    [mode],
+  );
+  return { picking, setPicking, mode, setMode, onPick };
+}
+
+function StageSelectButton({ select }: { select: StageSelect }) {
+  return (
+    <SelectButton
+      selectFor="content"
+      pressed={select.picking}
+      onPressedChange={select.setPicking}
+      mode={select.mode}
+      onModeChange={select.setMode}
+    />
+  );
+}
+
+/** Put the caret in the field at `path` in the Content pane, once it is there. */
+function focusStudioField(path: string, retries = 20) {
+  const attempt = (left: number) => {
+    const root = document.getElementById("val-shadow-root")?.shadowRoot;
+    const field = root?.querySelector(
+      `[data-val-studio-path="${CSS.escape(path)}"]`,
+    );
+    const input = field?.querySelector<HTMLElement>(
+      "input:not([type=hidden]), textarea, [contenteditable=true]",
+    );
+    if (input) {
+      input.focus();
+    } else if (left > 0) {
+      window.setTimeout(() => attempt(left - 1), 100);
+    }
+  };
+  attempt(retries);
+}
+
+/** The Pages mode in the preview's place: the pages, or one page's components stacked. */
+function PagesStage({ view }: { view: ReadyView }) {
+  const { pages, state, update, sources } = view;
+  const page = pages.find((candidate) => candidate.key === state.page) ?? null;
+  const select = useStageSelect((picked) => {
+    if (page === null) return;
+    const use = deepestUseAt(page.uses, picked);
+    if (use !== null && use.path !== state.block) update({ block: use.path });
+  });
+  const [reloadKey, setReloadKey] = useState(0);
+  const [noAnswer, setNoAnswer] = useState(false);
+  const onStatus = useCallback((status: ComponentFrameStatus) => {
+    if (status === "no-answer") setNoAnswer(true);
+  }, []);
+  return (
+    <StageLayout testId="component-pages">
+      <StageHeader>
+        <ModeSwitch mode="pages" />
+        {page !== null && (
+          <>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => update({ page: null, block: null })}
+              title="All pages"
+            >
+              <ArrowLeft size={14} />
+              <span className="ml-1">All</span>
+            </Button>
+            <select
+              aria-label="Page"
+              className="h-8 px-2 text-sm font-medium border rounded-md bg-bg-primary border-border-primary text-fg-primary"
+              value={page.key}
+              onChange={(event) =>
+                update({ page: event.target.value, block: null })
+              }
+            >
+              {pages.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        <DeviceSwitch
+          device={state.device}
+          onDevice={(device) => update({ device })}
+        />
+        <div className="flex items-center gap-1 ml-auto">
+          {page !== null && <StageSelectButton select={select} />}
+          <ToolbarToggle
+            label="Load the components again (after their code changed)"
+            onClick={() => setReloadKey((current) => current + 1)}
+          >
+            <RotateCw size={14} />
+          </ToolbarToggle>
+        </div>
+      </StageHeader>
+      <StagePanel>
+        {noAnswer && <NoPreviewRoute />}
+        {page === null ? (
+          <ul
+            className="flex flex-col gap-2 p-4"
+            data-testid="component-pages-list"
+          >
+            {pages.map((option) => (
+              <li key={option.key}>
+                <button
+                  type="button"
+                  onClick={() => update({ page: option.key, block: null })}
+                  className="flex flex-col w-full gap-2 px-4 py-3 text-left border rounded-lg border-border-primary bg-bg-primary hover:border-border-secondary"
+                >
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium text-fg-primary">
+                      {option.label}
+                    </span>
+                    <span className="text-xs text-fg-tertiary">
+                      {option.count}{" "}
+                      {option.count === 1 ? "component" : "components"}
+                    </span>
+                  </span>
+                  <span className="flex flex-wrap gap-1">
+                    {option.uses.map((use) => (
+                      <span
+                        key={use.path}
+                        className="px-2 py-0.5 text-xs rounded-full bg-bg-secondary text-fg-secondary"
+                      >
+                        {use.component.name}
+                        {use.children.length > 0
+                          ? ` + ${countUses(use.children)}`
+                          : ""}
+                      </span>
+                    ))}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="flex flex-col gap-3 p-4">
+            {page.uses.map((use) => (
+              <UseBlock
+                key={use.path}
+                use={use}
+                view={view}
+                sources={sources}
+                select={select}
+                reloadKey={reloadKey}
+                onStatus={onStatus}
+              />
+            ))}
+          </div>
+        )}
+      </StagePanel>
+    </StageLayout>
+  );
+}
+
+function countUses(uses: readonly ComponentUse[]): number {
+  return uses.reduce((sum, use) => sum + 1 + countUses(use.children), 0);
+}
+
+/**
+ * One use on a page: its component rendered, and the uses inside it stacked
+ * under it, one above the other, as the content has them.
+ */
+function UseBlock({
+  use,
+  view,
+  sources,
+  select,
+  reloadKey,
+  onStatus,
+}: {
+  use: ComponentUse;
+  view: ReadyView;
+  sources: Record<ModuleFilePath, Json>;
+  select: StageSelect;
+  reloadKey: number;
+  onStatus: (status: ComponentFrameStatus) => void;
+}) {
+  const selected = view.state.block === use.path;
+  return (
+    <section
+      data-testid={`component-block-${use.component.name}`}
+      aria-current={selected ? "true" : undefined}
+      className={cn(
+        "flex flex-col overflow-hidden border rounded-lg bg-bg-primary",
+        selected ? "border-fg-secondary" : "border-border-primary",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border-primary">
+        <button
+          type="button"
+          onClick={() => view.update({ block: use.path })}
+          className="flex items-baseline min-w-0 gap-2 text-left"
+        >
+          <span className="text-sm font-medium text-fg-primary">
+            {use.component.name}
+          </span>
+          <span className="text-xs truncate text-fg-tertiary">
+            {useLocationLabel(use.path)}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            view.update({
+              mode: "components",
+              page: null,
+              block: null,
+              component: use.component.id,
+              instance: use.instance,
+              example: false,
+              layout: "one",
+            })
+          }
+          className="text-xs shrink-0 text-fg-tertiary hover:text-fg-primary"
+          title={`Every use of ${use.component.name}`}
+        >
+          Open in Components
+        </button>
+      </div>
+      <div className="bg-bg-secondary">
+        <div
+          className="mx-auto"
+          style={{ maxWidth: widthOf(view.state.device) }}
+        >
+          <ComponentFrame
+            path={use.path}
+            width={widthOf(view.state.device)}
+            picking={select.picking}
+            onPick={select.onPick}
+            reloadKey={reloadKey}
+            lazy
+            contentVersion={moduleSourceOf(sources, use.path)}
+            title={`${use.component.name} at ${use.path}`}
+            onStatus={onStatus}
+          />
+        </div>
+      </div>
+      {use.children.length > 0 && (
+        <div className="flex flex-col gap-3 p-3 pl-6 border-t border-border-primary">
+          <span className="text-xs text-fg-tertiary">
+            Inside {use.component.name}
+          </span>
+          {use.children.map((child) => (
+            <UseBlock
+              key={child.path}
+              use={child}
+              view={view}
+              sources={sources}
+              select={select}
+              reloadKey={reloadKey}
+              onStatus={onStatus}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Where a use is inside its page: its last two segments, `sections[1]`, `cards[0]`. */
+function useLocationLabel(path: SourcePath): string {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  if (!modulePath) return "";
+  // A page's route is the page, already named above it
+  const segments = Internal.splitModulePath(modulePath).filter(
+    (segment) => !segment.startsWith("/"),
+  );
+  const out: string[] = [];
+  for (const segment of segments.slice(-2)) {
+    if (/^\d+$/.test(segment) && out.length > 0) {
+      out[out.length - 1] += `[${segment}]`;
+    } else {
+      out.push(segment);
+    }
+  }
+  return out.join(".");
+}
+
+/** The Pages mode in the Content pane: the pages, or one page's outline and the fields of the use picked. */
+function PagesContent({ view }: { view: ReadyView }) {
+  const { pages, state, update } = view;
+  const page = pages.find((candidate) => candidate.key === state.page) ?? null;
+  if (page === null) {
+    return (
+      <div className="flex flex-col gap-3" data-testid="component-pages-index">
+        <div>
+          <h1 className="text-2xl font-medium text-fg-primary">Pages</h1>
+          <p className="text-sm text-fg-tertiary">
+            Open one to see the components it is made of, in order.
+          </p>
+        </div>
+        <ul className="flex flex-col">
+          {pages.map((option) => (
+            <li key={option.key}>
+              <button
+                type="button"
+                onClick={() => update({ page: option.key, block: null })}
+                className="flex items-center justify-between w-full gap-3 px-2 py-2 text-left rounded-md hover:bg-bg-secondary"
+              >
+                <span className="truncate text-fg-primary">{option.label}</span>
+                <span className="text-xs shrink-0 text-fg-tertiary">
+                  {option.count}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  // The use picked, as the page has it: only an exact match shows its fields
+  const found =
+    state.block === null ? null : deepestUseAt(page.uses, state.block);
+  const blockUse = found !== null && found.path === state.block ? found : null;
+  return (
+    <div className="flex flex-col gap-4" data-testid="component-page-outline">
+      <div>
+        <button
+          type="button"
+          onClick={() => update({ page: null, block: null })}
+          className="flex items-center gap-1 text-sm text-fg-secondary hover:text-fg-primary"
+        >
+          <ChevronLeft size={14} />
+          All pages
+        </button>
+        <h1 className="mt-2 text-2xl font-medium text-fg-primary">
+          {page.label}
+        </h1>
+        <p className="text-sm text-fg-tertiary">
+          {page.count} {page.count === 1 ? "component" : "components"} on this
+          page
+        </p>
+      </div>
+      <div>
+        <div className="mb-1 text-xs font-medium tracking-wide uppercase text-fg-tertiary">
+          On this page
+        </div>
+        <OutlineList
+          uses={page.uses}
+          depth={0}
+          block={state.block}
+          onPick={(path) => update({ block: path })}
+        />
+      </div>
+      {blockUse !== null && (
+        <div className="pt-4 border-t border-border-primary">
+          <InstanceFields key={blockUse.path} path={blockUse.path} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OutlineList({
+  uses,
+  depth,
+  block,
+  onPick,
+}: {
+  uses: readonly ComponentUse[];
+  depth: number;
+  block: string | null;
+  onPick: (path: SourcePath) => void;
+}) {
+  return (
+    <ul className="flex flex-col">
+      {uses.map((use) => (
+        <li key={use.path}>
+          <button
+            type="button"
+            onClick={() => onPick(use.path)}
+            aria-current={block === use.path ? "true" : undefined}
+            className={cn(
+              "flex items-center w-full gap-2 py-1.5 pr-2 text-left rounded-md text-sm",
+              block === use.path
+                ? "bg-bg-secondary text-fg-primary"
+                : "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+            )}
+            style={{ paddingLeft: 8 + depth * 16 }}
+          >
+            {use.component.name}
+            <span className="text-xs text-fg-tertiary">
+              {useLocationLabel(use.path)}
+            </span>
+          </button>
+          {use.children.length > 0 && (
+            <OutlineList
+              uses={use.children}
+              depth={depth + 1}
+              block={block}
+              onPick={onPick}
+            />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The stage, laid out as the preview it stands in for: its controls in a row
+ * above (where the preview's address bar is), and what it shows below on the
+ * canvas's own dotted ground (`CanvasWindow`), in a panel that scrolls.
+ */
+function StageLayout({
+  testId,
+  children,
+}: {
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col h-full min-h-0 gap-2" data-testid={testId}>
+      {children}
+    </div>
+  );
+}
+
+function StageHeader({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center shrink-0 gap-2 min-h-8">
+      {children}
+    </div>
+  );
+}
+
+function StagePanel({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative flex-1 min-h-0 overflow-y-auto border rounded-xl border-border-float bg-bg-canvas scrollbar-slim [background-image:radial-gradient(var(--border-float)_1px,transparent_1px)] [background-size:24px_24px]">
+      {children}
+    </div>
+  );
 }

@@ -20,6 +20,15 @@ export const DEVICES: readonly {
  * the back button.
  */
 export type ComponentsUrlState = {
+  /**
+   * What is listed: every component (`components`), or the pages, each with
+   * the components it uses stacked as its content has them (`pages`).
+   */
+  mode: "components" | "pages";
+  /** In `pages`: the page open, by `ComponentPage.key`. */
+  page: string | null;
+  /** In `pages`: the use picked on it, whose fields Content shows. */
+  block: string | null;
   /** The component open, by `StudioComponent.id`, or the board. */
   component: string | null;
   /** Which of its uses, by position. */
@@ -35,13 +44,16 @@ export type ComponentsUrlState = {
  * The query parameters the view owns: dropped when navigating anywhere else
  * (`ROUTE_OWNED_PARAMS` in `ValRouter`).
  */
-export const COMPONENTS_URL_PARAMS = [
+export const COMPONENTS_URL_PARAMS: readonly string[] = [
+  "mode",
+  "page",
+  "block",
   "component",
   "use",
   "example",
   "layout",
   "screen",
-] as const;
+];
 
 const DEFAULT_DEVICE: Device = "desktop";
 
@@ -50,6 +62,9 @@ export function readComponentsUrlState(search: string): ComponentsUrlState {
   const use = Number(params.get("use") ?? "1");
   const screen = params.get("screen");
   return {
+    mode: params.get("mode") === "pages" ? "pages" : "components",
+    page: params.get("page"),
+    block: params.get("block"),
     component: params.get("component"),
     instance: Number.isInteger(use) && use >= 1 ? use - 1 : 0,
     example: params.get("example") === "1",
@@ -69,7 +84,13 @@ export function componentsUrlSearch(
   for (const name of COMPONENTS_URL_PARAMS) {
     params.delete(name);
   }
-  if (state.component !== null) {
+  if (state.mode === "pages") {
+    params.set("mode", "pages");
+    if (state.page !== null) params.set("page", state.page);
+    if (state.page !== null && state.block !== null) {
+      params.set("block", state.block);
+    }
+  } else if (state.component !== null) {
     params.set("component", state.component);
     if (state.instance > 0) params.set("use", String(state.instance + 1));
     if (state.example) params.set("example", "1");
@@ -89,7 +110,11 @@ export function writeComponentsUrlState(state: ComponentsUrlState) {
   if (search === window.location.search) return;
   const before = readComponentsUrlState(window.location.search);
   const target = `${window.location.pathname}${search}${window.location.hash}`;
-  if (before.component !== state.component) {
+  if (
+    before.component !== state.component ||
+    before.mode !== state.mode ||
+    before.page !== state.page
+  ) {
     window.history.pushState(null, "", target);
   } else {
     window.history.replaceState(null, "", target);

@@ -185,6 +185,11 @@ import {
   ComponentsStage,
 } from "../componentsView/ComponentsView";
 import { hasLinkedComponents } from "../../utils/collectComponents";
+import {
+  ComponentsCodeContext,
+  storeQuickPreviewHere,
+  type ComponentsCode,
+} from "../componentsView/componentsCode";
 import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
 
 /**
@@ -1208,12 +1213,24 @@ function ValShellBody({
    */
   const [canvasLive, setCanvasLive] = useState(false);
   const quickPreview = useCodeModeQuickPreview({
-    pageLive: canvasLive,
+    // The Components view's previews are pages of the site too, and follow
+    // the quick preview as the canvas does: see `componentsCode.ts`
+    pageLive: canvasLive || navigation.isComponentsView,
     buildEpoch,
   });
   const quickId = quickPreview.quickId;
   const setQuickStorer = quickPreview.setStorer;
   const onQuickDocument = quickPreview.onDocument;
+  /*
+   * In the Components view there is no canvas page to store a quick
+   * preview's files, so the Studio stores them itself: same origin, same
+   * worker (`storeQuickPreviewHere`).
+   */
+  useEffect(() => {
+    if (!navigation.isComponentsView) return;
+    setQuickStorer(storeQuickPreviewHere);
+    return () => setQuickStorer(null);
+  }, [navigation.isComponentsView, setQuickStorer]);
   /** Code mode's status asked for the page again. */
   const [codeReloads, setCodeReloads] = useState(0);
 
@@ -1251,6 +1268,10 @@ function ValShellBody({
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
   const documentKey = `${buildEpoch}:${codeReloads}`;
+  const componentsCode = useMemo<ComponentsCode>(
+    () => ({ quickId, documentKey, onDocument: onQuickDocument }),
+    [quickId, documentKey, onQuickDocument],
+  );
   /**
    * What Content's Select does with a pick. In its "Select & edit" mode a
    * pick of a text puts the caret in it where the page shows it, and only
@@ -2026,7 +2047,11 @@ function ValShellBody({
             }
             editorOverride={overrideEditor}
             stage={
-              navigation.isComponentsView ? <ComponentsStage /> : undefined
+              navigation.isComponentsView ? (
+                <ComponentsCodeContext.Provider value={componentsCode}>
+                  <ComponentsStage />
+                </ComponentsCodeContext.Provider>
+              ) : undefined
             }
             components={
               hasComponents

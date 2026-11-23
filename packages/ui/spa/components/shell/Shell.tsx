@@ -2038,10 +2038,7 @@ export function Shell({
             previewStatus={previewStatus}
             replacePreview={
               breakpoint !== "mobile" && stage !== undefined ? (
-                <div
-                  className="h-full min-h-0 overflow-y-auto rounded-xl border border-border-float bg-bg-float scrollbar-slim"
-                  data-val-pane="components"
-                >
+                <div className="h-full min-h-0" data-val-pane="components">
                   {stage}
                 </div>
               ) : breakpoint !== "mobile" && history !== undefined ? (

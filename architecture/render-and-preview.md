@@ -290,6 +290,41 @@ by use (the arrows, `←` / `→`, `[` / `]` between components, and a list of
 every use named by its preview or its first written string, and the page it
 is on), or every use side by side, and its `example`.
 
+**Pages** is the other list (`mode=pages`): the pages that use components
+(`componentPages` - a page router's entries by route, any other module as
+one), and one page's uses stacked in content order, a use inside another
+(the cards of a columns section) nested under it, one above the other. The
+walk is in document order, so an ancestor comes before what is inside it and
+a stack nests them. Content shows the page's outline and the fields of the
+use picked there or on the stage.
+
+**Select** is Content's Select from beside a page's preview - the same
+`SelectButton`, the same two modes and the same remembered choice
+(`useSelectModePreference`). Select opens the picked field in Content;
+Select & edit also puts the caret in it - in Content, not in the rendered
+component, because the preview route does not take part in editing on the
+page (`inlineEditing.ts` and its messages are the canvas bridge's). That is
+the one difference from the canvas, and the work to remove it is the
+preview route speaking that protocol.
+
+**Code mode** reaches the previews as it reaches the canvas: a component is
+the site's code, and the preview route is in the same app bundle a quick
+preview replaces. The shell hands the stage its quick preview and build
+(`ComponentsCodeContext`), every preview opens with `?val_quick=` and loads
+again when another build is served. With no canvas page to store the files,
+the Studio stores them itself (`storeQuickPreviewHere`: same origin, same
+worker), and counts the stage as a live page for when one is made.
+`e2e/proposal/codeModePreview.spec.ts` drives it.
+
+**Lazy.** A preview is a document of the site's, so a board or a page of a
+hundred uses must not load a hundred at once: those frames are made only
+when they come near the visible part of the stage (an `IntersectionObserver`
+in `ComponentFrame`), and kept once made.
+
+**It looks like the preview it stands in for**: its controls in the row
+where the preview's address bar is, and what it shows on the canvas's dotted
+ground (`StageLayout`).
+
 **Search** is the Studio's own (`system.search`: the same engine and index
 as everywhere else), narrowed to the content of components:
 `componentSearchHits` gives each hit to the deepest use it is inside - a

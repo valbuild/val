@@ -11,7 +11,9 @@ import {
 import {
   collectComponents,
   componentNameOf,
+  componentPages,
   componentSearchHits,
+  type ComponentUse,
 } from "./collectComponents";
 
 const { s, c } = initVal();
@@ -200,5 +202,68 @@ describe("componentSearchHits", () => {
       ["Hero", 2, "Two"],
       ["Hero", 0, "Elsewhere"],
     ]);
+  });
+});
+
+describe("componentPages", () => {
+  const blog = c.define(
+    "/app/blogs/[blog]/page.val.ts",
+    s
+      .record(
+        s.object({
+          sections: s.array(s.discriminatedUnion("type", hero, columns)),
+        }),
+      )
+      .router(Internal.nextAppRouter),
+    {
+      "/blogs/a": {
+        sections: [
+          { type: "columns", cards: [{ title: "One" }, { title: "Two" }] },
+          { type: "hero", title: "After" },
+        ],
+      },
+      "/blogs/b": { sections: [{ type: "hero", title: "B" }] },
+    },
+  );
+  const { schemas, sources } = project(page, blog);
+  const components = collectComponents(schemas, sources);
+  const pages = componentPages(schemas, sources, components);
+  const shape = (uses: ComponentUse[]): unknown[] =>
+    uses.map((use) =>
+      use.children.length === 0
+        ? use.component.name
+        : [use.component.name, shape(use.children)],
+    );
+
+  test("a router's entries are pages, by route; any other module is one", () => {
+    expect(pages.map((p) => [p.label, p.count])).toEqual([
+      ["/blogs/a", 4],
+      ["/blogs/b", 1],
+      ["/page.val.ts", 6],
+    ]);
+    expect(pages[0].key).toBe('/app/blogs/[blog]/page.val.ts?p="/blogs/a"');
+    expect(pages[0].route).toBe("/blogs/a");
+  });
+
+  test("uses are stacked in content order, and nested where they are inside another", () => {
+    expect(shape(pages[0].uses)).toEqual([
+      ["Columns", ["Card", "Card"]],
+      "Hero",
+    ]);
+    expect(shape(pages[2].uses)).toEqual([
+      "Hero",
+      ["Columns", ["Card", "Card"]],
+      "Hero",
+      "Call to action",
+    ]);
+  });
+
+  test("each use knows which of its component's uses it is", () => {
+    const [columnsUse] = pages[0].uses;
+    expect(
+      columnsUse.children[1].component.instances[
+        columnsUse.children[1].instance
+      ],
+    ).toBe(columnsUse.children[1].path);
   });
 });

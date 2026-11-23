@@ -8,6 +8,14 @@ import {
 } from "react";
 import { cn } from "../designSystem/cn";
 import { componentPreviewUrl } from "../../utils/componentReview";
+import { withQuickPreview } from "../shell/canvas/canvasSwap";
+import { useComponentsCode } from "./componentsCode";
+
+/**
+ * How far outside the visible part of the stage a lazy preview is loaded
+ * ahead of being scrolled to, so it is mostly there when it arrives.
+ */
+const LAZY_MARGIN = "600px";
 
 /**
  * How long a frame is given to say it is there before the view says the
@@ -72,7 +80,12 @@ export function ComponentFrame({
   contentVersion?: unknown;
   /** Bumped to throw the frame away and load it again: after the component's CODE changed. */
   reloadKey?: number;
-  /** Load only once scrolled into view: for a board of many. */
+  /**
+   * Make the frame only once it is near the visible part of the stage: for a
+   * board or a page of many. Each preview is a document of the site's, so a
+   * project with a hundred uses would otherwise load a hundred at once. Once
+   * made it is kept, so scrolling back does not load it again.
+   */
   lazy?: boolean;
   title: string;
   onStatus?: (status: ComponentFrameStatus) => void;
@@ -83,7 +96,28 @@ export function ComponentFrame({
   const [room, setRoom] = useState<number | null>(null);
   const [height, setHeight] = useState<number | null>(null);
   const [status, setStatus] = useState<ComponentFrameStatus>("loading");
-  const src = enableUrlOf(componentPreviewUrl(path, example));
+  const code = useComponentsCode();
+  const src = enableUrlOf(
+    withQuickPreview(componentPreviewUrl(path, example), code.quickId),
+  );
+  const frameKey = `${reloadKey}:${code.documentKey}`;
+  const [near, setNear] = useState(!lazy);
+  useEffect(() => {
+    if (near) return;
+    const element = containerRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setNear(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: LAZY_MARGIN },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [near]);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
@@ -95,16 +129,23 @@ export function ComponentFrame({
     return () => observer.disconnect();
   }, []);
 
-  // A new document starts over: no height, and a new wait for an answer
+  // A new document starts a new wait for an answer - once there is one. The
+  // last height is kept meanwhile, so a new build or a quick preview of the
+  // same component swaps in without the frame collapsing first.
   useEffect(() => {
-    setHeight(null);
+    if (!near) return;
     setStatus("loading");
     const timer = window.setTimeout(() => {
       setStatus((current) => (current === "loading" ? "no-answer" : current));
     }, NO_ANSWER_MS);
     return () => window.clearTimeout(timer);
-  }, [src, reloadKey]);
+  }, [src, frameKey, near]);
 
+  // Which quick preview the document now in the frame was opened as
+  const loadedQuick = useRef(code.quickId);
+  loadedQuick.current = code.quickId;
+  const onDocumentRef = useRef(code.onDocument);
+  onDocumentRef.current = code.onDocument;
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   useEffect(() => {
@@ -136,6 +177,7 @@ export function ComponentFrame({
       }
       if (data.type === VAL_PREVIEW_MESSAGES.ready) {
         setStatus("ready");
+        onDocumentRef.current?.({ quick: loadedQuick.current });
         post({
           type: VAL_PREVIEW_MESSAGES.picking,
           enabled: pickingRef.current,
@@ -189,13 +231,12 @@ export function ComponentFrame({
       className={cn("relative w-full overflow-hidden", className)}
       style={{ height: shownHeight }}
     >
-      {room !== null && (
+      {room !== null && near && (
         <iframe
-          key={reloadKey}
+          key={frameKey}
           ref={iframeRef}
           src={src}
           title={title}
-          loading={lazy ? "lazy" : "eager"}
           referrerPolicy="same-origin"
           className="absolute top-0 left-0 border-0 bg-white origin-top-left"
           style={{
