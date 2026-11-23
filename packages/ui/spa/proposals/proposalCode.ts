@@ -1316,7 +1316,7 @@ async function stageCode(
       buildRequired: staged.staged.buildRequired,
       next: !staged.staged.buildRequired
         ? "The preview already shows these files."
-        : "The preview shows them as a quick preview by itself in a moment. Call build_proposal once the change is complete.",
+        : "The preview shows them as a quick preview by itself when you finish, or once you have not written for a few seconds: one quick preview for the change, not one per file. Call build_proposal once the change is complete.",
       ...(evaluated === undefined
         ? {}
         : {

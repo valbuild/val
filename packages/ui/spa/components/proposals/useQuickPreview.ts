@@ -124,10 +124,23 @@ export function useQuickPreview(
         if (!now.auto) return now.work;
         return now.work.then(() => run());
       }
+      /*
+       * Skipped before anything was asked for, and still said to the turn
+       * trace: it is how the turn's write became visible, or already was
+       * (`aiTurnTrace.ts`). In no time, with no steps.
+       */
+      const skippedBeforeItStarted = () =>
+        reportQuickPreviewToTurnTrace({
+          status: "skipped",
+          auto,
+          ms: 0,
+          steps: [],
+        });
       if (auto && serverKnownOff("quick-preview")) {
         if (known !== undefined) {
           setStagedPreview({ inputs: known, status: "off" });
         }
+        skippedBeforeItStarted();
         return Promise.resolve({
           status: "skipped",
           reason: "off",
@@ -137,6 +150,7 @@ export function useQuickPreview(
       // Shown already: nothing to build to find that out.
       if (known !== undefined && known === shownInputs.current) {
         setStagedPreview({ inputs: known, status: "shown" });
+        skippedBeforeItStarted();
         return Promise.resolve({
           status: "skipped",
           reason: "shown",
