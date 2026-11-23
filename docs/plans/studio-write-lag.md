@@ -116,10 +116,14 @@ button.** With the above, what the confirmation moves is the unsaved count
 and the sync state, both read in `ValShellLive`, and the content's holds,
 which nothing renders for unless a publish is running.
 
-Three guards keep it so: `shellLive.test.tsx` renders `Shell` and moves the
+These guards keep it so: `shellLive.test.tsx` renders `Shell` and moves the
 live props, `shellWriteSubscriptions.test.ts` forbids the per-write hooks in
 `ValShellBody` and `useShellData`, and `perFieldSubscriptions.test.ts` now
-covers `ArrayAndRecordTools` and `useKeysOf`.
+covers `ArrayAndRecordTools` and `useKeysOf`. A fourth,
+`useCanvasTextFields.test.tsx`, holds a hook the second of those cannot see
+into: it is called in `ValShellBody` and read the chain's version one call
+down, which brought the shell's render per write back until it was changed
+to hand over a new answer only when the answer is different.
 
 ## Before and after
 
@@ -195,7 +199,13 @@ and is not counted above.)
    list's context (`DndContext`) does not hold.
 5. **The page in the canvas** re-reads the module and re-tags its elements:
    about 100 ms of a development build, once per burst of typing.
-6. **`http` mode is not measured.** The confirmation there arrives over a
+6. **In Select & edit the shell renders per write.** What the page is told
+   of its texts (`useCanvasTextFields`) is read in `ValShellBody`, and in
+   that mode it holds each text's value, so it moves as someone types. In
+   Select, the mode a Studio starts in, it moves only when a text is emptied
+   or an empty one is filled, and is kept otherwise. Read in `CanvasFrame`,
+   which is what sends it, it would render nothing else.
+7. **`http` mode is not measured.** The confirmation there arrives over a
    socket and with a manifest; the same readers are involved, and the mock
    content host would let the two scripts run against it.
 

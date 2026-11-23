@@ -1050,10 +1050,14 @@ export function ValCanvasBridge({
         __html: [
           `:root { ${VAL_CANVAS_SELECTION_PROPERTY}: ${selectionColors.selection}; }`,
           // Not around a component's item: its controls outline it, and two
-          // boxes on one element is one too many.
+          // boxes on one element is one too many. The conditions are in
+          // `:where()`, which counts for nothing: this rule must stay as
+          // weak as `[data-val-path]` alone, or it beats the outline of the
+          // field the Studio is on (`highlightRule`, below) and that field
+          // looks like every other one while Select is on.
           picking
-            ? `:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}]) [data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
-:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}]) [data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]):hover { outline: 2px solid ${selectionColors.selection}; }`
+            ? `:where(:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}])) [data-val-path]:where(:not([${VAL_COMPONENT_ATTRIBUTE}])) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
+:where(:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}])) [data-val-path]:where(:not([${VAL_COMPONENT_ATTRIBUTE}])):hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
           // The one rule here that moves the page, and only while Select is
           // on: an emptied text's line of room, without which it cannot be

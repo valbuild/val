@@ -104,7 +104,8 @@ import { ProjectLocalesProvider } from "../hooks/ProjectLocalesProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValStoreProvider } from "../stores/react/ValStoreProvider";
-import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
+import { useValSystem } from "../stores/react/SystemContext";
+import { useChainAndSources } from "../stores/react/useChainAndSources";
 import type { System } from "../stores/createSystem";
 import {
   createValueStore,
@@ -2655,33 +2656,6 @@ export function useChangesToReview(watch: boolean = true): number {
     [val, publishing, watch],
   );
   return useStoreValue(subscribe, read, { version });
-}
-
-/** Both the chain and the sources, as one thing to hear and one version. */
-function useChainAndSources(val: ValSystem | null, watch: boolean) {
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      if (val === null || !watch) return () => {};
-      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
-      const offSources = val.system.sourceStore.events.on(
-        "source:change",
-        onChange,
-      );
-      return () => {
-        offChain();
-        offSources();
-      };
-    },
-    [val, watch],
-  );
-  const version = useCallback(
-    () =>
-      val === null || !watch
-        ? ""
-        : `${val.system.patchStore.chainVersion()}:${val.system.sourceStore.sourcesVersion()}`,
-    [val, watch],
-  );
-  return { subscribe, version };
 }
 
 /** See {@link useHasNetChanges}. */
