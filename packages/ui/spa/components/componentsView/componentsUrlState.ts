@@ -95,3 +95,55 @@ export function writeComponentsUrlState(state: ComponentsUrlState) {
     window.history.replaceState(null, "", target);
   }
 }
+
+/*
+ * One state for the two halves of the view - the stage, in the preview's
+ * place, and the Content pane beside it - read from the address and written
+ * back to it. Module-level, like the address it mirrors: there is one.
+ */
+let current: ComponentsUrlState | null = null;
+const listeners = new Set<() => void>();
+
+function snapshot(): ComponentsUrlState {
+  if (current === null) {
+    current = readComponentsUrlState(
+      typeof window === "undefined" ? "" : window.location.search,
+    );
+  }
+  return current;
+}
+
+function emit() {
+  for (const listener of listeners) listener();
+}
+
+function onPopState() {
+  current = readComponentsUrlState(window.location.search);
+  emit();
+}
+
+/** For `useSyncExternalStore`. Reads the address again for a first listener: it may have been navigated to since. */
+export function subscribeComponentsUrlState(listener: () => void) {
+  if (listeners.size === 0 && typeof window !== "undefined") {
+    current = readComponentsUrlState(window.location.search);
+    window.addEventListener("popstate", onPopState);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && typeof window !== "undefined") {
+      window.removeEventListener("popstate", onPopState);
+    }
+  };
+}
+
+export function getComponentsUrlState(): ComponentsUrlState {
+  return snapshot();
+}
+
+export function updateComponentsUrlState(next: Partial<ComponentsUrlState>) {
+  const merged = { ...snapshot(), ...next };
+  writeComponentsUrlState(merged);
+  current = merged;
+  emit();
+}

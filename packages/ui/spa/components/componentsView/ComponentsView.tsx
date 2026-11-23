@@ -17,6 +17,7 @@ import {
   Monitor,
   MousePointerClick,
   RotateCw,
+  Search,
   Send,
   Smartphone,
   Sparkles,
@@ -26,22 +27,30 @@ import {
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { cn } from "../designSystem/cn";
 import { Button } from "../designSystem/button";
 import { Spinner } from "../designSystem/spinner";
-import { useAllSources, useSchemas } from "../ValFieldProvider";
-import { Module } from "../Module";
+import {
+  useAllSources,
+  useSchemaAtPath,
+  useSchemas,
+} from "../ValFieldProvider";
+import { AnyField } from "../AnyField";
 import { scrollToStudioPath } from "../ValRouter";
 import { useAIChatActions } from "../AIChatActionsContext";
 import { useDescriptions } from "../useDescriptions";
+import { useValSystem } from "../../stores/react/SystemContext";
+import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
 import {
   collectComponents,
+  componentSearchHits,
+  type ComponentSearchHit,
   type StudioComponent,
 } from "../../utils/collectComponents";
 import {
@@ -54,30 +63,31 @@ import {
 import { ComponentFrame, type ComponentFrameStatus } from "./ComponentFrame";
 import {
   DEVICES,
-  readComponentsUrlState,
-  writeComponentsUrlState,
+  getComponentsUrlState,
+  subscribeComponentsUrlState,
+  updateComponentsUrlState,
   type ComponentsUrlState,
   type Device,
 } from "./componentsUrlState";
 
+type ComponentsViewData =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      schemas: Record<ModuleFilePath, SerializedSchema>;
+      sources: Record<ModuleFilePath, Json>;
+      components: StudioComponent[];
+      state: ComponentsUrlState;
+      update: (next: Partial<ComponentsUrlState>) => void;
+      /** The component open, or `null` on the board. */
+      selected: StudioComponent | null;
+    };
+
 /**
- * EXPERIMENTAL: the Studio's Components view, at `/val/components`.
- *
- * Every component the project links to an object
- * (`s.object(...).component(() => import(...))`), rendered by the site
- * itself on its preview route, and every place the content uses each one.
- *
- * - **The board**: all of them side by side, each as it first appears in the
- *   content (or its example, when nothing uses it), at one screen width.
- * - **One component**: the component large, stepped through instance by
- *   instance (← and →), or all its instances side by side; its example; its
- *   fields beside it, and the assistant, told which component this is and
- *   where it lives, for changing the component itself.
- *
- * It is the whole editor column rather than a panel: a component is looked
- * at across the project, not inside one page.
+ * What both halves of the view read: the components, and which one (and
+ * which use of it) is on screen - one state, in the address.
  */
-export function ComponentsView() {
+function useComponentsView(): ComponentsViewData {
   const schemasRes = useSchemas();
   const sources = useAllSources();
   const schemas = schemasRes.status === "success" ? schemasRes.data : null;
@@ -85,63 +95,217 @@ export function ComponentsView() {
     () => (schemas === null ? null : collectComponents(schemas, sources)),
     [schemas, sources],
   );
-  const [state, setState] = useState<ComponentsUrlState>(() =>
-    readComponentsUrlState(window.location.search),
+  const state = useSyncExternalStore(
+    subscribeComponentsUrlState,
+    getComponentsUrlState,
+    getComponentsUrlState,
   );
-  const update = useCallback((next: Partial<ComponentsUrlState>) => {
-    setState((current) => {
-      const merged = { ...current, ...next };
-      writeComponentsUrlState(merged);
-      return merged;
-    });
-  }, []);
-  // The back button moves through the view's own states
-  useEffect(() => {
-    const onPop = () =>
-      setState(readComponentsUrlState(window.location.search));
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
-
   if (components === null || schemas === null) {
-    return (
-      <div className="flex items-center justify-center h-full p-8 text-fg-secondary">
-        <Spinner />
-      </div>
-    );
-  }
-  if (components.length === 0) {
-    return <NoComponents />;
+    return { status: "loading" };
   }
   const selected =
     state.component === null
       ? null
       : (components.find((component) => component.id === state.component) ??
         null);
-  if (selected === null) {
+  return {
+    status: "ready",
+    schemas,
+    sources,
+    components,
+    state,
+    update: updateComponentsUrlState,
+    selected,
+  };
+}
+
+/**
+ * EXPERIMENTAL: the Studio's Components view, at `/val/components` - the half
+ * in the PREVIEW's place.
+ *
+ * Every component the project links to an object
+ * (`s.object(...).component(() => import(...))`), rendered by the site
+ * itself on its preview route, and every place the content uses each one.
+ *
+ * - **The board**: all of them side by side, each as it first appears in the
+ *   content, at one screen width.
+ * - **One component**: stepped through use by use (← and →), or all its uses
+ *   side by side; its example; and a line to ask the assistant to change it.
+ *
+ * It is laid out like a page is: this is where the preview would be, and
+ * Content (the fields of the use on screen: {@link ComponentsContent}) and
+ * the Assistant come from the top bar beside it.
+ */
+export function ComponentsStage() {
+  const view = useComponentsView();
+  if (view.status === "loading") {
+    return (
+      <div className="flex items-center justify-center h-full p-8 text-fg-secondary">
+        <Spinner />
+      </div>
+    );
+  }
+  if (view.components.length === 0) {
+    return <NoComponents />;
+  }
+  if (view.selected === null) {
     return (
       <Board
-        components={components}
-        sources={sources}
-        device={state.device}
-        onDevice={(device) => update({ device })}
+        components={view.components}
+        sources={view.sources}
+        device={view.state.device}
+        onDevice={(device) => view.update({ device })}
         onOpen={(component) =>
-          update({ component: component.id, instance: 0, example: false })
+          view.update({ component: component.id, instance: 0, example: false })
         }
-        missing={state.component !== null}
+        missing={view.state.component !== null}
       />
     );
   }
   return (
     <ComponentDetail
-      key={selected.id}
-      component={selected}
-      components={components}
-      schemas={schemas}
-      sources={sources}
-      state={state}
-      update={update}
+      key={view.selected.id}
+      component={view.selected}
+      components={view.components}
+      schemas={view.schemas}
+      sources={view.sources}
+      state={view.state}
+      update={view.update}
     />
+  );
+}
+
+/**
+ * EXPERIMENTAL: the Components view's half in the CONTENT pane: on the board,
+ * the list of components; with one open, the fields of the use on screen, so
+ * an edit is made beside where its effect is seen.
+ */
+export function ComponentsContent() {
+  const view = useComponentsView();
+  if (view.status === "loading") {
+    return (
+      <div className="flex items-center justify-center p-8 text-fg-secondary">
+        <Spinner />
+      </div>
+    );
+  }
+  if (view.selected === null) {
+    return (
+      <ComponentsIndex
+        components={view.components}
+        onOpen={(component) =>
+          view.update({ component: component.id, instance: 0, example: false })
+        }
+      />
+    );
+  }
+  const component = view.selected;
+  const count = component.instances.length;
+  const index =
+    count === 0 ? 0 : Math.min(Math.max(view.state.instance, 0), count - 1);
+  const instance = component.instances[index];
+  const example =
+    view.state.example && component.hasExample && instance !== undefined;
+  return (
+    <div className="flex flex-col gap-4" data-testid="component-fields">
+      <div>
+        <button
+          type="button"
+          onClick={() => view.update({ component: null })}
+          className="flex items-center gap-1 text-sm text-fg-secondary hover:text-fg-primary"
+        >
+          <ChevronLeft size={14} />
+          All components
+        </button>
+        <h1 className="mt-2 text-2xl font-medium text-fg-primary">
+          {component.name}
+        </h1>
+        <p className="text-sm text-fg-tertiary">
+          {example
+            ? "Its example"
+            : count === 0
+              ? "Not used yet"
+              : `Use ${index + 1} of ${count}`}
+        </p>
+      </div>
+      {instance === undefined || example ? (
+        <p className="text-sm text-fg-secondary">
+          {example
+            ? "The example is written in the code, next to .component(...), and is not content an editor can change."
+            : "Nothing to edit: no content uses this component yet."}
+        </p>
+      ) : (
+        <InstanceFields key={instance} path={instance} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The fields of one use, without the heading the editor gives a page it has
+ * navigated to: the heading above them names the component and which use
+ * this is, which is what this view is about.
+ */
+function InstanceFields({ path }: { path: SourcePath }) {
+  const schemaRes = useSchemaAtPath(path);
+  if (schemaRes.status !== "success") {
+    return (
+      <div className="flex items-center justify-center p-6 text-fg-secondary">
+        <Spinner />
+      </div>
+    );
+  }
+  return <AnyField path={path} schema={schemaRes.data} ignoreHidden />;
+}
+
+/** The Content pane on the board: every component, by name, to open one. */
+function ComponentsIndex({
+  components,
+  onOpen,
+}: {
+  components: StudioComponent[];
+  onOpen: (component: StudioComponent) => void;
+}) {
+  if (components.length === 0) {
+    return (
+      <p className="text-sm text-fg-secondary">
+        No components are linked to this project&apos;s content yet.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3" data-testid="components-index">
+      <div>
+        <h1 className="text-2xl font-medium text-fg-primary">Components</h1>
+        <p className="text-sm text-fg-tertiary">
+          Open one to go through every place it is used.
+        </p>
+      </div>
+      <ul className="flex flex-col">
+        {components.map((component) => (
+          <li key={component.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(component)}
+              className="flex items-center justify-between w-full gap-3 px-2 py-2 text-left rounded-md hover:bg-bg-secondary"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-fg-primary">
+                  {component.name}
+                </span>
+                <span className="block text-xs truncate text-fg-tertiary">
+                  {component.linkedAt[0]?.moduleFilePath ?? ""}
+                </span>
+              </span>
+              <span className="text-xs shrink-0 text-fg-tertiary">
+                {component.instances.length}{" "}
+                {component.instances.length === 1 ? "use" : "uses"}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -280,7 +444,7 @@ function Board({
   const [noAnswer, setNoAnswer] = useState(false);
   return (
     <div className="flex flex-col min-h-full" data-testid="components-board">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b bg-bg-primary border-border-primary">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b bg-bg-float border-border-primary">
         <div className="flex items-center gap-2">
           <Blocks size={18} className="text-fg-secondary" />
           <h1 className="text-base font-medium text-fg-primary">Components</h1>
@@ -290,7 +454,10 @@ function Board({
             {uses === 1 ? "use" : "uses"}
           </span>
         </div>
-        <DeviceSwitch device={device} onDevice={onDevice} />
+        <div className="flex items-center gap-2">
+          <ComponentSearch components={components} />
+          <DeviceSwitch device={device} onDevice={onDevice} />
+        </div>
       </header>
       {missing && (
         <p className="px-4 pt-3 text-sm text-fg-secondary">
@@ -374,8 +541,6 @@ function NoPreviewRoute() {
   );
 }
 
-type InspectorTab = "content" | "assistant";
-
 /** One component: an instance at a time or all of them, with its fields and the assistant. */
 function ComponentDetail({
   component,
@@ -400,7 +565,6 @@ function ComponentDetail({
     state.example && component.hasExample && instance !== undefined;
   const [reloadKey, setReloadKey] = useState(0);
   const [picking, setPicking] = useState(true);
-  const [tab, setTab] = useState<InspectorTab>("content");
   const [noAnswer, setNoAnswer] = useState(false);
   const onStatus = useCallback((status: ComponentFrameStatus) => {
     setNoAnswer(status === "no-answer");
@@ -466,20 +630,8 @@ function ComponentDetail({
   const onPick = useCallback((paths: SourcePath[]) => {
     const picked = paths[0];
     if (picked === undefined) return;
-    setTab("content");
+    // In the Content pane, when it is open: the fields of the use on screen
     scrollToStudioPath(picked);
-  }, []);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [wide, setWide] = useState(true);
-  useLayoutEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const measure = () => setWide(element.getBoundingClientRect().width >= 960);
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    measure();
-    return () => observer.disconnect();
   }, []);
 
   const shownLabel = instance === undefined ? null : labelOf(instance);
@@ -624,61 +776,9 @@ function ComponentDetail({
     </div>
   );
 
-  const inspector = (
-    <aside
-      className={cn(
-        "flex flex-col min-w-0 border rounded-lg border-border-primary bg-bg-primary",
-        wide && "sticky top-16 max-h-[calc(100vh-6rem)]",
-      )}
-    >
-      <div
-        role="tablist"
-        className="flex gap-1 p-1 border-b border-border-primary"
-      >
-        <InspectorTabButton
-          selected={tab === "content"}
-          onClick={() => setTab("content")}
-        >
-          Content
-        </InspectorTabButton>
-        <InspectorTabButton
-          selected={tab === "assistant"}
-          onClick={() => setTab("assistant")}
-        >
-          <Sparkles size={14} />
-          Assistant
-        </InspectorTabButton>
-      </div>
-      <div className="min-h-0 overflow-y-auto">
-        {tab === "content" ? (
-          instance === undefined || example ? (
-            <p className="p-4 text-sm text-fg-secondary">
-              {example
-                ? "The example is written in the code, next to .component(...), and is not content an editor can change."
-                : "Nothing to edit: no content uses this component yet."}
-            </p>
-          ) : (
-            <div className="p-2" key={instance}>
-              <Module path={instance} showModuleGalleryChild={null} />
-            </div>
-          )
-        ) : (
-          <ComponentAssistant
-            component={component}
-            shown={instance === undefined ? null : { path: instance, example }}
-          />
-        )}
-      </div>
-    </aside>
-  );
-
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-col min-h-full"
-      data-testid="component-detail"
-    >
-      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-bg-primary border-border-primary">
+    <div className="flex flex-col min-h-full" data-testid="component-detail">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-bg-float border-border-primary">
         <Button
           variant="ghost"
           size="xs"
@@ -732,6 +832,7 @@ function ComponentDetail({
           onDevice={(device) => update({ device })}
         />
         <div className="flex items-center gap-1 ml-auto">
+          <ComponentSearch components={components} />
           {component.hasExample && instance !== undefined && (
             <ToolbarToggle
               pressed={example}
@@ -767,43 +868,14 @@ function ComponentDetail({
           </ToolbarToggle>
         </div>
       </header>
-      <div
-        className={cn(
-          "grid gap-4 p-4",
-          wide ? "grid-cols-[minmax(0,1fr)_22rem] items-start" : "grid-cols-1",
-        )}
-      >
+      <div className="flex flex-col gap-3 p-4">
+        <AskAboutComponent
+          component={component}
+          shown={instance === undefined ? null : { path: instance, example }}
+        />
         {stage}
-        {inspector}
       </div>
     </div>
-  );
-}
-
-function InspectorTabButton({
-  selected,
-  onClick,
-  children,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1.5 h-7 px-3 rounded text-sm transition-colors",
-        selected
-          ? "bg-bg-secondary text-fg-primary"
-          : "text-fg-tertiary hover:text-fg-primary",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -869,12 +941,13 @@ function ToolbarToggle({
 }
 
 /**
- * Asking the assistant to work on the component: a request of one's own, or
- * one of a few common ones, sent with what it needs to find the component -
- * see `componentAssistantPrompt`. The conversation itself is the assistant's
- * pane, which opens beside the view.
+ * A line to ask the assistant to change the component on screen, and a few
+ * common requests. What is sent says which component it is, where it is
+ * linked and every place it is used (`componentAssistantPrompt`), and the
+ * conversation goes on in the Assistant pane, which opens from the top bar
+ * as it does beside a page - this is only where it is started from.
  */
-function ComponentAssistant({
+function AskAboutComponent({
   component,
   shown,
 }: {
@@ -883,95 +956,195 @@ function ComponentAssistant({
 }) {
   const { isAIChatEnabled, askAssistant } = useAIChatActions();
   const [request, setRequest] = useState("");
-  const [sent, setSent] = useState<string | null>(null);
   const ask = useCallback(
     (text: string) => {
       if (text.trim().length === 0) return;
       askAssistant(
         componentAssistantPrompt({ component, shown, request: text }),
       );
-      setSent(text.trim());
       setRequest("");
     },
     [askAssistant, component, shown],
   );
   if (!isAIChatEnabled) {
-    return (
-      <p className="p-4 text-sm text-fg-secondary">
-        The assistant is not switched on for this project. Once it is, it can
-        change {component.name} from here: it is told which component this is,
-        where its code is, and every place it is used.
-      </p>
-    );
+    return null;
   }
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <p className="text-xs text-fg-tertiary">
-        The assistant is told which component this is, where it is linked and
-        every place it is used
-        {shown ? ", and which one you are looking at" : ""}.
-      </p>
+    <div
+      className="flex flex-wrap items-center gap-2"
+      data-testid="component-ask"
+    >
       <form
-        className="flex flex-col gap-2"
+        className="flex items-center flex-1 min-w-[16rem] gap-2 px-2 border rounded-md h-9 border-border-primary bg-bg-primary focus-within:border-border-secondary"
         onSubmit={(event) => {
           event.preventDefault();
           ask(request);
         }}
       >
-        <textarea
-          aria-label={`Ask the assistant about ${component.name}`}
+        <Sparkles size={14} className="shrink-0 text-fg-tertiary" />
+        <input
+          aria-label={`Ask the assistant to change ${component.name}`}
           value={request}
           onChange={(event) => setRequest(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              ask(request);
-            }
-          }}
-          rows={4}
-          placeholder={`What should change in ${component.name}?`}
-          className="w-full p-2 text-sm border rounded-md resize-y bg-bg-primary border-border-primary text-fg-primary placeholder:text-fg-tertiary"
+          placeholder={`Ask the assistant to change ${component.name}…`}
+          className="flex-1 min-w-0 text-sm bg-transparent outline-none text-fg-primary placeholder:text-fg-tertiary"
         />
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-fg-tertiary">⌘/Ctrl + Enter</span>
-          <Button size="xs" type="submit" disabled={request.trim() === ""}>
-            <Send size={14} />
-            <span className="ml-1">Ask</span>
-          </Button>
-        </div>
+        <button
+          type="submit"
+          aria-label="Ask"
+          disabled={request.trim() === ""}
+          className="grid w-6 h-6 rounded place-items-center text-fg-secondary hover:text-fg-primary disabled:opacity-40"
+        >
+          <Send size={14} />
+        </button>
       </form>
-      <div className="flex flex-wrap gap-1.5">
-        {COMPONENT_REQUESTS.map((option) => (
-          <button
-            key={option.label}
-            type="button"
-            onClick={() => ask(option.request)}
-            title={option.request}
-            className="px-2 py-1 text-xs border rounded-full border-border-primary text-fg-secondary hover:text-fg-primary hover:border-border-secondary"
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      {sent !== null && (
-        <p role="status" className="text-xs text-fg-secondary">
-          Sent to the assistant: “
-          {sent.length > 60 ? sent.slice(0, 59) + "…" : sent}”
-        </p>
-      )}
-      <div className="pt-2 border-t border-border-primary">
-        <div className="mb-1 text-xs font-medium text-fg-secondary">
-          Linked in
-        </div>
-        <ul className="flex flex-col gap-0.5 text-xs text-fg-tertiary">
-          {component.linkedAt.map((link) => (
-            <li key={`${link.moduleFilePath}:${link.at}`} className="truncate">
-              <code>{link.moduleFilePath}</code>
-              {link.at ? ` · ${link.at}` : ""}
-            </li>
-          ))}
-        </ul>
-      </div>
+      {COMPONENT_REQUESTS.map((option) => (
+        <button
+          key={option.label}
+          type="button"
+          onClick={() => ask(option.request)}
+          title={option.request}
+          className="px-2 py-1 text-xs border rounded-full border-border-primary text-fg-secondary hover:text-fg-primary hover:border-border-secondary"
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
+}
+
+/**
+ * Search the content of the components: the Studio's own search (the same
+ * engine and index as everywhere else), with each hit given to the use of a
+ * component it is in (`componentSearchHits`), and opening that use.
+ */
+function ComponentSearch({ components }: { components: StudioComponent[] }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const { hits, isSearching } = useComponentSearch(query, components);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const container = containerRef.current;
+      if (container && !event.composedPath().includes(container)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [open]);
+  const pick = (hit: ComponentSearchHit) => {
+    updateComponentsUrlState({
+      component: hit.component.id,
+      instance: hit.instance,
+      example: false,
+      layout: "one",
+    });
+    setOpen(false);
+  };
+  const trimmed = query.trim();
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="flex items-center h-8 gap-1.5 px-2 border rounded-md w-56 border-border-primary bg-bg-primary focus-within:border-border-secondary">
+        <Search size={14} className="shrink-0 text-fg-tertiary" />
+        <input
+          type="search"
+          aria-label="Search the content of the components"
+          placeholder="Search in components"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setOpen(false);
+            if (event.key === "Enter" && hits[0] !== undefined) pick(hits[0]);
+          }}
+          className="flex-1 min-w-0 text-sm bg-transparent outline-none text-fg-primary placeholder:text-fg-tertiary"
+        />
+        {isSearching && <Spinner size={12} />}
+      </div>
+      {open && trimmed !== "" && (
+        <div
+          role="listbox"
+          aria-label="Components found"
+          data-testid="component-search-results"
+          className="absolute right-0 z-30 mt-1 overflow-y-auto border rounded-lg shadow-lg w-80 max-h-96 border-border-primary bg-bg-primary"
+        >
+          {hits.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-fg-tertiary">
+              {isSearching
+                ? "Searching…"
+                : `No component's content matches “${trimmed}”.`}
+            </p>
+          ) : (
+            hits.map((hit) => (
+              <button
+                key={hit.path}
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => pick(hit)}
+                className="flex flex-col w-full px-3 py-2 text-left hover:bg-bg-secondary"
+              >
+                <span className="text-sm truncate text-fg-primary">
+                  {hit.label}
+                </span>
+                <span className="text-xs truncate text-fg-tertiary">
+                  {hit.component.name} · use {hit.instance + 1} of{" "}
+                  {hit.component.instances.length}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** How many hits are asked of the search, before they are narrowed to components. */
+const SEARCH_LIMIT = 200;
+
+function useComponentSearch(
+  query: string,
+  components: StudioComponent[],
+): { hits: ComponentSearchHit[]; isSearching: boolean } {
+  const val = useValSystem();
+  const trimmed = query.trim();
+  // `.jsonValues()` entries are searched once they are here
+  useAllJsonValuesLoad(trimmed !== "");
+  const [found, setFound] = useState<{ path: SourcePath; label: string }[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  useEffect(() => {
+    if (val === null || trimmed === "") {
+      setFound([]);
+      setIsSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setIsSearching(true);
+    void val.system
+      .search(trimmed, SEARCH_LIMIT)
+      .then((res) => {
+        if (!cancelled) setFound(res.status === "no-index" ? [] : res.results);
+      })
+      .catch(() => {
+        if (!cancelled) setFound([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsSearching(false);
+      });
+    return () => {
+      // A slow answer for "a" must not overwrite the answer for "abc"
+      cancelled = true;
+    };
+  }, [val, trimmed]);
+  const hits = useMemo(
+    () => componentSearchHits(found, components),
+    [found, components],
+  );
+  return { hits, isSearching };
 }

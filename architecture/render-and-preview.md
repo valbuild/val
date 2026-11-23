@@ -256,26 +256,45 @@ their own for being looked at, below.
 Where the preview route is used. A component is looked at across the
 project, not inside one page, so it is a page of the Studio's own - a route
 like History, linked from the rail when the project links any component
-(`hasLinkedComponents`), and the whole editor column, with the preview pane
-closed (`editorOverrideWide`): it renders previews of its own, and the
-site's page beside them would only take their room. The Assistant still
-opens beside it, which is the point of the third part below.
+(`hasLinkedComponents`).
 
-- **The board**: every component, each rendered as it is first used, at
-  one screen width (phone, tablet, desktop).
-- **One component**: stepped through use by use (the arrows, `←` / `→`,
-  and a list of every use named by its preview or its first written string,
-  and the page it is on), or every use side by side; its `example`; the
-  fields of the use on screen beside it (`Module` at its path), so an edit
-  is made where its effect is seen, and a click on content in the frame
-  scrolls to its field.
-- **The assistant**: a request about the component, or one of a few common
-  ones, sent through `askAssistant` with what it needs to find it
-  (`componentAssistantPrompt`): where the schemas link it - the module, and
-  the schema path with `*` for an item of a list, which is where its
-  `.component(() => import(...))` names the file - every use, and the one
-  on screen. The conversation is the Assistant pane's, so code mode,
+It is laid out the way a page is, so nothing about it has to be learned:
+
+- **The components are in the preview's place** (`ComponentsStage`, the
+  shell's `stage`, rendered through the same `replacePreview` History uses).
+  Preview is on and cannot be switched off - the stage is that pane - and
+  Sketch is off, since a sketch is about a page and there is none. On a
+  phone, where the panes are one at a time, the stage is the Content pane.
+- **Content is the Content pane** (`ComponentsContent`, the shell's
+  `editorOverride`), switched from the top bar as beside a page: on the
+  board, the list of components; with one open, the fields of the use on
+  screen (`AnyField` at its path, under a heading that names the component
+  and the use), so an edit is made beside where its effect is seen. A click
+  on content in the frame scrolls to its field there.
+- **The Assistant is the Assistant pane**, from the top bar. The stage has a
+  line to start from - a request of one's own, or one of a few common
+  ones - sent through `askAssistant` with what the assistant needs to find
+  the component (`componentAssistantPrompt`): where the schemas link it (the
+  module, and the schema path with `*` for an item of a list, which is
+  where its `.component(() => import(...))` names the file), every use, and
+  the one on screen. The conversation goes on in the pane, so code mode,
   approvals and the rest are what they are everywhere else.
+
+The two halves share one state, in the address (`componentsUrlState.ts`,
+read with `useSyncExternalStore`), so opening a component in either is
+opening it in both.
+
+On the stage, the board shows every component as it is first used, at one
+screen width (phone, tablet, desktop); one component is stepped through use
+by use (the arrows, `←` / `→`, `[` / `]` between components, and a list of
+every use named by its preview or its first written string, and the page it
+is on), or every use side by side, and its `example`.
+
+**Search** is the Studio's own (`system.search`: the same engine and index
+as everywhere else), narrowed to the content of components:
+`componentSearchHits` gives each hit to the deepest use it is inside - a
+card's title in a columns section is the card's - once per use, and picking
+one opens that use.
 
 What the view shows is in the query (`componentsUrlState.ts`: `component`,
 `use`, `example`, `layout`, `screen`), so "the third hero, on a phone" is a

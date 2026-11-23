@@ -362,3 +362,63 @@ function fnv1a(text: string): string {
   }
   return (hash >>> 0).toString(36);
 }
+
+/** A search hit inside a component's content: which component, which use, and what matched. */
+export type ComponentSearchHit = {
+  component: StudioComponent;
+  /** The position of the use in `component.instances`. */
+  instance: number;
+  /** The path that matched: the use itself, or a field inside it. */
+  path: SourcePath;
+  label: string;
+};
+
+/**
+ * The hits of the Studio's content search that are inside a component, each
+ * given to the component it is in - the deepest one, so a card's title in a
+ * columns section is the card's, not the section's - and one per use, in the
+ * order the search ranked them.
+ *
+ * What scopes the normal search to "the content of the components": the
+ * engine and its index are the Studio's own (`system.search`), and this only
+ * says where each hit lives.
+ */
+export function componentSearchHits(
+  hits: readonly { path: SourcePath; label: string }[],
+  components: readonly StudioComponent[],
+): ComponentSearchHit[] {
+  const uses: { component: StudioComponent; instance: number; path: string }[] =
+    [];
+  for (const component of components) {
+    component.instances.forEach((path, instance) => {
+      uses.push({ component, instance, path });
+    });
+  }
+  const seen = new Set<string>();
+  const out: ComponentSearchHit[] = [];
+  for (const hit of hits) {
+    let best: (typeof uses)[number] | null = null;
+    for (const use of uses) {
+      if (isAtOrBelow(hit.path, use.path)) {
+        if (best === null || use.path.length > best.path.length) best = use;
+      }
+    }
+    if (best === null || seen.has(best.path)) continue;
+    seen.add(best.path);
+    out.push({
+      component: best.component,
+      instance: best.instance,
+      path: hit.path,
+      label: hit.label,
+    });
+  }
+  return out;
+}
+
+/** Whether `path` is `ancestor` or a value inside it, by source path segments. */
+function isAtOrBelow(path: string, ancestor: string): boolean {
+  if (path === ancestor) return true;
+  // A module root has no `?p=`; anything below it adds one
+  const separator = ancestor.includes("?p=") ? "." : "?p=";
+  return path.startsWith(ancestor + separator);
+}

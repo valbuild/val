@@ -5,9 +5,14 @@ import {
   type ModuleFilePath,
   type SerializedSchema,
   type SelectorSource,
+  type SourcePath,
   type ValModule,
 } from "@valbuild/core";
-import { collectComponents, componentNameOf } from "./collectComponents";
+import {
+  collectComponents,
+  componentNameOf,
+  componentSearchHits,
+} from "./collectComponents";
 
 const { s, c } = initVal();
 
@@ -167,5 +172,33 @@ describe("componentNameOf", () => {
       "Featured story",
     );
     expect(componentNameOf(schema, []).name).toBe("Component");
+  });
+});
+
+describe("componentSearchHits", () => {
+  const { schemas, sources } = project(page, other, unused);
+  const components = collectComponents(schemas, sources);
+  const hit = (path: string, label = "x") => ({
+    path: path as SourcePath,
+    label,
+  });
+
+  test("a hit inside a use is that use's, the deepest one, once per use", () => {
+    const found = componentSearchHits(
+      [
+        hit('/page.val.ts?p="sections".1."cards".1."title"', "B"),
+        hit('/page.val.ts?p="sections".1."cards".1', "B again"),
+        hit('/page.val.ts?p="sections".2."title"', "Two"),
+        hit('/page.val.ts?p="sections".10."title"', "no such use"),
+        hit("/other.val.ts?p=0", "Elsewhere"),
+        hit("/unused.val.ts", "not in a component"),
+      ],
+      components,
+    );
+    expect(found.map((f) => [f.component.name, f.instance, f.label])).toEqual([
+      ["Card", 1, "B"],
+      ["Hero", 2, "Two"],
+      ["Hero", 0, "Elsewhere"],
+    ]);
   });
 });

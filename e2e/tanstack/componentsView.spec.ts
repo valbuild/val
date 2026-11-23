@@ -24,6 +24,13 @@ test("the rail opens every component, rendered by the site", async ({
     await expect(page.getByTestId(`component-card-${name}`)).toBeVisible();
   }
   await expect(page.getByTestId("component-card-Card")).toContainText("3 uses");
+  // Laid out like a page: the components in the preview's place, which
+  // cannot be switched off, and the list of them in the Content pane
+  const panes = page.getByRole("group", { name: "Workspace panes" });
+  await expect(
+    panes.getByRole("button", { name: "Close the canvas" }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("components-index")).toContainText("Card");
   // The site renders it: the hero's headline, from the content
   await expect(
     page
@@ -61,12 +68,33 @@ test("one component, use by use, and an edit beside it reaches the frame", async
   ).toHaveCount(3);
   await page.getByRole("radio", { name: "One at a time" }).click();
 
-  // The fields of the use on screen, beside it: an edit there is rendered
-  // The card's first field is its title
-  const title = page.locator("aside").getByRole("textbox").first();
+  // The fields of the use on screen are in the Content pane, beside the
+  // components in the preview's place: an edit there is rendered. The card's
+  // first field is its title.
+  const fields = page.getByTestId("component-fields");
+  await expect(fields).toContainText("Use 2 of 3");
+  const title = fields.getByRole("textbox").first();
   await title.fill("A component, edited here");
   await expect(frame.getByText("A component, edited here")).toBeVisible({
     timeout: 30_000,
   });
   await discardAll(page);
+});
+
+test("a search finds the content of a component, and opens that use", async ({
+  page,
+}) => {
+  await openStudio(page, "/val/components");
+  await page
+    .getByRole("searchbox", { name: "Search the content of the components" })
+    .fill("lazy import");
+  const results = page.getByTestId("component-search-results");
+  await expect(results).toContainText("Card · use 2 of 3", {
+    timeout: 30_000,
+  });
+  await results.getByRole("option").first().click();
+  await expect(page).toHaveURL(/use=2/);
+  await expect(page.getByTestId("component-instance-position")).toHaveText(
+    "2 of 3",
+  );
 });

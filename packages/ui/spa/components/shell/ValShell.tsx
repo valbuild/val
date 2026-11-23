@@ -173,7 +173,10 @@ import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
-import { ComponentsView } from "../componentsView/ComponentsView";
+import {
+  ComponentsContent,
+  ComponentsStage,
+} from "../componentsView/ComponentsView";
 import { hasLinkedComponents } from "../../utils/collectComponents";
 import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
 
@@ -1747,8 +1750,9 @@ function ValShellBody({
     // Unlinked: see VAL_ADEPT_ROUTE.
     <AdeptView />
   ) : navigation.isComponentsView ? (
-    // EXPERIMENTAL: see VAL_COMPONENTS_ROUTE.
-    <ComponentsView />
+    // EXPERIMENTAL: see VAL_COMPONENTS_ROUTE. The components themselves are
+    // the `stage`, in the preview's place; this is the Content pane beside it.
+    <ComponentsContent />
   ) : unlistedModulePath ? (
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
@@ -1933,7 +1937,9 @@ function ValShellBody({
                 : undefined
             }
             editorOverride={overrideEditor}
-            editorOverrideWide={navigation.isComponentsView}
+            stage={
+              navigation.isComponentsView ? <ComponentsStage /> : undefined
+            }
             components={
               hasComponents
                 ? {

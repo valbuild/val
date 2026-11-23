@@ -448,12 +448,16 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
-   * The override needs the preview's room as well: it previews things of its
-   * own (the Components view renders every component), and the site's page
-   * beside it would only take room from them. The Assistant still opens
-   * beside it.
+   * Something in the preview's place, for as long as it is given: the
+   * Components view's components, which are previews of their own, so the
+   * site's page has nothing to add beside them. Content and the Assistant
+   * still come from the top bar as they do beside a page; Preview is on and
+   * cannot be switched off (the stage IS that pane), and Sketch is off, since
+   * a sketch is about a page and there is none.
+   *
+   * On a phone, where the panes are one at a time, it is the Content pane.
    */
-  editorOverrideWide?: boolean;
+  stage?: ReactNode;
   /**
    * EXPERIMENTAL: the Components view (`VAL_COMPONENTS_ROUTE`), in the rail,
    * for a project that links components to its content. Absent otherwise:
@@ -753,7 +757,7 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
-  editorOverrideWide = false,
+  stage,
   components,
   sketchPane,
   canvasPinned = false,
@@ -1601,44 +1605,47 @@ export function Shell({
    * navigation and its real pending-changes gate, not a second rendering of it
    * that would drift.
    */
-  const editorBody = editorOverride ? (
-    editorOverride
-  ) : selection === null ? (
-    <EmptyEditorState
-      destinations={destinations}
+  const editorBody =
+    breakpoint === "mobile" && stage !== undefined ? (
+      stage
+    ) : editorOverride ? (
+      editorOverride
+    ) : selection === null ? (
+      <EmptyEditorState
+        destinations={destinations}
+        /*
+         * One of the two places the tour is offered, so it follows the project's
+         * setting: with `studio.tour` off nobody is prompted anywhere, and the
+         * tour is reached from Quick actions by whoever wants it.
+         */
+        onStartTour={tourEnabled && canStartTour ? startTour : undefined}
+        tourPrompt={showTourPrompt}
+      />
+    ) : (
       /*
-       * One of the two places the tour is offered, so it follows the project's
-       * setting: with `studio.tour` off nobody is prompted anywhere, and the
-       * tour is reached from Quick actions by whoever wants it.
+       * Held until the server's pending changes have landed — see
+       * `PendingChangesGate`. Around the fields only: the compare and errors
+       * views above are their own thing, and neither offers a field to type
+       * the wrong value into.
        */
-      onStartTour={tourEnabled && canStartTour ? startTour : undefined}
-      tourPrompt={showTourPrompt}
-    />
-  ) : (
-    /*
-     * Held until the server's pending changes have landed — see
-     * `PendingChangesGate`. Around the fields only: the compare and errors
-     * views above are their own thing, and neither offers a field to type
-     * the wrong value into.
-     */
-    <PendingChangesGate
-      ready={pendingChangesLoaded}
-      progress={pendingChangesProgress ?? noProgress}
-      fetchError={pendingChangesError}
-    >
-      {renderEditor ? (
-        renderEditor(selection)
-      ) : (
-        <PageEditor
-          title={selection.title}
-          urlPath={selection.urlPath}
-          sourcePath={selection.sourcePath}
-          isDevMode={isDevMode}
-          hasDraft={selection.hasDraft}
-        />
-      )}
-    </PendingChangesGate>
-  );
+      <PendingChangesGate
+        ready={pendingChangesLoaded}
+        progress={pendingChangesProgress ?? noProgress}
+        fetchError={pendingChangesError}
+      >
+        {renderEditor ? (
+          renderEditor(selection)
+        ) : (
+          <PageEditor
+            title={selection.title}
+            urlPath={selection.urlPath}
+            sourcePath={selection.sourcePath}
+            isDevMode={isDevMode}
+            hasDraft={selection.hasDraft}
+          />
+        )}
+      </PendingChangesGate>
+    );
   /**
    * The ONE action the phone's bottom bar has room for.
    *
@@ -1751,9 +1758,11 @@ export function Shell({
       content: contentOpen,
       // History takes the preview's place: the column is there either way.
       preview:
-        !(editorOverride && editorOverrideWide) &&
-        ((isCanvasOpen && canCanvas) || history !== undefined),
-      sketch: sketchOpen,
+        stage !== undefined ||
+        (isCanvasOpen && canCanvas) ||
+        history !== undefined,
+      // A sketch is about a page, and the stage shows none
+      sketch: sketchOpen && stage === undefined,
       chat: aiEnabled && chatOpen,
     }),
     [
@@ -1764,8 +1773,7 @@ export function Shell({
       sketchOpen,
       aiEnabled,
       chatOpen,
-      editorOverride,
-      editorOverrideWide,
+      stage,
     ],
   );
   /** The widths the columns were dragged to: see `ColumnDivider`. */
@@ -1804,8 +1812,8 @@ export function Shell({
    */
   const switchedOn = {
     content: contentOpen,
-    preview: isCanvasOpen && canCanvas,
-    sketch: sketchpad?.open === true,
+    preview: stage !== undefined || (isCanvasOpen && canCanvas),
+    sketch: stage === undefined && sketchpad?.open === true,
     chat: aiEnabled && chatOpen,
   };
   const openCount = Object.values(switchedOn).filter(Boolean).length;
@@ -1824,9 +1832,12 @@ export function Shell({
       pane: "preview",
       open: switchedOn.preview,
       onToggle: togglePreview,
-      unavailable: !canCanvas
-        ? "There is no page to show for this"
-        : lastOpen("preview"),
+      unavailable:
+        stage !== undefined
+          ? "The components are shown here, in the preview's place"
+          : !canCanvas
+            ? "There is no page to show for this"
+            : lastOpen("preview"),
     },
   ];
   if (sketchpad !== undefined) {
@@ -1835,7 +1846,10 @@ export function Shell({
       open: sketchpad.open,
       onToggle: sketchpad.onToggle,
       changed: sketchpad.changed,
-      unavailable: lastOpen("sketch"),
+      unavailable:
+        stage !== undefined
+          ? "A sketch is about a page, and this view shows none"
+          : lastOpen("sketch"),
     });
   }
   if (aiEnabled) {
@@ -1986,7 +2000,6 @@ export function Shell({
         >
           <PageWorkspace
             breakpoint={breakpoint}
-            contentFullWidth={Boolean(editorOverride) && editorOverrideWide}
             page={canCanvas ? canvasPage : undefined}
             renderCanvas={canCanvas ? renderCanvas : undefined}
             canvasPaths={canCanvas ? canvasPaths : undefined}
@@ -2008,7 +2021,14 @@ export function Shell({
             skipTransition={skipTransition}
             previewStatus={previewStatus}
             replacePreview={
-              breakpoint !== "mobile" && history !== undefined ? (
+              breakpoint !== "mobile" && stage !== undefined ? (
+                <div
+                  className="h-full min-h-0 overflow-y-auto rounded-xl border border-border-float bg-bg-float scrollbar-slim"
+                  data-val-pane="components"
+                >
+                  {stage}
+                </div>
+              ) : breakpoint !== "mobile" && history !== undefined ? (
                 <HistoryInPreviewsPlace label={history.label}>
                   {history.past}
                 </HistoryInPreviewsPlace>
