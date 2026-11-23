@@ -1,3 +1,4 @@
+import { thinkingTail } from "./aiThinking";
 import { Internal } from "@valbuild/core";
 import React, {
   useState,
@@ -153,6 +154,12 @@ export type ChatMessage = {
    * show none.
    */
   turnStats?: TurnStats;
+  /**
+   * The model's thinking, summarised, since it last said or did something:
+   * shown as one line while the reply is on its way (`aiThinking.ts`). Never
+   * on a message that is over.
+   */
+  thinking?: string;
   /**
    * Who wrote a user message, in a chat several people write in. See
    * `AIChatTogether`.
@@ -319,6 +326,21 @@ export type AIChatHandle = {
     action?: { label: string; url: string },
     details?: string,
   ) => void;
+  /**
+   * A tool call the model is still writing (`ai_tool_call_progress`): a row
+   * for it, and what it is about once that is known. `addToolCall` with the
+   * same id turns it into the call.
+   */
+  noteToolCallWriting: (
+    messageId: string,
+    toolCallId: string,
+    toolName: string,
+    detail?: string,
+  ) => void;
+  /** The call being written will not come: its row goes. */
+  dropToolCallWriting: (messageId: string, toolCallId: string) => void;
+  /** More of the model's thinking (`ai_thinking`). */
+  appendThinking: (id: string, chunk: string) => void;
   /** Add a tool call indicator to the current assistant message */
   addToolCall: (
     messageId: string,
@@ -1069,7 +1091,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         if (!prev) return null;
         if (id !== null && prev.message.id !== id) return prev;
         const now = Date.now();
-        const settled = finish(prev.message);
+        const settled = withoutUnfinished(finish(prev.message));
         // Every way out stops the clock — the timeout and an error as much as
         // a reply. `finish` may already have ended it with a count, and
         // `endTurn` leaves an ended turn alone.
@@ -1370,6 +1392,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               lastActivityAt: Date.now(),
               message: {
                 ...prev.message,
+                // It is answering: what it thought on the way is over.
+                thinking: undefined,
                 content: getTextContent(prev.message.content) + chunk,
                 turnStats:
                   prev.message.turnStats && fromModel
@@ -1438,15 +1462,26 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       };
       setCurrentMessage((prev) => {
         if (prev && prev.message.id === messageId) {
+          const shown = prev.message.toolActivities ?? [];
+          // A row is there already when the call was seen being written
+          // (`noteToolCallWriting`): it becomes the call, where it stands.
+          const written = shown.find((t) => t.toolCallId === toolCallId);
           return {
             lastActivityAt: Date.now(),
             message: withPauseSynced(
               {
                 ...prev.message,
-                toolActivities: [
-                  ...(prev.message.toolActivities ?? []),
-                  activity,
-                ],
+                thinking: undefined,
+                toolActivities: written
+                  ? shown.map((t) =>
+                      t.toolCallId === toolCallId
+                        ? {
+                            ...activity,
+                            ...(t.detail ? { detail: t.detail } : {}),
+                          }
+                        : t,
+                    )
+                  : [...shown, activity],
               },
               Date.now(),
             ),
@@ -1454,6 +1489,64 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         }
         return prev;
       });
+    },
+    noteToolCallWriting(
+      messageId: string,
+      toolCallId: string,
+      toolName: string,
+      detail?: string,
+    ) {
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        const shown = prev.message.toolActivities ?? [];
+        const row = shown.find((t) => t.toolCallId === toolCallId);
+        // The call itself is here already: nothing more to say of writing it.
+        if (row && !row.writing) return prev;
+        const writing: ToolActivity = {
+          toolCallId,
+          name: toolName,
+          status: "pending",
+          writing: true,
+          ...((detail ?? row?.detail) ? { detail: detail ?? row?.detail } : {}),
+        };
+        return {
+          lastActivityAt: Date.now(),
+          message: {
+            ...prev.message,
+            thinking: undefined,
+            toolActivities: row
+              ? shown.map((t) => (t.toolCallId === toolCallId ? writing : t))
+              : [...shown, writing],
+          },
+        };
+      });
+    },
+    dropToolCallWriting(messageId: string, toolCallId: string) {
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        return {
+          lastActivityAt: Date.now(),
+          message: {
+            ...prev.message,
+            toolActivities: (prev.message.toolActivities ?? []).filter(
+              (t) => !(t.toolCallId === toolCallId && t.writing),
+            ),
+          },
+        };
+      });
+    },
+    appendThinking(id: string, chunk: string) {
+      setCurrentMessage((prev) =>
+        prev?.message.id === id
+          ? {
+              lastActivityAt: Date.now(),
+              message: {
+                ...prev.message,
+                thinking: (prev.message.thinking ?? "") + chunk,
+              },
+            }
+          : prev,
+      );
     },
     setCodeModeRequest(
       messageId: string,
@@ -3242,6 +3335,15 @@ function MessageBubble({
           )}
         </div>
       )}
+      {isStreamingMsg && message.thinking && thinkingTail(message.thinking) && (
+        <div
+          className="px-1 truncate text-xs touch:text-sm text-fg-tertiary"
+          data-testid="ai-thinking"
+          aria-hidden
+        >
+          {thinkingTail(message.thinking)}
+        </div>
+      )}
       {turnStats && (
         <TurnStatsLine
           className="px-1"
@@ -3345,6 +3447,19 @@ function StrandedSteers({
       </ol>
     </section>
   );
+}
+
+/**
+ * A message that is over, without what only a running one shows: the model's
+ * thinking, and the rows of calls it was still writing, which never came.
+ */
+function withoutUnfinished(message: ChatMessage): ChatMessage {
+  const { thinking: _thought, ...rest } = message;
+  if (!rest.toolActivities?.some((t) => t.writing)) return rest;
+  return {
+    ...rest,
+    toolActivities: rest.toolActivities.filter((t) => !t.writing),
+  };
 }
 
 /**

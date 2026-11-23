@@ -53,6 +53,7 @@ import type {
   SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
+import { toolCallDetail } from "../components/aiToolCallWriting";
 import {
   applyWatchedEvent,
   toChatMessages,
@@ -1687,6 +1688,37 @@ export function useAI(
         }
         ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
+      } else if (message.type === "ai_thinking") {
+        // What the model is thinking, summarised: shown while it has said
+        // nothing yet, so it opens the message as a first chunk does.
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        chatRef.current.appendThinking(message.id, message.chunk);
+      } else if (message.type === "ai_tool_call_progress") {
+        // A call the model is still writing: a row for it now, rather than
+        // nothing until the whole file is written. Nothing runs from this;
+        // `ai_tool_call` is the call.
+        if (!chatRef.current) return;
+        if (message.status === "dropped") {
+          chatRef.current.dropToolCallWriting(message.id, message.toolCallId);
+          return;
+        }
+        if (message.status !== "writing") return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        chatRef.current.noteToolCallWriting(
+          message.id,
+          message.toolCallId,
+          message.name,
+          toolCallDetail(message),
+        );
       } else if (message.type === "ai_usage") {
         // A model thinking before it says anything still produces tokens, and
         // a count is the only sign of it, so a report opens the message the
@@ -3559,14 +3591,9 @@ export function useAI(
           "AI agent handoff message received - agents are working",
           message,
         );
-      } else if (
-        message.type === "ai_step_timing" ||
-        message.type === "ai_tool_call_progress" ||
-        message.type === "ai_thinking"
-      ) {
-        // The turn trace reads the timings at the socket (`aiTurnTrace.ts`).
-        // The other two are never asked for yet, so none arrives: named so
-        // that the exhaustive check below still fails for a new type.
+      } else if (message.type === "ai_step_timing") {
+        // The turn trace reads the timings at the socket (`aiTurnTrace.ts`):
+        // named so that the exhaustive check below still fails for a new type.
       } else {
         const _exhaustiveCheck: never = message;
         Internal.log.error(
@@ -3758,6 +3785,11 @@ export function useAI(
         sessionId: sid,
         id: randomUUID(),
         reportUsage: true,
+        // What the person sees while the model thinks and while it writes a
+        // tool call: `ai_thinking` and `ai_tool_call_progress`. A content
+        // service that does not know them drops the fields.
+        reportToolCallProgress: true,
+        reportThinking: true,
         // Makes a new chat the proposal's; ignored for one that exists.
         ...(sharedProposalNameRef.current !== null
           ? { proposal: sharedProposalNameRef.current }

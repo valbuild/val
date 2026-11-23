@@ -1,5 +1,42 @@
 # @valbuild/ui
 
+## 0.154.1
+
+### Patch Changes
+
+- [#1079](https://github.com/valbuild/val/pull/1079) [`37e4f39`](https://github.com/valbuild/val/commit/37e4f390d1fd6a930488c9487de43f8c1a390122) Thanks [@freekh](https://github.com/freekh)! - The assistant no longer goes quiet while it works out a change.
+
+  - While it thinks, the chat shows one line of what it is thinking about. The line goes away as soon as it starts to answer or to do something. (Claude models only.)
+  - When it starts to change a file, the chat says so at once, with the file's name: "Changing the code: src/components/Hero.tsx…". Before, nothing showed until the whole file had been written, which could take many seconds.
+
+  Both need a content server that sends them; with one that does not, nothing changes.
+
+- [#1069](https://github.com/valbuild/val/pull/1069) [`245843e`](https://github.com/valbuild/val/commit/245843ec527212dc31c6e1da1f0bd5f9d99cf8d3) Thanks [@freekh](https://github.com/freekh)! - The assistant makes a code change in fewer steps.
+
+  In code mode, the assistant now starts with a map of your project: which file serves each route, which Val modules there are and which components use each one, and the files by folder. It no longer has to list and search the project before it can open the file a change is in.
+
+  - It reads the files a change needs together, and makes all of the change's edits together, instead of one at a time.
+  - A change to a component or a style no longer starts by reading every schema, and is no longer followed by a content check it did not need.
+  - When you point at something in the preview, the assistant is told which file renders it.
+
+  Nothing changes for content editing outside code mode.
+
+- [#1070](https://github.com/valbuild/val/pull/1070) [`d4e514f`](https://github.com/valbuild/val/commit/d4e514f9eac2f014fc07aa768787d637898dc744) Thanks [@freekh](https://github.com/freekh)! - Code mode no longer flashes while the assistant changes code.
+
+  A second after every file the assistant wrote, the Studio made a quick preview and showed it by loading the page again, so the preview went blank for most of a second once per write, each time for a change that was only half made. A change of three edits was three blank pages.
+
+  - **One quick preview per change.** It starts when the assistant's turn ends, or when its writes have paused for four seconds, and it shows what the last write left. A burst of edits is one quick preview, not one each. A change staged outside a turn, or by someone else in the proposal, is still shown at once.
+  - **The page you are looking at stays until the new one is ready.** A new quick preview, and a new build, load behind the page on screen and replace it once they have rendered, at the same place and scroll position. Nothing is swapped in while you are typing in the page, as before. A reload you ask for still reloads in the open.
+  - **It starts sooner.** The quick preview is asked for with what the write itself answered. The proposal was read twice on the way before, with a second's wait in between.
+  - **Half the work on Val Build.** Each quick preview was asked for a second time when the page it was shown in came up, and thrown away. It is asked for once.
+  - The editor no longer re-reads every field after a write that changed no `.val.ts`.
+
+- [#1072](https://github.com/valbuild/val/pull/1072) [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe) Thanks [@freekh](https://github.com/freekh)! - The assistant's code tools answer faster in a proposal.
+
+  - **Reading costs no request after the first.** The Studio keeps the proposal's project in the tab for the life of the chat, instead of fetching the site's source and the proposal's files again for every `read_file`, `search_code`, `list_files`, `edit_file`, `format_files` and `lint`. It is read again when someone changes the proposal, when the site is published, and after the assistant's own changes.
+  - **A change is one or two requests instead of four.** `edit_file`, `write_files`, `format_files` and `lint` with `fix` no longer ask whether code mode is on before each write: Val's server already refuses a write while it is off, and the assistant is still told who turned it off. Before a file is edited, the Studio asks what the proposal stages now, so a change someone else made to it is edited rather than overwritten.
+  - **A change does not wait for the schema to be re-read unless it can change it.** Only a write to a `.val.ts`, `val.modules.ts`, `val.config.ts` or a file they import waits for the Studio to evaluate the Val modules. A component, a stylesheet or a route is answered at once, and several edits in one reply are evaluated together rather than one after another.
+
 ## 0.154.0
 
 ### Minor Changes

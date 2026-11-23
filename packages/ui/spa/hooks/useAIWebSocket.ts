@@ -415,9 +415,8 @@ export type AIStepTimingMessage = z.infer<typeof AIStepTimingMessage>;
 /**
  * A tool call the model is still writing: its name first, then what is
  * complete of its arguments. Sent only when the prompt asked
- * (`reportToolCallProgress`), which this Studio does not yet: nothing shows
- * it. In the schema so that a Studio that does ask is not one release behind
- * the message. Nothing is ever run from it: `ai_tool_call` is the call.
+ * (`reportToolCallProgress`): the chat shows a row for the call while it is
+ * written. Nothing is ever run from it: `ai_tool_call` is the call.
  */
 export const AIToolCallProgressMessage = z.object({
   type: z.literal("ai_tool_call_progress"),
@@ -439,7 +438,7 @@ export type AIToolCallProgressMessage = z.infer<
 /**
  * A piece of the summary of the model's thinking, to show while waiting: not
  * part of the answer, and not saved. Sent only when the prompt asked
- * (`reportThinking`), which this Studio does not yet.
+ * (`reportThinking`): the chat shows its last line.
  */
 export const AIThinkingMessage = z.object({
   type: z.literal("ai_thinking"),
@@ -596,9 +595,9 @@ export const AIPromptMessage = z.object({
    * content service that does not know the field drops it.
    */
   reportTimings: z.boolean().optional(),
-  /** Ask for `ai_tool_call_progress` messages. Not sent yet: nothing shows them. */
+  /** Ask for `ai_tool_call_progress` messages: a row for a call being written. */
   reportToolCallProgress: z.boolean().optional(),
-  /** Ask for `ai_thinking` messages. Not sent yet: nothing shows them. */
+  /** Ask for `ai_thinking` messages: one line of the model's thinking. */
   reportThinking: z.boolean().optional(),
   /**
    * The proposal the Studio is in, by name. A chat created with one belongs to

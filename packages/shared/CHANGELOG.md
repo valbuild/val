@@ -1,5 +1,21 @@
 # @valbuild/shared
 
+## 0.154.1
+
+### Patch Changes
+
+- [#1072](https://github.com/valbuild/val/pull/1072) [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe) Thanks [@freekh](https://github.com/freekh)! - The assistant's code tools answer faster in a proposal.
+
+  - **Reading costs no request after the first.** The Studio keeps the proposal's project in the tab for the life of the chat, instead of fetching the site's source and the proposal's files again for every `read_file`, `search_code`, `list_files`, `edit_file`, `format_files` and `lint`. It is read again when someone changes the proposal, when the site is published, and after the assistant's own changes.
+  - **A change is one or two requests instead of four.** `edit_file`, `write_files`, `format_files` and `lint` with `fix` no longer ask whether code mode is on before each write: Val's server already refuses a write while it is off, and the assistant is still told who turned it off. Before a file is edited, the Studio asks what the proposal stages now, so a change someone else made to it is edited rather than overwritten.
+  - **A change does not wait for the schema to be re-read unless it can change it.** Only a write to a `.val.ts`, `val.modules.ts`, `val.config.ts` or a file they import waits for the Studio to evaluate the Val modules. A component, a stylesheet or a route is answered at once, and several edits in one reply are evaluated together rather than one after another.
+
+- [#1077](https://github.com/valbuild/val/pull/1077) [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e) Thanks [@freekh](https://github.com/freekh)! - `val publish` now typechecks the project while it builds. It uses the `node_modules` the build already reads for the dependency layer, so nothing is downloaded for the check. It is the same typecheck the Studio runs for a proposal that changes dependencies. Type errors are printed as warnings, first line each (at most 20), and do not stop the publish. `--no-typecheck` turns the check off.
+
+  Only a pnpm project with its own `pnpm-lock.yaml` is typechecked. Anything else says why it was skipped and publishes as before.
+
+  For a build on the server, `@valbuild/shared/typecheck/node` exports `typecheckInstalled({ root, files })` and `installedSources(root)`: the typecheck run against a project installed on that machine.
+
 ## 0.154.0
 
 ### Patch Changes
