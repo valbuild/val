@@ -101,7 +101,12 @@ export function installCountingFetch(): CountingFetch {
         stagings += 1;
         return {
           status: 200,
-          body: { commit: `commit-${stagings}`, staged: staged() },
+          // `savedFirst` is Val's relay's: nothing was pending to save.
+          body: {
+            commit: `commit-${stagings}`,
+            staged: staged(),
+            savedFirst: false,
+          },
         };
       }
       case "POST /proposals-api/:name/quick-preview":

@@ -39,6 +39,10 @@ export type {
 export { DEFAULT_FEATURES } from "./types";
 export type { Operation } from "fast-json-patch";
 export { buildSchema } from "./schema";
-export { parseEditorDocument, serializeEditorDocument } from "./serialize";
+export {
+  marksToStyles,
+  parseEditorDocument,
+  serializeEditorDocument,
+} from "./serialize";
 export { serializedRichTextOptionsToFeatures } from "./convertOptions";
 export { useRichTextEditorConfig } from "./useRichTextEditorConfig";

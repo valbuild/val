@@ -89,15 +89,12 @@ const CODE_CHANGES_PANE = [
   "GET /publish-api/project-source",
 ];
 /**
- * The quick preview by itself: what is staged (to decide whether to run),
- * then a second later what is staged again (to name what to build) and the
- * build itself on Val Build.
+ * The quick preview by itself: the build on Val Build, asked for with what
+ * the staging answered. It read the proposal twice on the way before -- once
+ * to decide whether to run, and a second later to name what to build -- and
+ * both said what the staging had just said.
  */
-const QUICK_PREVIEW = [
-  "GET /proposals-api/:name",
-  "GET /proposals-api/:name",
-  "POST /proposals-api/:name/quick-preview",
-];
+const QUICK_PREVIEW = ["POST /proposals-api/:name/quick-preview"];
 
 describe("requests that follow one staging", () => {
   test("the proposals bar", async () => {
@@ -142,22 +139,28 @@ describe("requests that follow one staging", () => {
     await waitFor(() => expect(hook.result.current.state.status).toBe("idle"));
     counted.take();
 
-    // The assistant stages again, and says so.
-    await createProposalsClient({ api: "/api/val" }).stageFiles(NAME, {
-      "src/app.tsx": "export const App = () => 2;\n",
+    // The assistant stages again, and says so. The quick preview starts
+    // from the staging's own answer, so it is not waited for to be counted:
+    // the staging is in the list, and nothing is between the two.
+    await act(async () => {
+      await createProposalsClient({ api: "/api/val" }).stageFiles(NAME, {
+        "src/app.tsx": "export const App = () => 2;\n",
+      });
     });
-    counted.take();
     act(() => proposalCodeChanged());
     await waitFor(() => expect(store).toHaveBeenCalledTimes(2), {
       timeout: 5000,
     });
-    expect(counted.take()).toEqual(QUICK_PREVIEW);
+    expect(counted.take()).toEqual([
+      "POST /proposals-api/:name/files",
+      ...QUICK_PREVIEW,
+    ]);
   });
 
   test("all of it, for one edit_file in a Studio with the Code changes pane closed", () => {
     // What the person waits through between sending a prompt that makes one
     // edit and seeing it: the tool's own 7 (`codeToolRequests.test.ts`),
     // then these.
-    expect([...PROPOSALS_BAR, ...QUICK_PREVIEW]).toHaveLength(5);
+    expect([...PROPOSALS_BAR, ...QUICK_PREVIEW]).toHaveLength(3);
   });
 });

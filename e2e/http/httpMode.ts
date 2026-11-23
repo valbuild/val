@@ -4,9 +4,11 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import { storesReceived } from "../intake";
 import { encodeJwt, getExpire } from "../../packages/server/src/jwt";
 import {
   HTTP_APP_PORT,
+  PROPOSAL_APP_PORT,
   MOCK_CONTENT_PORT,
   MOCK_PROJECT,
   MOCK_ROOT,
@@ -180,19 +182,10 @@ async function openHttpStudioOn(
 
   await page.goto(route);
   await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: INTAKE_TIMEOUT,
-        message: "the store system never took the project in",
-      },
-    )
+    .poll(() => storesReceived(page), {
+      timeout: INTAKE_TIMEOUT,
+      message: "the store system never took the project in",
+    })
     .toBe(true);
   await expect
     .poll(() => sockets, {
@@ -349,7 +342,9 @@ export type AiScriptStep =
    * An `ai_usage` report — sent only if the prompt asked for them
    * (`reportUsage`), as the real service does.
    */
-  | { type: "usage"; outputTokens: number; estimated?: boolean };
+  | { type: "usage"; outputTokens: number; estimated?: boolean }
+  /** The model thinking between two steps: nothing is sent for `ms`. */
+  | { type: "pause"; ms: number };
 
 export type AiScript = {
   steps: AiScriptStep[];
@@ -425,6 +420,41 @@ function mockOf(target: HttpTarget) {
     /** What the content service currently holds. */
     state(): Promise<MockState> {
       return control<MockState>(target, "state");
+    },
+
+    /**
+     * A proposal that already exists on content, with nothing saved in it:
+     * for a spec that starts at the address of one (`e2e/proposal/`).
+     */
+    async proposal(name: string): Promise<void> {
+      await control(target, "proposals", {
+        method: "POST",
+        body: { name, branch: `val/p/${name}` },
+      });
+    },
+
+    /**
+     * Val Build makes quick previews for this project, each taking
+     * `delayMs`: off until a spec says so, as it is for a project Val Build
+     * does not build. It bundles nothing -- a quick preview with no files is
+     * the served build's browser half -- which is all a spec about WHEN one
+     * is made, and how the canvas takes it, needs.
+     */
+    async quickPreviews(options: { delayMs?: number } = {}): Promise<void> {
+      await control(target, "quick-preview", {
+        method: "POST",
+        body: { enabled: true, delayMs: options.delayMs ?? 0 },
+      });
+    },
+
+    /** Every quick preview Val Build was asked for and made. */
+    async quickPreviewsMade(): Promise<{ proposal: string; inputs: string }[]> {
+      return (
+        await control<{ made: { proposal: string; inputs: string }[] }>(
+          target,
+          "quick-previews",
+        )
+      ).made;
     },
 
     /**
@@ -587,6 +617,15 @@ export function httpTarget(target: HttpTarget): {
     mock,
   };
 }
+
+/**
+ * The app at a proposal's address (`e2e/proposal/`), on the same mock. Its
+ * helpers are its own because a session cookie and a Studio are an app's.
+ */
+export const PROPOSAL_APP: HttpTarget = {
+  ...PROXY_APP,
+  appPort: PROPOSAL_APP_PORT,
+};
 
 /** The proxy-mode suites' helpers, bound to {@link PROXY_APP}. */
 export const { sessionCookie, contextAs, openHttpStudio, mock } =

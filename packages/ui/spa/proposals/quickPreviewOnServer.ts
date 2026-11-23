@@ -22,13 +22,25 @@ export async function quickPreviewOnServer(
     quickPreview: ProposalsClient["quickPreview"];
   },
   onStep: (label: string) => void,
+  /**
+   * The staged inputs, when whoever asks already knows them -- the staging
+   * that made them answered with them -- so the proposal is not read again
+   * to learn what was just said. Val Build refuses inputs that are not the
+   * proposal's any more, so knowing them a moment late costs a failed
+   * preview, never a wrong one.
+   */
+  known?: string,
 ): Promise<QuickPreviewOutcome | ServerOff> {
-  onStep("Reading the proposal");
   let inputs: string | null;
-  try {
-    inputs = (await client.get(name)).staged?.inputs ?? null;
-  } catch (error) {
-    return { status: "failed", message: messageOf(error) };
+  if (known !== undefined) {
+    inputs = known;
+  } else {
+    onStep("Reading the proposal");
+    try {
+      inputs = (await client.get(name)).staged?.inputs ?? null;
+    } catch (error) {
+      return { status: "failed", message: messageOf(error) };
+    }
   }
   if (inputs === null) {
     return {

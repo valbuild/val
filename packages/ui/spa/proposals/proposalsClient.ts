@@ -16,6 +16,7 @@ import type {
   ProposalPerson,
   ProposalSummary,
 } from "../components/proposals/types";
+import { proposalStaged } from "./proposalBuildStore";
 
 /**
  * Proposals, as a Studio tab speaks them: through this deployment's
@@ -238,7 +239,19 @@ const FilesAnswer = z.object({
   files: z.record(z.string(), z.string().nullable()),
   staged: Staged,
 });
-const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
+const StagedAnswer = z.object({
+  commit: z.string(),
+  staged: Staged,
+  /**
+   * Whether Val's server saved pending content changes before it staged
+   * (`beforeProposalCodeWrite`): a save writes `.val.ts` files the caller
+   * did not, so what it holds of the proposal's files is no longer all of
+   * them (`projectSnapshot.ts`). Absent where the server did not say.
+   */
+  savedFirst: z.boolean().optional(),
+});
+/** What a staging answers. */
+export type ProposalStagedAnswer = z.infer<typeof StagedAnswer>;
 
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
@@ -882,13 +895,18 @@ export function createProposalsClient(options: {
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
     files: async (name) =>
       FilesAnswer.parse(await call(`${at(name)}/files`, "GET")),
-    stageFiles: async (name, files, message) =>
-      StagedAnswer.parse(
+    stageFiles: async (name, files, message) => {
+      const answer = StagedAnswer.parse(
         await call(`${at(name)}/files`, "POST", {
           files,
           ...(message !== undefined ? { message } : {}),
         }),
-      ),
+      );
+      // Announced from here, so every staging this Studio makes is: what
+      // shows the change starts from this answer, not from another read.
+      proposalStaged(name, answer.staged);
+      return answer;
+    },
     buildTarget: async (name) => {
       const answer = await call(`${at(name)}/build-target`, "GET");
       return {

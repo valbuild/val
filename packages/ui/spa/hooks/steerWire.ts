@@ -6,6 +6,7 @@ import {
   type ChatDocument,
 } from "../components/AIChatEditor";
 import { pickedElementPrompt } from "../proposals/proposalCode";
+import type { PickedSources } from "../proposals/projectMap";
 import {
   AISteerStatus,
   type AIMessageContentBlock,
@@ -29,6 +30,8 @@ export function promptContentBlocks(
   content: string | ChatDocument,
   attachments: ChatMessageAttachment[] | undefined,
   pointedAt: PickedElement | null,
+  /** In code mode: where the picked element is in the code. */
+  pickedSources: PickedSources = {},
 ): AIMessageContentBlock[] {
   const baseText =
     typeof content === "string" ? content : chatDocumentToHtmlText(content);
@@ -67,7 +70,7 @@ export function promptContentBlocks(
       "]";
   }
   if (pointedAt !== null) {
-    augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
+    augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt, pickedSources)}`;
   }
   return [
     { type: "text", text: augmentedText },

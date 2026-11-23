@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-shared-typecheck-node.cjs.js",
+  "module": "dist/valbuild-shared-typecheck-node.esm.js"
+}

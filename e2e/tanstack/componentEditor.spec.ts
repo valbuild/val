@@ -65,7 +65,7 @@ async function openLanding(page: Page): Promise<FrameLocator> {
     timeout: 60_000,
   });
   // The controls are drawn only while Edit is on.
-  await page.getByRole("button", { name: "Edit on the page" }).click();
+  await page.getByRole("button", { name: "Select on the page" }).click();
   return page.frameLocator('iframe[title="Preview of /landing"]');
 }
 
