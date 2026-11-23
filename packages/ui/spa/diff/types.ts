@@ -7,9 +7,9 @@
  * paragraphs that changed in a rich text, the items that were added, removed,
  * edited or moved in a list.
  *
- * Written by hand in the stories for now. The function that produces it from
- * a schema and two Sources is the next step, and these types are its return
- * type, so the stories are the layout that function has to feed.
+ * `diffSource` produces it from a schema and two Sources. The stories also
+ * write it by hand, because the layout is easier to judge on a publish chosen
+ * to show every case than on whatever two Sources happen to differ by.
  */
 
 /** One column with the change marked in place, or the two sides in columns. */
@@ -17,7 +17,8 @@ export type DiffLayout = "inline" | "split";
 
 /** A picture or a file, on one side. */
 export type MediaSide = {
-  url: string;
+  /** Where its picture is served. Null for a file that has none to show. */
+  url: string | null;
   /** The file's name. */
   name: string;
   /** Its size, or anything else that tells two files apart: `1200×600`. */
@@ -34,7 +35,11 @@ export type ValueDiff =
   | { kind: "scalar"; before: string | null; after: string | null }
   | { kind: "media"; before: MediaSide | null; after: MediaSide | null }
   | { kind: "richtext"; blocks: RichTextBlockDiff[] }
-  | { kind: "list"; items: ListItemDiff[] }
+  /**
+   * An array, or a record. `keyed` is a record: its entries are told apart by
+   * key, have no position worth showing, and can be renamed but not moved.
+   */
+  | { kind: "list"; items: ListItemDiff[]; keyed?: boolean }
   /** An object: only the fields that changed. */
   | { kind: "fields"; fields: FieldDiff[] };
 
@@ -62,6 +67,13 @@ export type ListItemDiff = {
   /** Its place before, counted from 1. Null: it was added. */
   was: number | null;
   moved?: boolean;
+  /**
+   * A record entry's key now, or its last key if it was removed. Shown beside
+   * the title when the title is a name someone wrote and not the key itself.
+   */
+  key?: string;
+  /** The key a record entry had before it was renamed. */
+  renamedFrom?: string;
   /** The fields edited inside it. */
   fields?: FieldDiff[];
   /** The whole item, for one that was added or removed, behind "Show". */
@@ -74,17 +86,22 @@ export type ListItemChange =
   | "changed"
   | "moved"
   | "moved-changed"
+  | "renamed"
+  | "renamed-changed"
   | "unchanged";
 
 export function listItemChange(item: ListItemDiff): ListItemChange {
   if (item.at === null) return "removed";
   if (item.was === null) return "added";
   const edited = item.fields !== undefined && item.fields.length > 0;
+  if (item.renamedFrom !== undefined) {
+    return edited ? "renamed-changed" : "renamed";
+  }
   if (item.moved) return edited ? "moved-changed" : "moved";
   return edited ? "changed" : "unchanged";
 }
 
-export type RichTextTag = "p" | "h1" | "h2" | "h3" | "li" | "quote";
+export type RichTextTag = "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li";
 
 /** One block of a rich text value, or a run of blocks nothing happened to. */
 export type RichTextBlockDiff =
@@ -98,6 +115,14 @@ export type RichTextBlockDiff =
       before?: string;
       /** Its text now. Absent for a removed block. */
       after?: string;
-      /** How many blocks it moved: negative is up. */
+      /**
+       * How many blocks it moved: negative is up. Set on a moved block, and on
+       * a changed one that also moved.
+       */
       movedBy?: number;
+      /**
+       * A change the text does not show: `Formatting changed`. Without it a
+       * block whose words are the same reads as listed by mistake.
+       */
+      note?: string;
     };

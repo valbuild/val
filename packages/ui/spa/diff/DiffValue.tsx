@@ -2,9 +2,11 @@ import { useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowRight,
+  ArrowRightLeft,
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  File as FileIcon,
   Minus,
   Pencil,
   Plus,
@@ -58,33 +60,39 @@ export function DiffFields({
           className="group/field min-w-0"
           data-field-id={field.id}
         >
-          <div className="mb-1 flex min-h-6 min-w-0 items-center gap-2">
-            <h3
-              className={cn(
-                "min-w-0 truncate text-xs",
-                nested
-                  ? "text-fg-tertiary"
-                  : "font-semibold uppercase tracking-wider text-fg-secondary",
+          {/*
+           * A field with no name is the item itself: a string in a list of
+           * strings. Its row already said what it is.
+           */}
+          {(field.label !== "" || renderMeta !== undefined) && (
+            <div className="mb-1 flex min-h-6 min-w-0 items-center gap-2">
+              <h3
+                className={cn(
+                  "min-w-0 truncate text-xs",
+                  nested
+                    ? "text-fg-tertiary"
+                    : "font-semibold uppercase tracking-wider text-fg-secondary",
+                )}
+              >
+                {field.label}
+              </h3>
+              {field.value.kind === "list" && (
+                <span className="truncate text-xs text-fg-tertiary">
+                  {listSummary(field.value.items)}
+                </span>
               )}
-            >
-              {field.label}
-            </h3>
-            {field.value.kind === "list" && (
-              <span className="truncate text-xs text-fg-tertiary">
-                {listSummary(field.value.items)}
-              </span>
-            )}
-            {field.value.kind === "richtext" && (
-              <span className="truncate text-xs text-fg-tertiary">
-                {richTextSummary(field.value.blocks)}
-              </span>
-            )}
-            {renderMeta !== undefined && (
-              <span className="ml-auto flex shrink-0 items-center gap-2">
-                {renderMeta(field)}
-              </span>
-            )}
-          </div>
+              {field.value.kind === "richtext" && (
+                <span className="truncate text-xs text-fg-tertiary">
+                  {richTextSummary(field.value.blocks)}
+                </span>
+              )}
+              {renderMeta !== undefined && (
+                <span className="ml-auto flex shrink-0 items-center gap-2">
+                  {renderMeta(field)}
+                </span>
+              )}
+            </div>
+          )}
           <DiffValueView value={field.value} layout={layout} />
         </section>
       ))}
@@ -115,7 +123,13 @@ export function DiffValueView({
     case "richtext":
       return <RichTextDiff blocks={value.blocks} layout={layout} />;
     case "list":
-      return <ListDiff items={value.items} layout={layout} />;
+      return (
+        <ListDiff
+          items={value.items}
+          layout={layout}
+          keyed={value.keyed === true}
+        />
+      );
     case "fields":
       return (
         <div className="border-l border-border-secondary pl-3">
@@ -318,16 +332,27 @@ function MediaThumb({
 }) {
   return (
     <figure className="flex min-w-0 items-center gap-2">
-      <img
-        src={media.url}
-        alt=""
-        className={cn(
-          "h-14 w-20 shrink-0 rounded border object-cover",
-          kind === "removed"
-            ? "border-rose-500/50 opacity-70"
-            : "border-sky-500/50",
-        )}
-      />
+      {media.url !== null ? (
+        <img
+          src={media.url}
+          alt=""
+          className={cn(
+            "h-14 w-20 shrink-0 rounded border object-cover",
+            kind === "removed"
+              ? "border-rose-500/50 opacity-70"
+              : "border-sky-500/50",
+          )}
+        />
+      ) : (
+        <span
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded border text-fg-tertiary",
+            kind === "removed" ? "border-rose-500/50" : "border-sky-500/50",
+          )}
+        >
+          <FileIcon size={18} aria-hidden />
+        </span>
+      )}
       <figcaption className="min-w-0 text-xs">
         <div
           className={cn(
@@ -398,12 +423,17 @@ export function listSummary(items: ListItemDiff[]): string {
     changed: 0,
     moved: 0,
     "moved-changed": 0,
+    renamed: 0,
+    "renamed-changed": 0,
     unchanged: 0,
   };
   for (const item of items) counts[listItemChange(item)] += 1;
   const parts: string[] = [];
   const moved = counts.moved + counts["moved-changed"];
-  const changed = counts.changed + counts["moved-changed"];
+  const renamed = counts.renamed + counts["renamed-changed"];
+  const changed =
+    counts.changed + counts["moved-changed"] + counts["renamed-changed"];
+  if (renamed > 0) parts.push(`${renamed} renamed`);
   if (moved > 0) parts.push(`${moved} moved`);
   if (counts.added > 0) parts.push(`${counts.added} added`);
   if (counts.removed > 0) parts.push(`${counts.removed} removed`);
@@ -412,18 +442,27 @@ export function listSummary(items: ListItemDiff[]): string {
   return parts.join(" · ");
 }
 
-function listItemStatus(item: ListItemDiff, change: ListItemChange): string {
+function listItemStatus(
+  item: ListItemDiff,
+  change: ListItemChange,
+  keyed: boolean,
+): string {
   switch (change) {
     case "added":
       return "Added";
     case "removed":
-      return `Removed, was ${item.was}`;
+      // A record entry had a key, not a place.
+      return keyed ? "Removed" : `Removed, was ${item.was}`;
     case "changed":
       return "Changed";
     case "moved":
       return `Moved from ${item.was}`;
     case "moved-changed":
       return `Moved from ${item.was}, changed`;
+    case "renamed":
+      return `Renamed from ${item.renamedFrom}`;
+    case "renamed-changed":
+      return `Renamed from ${item.renamedFrom}, changed`;
     case "unchanged":
       return "";
   }
@@ -452,6 +491,9 @@ function ListMark({ item }: { item: ListItemDiff }) {
   }
   if (change === "changed") {
     return <Pencil size={size - 2} className="text-fg-tertiary" aria-hidden />;
+  }
+  if (change === "renamed" || change === "renamed-changed") {
+    return <ArrowRightLeft size={size} className={MOVED_CLASS} aria-hidden />;
   }
   if (change === "moved" || change === "moved-changed") {
     const up = (item.at ?? 0) < (item.was ?? 0);
@@ -495,19 +537,32 @@ function runsOf(items: ListItemDiff[]): ListRun[] {
 function ListDiff({
   items,
   layout,
+  keyed,
 }: {
   items: ListItemDiff[];
   layout: DiffLayout;
+  /** A record: entries have keys, and no place to number. */
+  keyed: boolean;
 }) {
   const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
   return (
     <ol className="min-w-0 rounded-md border border-border-secondary">
       {runsOf(items).map((run) =>
         run.kind === "item" ? (
-          <ListItemRow key={run.item.id} item={run.item} layout={layout} />
+          <ListItemRow
+            key={run.item.id}
+            item={run.item}
+            layout={layout}
+            keyed={keyed}
+          />
         ) : shown.has(run.id) ? (
           run.items.map((item) => (
-            <ListItemRow key={item.id} item={item} layout={layout} />
+            <ListItemRow
+              key={item.id}
+              item={item}
+              layout={layout}
+              keyed={keyed}
+            />
           ))
         ) : (
           <li
@@ -519,7 +574,10 @@ function ListDiff({
               onClick={() => setShown(new Set([...shown, run.id]))}
               className="flex w-full items-center gap-2 px-3 py-1 text-left text-xs text-fg-tertiary hover:bg-bg-secondary hover:text-fg-secondary"
             >
-              <span className="w-6 text-right" aria-hidden>
+              <span
+                className={keyed ? "w-4 text-center" : "w-6 text-right"}
+                aria-hidden
+              >
                 ⋯
               </span>
               {run.items.length} unchanged
@@ -534,9 +592,11 @@ function ListDiff({
 function ListItemRow({
   item,
   layout,
+  keyed,
 }: {
   item: ListItemDiff;
   layout: DiffLayout;
+  keyed: boolean;
 }) {
   const change = listItemChange(item);
   const inside = item.fields ?? item.detail;
@@ -547,12 +607,14 @@ function ListItemRow({
    */
   const [open, setOpen] = useState(item.fields !== undefined);
   const expandable = inside !== undefined && inside.length > 0;
-  const status = listItemStatus(item, change);
+  const status = listItemStatus(item, change, keyed);
   const head = (
     <>
-      <span className="w-6 shrink-0 text-right font-mono text-xs text-fg-tertiary">
-        {item.at ?? ""}
-      </span>
+      {!keyed && (
+        <span className="w-6 shrink-0 text-right font-mono text-xs text-fg-tertiary">
+          {item.at ?? ""}
+        </span>
+      )}
       <span className="flex w-4 shrink-0 justify-center">
         <ListMark item={item} />
       </span>
@@ -565,6 +627,12 @@ function ListItemRow({
       >
         {item.title}
       </span>
+      {/* The key, where the title is a name someone wrote and not the key. */}
+      {item.key !== undefined && item.key !== item.title && (
+        <span className="min-w-0 shrink truncate font-mono text-xs text-fg-tertiary">
+          {item.key}
+        </span>
+      )}
       {status !== "" && (
         <span className="ml-auto shrink-0 pl-3 text-xs text-fg-secondary">
           {status}
@@ -601,7 +669,7 @@ function ListItemRow({
         </div>
       )}
       {expandable && open && (
-        <div className="pb-3 pl-[3.25rem] pr-3 pt-1">
+        <div className={cn("pb-3 pr-3 pt-1", keyed ? "pl-9" : "pl-[3.25rem]")}>
           <DiffFields fields={inside} layout={layout} nested />
         </div>
       )}
@@ -629,8 +697,10 @@ const TAG_CLASS: Record<RichTextTag, string> = {
   h1: "text-lg font-semibold text-fg-primary",
   h2: "text-base font-semibold text-fg-primary",
   h3: "text-sm font-semibold text-fg-primary",
+  h4: "text-sm font-semibold text-fg-primary",
+  h5: "text-sm font-medium text-fg-primary",
+  h6: "text-sm font-medium text-fg-primary",
   li: "text-sm text-fg-primary",
-  quote: "border-l-2 border-border-primary pl-3 text-sm italic text-fg-primary",
 };
 
 const TAG_NAME: Record<RichTextTag, string> = {
@@ -638,11 +708,13 @@ const TAG_NAME: Record<RichTextTag, string> = {
   h1: "heading",
   h2: "heading",
   h3: "heading",
+  h4: "heading",
+  h5: "heading",
+  h6: "heading",
   li: "list item",
-  quote: "quote",
 };
 
-/** `Quote moved up 2 blocks`: what moved, and how far. */
+/** `Paragraph moved up 2 blocks`: what moved, and how far. */
 function movedWords(movedBy: number, tag: RichTextTag): string {
   const distance = Math.abs(movedBy);
   const name = TAG_NAME[tag];
@@ -669,6 +741,15 @@ function RichTextDiff({
           );
         }
         const moved = block.change === "moved";
+        // Where it went, and what the text alone would not show.
+        const captions = [
+          ...(block.movedBy !== undefined
+            ? [movedWords(block.movedBy, block.tag)]
+            : moved
+              ? ["Moved"]
+              : []),
+          ...(block.note !== undefined ? [block.note] : []),
+        ];
         return (
           <div key={block.id} className="flex min-w-0 items-start gap-2">
             <span className="mt-1 flex w-4 shrink-0 justify-center">
@@ -711,9 +792,9 @@ function RichTextDiff({
               ) : (
                 <BlockText block={block} layout={layout} />
               )}
-              {moved && block.movedBy !== undefined && (
+              {captions.length > 0 && (
                 <div className="pt-0.5 text-xs text-fg-secondary">
-                  {movedWords(block.movedBy, block.tag)}
+                  {captions.join(" · ")}
                 </div>
               )}
             </div>
