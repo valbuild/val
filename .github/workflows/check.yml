@@ -180,6 +180,8 @@ jobs:
           # `examples/tanstack` in proxy mode: the builder tab. Its own mock
           # and its own app, so it never starts `next dev`.
           - { project: tanstack-http, shard: 1, shards: 1 }
+          # A proposal in code mode: a quick preview swaps in with no blank page.
+          - { project: chromium-proposal, shard: 1, shards: 1 }
           # Safari's engine, on the specs that publish. Its own browser, so
           # the install below reads `browser` (chromium when unset).
           - { project: webkit-http, shard: 1, shards: 1, browser: webkit }
