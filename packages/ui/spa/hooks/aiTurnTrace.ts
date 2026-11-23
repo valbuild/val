@@ -27,8 +27,10 @@ import type { AIClientMessage, AIServerMessage } from "./useAIWebSocket";
  * The three add up to the turn, with tool calls that overlap counted once.
  *
  * What it cannot see, since it is not on the socket: what a tool does inside
- * (requests are counted in `codeToolRequests.test.tsx`), and how the model's
- * time splits between the provider and the content service.
+ * (requests are counted in `codeToolRequests.test.ts`). How the model's time
+ * splits between the provider and the content service is the service's to
+ * say: while a turn is traced the prompt asks for `ai_step_timing`
+ * (`reportTimings`), and a service that has them fills `replies`.
  *
  * Recorded only while debug is on (`localStorage["val:debug"] = "1"`),
  * decided when a prompt is sent: with it off nothing is recorded, nothing is
@@ -75,6 +77,14 @@ export type AITurnTrace = {
   /** Messages the person sent into the turn while it ran (`ai_steer`). */
   steers: number;
   outputTokens: number | null;
+  /**
+   * The model's share, as the content service measured it: one entry per
+   * model request (`ai_step_timing`). Empty when the service does not send
+   * them, which is every service from before they existed.
+   */
+  replies: AITurnReply[];
+  /** The same service's view of each round of tool calls. */
+  toolRounds: AITurnToolRound[];
   /** The turn in order, adjacent moments of one kind joined. */
   timeline: AITurnSegment[];
   /** Prompt sent to the last result of a tool call that changed code. */
@@ -105,6 +115,34 @@ export type AITurnToolStats = {
   errors: number;
   /** At least one call waited on the person. */
   person: boolean;
+};
+
+export type AITurnReply = {
+  /** Counted from 1. */
+  step: number;
+  /** The whole model request. */
+  totalMs: number;
+  /** Until the provider's first stream event: it was reading the prompt. */
+  firstByteMs: number | null;
+  /** Until the first text, thinking or tool call. */
+  firstOutputMs: number | null;
+  /** Everything the model read, cached or not. */
+  inputTokens: number | null;
+  /** The part of `inputTokens` read from the provider's cache. */
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  outputTokens: number | null;
+  toolCalls: string[];
+};
+
+export type AITurnToolRound = {
+  /** The reply that asked for these tools. */
+  step: number;
+  /** Calls going out to the tab, to the last result back: both hops included. */
+  totalMs: number;
+  /** From the last result to the service being ready to ask the model again. */
+  afterMs: number | null;
+  toolCalls: string[];
 };
 
 export type AITurnSegment = {
@@ -336,6 +374,8 @@ export function createAITurnTrace(options: {
             webSearches: 0,
             steers: 0,
             outputTokens: null,
+            replies: [],
+            toolRounds: [],
             timeline: [],
             lastWriteMs: null,
             previews: [],
@@ -410,6 +450,33 @@ export function createAITurnTrace(options: {
       if (!("id" in message)) return;
       // The service saying what became of a steer is not the model answering.
       if (message.type === "ai_steer_status") return;
+      if (message.type === "ai_step_timing") {
+        // The service's report of a step that is over: not the model
+        // answering, so the turn's own clock is left alone.
+        const timed = running.get(message.id);
+        if (timed === undefined) return;
+        if (message.kind === "reply") {
+          timed.trace.replies.push({
+            step: message.step,
+            totalMs: message.totalMs,
+            firstByteMs: message.firstByteMs ?? null,
+            firstOutputMs: message.firstOutputMs ?? null,
+            inputTokens: message.inputTokens ?? null,
+            cacheReadTokens: message.cacheReadTokens ?? null,
+            cacheWriteTokens: message.cacheWriteTokens ?? null,
+            outputTokens: message.outputTokens ?? null,
+            toolCalls: message.toolCalls ?? [],
+          });
+        } else if (message.kind === "tools") {
+          timed.trace.toolRounds.push({
+            step: message.step,
+            totalMs: message.totalMs,
+            afterMs: message.afterMs ?? null,
+            toolCalls: message.toolCalls ?? [],
+          });
+        }
+        return;
+      }
       const turn = running.get(message.id);
       if (turn === undefined) return;
       const at = now();
@@ -548,6 +615,7 @@ export function formatAITurnTrace(trace: AITurnTrace): string {
         : "") +
       (trace.steers > 0 ? `, ${trace.steers} steered in` : ""),
     ...tools,
+    ...serverLines(trace),
     trace.lastWriteMs === null
       ? "  no code written"
       : `  last write at ${seconds(trace.lastWriteMs)}, change visible at ${seconds(trace.changeVisibleMs)} (${seconds(trace.lastWriteToPreviewMs)} after it)` +
@@ -556,6 +624,35 @@ export function formatAITurnTrace(trace: AITurnTrace): string {
           : ""),
     ...previews,
   ].join("\n");
+}
+
+const sum = (values: (number | null)[]): number =>
+  values.reduce<number>((total, value) => total + (value ?? 0), 0);
+
+/** The content service's own timings, when it sent them. */
+function serverLines(trace: AITurnTrace): string[] {
+  const replies = trace.replies;
+  if (replies.length === 0) return [];
+  const input = sum(replies.map((reply) => reply.inputTokens));
+  const cached = sum(replies.map((reply) => reply.cacheReadTokens));
+  const modelMs = sum(replies.map((reply) => reply.totalMs));
+  return [
+    `  on the server: model ${seconds(modelMs)} over ${replies.length} repl${replies.length === 1 ? "y" : "ies"}` +
+      ` (${seconds(sum(replies.map((reply) => reply.firstByteMs)))} to first byte, ${seconds(sum(replies.map((reply) => reply.firstOutputMs)))} to first output)` +
+      `, ${input} input tokens (${cached} from cache)` +
+      // What the tab calls model time and the model did not spend: the
+      // socket, and the service between its requests.
+      `, ${seconds(Math.max(0, trace.modelMs - modelMs))} of the tab's model time is not the model`,
+    ...replies.map(
+      (reply) =>
+        `    reply ${reply.step}: ${seconds(reply.totalMs)}, first byte ${seconds(reply.firstByteMs)}, first output ${seconds(reply.firstOutputMs)}` +
+        (reply.inputTokens !== null
+          ? `, ${reply.inputTokens} in (${reply.cacheReadTokens ?? 0} cached)`
+          : "") +
+        (reply.outputTokens !== null ? `, ${reply.outputTokens} out` : "") +
+        (reply.toolCalls.length > 0 ? ` -> ${reply.toolCalls.join(", ")}` : ""),
+    ),
+  ];
 }
 
 /** What `__VAL_AI_TURNS__` is in the console. */
@@ -644,6 +741,17 @@ export const studioAITurnTrace = {
     studioTrace?.disconnected();
   },
 };
+
+/**
+ * A message as the socket should send it: while debug is on, a prompt also
+ * asks the content service for its side of the turn (`ai_step_timing`), the
+ * model's share. A service that does not know the field drops it.
+ */
+export function withTraceRequest(message: AIClientMessage): AIClientMessage {
+  return message.type === "ai_prompt" && Internal.isDebugEnabled()
+    ? { ...message, reportTimings: true }
+    : message;
+}
 
 /**
  * A quick preview ended: told from `useQuickPreview`, which is not on the

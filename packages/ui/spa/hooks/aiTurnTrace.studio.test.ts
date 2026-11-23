@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { studioAITurnTrace } from "./aiTurnTrace";
+import { studioAITurnTrace, withTraceRequest } from "./aiTurnTrace";
 import type { AIPromptMessage } from "./useAIWebSocket";
 
 /*
@@ -59,4 +59,18 @@ test("with debug on, turns are kept for the console; turned off again, they are 
   turn("p3");
   expect(window.__VAL_AI_TURNS__).toBeUndefined();
   debug.mockRestore();
+});
+
+test("a prompt asks the content service for its timings only while debug is on", () => {
+  expect(withTraceRequest(prompt("p1"))).toEqual(prompt("p1"));
+  window.localStorage.setItem("val:debug", "1");
+  expect(withTraceRequest(prompt("p1"))).toEqual({
+    ...prompt("p1"),
+    reportTimings: true,
+  });
+  // Only a prompt carries it.
+  expect(withTraceRequest({ type: "ai_cancel", id: "p1" })).toEqual({
+    type: "ai_cancel",
+    id: "p1",
+  });
 });

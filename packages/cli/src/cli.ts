@@ -98,6 +98,9 @@ async function main(): Promise<void> {
         --skip-validation        Publish without running "val validate" first. It runs by
                                  default, and an error stops the publish
         --strict                 Let a validation warning stop the publish too
+        --no-typecheck           Build without typechecking the project. It runs by default,
+                                 on the install the build reads, and type errors are
+                                 printed without stopping the publish
 
       Command: check-build-tools
       Description: load what "val publish" builds with, and build a one-line module with
@@ -202,6 +205,11 @@ async function main(): Promise<void> {
         strict: {
           type: "boolean",
         },
+        // On unless --no-typecheck: an absent boolean is false to meow.
+        typecheck: {
+          type: "boolean",
+          default: true,
+        },
         yes: {
           type: "boolean",
         },
@@ -284,6 +292,7 @@ async function main(): Promise<void> {
         dryRun: flags.dryRun,
         skipValidation: flags.skipValidation,
         strict: flags.strict,
+        typecheck: flags.typecheck,
       });
     case "login":
       return login({

@@ -1,6 +1,11 @@
 import { useSyncExternalStore } from "react";
 import { formatRelativeTime } from "../utils/formatRelativeTime";
-import type { ProposalJson, ProposalsClient } from "./proposalsClient";
+import { z } from "zod";
+import {
+  ProposalsApiError,
+  type ProposalJson,
+  type ProposalsClient,
+} from "./proposalsClient";
 
 /**
  * Code mode (`docs/plans/one-content-model.md`, "Code mode"): a state of the
@@ -59,6 +64,39 @@ export async function readCodeMode(
   nameOf: (profileId: string) => string | null,
 ): Promise<CodeModeNow> {
   return codeModeNow(await client.get(name), nameOf, Date.now());
+}
+
+/** Val's server refusing a code write while code mode is off: its 409. */
+const CodeModeOffRefusal = z.object({
+  details: z.object({
+    code: z.literal("code-mode-off"),
+    changedBy: z.string().nullable().optional(),
+    changedAt: z.string().nullable().optional(),
+  }),
+});
+
+/**
+ * Whether `error` is Val's server refusing a code write because code mode
+ * is off (`beforeProposalCodeWrite`), and then who turned it off and when,
+ * as {@link readCodeMode} would have said had it been asked first. `null`
+ * for any other failure.
+ */
+export function codeModeRefusalOf(
+  error: unknown,
+  nameOf: (profileId: string) => string | null,
+  now: number,
+): Extract<CodeModeNow, { on: false }> | null {
+  if (!(error instanceof ProposalsApiError) || error.status !== 409) {
+    return null;
+  }
+  const refusal = CodeModeOffRefusal.safeParse(error.body);
+  if (!refusal.success) return null;
+  const { changedBy, changedAt } = refusal.data.details;
+  return {
+    on: false,
+    by: changedBy != null ? (nameOf(changedBy) ?? "someone") : null,
+    ago: changedAt != null ? formatRelativeTime(changedAt, now) : null,
+  };
 }
 
 /**
@@ -155,6 +193,17 @@ function snapshot(): CodeModeState {
 /** The current state, for code outside React (the assistant's handlers). */
 export function codeModeState(): CodeModeState {
   return state;
+}
+
+/**
+ * Whether proposal `name` is in code mode as this tab last heard it, without
+ * asking; `null` when it has not heard of that proposal. What lets a code
+ * write skip asking first (`CodeToolDeps.codeModeHere`): the server refuses
+ * the write if it was turned off since.
+ */
+export function codeModeHeldFor(name: string): boolean | null {
+  const here = state.proposal;
+  return here !== null && here.name === name ? here.on : null;
 }
 
 export function useCodeModeState(): CodeModeState {

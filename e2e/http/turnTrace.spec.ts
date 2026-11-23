@@ -43,6 +43,8 @@ type TraceInPage = {
   toolCalls: number;
   tools: Record<string, { calls: number; errors: number }>;
   lastWriteMs: number | null;
+  replies: { step: number; toolCalls: string[] }[];
+  toolRounds: { step: number }[];
 };
 
 test("a turn is traced from the socket, and readable from the console", async ({
@@ -59,7 +61,11 @@ test("a turn is traced from the socket, and readable from the console", async ({
     });
   });
   const debugLines: string[] = [];
+  const unparsed: string[] = [];
   page.on("console", (message) => {
+    if (message.text().includes("Could not parse AI WebSocket message")) {
+      unparsed.push(message.text());
+    }
     if (message.text().includes("assistant turn")) {
       debugLines.push(message.text());
     }
@@ -138,6 +144,18 @@ test("a turn is traced from the socket, and readable from the console", async ({
     get_all_schema: [1, 0],
     create_patch: [1, 0],
   });
+  // Debug is on, so the prompt asked the service for its side of the turn,
+  // and what it sent was read rather than dropped as an unknown message.
+  expect(trace.replies.map((reply) => reply.toolCalls)).toEqual([
+    ["list_files"],
+    ["search_code"],
+    ["read_file"],
+    ["edit_file"],
+    ["get_all_schema"],
+    ["create_patch"],
+  ]);
+  expect(trace.toolRounds).toHaveLength(6);
+  expect(unparsed).toEqual([]);
   expect(trace.lastWriteMs).toBeNull();
   expect(trace.personMs).toBe(0);
   expect(trace.totalMs).not.toBeNull();

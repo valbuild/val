@@ -13,7 +13,7 @@ import {
   type TypeErrorEntry,
 } from "./typecheckProject";
 import { BUNDLED_TYPESCRIPT, chooseCompiler } from "./typescriptCompiler";
-import { nodeModulesSources } from "./testing/nodeModulesSources";
+import { installedSources } from "./node/installedSources";
 
 /*
  * A small project on template-tanstack-minimal's real lockfile (the layout
@@ -83,7 +83,7 @@ function counted(sources: TypecheckSources) {
   };
 }
 
-const repoSources = () => nodeModulesSources(REPO, { anyVersion: true });
+const repoSources = () => installedSources(REPO, { anyVersion: true });
 
 describe("typecheckProject", () => {
   test("fetches the types the imports reach, and only those", async () => {

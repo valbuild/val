@@ -25,7 +25,6 @@ const ops = new JSONOps();
  */
 const FOLLOW_UP_SETTLE_MS = 500;
 import { useValSystem } from "../stores/react/SystemContext";
-import { runStagedCode, type StagedCodeOutcome } from "../proposals/stagedCode";
 import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
 import { createTurnTimer, describeTurnTiming } from "./turnTiming";
 import { usePageCheckSession } from "./usePageCheckSession";
@@ -46,7 +45,8 @@ import {
   scheduleBackgroundChecks,
   stagedInputsOf,
 } from "../proposals/backgroundChecks";
-import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
+import { createCodeClients } from "../proposals/codeClients";
+import { studioCodeToolDeps } from "../proposals/studioCodeTools";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
@@ -221,17 +221,14 @@ import {
   setAssistantWorking,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
-import { createProposalsClient } from "../proposals/proposalsClient";
 import {
   codeModeState,
   useCodeModeState,
-  readCodeMode,
   openSiteCodeMode,
   requestCodeModeMenu,
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
-import { createProjectSourceReader } from "@valbuild/shared/internal";
 import { assistantPersona, isInCodeMode } from "./assistantPersona";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
@@ -884,18 +881,19 @@ export function useAI(
   );
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
-    () => ({
-      proposals: createProposalsClient({ api: "/api/val" }),
-      /*
-       * The site's source, by version: asked on every tool call, and sent
-       * whole only when a publish changed it. Not the publish client's,
-       * which holds its first answer for as long as it lives -- one deploy
-       * there, and this hook's whole life here, so a publish in between
-       * went unseen by the code tools.
-       */
-      siteSource: createProjectSourceReader({ api: "/api/val" }),
-    }),
+    () =>
+      createCodeClients({
+        api: "/api/val",
+        seq: () => valSystemRef.current?.system.manifest.seq() ?? null,
+      }),
     [],
+  );
+  // After a staging of this tab's the project is read again as soon as the
+  // `seq` it moved is heard, not when the model next asks for a file.
+  useEffect(
+    () =>
+      valSystem?.system.manifest.onSeq(() => codeClients.snapshot.seqMoved()),
+    [valSystem, codeClients],
   );
   // Same answer the fields get, for the same reason: `empty_at_path` on a
   // locale-keyed record scaffolds one entry per language, and the languages are
@@ -1189,6 +1187,7 @@ export function useAI(
         proposal: { name: proposal },
         client: codeClients.proposals,
         siteSource: codeClients.siteSource,
+        snapshot: codeClients.snapshot,
       })
         .then((text) => {
           projectInstructionsRef.current = { proposal, text };
@@ -1532,9 +1531,15 @@ export function useAI(
         sendWsMessage(toolResult);
         return;
       }
-      void takeToolNotices(name, () =>
-        stagedInputsOf(codeClients.proposals, name),
-      )
+      void takeToolNotices(name, () => {
+        // What is staged, as the chat's snapshot of the proposal holds it
+        // (a code tool's own staging just wrote it): asked for only when
+        // nothing is held.
+        const held = codeClients.snapshot.staged(name);
+        return held !== undefined
+          ? Promise.resolve(held.inputs)
+          : stagedInputsOf(codeClients.proposals, name);
+      })
         .catch((error: unknown) => {
           Internal.log.error("Could not read the background checks:", error);
           return {};
@@ -2908,9 +2913,6 @@ export function useAI(
                   ?.inputs ?? null);
           const build = proposalBuildControl(proposalBuildRef.current);
           void runCodeTool(toolName, message.arguments, {
-            proposal: currentProposalRef.current,
-            client: codeClients.proposals,
-            siteSource: codeClients.siteSource,
             build:
               proposalName === null
                 ? build
@@ -2967,38 +2969,11 @@ export function useAI(
               };
             },
             offerProposal: requestProposal,
-            // After a staging, this tab evaluates `val.modules` and swaps the
-            // schema in, so a field just added can be edited before a build
-            ...(proposalName !== null && valSystemRef.current !== null
-              ? {
-                  evaluateStaged: () => {
-                    const system = valSystemRef.current?.system;
-                    if (system === undefined) {
-                      return Promise.resolve<StagedCodeOutcome>({
-                        status: "not-here",
-                      });
-                    }
-                    return runStagedCode(
-                      proposalName,
-                      studioStagedCodeDeps(
-                        proposalName,
-                        codeClients.proposals,
-                        system,
-                      ),
-                    );
-                  },
-                }
-              : {}),
-            ...(proposalName !== null
-              ? {
-                  codeMode: () =>
-                    readCodeMode(
-                      codeClients.proposals,
-                      proposalName,
-                      (id) => profilesRef.current[id]?.fullName ?? null,
-                    ),
-                }
-              : {}),
+            ...studioCodeToolDeps(codeClients, {
+              proposal: currentProposalRef.current,
+              nameOf: (id) => profilesRef.current[id]?.fullName ?? null,
+              system: () => valSystemRef.current?.system ?? null,
+            }),
           }).then(({ result, isError }) => {
             if (
               (toolName === "write_files" ||
@@ -3018,6 +2993,8 @@ export function useAI(
                 scheduleBackgroundChecks(proposalName, {
                   client: codeClients.proposals,
                   siteSource: codeClients.siteSource,
+                  // The lint reads the project the tool just wrote, held
+                  snapshot: codeClients.snapshot,
                   onTypechecked: proposalCodeChanged,
                 });
                 pageCheckRef.current.codeChanged();
@@ -3572,6 +3549,14 @@ export function useAI(
           "AI agent handoff message received - agents are working",
           message,
         );
+      } else if (
+        message.type === "ai_step_timing" ||
+        message.type === "ai_tool_call_progress" ||
+        message.type === "ai_thinking"
+      ) {
+        // The turn trace reads the timings at the socket (`aiTurnTrace.ts`).
+        // The other two are never asked for yet, so none arrives: named so
+        // that the exhaustive check below still fails for a new type.
       } else {
         const _exhaustiveCheck: never = message;
         Internal.log.error(
@@ -4605,6 +4590,7 @@ Do not describe what you will do unless you do it for clarification — just do 
               scheduleBackgroundChecks(currentProposal.name, {
                 client: codeClients.proposals,
                 siteSource: codeClients.siteSource,
+                snapshot: codeClients.snapshot,
                 onTypechecked: proposalCodeChanged,
               }),
           }
