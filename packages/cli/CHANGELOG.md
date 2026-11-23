@@ -1,5 +1,20 @@
 # @valbuild/cli
 
+## 0.154.1
+
+### Patch Changes
+
+- [#1077](https://github.com/valbuild/val/pull/1077) [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e) Thanks [@freekh](https://github.com/freekh)! - `val publish` now typechecks the project while it builds. It uses the `node_modules` the build already reads for the dependency layer, so nothing is downloaded for the check. It is the same typecheck the Studio runs for a proposal that changes dependencies. Type errors are printed as warnings, first line each (at most 20), and do not stop the publish. `--no-typecheck` turns the check off.
+
+  Only a pnpm project with its own `pnpm-lock.yaml` is typechecked. Anything else says why it was skipped and publishes as before.
+
+  For a build on the server, `@valbuild/shared/typecheck/node` exports `typecheckInstalled({ root, files })` and `installedSources(root)`: the typecheck run against a project installed on that machine.
+
+- Updated dependencies [[`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe), [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e)]:
+  - @valbuild/server@0.154.1
+  - @valbuild/shared@0.154.1
+  - @valbuild/language-server@0.154.1
+
 ## 0.154.0
 
 ### Patch Changes
