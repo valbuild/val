@@ -830,6 +830,30 @@ export function defineInlineEditingSuite(): void {
         await preview.getByText(/^Author: /).click();
         await expect(page).toHaveURL(/[?&]field=[^&]*authors[^&]*name/);
         await expect(inlineEditor(preview)).toHaveCount(0);
+        // The click was to type, so the caret goes where it can be: the
+        // field's row in the column.
+        await expect(
+          columnRow(page, '."name"').locator("input, textarea").first(),
+        ).toBeFocused();
+      });
+
+      test("...and with Content switched off, Content comes back with the caret in it", async ({
+        page,
+      }) => {
+        const preview = await openBlog(page, "edit");
+        await page.getByRole("button", { name: "Close Content" }).click();
+        await expect(
+          page.getByRole("button", { name: "Open Content" }),
+        ).toBeVisible();
+        await preview.getByText(/^Author: /).click();
+        await expect(
+          page.getByRole("button", { name: "Close Content" }),
+        ).toHaveAttribute("aria-pressed", "true");
+        const name = columnRow(page, '."name"')
+          .locator("input, textarea")
+          .first();
+        await expect(name).toBeVisible();
+        await expect(name).toBeFocused();
       });
     });
   });

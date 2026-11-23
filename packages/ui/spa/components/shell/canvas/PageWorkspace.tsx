@@ -84,8 +84,12 @@ export type PageWorkspaceProps = {
        * Carries the path that was picked, because the column's "changed only"
        * filter has to know whether it is hiding it. `null` where a pick has no
        * source path behind it — the demo page's fields are not Val's.
+       *
+       * `focus`: put the caret in the field's row as well. Select & edit
+       * asks for it when the pick could not be typed in on the page: the
+       * person clicked to TYPE, so the column is where they type instead.
        */
-      onPicked: (path: SourcePath | null) => void;
+      onPicked: (path: SourcePath | null, options?: PickedOptions) => void;
       /** Esc on the page while picking fields: Content's Select turns off. */
       onPickingStopped: () => void;
     },
@@ -206,6 +210,20 @@ export type PageWorkspaceProps = {
   codeMode?: boolean;
   /** Close Content's sheet, handing the room back to the pane beside it. */
   onFoldContent?: () => void;
+  /**
+   * Content has to be on screen: a pick on the page opened a field in it.
+   * Switched off from the top bar or folded to a strip, it comes back, as a
+   * field opened anywhere else brings it back -- otherwise a click on the
+   * page opened a field nobody can see. The layout is the shell's, so it is
+   * the shell that brings it back.
+   */
+  onRevealContent?: () => void;
+};
+
+/** What `onPicked` is asked to do beyond showing the picked field. */
+export type PickedOptions = {
+  /** Put the caret in the field, in the column. */
+  focus?: boolean;
 };
 
 /** Stable, so a page that has reported nothing does not re-merge every render. */
@@ -316,6 +334,7 @@ export function PageWorkspace({
   onUseContent,
   codeMode = false,
   onFoldContent,
+  onRevealContent,
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
@@ -381,6 +400,14 @@ export function PageWorkspace({
    */
   const [pickToReveal, setPickToReveal] = useState<SourcePath | null>(null);
   const clearPickToReveal = useCallback(() => setPickToReveal(null), []);
+  /**
+   * A field picked to be typed in that the page could not take the caret
+   * for (`PickedOptions.focus`), not yet focused in the column. Handed to
+   * the column for the reason `pickToReveal` is: it may not be mounted, or
+   * on screen, yet.
+   */
+  const [pickToFocus, setPickToFocus] = useState<SourcePath | null>(null);
+  const clearPickToFocus = useCallback(() => setPickToFocus(null), []);
 
   /**
    * A text being typed in on the page is shown in the column too.
@@ -612,15 +639,25 @@ export function PageWorkspace({
    * state that reads as the canvas being broken.
    */
   const onPicked = useCallback(
-    (path: SourcePath | null) => {
+    (path: SourcePath | null, options?: PickedOptions) => {
       if (!isPicking) return;
       onViewChange("fields");
       if (isPhone) onPaneChange("editor");
+      // The column the field opened in, wherever the layout had put it.
+      onRevealContent?.();
       // Pointing at something is asking to edit it, and a filter hiding it
       // would answer with an empty column. See `pickToReveal`.
       if (path !== null && changedFieldsOnly) setPickToReveal(path);
+      if (path !== null && options?.focus) setPickToFocus(path);
     },
-    [isPicking, onViewChange, isPhone, onPaneChange, changedFieldsOnly],
+    [
+      isPicking,
+      onViewChange,
+      isPhone,
+      onPaneChange,
+      onRevealContent,
+      changedFieldsOnly,
+    ],
   );
 
   /**
@@ -841,6 +878,8 @@ export function PageWorkspace({
           onChangedOnlyChange={setChangedFieldsOnly}
           pickToReveal={pickToReveal}
           onPickRevealed={clearPickToReveal}
+          pickToFocus={pickToFocus}
+          onPickFocused={clearPickToFocus}
           selectedPath={fieldShownInColumn}
           onSelect={onSelectCanvasPath}
         />

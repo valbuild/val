@@ -1394,7 +1394,9 @@ function ValShellBody({
           // and is opened as below.
           if (offerInlineEdit(paths)) return;
           if (!openPickedPath(paths)) return;
-          onPicked(paths[0] ?? null);
+          // In Select & edit the click was to type: what could not be typed
+          // in on the page gets the caret in the column instead.
+          onPicked(paths[0] ?? null, { focus: inlineEditEnabled });
         }}
         onPickingStopped={onPickingStopped}
         inlineEdit={inlineEditRequest}
@@ -1411,7 +1413,7 @@ function ValShellBody({
           // that shows one of the picked fields and nothing else.
           const paths = takeUnavailableInlineEdit(requestId);
           if (paths === null || !openPickedPath(paths)) return;
-          onPicked(paths[0] ?? null);
+          onPicked(paths[0] ?? null, { focus: true });
         }}
         /*
          * The Assistant's Select: any element in code mode, a field
@@ -1479,6 +1481,7 @@ function ValShellBody({
     setQuickStorer,
     onQuickDocument,
     offerInlineEdit,
+    inlineEditEnabled,
     inlineEditRequest,
     inlineEditingPath,
     inlineEditApplied,

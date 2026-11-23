@@ -1,9 +1,17 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
 import { useValSystem } from "../../../stores/react/SystemContext";
 import { useChainVersion, useNoOpSourcePaths } from "../../ValProvider";
 import { changedFieldsAmong, indexFields } from "./changedFields";
+import { focusTextEntry } from "./fieldTextEntry";
 import { cn } from "../../designSystem/cn";
 import { prettifyFilename } from "../../../utils/prettifyFilename";
 import { AnyField } from "../../AnyField";
@@ -16,6 +24,14 @@ import { useSchemaAtPath } from "../../ValFieldProvider";
 const SCROLL_MARGIN_PX = 8;
 /** How long the column keeps re-aligning as its rows fill in. */
 const SETTLE_MS = 1200;
+/**
+ * How long a field picked to be typed in is waited for: its row has to be
+ * listed, its schema loaded and the column on screen. Then it is given up
+ * on -- a caret arriving seconds after the click would land in the middle
+ * of whatever the person went on to do.
+ */
+const FOCUS_WAIT_MS = 1500;
+const FOCUS_RETRY_MS = 50;
 
 /**
  * The fields the page reported, as fields rather than as a list of paths.
@@ -42,6 +58,8 @@ export function CanvasFields({
   onChangedOnlyChange,
   pickToReveal,
   onPickRevealed,
+  pickToFocus,
+  onPickFocused,
   selectedPath,
   onSelect,
 }: {
@@ -62,6 +80,14 @@ export function CanvasFields({
    */
   pickToReveal?: SourcePath | null;
   onPickRevealed?: () => void;
+  /**
+   * A field picked on the page to be typed in, which the page could not
+   * take the caret for: the caret goes in its row instead, once the row is
+   * there to take it. `onPickFocused` is called once that is done or given
+   * up on.
+   */
+  pickToFocus?: SourcePath | null;
+  onPickFocused?: () => void;
   /** The field the editor is on, highlighted here to match. */
   selectedPath?: SourcePath | null;
   onSelect?: (path: SourcePath) => void;
@@ -142,6 +168,53 @@ export function CanvasFields({
      * the one it never happens in.
      */
   }, [selectedPath, paths]);
+
+  /**
+   * The caret, in the row of a field picked to be typed in.
+   *
+   * Tried until it lands, for a while: the row may not be listed yet, its
+   * field may still be loading its schema, and the column may be on its
+   * way back from folded or switched off, which nothing in here can see.
+   *
+   * The row's own focus handler opens the field it holds (`onSelect`),
+   * which is right for a person clicking into it and wrong here: the pick
+   * has already opened it, and opening it again is a second history entry
+   * for one click. So that one focus is made quietly.
+   */
+  const quietFocus = useRef<SourcePath | null>(null);
+  const select = useCallback(
+    (path: SourcePath) => {
+      if (quietFocus.current === path) return;
+      onSelect?.(path);
+    },
+    [onSelect],
+  );
+  useEffect(() => {
+    if (!pickToFocus) return;
+    const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = () => {
+      const row = listRef.current?.querySelector(
+        `[data-canvas-field="${CSS.escape(pickToFocus)}"]`,
+      );
+      let focused = false;
+      if (row) {
+        quietFocus.current = pickToFocus;
+        try {
+          focused = focusTextEntry(row);
+        } finally {
+          quietFocus.current = null;
+        }
+      }
+      if (focused || Date.now() - startedAt >= FOCUS_WAIT_MS) {
+        onPickFocused?.();
+        return;
+      }
+      timer = setTimeout(attempt, FOCUS_RETRY_MS);
+    };
+    attempt();
+    return () => clearTimeout(timer);
+  }, [pickToFocus, onPickFocused]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
@@ -241,7 +314,7 @@ export function CanvasFields({
                     selected={selectedPath === path}
                     changed={changedPaths.has(path)}
                     offPage={offPagePaths?.has(path) ?? false}
-                    onSelect={onSelect}
+                    onSelect={select}
                   />
                 ))}
               </div>

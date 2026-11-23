@@ -2019,6 +2019,12 @@ export function Shell({
             }
             codeMode={assistantSelect?.codeMode === true}
             onUseContent={() => usePane("content")}
+            // A pick opened a field in Content: switched off, it is switched
+            // on, and folded, it is used, which is what unfolds it.
+            onRevealContent={() => {
+              setContentOpen(true);
+              usePane("content");
+            }}
             // Closing Content's sheet hands its room back to the pane
             // beside it -- or, with none open, switches Content off, since
             // there is nothing to fold it behind (the top bar's switch
