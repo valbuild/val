@@ -1,5 +1,15 @@
 import { VAL_PREVIEW_MESSAGES, type SourcePath } from "@valbuild/core";
 import {
+  DEFAULT_CANVAS_SELECTION,
+  isValCanvasPageMessage,
+  VAL_CANVAS_MESSAGE,
+  type ValCanvasStudioMessage,
+} from "@valbuild/shared/internal";
+import type {
+  CanvasInlineEdit,
+  CanvasInlineEditRequest,
+} from "../shell/canvas/useCanvasInlineEdit";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -38,6 +48,18 @@ const UNMEASURED_HEIGHT_PX = 200;
 export type ComponentFrameStatus = "loading" | "ready" | "no-answer";
 
 /**
+ * Typing in a text where this frame shows it: the shell's editing on the
+ * page (`useCanvasInlineEdit`), and the request it made for THIS frame - the
+ * one the pick came from - or `null`.
+ */
+export type ComponentFrameInline = {
+  edit: CanvasInlineEdit;
+  request: CanvasInlineEditRequest | null;
+  /** The page could not edit what was picked: open it the usual way. */
+  onFallback: (paths: SourcePath[]) => void;
+};
+
+/**
  * EXPERIMENTAL: one component, rendered by the site itself on its preview
  * route (`/val-preview?p=<path>`) in a frame, laid out at `width` and scaled
  * down to the room there is.
@@ -62,6 +84,7 @@ export function ComponentFrame({
   lazy = false,
   title,
   onStatus,
+  inline = null,
   className,
 }: {
   path: SourcePath;
@@ -90,6 +113,8 @@ export function ComponentFrame({
   lazy?: boolean;
   title: string;
   onStatus?: (status: ComponentFrameStatus) => void;
+  /** Select & edit in this frame: see {@link ComponentFrameInline}. */
+  inline?: ComponentFrameInline | null;
   className?: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -153,18 +178,54 @@ export function ComponentFrame({
     onStatusRef.current?.(status);
   }, [status]);
 
-  const post = useCallback((message: object) => {
+  const post = useCallback((message: object | ValCanvasStudioMessage) => {
     iframeRef.current?.contentWindow?.postMessage(
       message,
       window.location.origin,
     );
   }, []);
 
+  // The project's selection colour, as the canvas is told it (`theme`)
+  const selection = code.selection?.selection ?? DEFAULT_CANVAS_SELECTION;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  useEffect(() => {
+    post({ type: VAL_PREVIEW_MESSAGES.theme, selection });
+  }, [selection, post]);
+
+  /*
+   * Select & edit: the request the shell made for this frame goes to the
+   * page as the canvas's own `editInline`, and the page's answers go back to
+   * the shell as the canvas frame hands them on (`CanvasFrame`).
+   */
+  const inlineRef = useRef(inline);
+  inlineRef.current = inline;
+  const [typing, setTyping] = useState(false);
+  const requestId = inline?.request?.requestId ?? null;
+  useEffect(() => {
+    const request = inlineRef.current?.request;
+    if (requestId === null || request === undefined || request === null) {
+      return;
+    }
+    post({
+      val: VAL_CANVAS_MESSAGE,
+      type: "editInline",
+      requestId,
+      candidates: request.candidates,
+    });
+  }, [requestId, post]);
+
+  /** Select & edit is in use: the page may be asked to type in a pick. */
+  const editingMode = inline !== null;
   const pickingRef = useRef(picking);
   pickingRef.current = picking;
   useEffect(() => {
-    post({ type: VAL_PREVIEW_MESSAGES.picking, enabled: picking });
-  }, [picking, post]);
+    post({
+      type: VAL_PREVIEW_MESSAGES.picking,
+      enabled: picking,
+      editing: editingMode,
+    });
+  }, [picking, editingMode, post]);
 
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
@@ -176,12 +237,39 @@ export function ComponentFrame({
       if (typeof data !== "object" || data === null || !("type" in data)) {
         return;
       }
+      if (isValCanvasPageMessage(data)) {
+        const current = inlineRef.current;
+        if (current === null) return;
+        if (data.type === "inlineEditStarted") {
+          if (current.edit.onStarted(data.requestId, data.path) === false) {
+            post({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+          } else {
+            setTyping(true);
+          }
+        } else if (data.type === "inlineEdit") {
+          current.edit.onEdit(data.path, data.value);
+        } else if (data.type === "inlineEditEnded") {
+          current.edit.onEnded(data.path);
+          setTyping(false);
+        } else if (data.type === "inlineEditSelection") {
+          current.edit.onSelection(data.path, data.selection);
+        } else if (data.type === "inlineEditUnavailable") {
+          const paths = current.edit.onUnavailable(data.requestId);
+          if (paths !== null) current.onFallback(paths);
+        }
+        return;
+      }
       if (data.type === VAL_PREVIEW_MESSAGES.ready) {
         setStatus("ready");
         onDocumentRef.current?.({ quick: loadedQuick.current });
         post({
+          type: VAL_PREVIEW_MESSAGES.theme,
+          selection: selectionRef.current,
+        });
+        post({
           type: VAL_PREVIEW_MESSAGES.picking,
           enabled: pickingRef.current,
+          editing: inlineRef.current !== null,
         });
       } else if (
         data.type === VAL_PREVIEW_MESSAGES.size &&
@@ -206,18 +294,29 @@ export function ComponentFrame({
     return () => window.removeEventListener("message", listener);
   }, [post]);
 
-  // The content changed: read it again, once the edits have settled
+  /*
+   * The content changed: read it again, once the edits have settled - but
+   * not while a text in this frame is being typed in. The page shows the
+   * typing itself, and a refresh would render the component again under the
+   * caret; it is read again once the typing ends.
+   */
   const firstVersion = useRef(true);
+  const missedRefresh = useRef(false);
   useEffect(() => {
     if (firstVersion.current) {
       firstVersion.current = false;
       return;
     }
+    if (typing) {
+      missedRefresh.current = true;
+      return;
+    }
+    missedRefresh.current = false;
     const timer = window.setTimeout(() => {
       post({ type: VAL_PREVIEW_MESSAGES.refresh });
     }, REFRESH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [contentVersion, post]);
+  }, [contentVersion, typing, post]);
 
   const scale = room === null ? 1 : Math.min(1, room / width);
   const naturalHeight = height ?? UNMEASURED_HEIGHT_PX;

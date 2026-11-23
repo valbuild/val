@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Blocks,
+  Check,
   ChevronDown,
   Columns2,
   FileText,
@@ -27,6 +29,13 @@ export type PaneSwitch = {
   /** The Sketchpad changed since this person looked. */
   changed?: boolean;
 };
+
+/**
+ * What the Preview pane shows: the site's page, or (EXPERIMENTAL) its
+ * components (`/val/components`). Chosen in the Preview switch's menu; the
+ * switch itself then shows and hides whichever it is, the same way.
+ */
+export type PreviewSource = "page" | "components";
 
 const PANE: Record<
   WorkspacePane,
@@ -80,12 +89,21 @@ export function PaneSwitches({
   roomy,
   onPreview,
   previewHref,
+  previewSource,
 }: {
   switches: PaneSwitch[];
   /** Whether the bar has room for the words beside the icons. */
   roomy: boolean;
   onPreview: () => void;
   previewHref?: string;
+  /**
+   * What the Preview pane shows, and the way to change it - offered in the
+   * Preview switch's menu, for a project that has components to show.
+   */
+  previewSource?: {
+    current: PreviewSource;
+    onChange: (source: PreviewSource) => void;
+  };
 }) {
   return (
     <div
@@ -94,7 +112,12 @@ export function PaneSwitches({
       className="flex h-8 shrink-0 items-center gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5"
     >
       {switches.map((each) => {
-        const { label, icon: Icon, name, tour } = PANE[each.pane];
+        const pane = PANE[each.pane];
+        const showsComponents =
+          each.pane === "preview" && previewSource?.current === "components";
+        const label = showsComponents ? "Components" : pane.label;
+        const Icon = showsComponents ? Blocks : pane.icon;
+        const { name, tour } = pane;
         const disabled = each.unavailable !== undefined;
         return (
           <span key={each.pane} className="inline-flex items-center">
@@ -129,6 +152,7 @@ export function PaneSwitches({
               <OtherWaysToPreview
                 onPreview={onPreview}
                 previewHref={previewHref}
+                previewSource={previewSource}
               />
             )}
           </span>
@@ -138,13 +162,41 @@ export function PaneSwitches({
   );
 }
 
-/** The page in a new tab: the Preview button's menu, beside its switch. */
+const PREVIEW_SOURCES: {
+  source: PreviewSource;
+  label: string;
+  detail: string;
+  icon: LucideIcon;
+}[] = [
+  {
+    source: "page",
+    label: "Page",
+    detail: "The page you are editing, as visitors see it",
+    icon: Columns2,
+  },
+  {
+    source: "components",
+    label: "Components",
+    detail: "Every component, and every place it is used",
+    icon: Blocks,
+  },
+];
+
+/**
+ * The Preview switch's menu: what the pane shows (where there is a choice),
+ * and the page in a new tab.
+ */
 function OtherWaysToPreview({
   onPreview,
   previewHref,
+  previewSource,
 }: {
   onPreview: () => void;
   previewHref?: string;
+  previewSource?: {
+    current: PreviewSource;
+    onChange: (source: PreviewSource) => void;
+  };
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLSpanElement>(null);
@@ -176,6 +228,40 @@ function OtherWaysToPreview({
           role="menu"
           className="absolute right-0 top-full z-full mt-1 w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
         >
+          {previewSource !== undefined && (
+            <>
+              <div className="px-2.5 pb-1 pt-1 text-[0.6875rem] font-medium text-fg-secondary-alt">
+                Show in the preview
+              </div>
+              {PREVIEW_SOURCES.map((option) => (
+                <button
+                  key={option.source}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={previewSource.current === option.source}
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (previewSource.current !== option.source) {
+                      previewSource.onChange(option.source);
+                    }
+                  }}
+                  className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+                >
+                  <option.icon size={14} className="mt-0.5 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs">{option.label}</span>
+                    <span className="block text-[0.6875rem] text-fg-secondary-alt">
+                      {option.detail}
+                    </span>
+                  </span>
+                  {previewSource.current === option.source && (
+                    <Check size={14} className="mt-0.5 shrink-0" />
+                  )}
+                </button>
+              ))}
+              <div className="my-1 border-t border-border-float" />
+            </>
+          )}
           <PreviewMenuItem
             icon={Link2}
             label="Open in a new tab"

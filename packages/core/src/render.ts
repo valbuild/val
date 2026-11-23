@@ -305,11 +305,21 @@ export type SerializedComponentRender = {
  * - `refresh`: Studio to preview. The content changed; render it again.
  * - `size`: preview to Studio, with `{ height }`. What the component rendered
  *   is this tall, so the Studio can size the frame to fit it.
- * - `picking`: Studio to preview, with `{ enabled }`. Whether a click on
- *   content picks the field it came from, rather than doing what a click on
- *   the site does.
+ * - `picking`: Studio to preview, with `{ enabled, editing? }`. Whether a
+ *   click on content picks the field it came from, rather than doing what a
+ *   click on the site does - and, with `editing`, whether the Studio may
+ *   answer the pick by asking to type in it (Select & edit).
  * - `pick`: preview to Studio, with `{ paths }`. The editor clicked content
  *   with these source paths behind it (from its `data-val-path`).
+ * - `theme`: Studio to preview, with `{ selection }`. The project's
+ *   selection colour, which a pick's outline and a text being typed in are
+ *   drawn in, as the canvas is told it.
+ *
+ * Typing in a text where the preview shows it (Select & edit) is the
+ * canvas's own conversation, in its own messages (`editInline`,
+ * `inlineEditStarted`, `inlineEdit`, ... in `@valbuild/shared`'s
+ * `valCanvasProtocol.ts`): the preview's bridge answers them as the canvas
+ * bridge does.
  */
 export const VAL_PREVIEW_MESSAGES: {
   ready: "val-preview-ready";
@@ -317,12 +327,14 @@ export const VAL_PREVIEW_MESSAGES: {
   size: "val-preview-size";
   picking: "val-preview-picking";
   pick: "val-preview-pick";
+  theme: "val-preview-theme";
 } = {
   ready: "val-preview-ready",
   refresh: "val-preview-refresh",
   size: "val-preview-size",
   picking: "val-preview-picking",
   pick: "val-preview-pick",
+  theme: "val-preview-theme",
 };
 
 /**

@@ -4,6 +4,8 @@ import {
   storeQuickPreview,
 } from "@valbuild/shared/internal";
 import type { QuickPreviewStorer } from "../shell/canvas/CanvasFrame";
+import type { CanvasInlineEdit } from "../shell/canvas/useCanvasInlineEdit";
+import type { CanvasSelectMode } from "../../hooks/selectModePreference";
 
 /**
  * Which build of the site's code the component previews are rendered with,
@@ -24,6 +26,27 @@ export type ComponentsCode = {
   quickId: string | null;
   documentKey: string;
   onDocument?: (document: { quick: string | null }) => void;
+  /**
+   * The project's selection colours, as the canvas is given them
+   * (`canvasSelectionColors`): the outline a pick in a preview draws, and
+   * the caret's field when typing in one.
+   */
+  selection?: { selection: string; selectionSoft: string };
+  /**
+   * Content's Select mode, the one beside a page's preview: the same state,
+   * not a second copy of the remembered choice, so switching it in either
+   * place switches it in both.
+   */
+  select?: {
+    mode: CanvasSelectMode;
+    onModeChange: (mode: CanvasSelectMode) => void;
+  };
+  /**
+   * Editing on the page, from the Studio's side: the shell's one
+   * `useCanvasInlineEdit`, so what is typed in a component's preview is
+   * written, and given its formatting controls, as it is in the canvas.
+   */
+  inlineEdit?: CanvasInlineEdit;
 };
 
 export const ComponentsCodeContext = createContext<ComponentsCode>({

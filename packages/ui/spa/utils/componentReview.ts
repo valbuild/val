@@ -6,7 +6,6 @@ import {
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
-import type { StudioComponent } from "./collectComponents";
 
 /**
  * The route in the host app that renders the value at one source path with
@@ -79,80 +78,4 @@ export function contentLabelOf(source: Json | undefined): string | null {
     }
   }
   return null;
-}
-
-/** Quick requests the view offers, each a sentence to the assistant. */
-export const COMPONENT_REQUESTS: readonly { label: string; request: string }[] =
-  [
-    {
-      label: "Review it",
-      request:
-        "Review this component: how it looks across the instances, on small screens, with long and empty content. List what you would change, and why, before changing anything.",
-    },
-    {
-      label: "Fit small screens",
-      request:
-        "Make this component work well on a phone-sized screen, without changing how it looks on a wide one.",
-    },
-    {
-      label: "Handle long content",
-      request:
-        "Make this component hold up with very long text and with optional content left empty.",
-    },
-  ];
-
-/**
- * What the assistant is told when asked about a component from the
- * Components view: which component, where it is linked (so it can find the
- * `.component(...)` call and, through its `import()`, the component's file),
- * where it is used, which instance the editor is looking at, and the request.
- *
- * Plain prose: the assistant reads it as the editor's message.
- */
-export function componentAssistantPrompt({
-  component,
-  shown,
-  request,
-}: {
-  component: StudioComponent;
-  /** The instance on screen, or the example. `null` when nothing is shown. */
-  shown: { path: SourcePath; example: boolean } | null;
-  request: string;
-}): string {
-  const lines: string[] = [];
-  lines.push(`This is about the component "${component.name}".`);
-  const [first, ...rest] = component.linkedAt;
-  if (first !== undefined) {
-    const where = (link: { moduleFilePath: string; at: string }) =>
-      link.at === ""
-        ? `the root schema of \`${link.moduleFilePath}\``
-        : `\`${link.at}\` in the schema of \`${link.moduleFilePath}\``;
-    lines.push(
-      `It is linked with \`.component(() => import(...))\` on the object at ${where(first)}${
-        rest.length > 0 ? `, and also at ${rest.map(where).join(", ")}` : ""
-      }. The \`import()\` there names the component's file.`,
-    );
-  }
-  const count = component.instances.length;
-  if (count === 0) {
-    lines.push("No content uses it yet.");
-  } else {
-    const listed = component.instances.slice(0, 20);
-    lines.push(
-      `It is used ${count === 1 ? "once" : `${count} times`} in the content: ${listed
-        .map((path) => `\`${path}\``)
-        .join(
-          ", ",
-        )}${count > listed.length ? `, and ${count - listed.length} more` : ""}.`,
-    );
-  }
-  if (shown !== null) {
-    lines.push(
-      shown.example
-        ? `I am looking at its example (the \`example\` given to \`.component(...)\`), rendered at ${componentPreviewUrl(shown.path, true)}.`
-        : `I am looking at \`${shown.path}\`, rendered alone at ${componentPreviewUrl(shown.path, false)}.`,
-    );
-  }
-  lines.push("", request.trim());
-  return lines.join("\n");
 }

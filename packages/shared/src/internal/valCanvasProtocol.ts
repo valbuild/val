@@ -553,6 +553,17 @@ export type ValCanvasPageMessage =
     }
   | {
       /**
+       * EXPERIMENTAL: open the component at `path` - an item of a list
+       * `ValComponentEditor` renders - in the Studio's Components view, from
+       * the controls drawn over it on the page. A studio that predates it
+       * ignores it.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "openComponent";
+      path: SourcePath;
+    }
+  | {
+      /**
        * What `editInline` asked for is happening: the caret is in the field
        * at `path`, on the page (`inlineEditing.ts`).
        */
@@ -974,6 +985,8 @@ export function isValCanvasPageMessage(
       isModulePathList((data as { modules?: unknown }).modules)) ||
     (message.type === "componentEdit" &&
       isValCanvasComponentEdit((data as { edit?: unknown }).edit)) ||
+    (message.type === "openComponent" &&
+      typeof (data as { path?: unknown }).path === "string") ||
     (message.type === "inlineEditStarted" &&
       (typeof (data as { requestId?: unknown }).requestId === "string" ||
         (data as { requestId?: unknown }).requestId === null) &&

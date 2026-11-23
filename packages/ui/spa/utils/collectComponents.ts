@@ -538,3 +538,26 @@ export function deepestUseAt(
   }
   return null;
 }
+
+/**
+ * Which component, and which use of it, `path` is: the use itself, or the
+ * deepest use it is inside (a field of a section is its section's). `null`
+ * when it is inside none.
+ */
+export function componentUseAt(
+  components: readonly StudioComponent[],
+  path: string,
+): { component: StudioComponent; instance: number } | null {
+  let found: { component: StudioComponent; instance: number } | null = null;
+  let depth = -1;
+  for (const component of components) {
+    for (let instance = 0; instance < component.instances.length; instance++) {
+      const use = component.instances[instance];
+      if (isAtOrBelow(path, use) && use.length > depth) {
+        found = { component, instance };
+        depth = use.length;
+      }
+    }
+  }
+  return found;
+}

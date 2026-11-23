@@ -124,7 +124,11 @@ import {
 import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
 import { placePanes } from "./workspace/placePanes";
 import { PaneStrip, SideTabs } from "./workspace/WorkspaceChrome";
-import { PaneSwitches, type PaneSwitch } from "./workspace/PaneSwitches";
+import {
+  PaneSwitches,
+  type PaneSwitch,
+  type PreviewSource,
+} from "./workspace/PaneSwitches";
 import type { JsonValuesLoadStatus } from "../useJsonValuesLoad";
 import {
   ShellBreakpoint,
@@ -469,6 +473,14 @@ export type ShellProps = {
    */
   stage?: ReactNode;
   /**
+   * What the Preview pane shows, and the way to change it: the Preview
+   * switch's menu offers Page and Components. See `PreviewSource`.
+   */
+  previewSource?: {
+    current: PreviewSource;
+    onChange: (source: PreviewSource) => void;
+  };
+  /**
    * EXPERIMENTAL: the Components view (`VAL_COMPONENTS_ROUTE`), in the rail,
    * for a project that links components to its content. Absent otherwise:
    * an icon that opens an empty view reads as something broken.
@@ -771,6 +783,7 @@ export function Shell({
   renderExternalPages,
   editorOverride,
   stage,
+  previewSource,
   components,
   sketchPane,
   canvasPinned = false,
@@ -1763,6 +1776,16 @@ export function Shell({
    * edit opens it again -- a field opened is a field to be seen.
    */
   const [contentOpen, setContentOpen] = useState(true);
+  /**
+   * Whether the stage is shown, while there is one: the Preview switch
+   * shows and hides it as it does the page. Shown again each time the
+   * stage is chosen.
+   */
+  const [stageOpen, setStageOpen] = useState(true);
+  const hasStage = stage !== undefined;
+  useEffect(() => {
+    if (hasStage) setStageOpen(true);
+  }, [hasStage]);
   useEffect(() => {
     setContentOpen(true);
   }, [selectionId]);
@@ -1771,9 +1794,9 @@ export function Shell({
       content: contentOpen,
       // History takes the preview's place: the column is there either way.
       preview:
-        stage !== undefined ||
-        (isCanvasOpen && canCanvas) ||
-        history !== undefined,
+        stage !== undefined
+          ? stageOpen
+          : (isCanvasOpen && canCanvas) || history !== undefined,
       // A sketch is about a page, and the stage shows none
       sketch: sketchOpen && stage === undefined,
       chat: aiEnabled && chatOpen,
@@ -1787,6 +1810,7 @@ export function Shell({
       aiEnabled,
       chatOpen,
       stage,
+      stageOpen,
     ],
   );
   /** The widths the columns were dragged to: see `ColumnDivider`. */
@@ -1825,7 +1849,7 @@ export function Shell({
    */
   const switchedOn = {
     content: contentOpen,
-    preview: stage !== undefined || (isCanvasOpen && canCanvas),
+    preview: stage !== undefined ? stageOpen : isCanvasOpen && canCanvas,
     sketch: stage === undefined && sketchpad?.open === true,
     chat: aiEnabled && chatOpen,
   };
@@ -1844,13 +1868,14 @@ export function Shell({
     {
       pane: "preview",
       open: switchedOn.preview,
-      onToggle: togglePreview,
-      unavailable:
+      onToggle:
         stage !== undefined
-          ? "The components are shown here, in the preview's place"
-          : !canCanvas
-            ? "There is no page to show for this"
-            : lastOpen("preview"),
+          ? () => setStageOpen((open) => !open)
+          : togglePreview,
+      unavailable:
+        stage === undefined && !canCanvas
+          ? "There is no page to show for this"
+          : lastOpen("preview"),
     },
   ];
   if (sketchpad !== undefined) {
@@ -1925,6 +1950,7 @@ export function Shell({
         onPreview={onPreview ?? (() => undefined)}
         previewHref={previewHref}
         switches={switches}
+        previewSource={previewSource}
       />
     );
   useEffect(() => {
@@ -2037,7 +2063,7 @@ export function Shell({
             skipTransition={skipTransition}
             previewStatus={previewStatus}
             replacePreview={
-              breakpoint !== "mobile" && stage !== undefined ? (
+              breakpoint !== "mobile" && stage !== undefined && stageOpen ? (
                 <div className="h-full min-h-0" data-val-pane="components">
                   {stage}
                 </div>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Internal, type ModuleFilePath, type SourcePath } from "@valbuild/core";
+import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
   BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
@@ -21,8 +21,9 @@ import {
   screenshotPage,
   restoreScroll,
   startElementPicking,
-  startInlineEditing,
   storeQuickPreview,
+  startInlineEditFirst as startFirst,
+  findElementByValPath as findByPath,
   watchPageLocation,
   VAL_CANVAS_MESSAGE,
   isCodeChangedDetail,
@@ -1190,89 +1191,6 @@ function isScrollable(el: Element): boolean {
 }
 
 const NO_PATHS: ReadonlySet<string> = new Set();
-
-/**
- * Start editing the first of `candidates` an element on the page shows and
- * nothing else: the picked element when it carries the candidate's path,
- * else the first element that does. `null` when none can be.
- *
- * What `editInline` does, and what a click does by itself when the Studio has
- * said ahead of it what the element's texts hold (`textFields`): one way to
- * start, whichever asked.
- */
-function startFirst(
-  candidates: readonly InlineEditCandidate[],
-  pick: { element: Element; x: number; y: number } | null,
-  options: {
-    color: string;
-    reply: (answer: ValCanvasPageMessage) => void;
-  },
-): { editing: InlineEditing; path: SourcePath } | null {
-  const { reply } = options;
-  for (const candidate of candidates) {
-    const picked =
-      pick !== null &&
-      pick.element.isConnected &&
-      pathOn(pick.element, candidate.path) !== null
-        ? pick.element
-        : null;
-    const element = picked ?? findByPath(candidate.path);
-    if (element === null) continue;
-    const path = pathOn(element, candidate.path);
-    if (path === null) continue;
-    const editing = startInlineEditing(element, candidate, {
-      // Where the click was, when it was on this element.
-      at: picked !== null && pick !== null ? { x: pick.x, y: pick.y } : null,
-      color: options.color,
-      onChange: (value) =>
-        reply({
-          val: VAL_CANVAS_MESSAGE,
-          type: "inlineEdit",
-          path,
-          value,
-        }),
-      onEnd: () =>
-        reply({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path }),
-      onSelection: (selection, rect, caret) =>
-        reply({
-          val: VAL_CANVAS_MESSAGE,
-          type: "inlineEditSelection",
-          path,
-          selection,
-          rect,
-          caret,
-        }),
-    });
-    if (editing !== null) return { editing, path };
-  }
-  return null;
-}
-
-function findByPath(path: string): Element | null {
-  const elements = document.querySelectorAll("[data-val-path]");
-  for (const el of Array.from(elements)) {
-    if (pathOn(el, path) !== null) return el;
-  }
-  return null;
-}
-
-/**
- * `path` as `element` carries it, or null when it does not.
- *
- * Compared as strings: the split returns branded `SourcePath`s and what came
- * back over `postMessage` is a plain string, which is the same value. What is
- * returned is the element's own, so it is a `SourcePath` without anyone
- * having to say so.
- */
-function pathOn(element: Element, path: string): SourcePath | null {
-  const attribute = element.getAttribute("data-val-path");
-  if (!attribute) return null;
-  return (
-    Internal.splitJoinedSourcePaths(attribute).find(
-      (candidate) => candidate === path,
-    ) ?? null
-  );
-}
 
 /** What `screenshotPage` answers: the picture, or why it could not be taken. */
 async function screenshotReply(

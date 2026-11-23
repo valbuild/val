@@ -86,6 +86,18 @@ async function showControls(frame: FrameLocator, item: Locator, y = 20) {
   });
 }
 
+test("a section's controls open it in the Components view", async ({
+  page,
+}) => {
+  const frame = await openLanding(page);
+  const sections = sectionsOf(frame);
+  await expect(sections).toHaveCount(4, { timeout: 60_000 });
+  await showControls(frame, sections.nth(0));
+  await frame.getByRole("button", { name: "Open in Components" }).click();
+  await expect(page).toHaveURL(/\/val\/components\?.*component=/);
+  await expect(page.getByTestId("component-fields")).toContainText("Hero");
+});
+
 test.describe("arranging sections on the page", () => {
   test.afterEach(async ({ page }) => {
     await discardAll(page);

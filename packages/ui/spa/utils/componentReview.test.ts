@@ -3,31 +3,11 @@ import {
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
-import type { StudioComponent } from "./collectComponents";
 import {
-  componentAssistantPrompt,
   componentPreviewUrl,
   contentLabelOf,
   pageRouteOf,
 } from "./componentReview";
-
-const hero: StudioComponent = {
-  id: "abc",
-  name: "Hero",
-  named: false,
-  hasExample: true,
-  linkedAt: [
-    {
-      moduleFilePath: "/src/routes/_site.landing.val.ts" as ModuleFilePath,
-      at: "*.sections.*",
-    },
-    { moduleFilePath: "/other.val.ts" as ModuleFilePath, at: "" },
-  ],
-  instances: [
-    '/src/routes/_site.landing.val.ts?p="/landing"."sections".0' as SourcePath,
-    "/other.val.ts" as SourcePath,
-  ],
-};
 
 describe("componentPreviewUrl", () => {
   test("the path in the query, and example when asked", () => {
@@ -80,33 +60,5 @@ describe("contentLabelOf", () => {
     expect(contentLabelOf({ count: 3 })).toBe(null);
     expect(contentLabelOf(null)).toBe(null);
     expect(contentLabelOf({ text: "x".repeat(100) })?.length).toBe(80);
-  });
-});
-
-describe("componentAssistantPrompt", () => {
-  test("says which component, where it is linked and used, what is shown, and the request", () => {
-    const prompt = componentAssistantPrompt({
-      component: hero,
-      shown: { path: hero.instances[0], example: false },
-      request: "Make the title bigger. ",
-    });
-    expect(prompt).toContain('the component "Hero"');
-    expect(prompt).toContain(
-      "`*.sections.*` in the schema of `/src/routes/_site.landing.val.ts`",
-    );
-    expect(prompt).toContain("the root schema of `/other.val.ts`");
-    expect(prompt).toContain("used 2 times");
-    expect(prompt).toContain(`I am looking at \`${hero.instances[0]}\``);
-    expect(prompt.endsWith("\n\nMake the title bigger.")).toBe(true);
-  });
-
-  test("the example, and a component nothing uses", () => {
-    const prompt = componentAssistantPrompt({
-      component: { ...hero, instances: [] },
-      shown: { path: hero.instances[0], example: true },
-      request: "Review it",
-    });
-    expect(prompt).toContain("No content uses it yet.");
-    expect(prompt).toContain("looking at its example");
   });
 });

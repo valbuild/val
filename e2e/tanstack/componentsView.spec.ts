@@ -25,12 +25,15 @@ test("the rail opens every component, rendered by the site", async ({
   }
   await expect(page.getByTestId("component-card-Card")).toContainText("3 uses");
   // Laid out like a page: the components in the preview's place, which
-  // cannot be switched off, and the list of them in the Content pane
+  // the Preview switch hides and shows as it does the page
   const panes = page.getByRole("group", { name: "Workspace panes" });
-  await expect(
-    panes.getByRole("button", { name: "Close the canvas" }),
-  ).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByTestId("components-index")).toContainText("Card");
+  await panes.getByRole("button", { name: "Close the canvas" }).click();
+  await expect(board).toBeHidden();
+  await expect(page.getByTestId("components-index")).toBeVisible();
+  await panes.getByRole("button", { name: "Open the canvas" }).click();
+  await expect(board).toBeVisible();
+
   // The site renders it: the hero's headline, from the content
   await expect(
     page
@@ -132,4 +135,57 @@ test("a page's components, stacked as its content has them", async ({
   await expect(
     page.getByRole("button", { name: "Stop selecting on the page" }),
   ).toBeVisible();
+});
+
+test("the Preview switch's menu chooses between the page and the components", async ({
+  page,
+}) => {
+  await openStudio(
+    page,
+    `/val/~/src/routes/_site.landing.val.ts?p=${encodeURIComponent('"/landing"')}`,
+  );
+  await page.getByRole("button", { name: "Other ways to preview" }).click();
+  await page.getByRole("menuitemradio", { name: /Components/ }).click();
+  await expect(page).toHaveURL(/\/val\/components/);
+  await expect(page.getByTestId("components-board")).toBeVisible();
+  // Back to the page that was open
+  await page.getByRole("button", { name: "Other ways to preview" }).click();
+  await page.getByRole("menuitemradio", { name: /Page/ }).click();
+  await expect(page).toHaveURL(/_site\.landing\.val\.ts/);
+});
+
+test("Select & edit types in the component's preview", async ({ page }) => {
+  await openStudio(page, "/val/components");
+  await page.getByTestId("component-card-Card").click();
+  await page
+    .getByRole("button", { name: "Choose what selecting on the page does" })
+    .click();
+  await page.getByRole("menuitemradio", { name: /Select & edit/ }).click();
+  const frame = page.frameLocator('iframe[title^="Card:"]');
+  await frame.getByText("A schema").click({ timeout: 30_000 });
+  await page.keyboard.press("End");
+  await page.keyboard.type(" here");
+  // Written as the field in Content writes it
+  await expect(
+    page.getByTestId("component-fields").getByRole("textbox").first(),
+  ).toHaveValue("A schema here", { timeout: 15_000 });
+  await page.keyboard.press("Escape");
+  await discardAll(page);
+});
+
+test("a linked object's fields lead to it in the Components view", async ({
+  page,
+}) => {
+  await openStudio(
+    page,
+    `/val/~/src/routes/_site.landing.val.ts?p=${encodeURIComponent('"/landing"')}`,
+  );
+  await page
+    .getByRole("button", { name: "Show in Components" })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/val\/components\?.*component=/);
+  await expect(page.getByTestId("component-fields")).toContainText(
+    "Call to action",
+  );
 });

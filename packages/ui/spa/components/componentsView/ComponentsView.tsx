@@ -16,8 +16,6 @@ import {
   LayoutGrid,
   RotateCw,
   Search,
-  Send,
-  Sparkles,
   Square,
 } from "lucide-react";
 import {
@@ -39,7 +37,6 @@ import {
 } from "../ValFieldProvider";
 import { AnyField } from "../AnyField";
 import { scrollToStudioPath } from "../ValRouter";
-import { useAIChatActions } from "../AIChatActionsContext";
 import { useDescriptions } from "../useDescriptions";
 import { useValSystem } from "../../stores/react/SystemContext";
 import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
@@ -54,13 +51,16 @@ import {
   type StudioComponent,
 } from "../../utils/collectComponents";
 import {
-  COMPONENT_REQUESTS,
-  componentAssistantPrompt,
   contentLabelOf,
   pageRouteOf,
   VAL_COMPONENT_PREVIEW_ROUTE,
 } from "../../utils/componentReview";
-import { ComponentFrame, type ComponentFrameStatus } from "./ComponentFrame";
+import {
+  ComponentFrame,
+  type ComponentFrameInline,
+  type ComponentFrameStatus,
+} from "./ComponentFrame";
+import { useComponentsCode } from "./componentsCode";
 import { SelectButton } from "../shell/SelectButton";
 import { CanvasDeviceButtons } from "../shell/canvas/CanvasToolbar";
 import { CANVAS_GROUND } from "../shell/canvas/CanvasWindow";
@@ -749,7 +749,8 @@ function ComponentDetail({
                 example={example}
                 width={widthOf(state.device)}
                 picking={select.picking && !example}
-                onPick={select.onPick}
+                onPick={(paths) => select.onPick(instance, paths)}
+                inline={example ? null : select.inlineFor(instance)}
                 reloadKey={reloadKey}
                 contentVersion={moduleSourceOf(sources, instance)}
                 title={`${component.name}: ${example ? "example" : (shownLabel?.title ?? "")}`}
@@ -849,13 +850,7 @@ function ComponentDetail({
         </div>
       </StageHeader>
       <StagePanel>
-        <div className="flex flex-col gap-3 p-4">
-          <AskAboutComponent
-            component={component}
-            shown={instance === undefined ? null : { path: instance, example }}
-          />
-          {stage}
-        </div>
+        <div className="flex flex-col gap-3 p-4">{stage}</div>
       </StagePanel>
     </StageLayout>
   );
@@ -919,79 +914,6 @@ function ToolbarToggle({
     >
       {children}
     </button>
-  );
-}
-
-/**
- * A line to ask the assistant to change the component on screen, and a few
- * common requests. What is sent says which component it is, where it is
- * linked and every place it is used (`componentAssistantPrompt`), and the
- * conversation goes on in the Assistant pane, which opens from the top bar
- * as it does beside a page - this is only where it is started from.
- */
-function AskAboutComponent({
-  component,
-  shown,
-}: {
-  component: StudioComponent;
-  shown: { path: SourcePath; example: boolean } | null;
-}) {
-  const { isAIChatEnabled, askAssistant } = useAIChatActions();
-  const [request, setRequest] = useState("");
-  const ask = useCallback(
-    (text: string) => {
-      if (text.trim().length === 0) return;
-      askAssistant(
-        componentAssistantPrompt({ component, shown, request: text }),
-      );
-      setRequest("");
-    },
-    [askAssistant, component, shown],
-  );
-  if (!isAIChatEnabled) {
-    return null;
-  }
-  return (
-    <div
-      className="flex flex-wrap items-center gap-2"
-      data-testid="component-ask"
-    >
-      <form
-        className="flex items-center flex-1 min-w-[16rem] gap-2 px-2 border rounded-md h-9 border-border-primary bg-bg-primary focus-within:border-border-secondary"
-        onSubmit={(event) => {
-          event.preventDefault();
-          ask(request);
-        }}
-      >
-        <Sparkles size={14} className="shrink-0 text-fg-tertiary" />
-        <input
-          aria-label={`Ask the assistant to change ${component.name}`}
-          value={request}
-          onChange={(event) => setRequest(event.target.value)}
-          placeholder={`Ask the assistant to change ${component.name}…`}
-          className="flex-1 min-w-0 text-sm bg-transparent outline-none text-fg-primary placeholder:text-fg-tertiary"
-        />
-        <button
-          type="submit"
-          aria-label="Ask"
-          disabled={request.trim() === ""}
-          className="grid w-6 h-6 rounded place-items-center text-fg-secondary hover:text-fg-primary disabled:opacity-40"
-        >
-          <Send size={14} />
-        </button>
-      </form>
-      {COMPONENT_REQUESTS.map((option) => (
-        <button
-          key={option.label}
-          type="button"
-          onClick={() => ask(option.request)}
-          title={option.request}
-          className="px-2 py-1 text-xs border rounded-full border-border-primary text-fg-secondary hover:text-fg-primary hover:border-border-secondary"
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -1178,36 +1100,64 @@ type StageSelect = {
   setPicking: (picking: boolean) => void;
   mode: CanvasSelectMode;
   setMode: (mode: CanvasSelectMode) => void;
-  onPick: (paths: SourcePath[]) => void;
+  /** A pick in the frame `frame` (its path): what Select does with it. */
+  onPick: (frame: string, paths: SourcePath[]) => void;
+  /** Typing in place, for the frame `frame`: `null` while Select & edit is not in use. */
+  inlineFor: (frame: string) => ComponentFrameInline | null;
 };
 
 /**
- * The stage's Select: the same button, the same two modes and the same
- * remembered choice as Content's Select beside a page's preview
- * (`SelectButton`, `useSelectModePreference`).
+ * The stage's Select: Content's Select from beside a page's preview - the
+ * same button, and the same state, handed down by the shell
+ * (`ComponentsCode.select`), so switching its mode here switches it there.
  *
  * - **Select** opens the picked field in the Content pane: scrolled to.
- * - **Select & edit** does that and puts the caret in it. On a page the
- *   caret goes into the text where the page shows it; a component preview
- *   is rendered by the preview route, which does not take part in editing
- *   on the page, so here it goes into the field in Content.
+ * - **Select & edit** puts the caret in a picked text where the component
+ *   shows it - the canvas's own editing on the page (`useCanvasInlineEdit`,
+ *   the shell's one), answered in the frame by the preview route's bridge -
+ *   and opens anything else in Content, as the canvas does.
  */
 function useStageSelect(onPicked?: (path: SourcePath) => void): StageSelect {
+  const code = useComponentsCode();
   const [picking, setPicking] = useState(true);
-  const [mode, setMode] = useSelectModePreference();
+  // Only where no shell hands one down: a story, a test
+  const [ownMode, setOwnMode] = useSelectModePreference();
+  const mode = code.select?.mode ?? ownMode;
+  const setMode = code.select?.onModeChange ?? setOwnMode;
+  const edit = code.inlineEdit ?? null;
+  const [inlineFrame, setInlineFrame] = useState<string | null>(null);
   const onPickedRef = useRef(onPicked);
   onPickedRef.current = onPicked;
+  const open = useCallback((paths: SourcePath[]) => {
+    const picked = paths[0];
+    if (picked === undefined) return;
+    scrollToStudioPath(picked);
+  }, []);
   const onPick = useCallback(
-    (paths: SourcePath[]) => {
+    (frame: string, paths: SourcePath[]) => {
       const picked = paths[0];
       if (picked === undefined) return;
       onPickedRef.current?.(picked);
-      scrollToStudioPath(picked);
-      if (mode === "edit") focusStudioField(picked);
+      if (mode === "edit" && edit !== null && edit.offer(paths)) {
+        setInlineFrame(frame);
+        return;
+      }
+      open(paths);
     },
-    [mode],
+    [mode, edit, open],
   );
-  return { picking, setPicking, mode, setMode, onPick };
+  const inlineFor = useCallback(
+    (frame: string): ComponentFrameInline | null =>
+      edit === null || mode !== "edit"
+        ? null
+        : {
+            edit,
+            request: inlineFrame === frame ? edit.request : null,
+            onFallback: open,
+          },
+    [edit, mode, inlineFrame, open],
+  );
+  return { picking, setPicking, mode, setMode, onPick, inlineFor };
 }
 
 function StageSelectButton({ select }: { select: StageSelect }) {
@@ -1220,25 +1170,6 @@ function StageSelectButton({ select }: { select: StageSelect }) {
       onModeChange={select.setMode}
     />
   );
-}
-
-/** Put the caret in the field at `path` in the Content pane, once it is there. */
-function focusStudioField(path: string, retries = 20) {
-  const attempt = (left: number) => {
-    const root = document.getElementById("val-shadow-root")?.shadowRoot;
-    const field = root?.querySelector(
-      `[data-val-studio-path="${CSS.escape(path)}"]`,
-    );
-    const input = field?.querySelector<HTMLElement>(
-      "input:not([type=hidden]), textarea, [contenteditable=true]",
-    );
-    if (input) {
-      input.focus();
-    } else if (left > 0) {
-      window.setTimeout(() => attempt(left - 1), 100);
-    }
-  };
-  attempt(retries);
 }
 
 /** The Pages mode in the preview's place: the pages, or one page's components stacked. */
@@ -1434,7 +1365,8 @@ function UseBlock({
             path={use.path}
             width={widthOf(view.state.device)}
             picking={select.picking}
-            onPick={select.onPick}
+            onPick={(paths) => select.onPick(use.path, paths)}
+            inline={select.inlineFor(use.path)}
             reloadKey={reloadKey}
             lazy
             contentVersion={moduleSourceOf(sources, use.path)}
