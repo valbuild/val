@@ -20,6 +20,13 @@ test.use({ viewport: { width: 1440, height: 600 } });
 /** Over the editor, clear of the panel on the left. */
 const EDITOR = { x: 900, y: 450 };
 
+/** A destination's button on the left rail, and nothing else named like it. */
+function railButton(page: Page, name: string) {
+  return page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("button", { name, exact: true });
+}
+
 /** How far the Studio's scrollers have scrolled, together. */
 function scrolled(page: Page): Promise<number> {
   return page.evaluate(() => {
@@ -38,7 +45,7 @@ for (const panel of ["Pages", "Media", "Data"]) {
     page,
   }) => {
     await openStudio(page, "/val/~/content/mediaFields.val.ts");
-    await page.getByRole("button", { name: panel }).first().click();
+    await railButton(page, panel).click();
     const dialog = page.getByRole("dialog", { name: panel });
     await expect(dialog).toBeVisible();
 
@@ -68,9 +75,32 @@ test("the rail's button closes the panel it opened, rather than reopening it", a
   page,
 }) => {
   await openStudio(page, "/val/~/content/mediaFields.val.ts");
-  const pages = page.getByRole("button", { name: "Pages" }).first();
+  const pages = railButton(page, "Pages");
   await pages.click();
   await expect(page.getByRole("dialog", { name: "Pages" })).toBeVisible();
   await pages.click();
   await expect(page.getByRole("dialog", { name: "Pages" })).toHaveCount(0);
+});
+
+/**
+ * A click in the canvas's preview closes the panel, as it did when the scrim
+ * caught it. The preview is an iframe, so the click never reaches the
+ * Studio's window; the focus moving into it does.
+ */
+test("a click in the canvas's preview closes the panel", async ({ page }) => {
+  await openStudio(
+    page,
+    `/val/~/src/routes/_site.showcase.val.ts?p=${encodeURIComponent('"/showcase"')}&canvas=1`,
+  );
+  const frame = page.locator("iframe").first();
+  await expect(frame).toBeVisible({ timeout: 60_000 });
+  await railButton(page, "Pages").click();
+  const dialog = page.getByRole("dialog", { name: "Pages" });
+  await expect(dialog).toBeVisible();
+  const box = await frame.boundingBox();
+  if (!box) throw new Error("the preview has no box");
+  await page.mouse.click(box.x + box.width - 60, box.y + box.height / 2);
+  await expect(dialog, "a click in the preview did not close it").toHaveCount(
+    0,
+  );
 });

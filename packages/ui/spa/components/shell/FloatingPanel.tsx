@@ -383,6 +383,13 @@ export function PanelEmptyState({ children }: { children: ReactNode }) {
  * Capture phase, on the window, so it runs whatever the target does with the
  * event. A click with `detail === 0` came from a keyboard, which has no point
  * on screen to test, and the scrim never saw those either.
+ *
+ * A click in an IFRAME never reaches this window -- the canvas's preview of
+ * the site is one -- and the scrim used to be what caught it. What does reach
+ * the window is the focus leaving for the frame, so on `blur` the frame that
+ * took focus is hit tested instead: if the scrim would cover it, it was
+ * outside. A frame inside the panel (a proposal's code) is not under the
+ * scrim, and does not close it.
  */
 function useClickOutside(
   scrimRef: RefObject<HTMLDivElement | null>,
@@ -394,14 +401,57 @@ function useClickOutside(
     const onClick = (e: MouseEvent) => {
       const scrim = scrimRef.current;
       if (!scrim || e.detail === 0) return;
-      const root = scrim.getRootNode();
-      if (!(root instanceof ShadowRoot || root instanceof Document)) return;
-      scrim.style.pointerEvents = "auto";
-      const topmost = root.elementFromPoint(e.clientX, e.clientY);
-      scrim.style.pointerEvents = "";
-      if (topmost === scrim) onClose();
+      if (scrimCoversAny(scrim, [[e.clientX, e.clientY]])) onClose();
+    };
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const onBlur = () => {
+      // The frame is the active element once the focus has moved, which is
+      // not yet true in every browser while `blur` is dispatched.
+      clearTimeout(pending);
+      pending = setTimeout(() => {
+        const scrim = scrimRef.current;
+        if (!scrim) return;
+        const root = scrim.getRootNode();
+        if (!(root instanceof ShadowRoot || root instanceof Document)) return;
+        const frame = root.activeElement;
+        if (!(frame instanceof HTMLIFrameElement)) return;
+        const r = frame.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        // A panel can cover part of the frame, so more than its middle.
+        const points: [number, number][] = [
+          [r.left + r.width / 2, r.top + r.height / 2],
+          [r.left + 4, r.top + 4],
+          [r.right - 4, r.top + 4],
+          [r.left + 4, r.bottom - 4],
+          [r.right - 4, r.bottom - 4],
+        ];
+        if (scrimCoversAny(scrim, points)) onClose();
+      }, 0);
     };
     window.addEventListener("click", onClick, true);
-    return () => window.removeEventListener("click", onClick, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      clearTimeout(pending);
+      window.removeEventListener("click", onClick, true);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [scrimRef, enabled, onClose]);
+}
+
+/**
+ * Whether the scrim, if it took the pointer, would be the topmost element at
+ * any of `points`. Asked of the browser, so it is the real stacking.
+ */
+function scrimCoversAny(
+  scrim: HTMLElement,
+  points: [number, number][],
+): boolean {
+  const root = scrim.getRootNode();
+  if (!(root instanceof ShadowRoot || root instanceof Document)) return false;
+  scrim.style.pointerEvents = "auto";
+  try {
+    return points.some(([x, y]) => root.elementFromPoint(x, y) === scrim);
+  } finally {
+    scrim.style.pointerEvents = "";
+  }
 }
