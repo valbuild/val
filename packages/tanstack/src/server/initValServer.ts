@@ -10,7 +10,7 @@ import {
   serverCanStartLazily,
   type ValApiOptions,
 } from "@valbuild/server/internal";
-import { settledOnce } from "@valbuild/shared/internal";
+import { keptOnce } from "@valbuild/shared/internal";
 import { VERSION } from "../version";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
 
@@ -276,20 +276,18 @@ const initValApiHandler = (
    * says which build is live, so nothing depends on when this one is built --
    * and a deployed site's cold start does not pay for it.
    */
-  // fs and memory mode: started with the app, and shared while it starts.
-  // These run in Node, in a developer's own process or a test, where a
-  // promise belongs to no request.
-  const started = serverCanStartLazily(options) ? null : loadRouter();
-  // Reported by the first request, not as an unhandled rejection at start.
-  started?.catch(() => {});
-  // http mode: loaded by the first request that needs it, and kept once it is
-  // loaded -- the router, never the promise of it. A deployed site runs in an
-  // isolate whose requests share this closure, and there a promise made by a
-  // request that has ended fails every other request awaiting it. One that
-  // fails is loaded again by the next request.
-  const lazy = settledOnce(loadRouter);
+  // Loaded once and kept -- the router, not the promise of it (`keptOnce`):
+  // a deployed site runs in an isolate whose requests share this closure, and
+  // there a promise made by a request that has ended fails every other request
+  // awaiting it. One that fails is loaded again by the next request.
+  const router = keptOnce(loadRouter);
+  if (!serverCanStartLazily(options)) {
+    // fs and memory mode: started with the app. Reported by the first
+    // request, not as an unhandled rejection at start.
+    router().catch(() => {});
+  }
   return async (req: Request): Promise<Response> => {
-    return (await (started ?? lazy()))(req);
+    return (await router())(req);
   };
 };
 

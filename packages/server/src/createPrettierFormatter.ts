@@ -1,5 +1,5 @@
 import path from "path";
-import { settledOnce } from "@valbuild/shared/internal";
+import { keptOnce } from "@valbuild/shared/internal";
 
 /**
  * What Val calls to format a file it has just written.
@@ -136,7 +136,7 @@ export function createPrettierFormatter(
   // One that fails is loaded again by the next save.
   const loadPrettier: () => Promise<PrettierLike> =
     typeof prettierOrLoader === "function"
-      ? settledOnce(prettierOrLoader)
+      ? keptOnce(prettierOrLoader)
       : () => Promise.resolve(prettierOrLoader);
   const projectRoot = path.resolve(options.projectRoot);
   // One array, built once: prettier reads and caches the ignore file itself, so

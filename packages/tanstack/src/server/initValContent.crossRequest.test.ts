@@ -173,7 +173,7 @@ function site() {
   const edit = async (path: ModuleFilePath, patch: Patch) => {
     const runtime = runtimeOfReaders(readers.fetchValStega);
     if (runtime === null) throw new Error("the readers have no runtime");
-    const ops = (await runtime).ops;
+    const ops = (await runtime()).ops;
     await ops.createPatch(
       path,
       patch,

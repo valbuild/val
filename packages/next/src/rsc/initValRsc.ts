@@ -26,7 +26,7 @@ import {
 import { cookies, draftMode, headers } from "next/headers";
 import {
   readerSchemaVersion,
-  settledOnce,
+  keptOnce,
   type ContentSource,
 } from "@valbuild/shared/internal";
 import {
@@ -277,9 +277,9 @@ export function initValRsc(
   // layer (TypeScript, the Studio's assets), which a visitor never needs. Kept
   // once it is made -- the runtime, never the promise of it: these readers
   // outlive the request that made them, and on workerd a promise made in a
-  // request that has ended fails every request that awaits it. One that fails
-  // is made again by the next read that needs it.
-  const runtime: ReaderRuntime = settledOnce(() =>
+  // request that has ended fails every request that awaits it. Built once
+  // (`keptOnce`), and one that fails is made again by the next read.
+  const runtime: ReaderRuntime = keptOnce(() =>
     createValRuntime(
       valModules,
       "/api/val",

@@ -1,4 +1,5 @@
 import { Internal } from "@valbuild/core";
+import { isCrossRequestError } from "@valbuild/shared/internal";
 
 /*
  * workerd's refusals of work that belongs to another request.
@@ -13,16 +14,8 @@ import { Internal } from "@valbuild/core";
  * `@valbuild/shared/internal`), so it must never be reported to a person as
  * "could not be reached".
  */
-const CROSS_REQUEST = [
-  "created by a request that has since ended",
-  "on behalf of a different request",
-];
-
-/** Whether `err` is workerd refusing another request's promise or I/O. */
-export function isCrossRequestError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return CROSS_REQUEST.some((part) => message.includes(part));
-}
+/** See `isCrossRequestError` in `@valbuild/shared/internal`, where it lives. */
+export { isCrossRequestError };
 
 /**
  * `fetch`, made again -- fresh, from this request -- when the first one was

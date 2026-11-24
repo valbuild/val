@@ -106,3 +106,61 @@ export function settledOnce<V>(load: () => Promise<V>): () => Promise<V> {
   const cache = new SettledCache<true, V>();
   return () => cache.get(true, load);
 }
+
+/*
+ * workerd's refusals of work that belongs to another request: awaiting a
+ * promise made by a request that has since ended fails at once, and so does
+ * using another request's I/O object. Neither says anything about the network
+ * or the content service.
+ */
+const CROSS_REQUEST = [
+  "created by a request that has since ended",
+  "on behalf of a different request",
+];
+
+/** Whether `err` is workerd refusing another request's promise or I/O. */
+export function isCrossRequestError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return CROSS_REQUEST.some((part) => message.includes(part));
+}
+
+/**
+ * `load`, made once and kept from then on, for a load that must not be done
+ * twice at once: building a server, a runtime, loading a module.
+ *
+ * Unlike {@link settledOnce}, callers that arrive while the first load is
+ * still running join it, so it runs once. That is the one place a promise is
+ * shared between requests, and so it is guarded: a caller whose joined load is
+ * refused as another request's ({@link isCrossRequestError}) -- the request
+ * that started it ended first -- loads again, from its own request. What is
+ * kept is the value, never the promise, and a rejection keeps nothing.
+ */
+export function keptOnce<V>(load: () => Promise<V>): () => Promise<V> {
+  let kept: { value: V } | undefined;
+  let inFlight: Promise<V> | null = null;
+  const start = (): Promise<V> => {
+    const loading: Promise<V> = load().then(
+      (value) => {
+        kept = { value };
+        if (inFlight === loading) inFlight = null;
+        return value;
+      },
+      (err: unknown) => {
+        if (inFlight === loading) inFlight = null;
+        throw err;
+      },
+    );
+    inFlight = loading;
+    return loading;
+  };
+  return () => {
+    if (kept !== undefined) return Promise.resolve(kept.value);
+    if (inFlight === null) return start();
+    const joined = inFlight;
+    return joined.catch((err: unknown) => {
+      if (!isCrossRequestError(err)) throw err;
+      if (inFlight === joined) inFlight = null;
+      return kept !== undefined ? kept.value : (inFlight ?? start());
+    });
+  };
+}

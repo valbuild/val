@@ -1,7 +1,7 @@
 import type { ValConfig, ValModules } from "@valbuild/core";
 import type { ValMcp, ValToolImpl, ValOAuthConfig } from "@valbuild/mcp";
 import { valMcpMetadataOf } from "@valbuild/mcp/metadata";
-import { settledOnce } from "@valbuild/shared/internal";
+import { keptOnce } from "@valbuild/shared/internal";
 import { VERSION } from "../version";
 
 /**
@@ -47,7 +47,7 @@ export function initValMcp(
   // Loaded by the first MCP request, and kept once it is -- the tools, never
   // the promise of them: on workerd a promise made by a request that has ended
   // fails every other request awaiting it. One that fails is loaded again.
-  const loadMcp = settledOnce(
+  const loadMcp = keptOnce(
     (): Promise<ValMcp> =>
       import("@valbuild/mcp").then(({ initValMcp: initValMcpCore }) =>
         initValMcpCore(valModules, config, {

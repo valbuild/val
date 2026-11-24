@@ -26,7 +26,7 @@ import {
 } from "@valbuild/core";
 import {
   readerSchemaVersion,
-  settledOnce,
+  keptOnce,
   type ContentSource,
 } from "@valbuild/shared/internal";
 /*
@@ -46,7 +46,6 @@ import {
   readDraftChanges,
   type ReaderRuntime,
   type ValPatchStore,
-  type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
@@ -203,17 +202,15 @@ export function markContentApplied(
 }
 
 /** The runtime behind a reader: see {@link runtimeOfReaders}. */
-const runtimesOf = new WeakMap<object, () => Promise<ValRuntime>>();
+const runtimesOf = new WeakMap<object, ReaderRuntime>();
 
 /**
  * The runtime a set of readers reads through, by its `fetchValStega`: what
  * the scenario world (`scenarios/`) asks the head's size of. Nothing in the
  * product asks.
  */
-export function runtimeOfReaders(
-  fetchValStega: object,
-): Promise<ValRuntime> | null {
-  return runtimesOf.get(fetchValStega)?.() ?? null;
+export function runtimeOfReaders(fetchValStega: object): ReaderRuntime | null {
+  return runtimesOf.get(fetchValStega) ?? null;
 }
 
 /** What the hooks' server render reads the draft from: see `fetchValDraft`. */
@@ -539,9 +536,9 @@ export function initValContent(
   // not before: building it evaluates the data layer, which a visitor's page
   // never needs. Kept once it is made -- the runtime, never the promise of it:
   // these readers outlive the request that made them, and on workerd a promise
-  // made in a request that has ended fails every request that awaits it. One
-  // that fails is made again by the next read that needs it.
-  const runtime: ReaderRuntime = settledOnce(() =>
+  // made in a request that has ended fails every request that awaits it.
+  // Built once (`keptOnce`), and one that fails is made again by the next read.
+  const runtime: ReaderRuntime = keptOnce(() =>
     createValRuntime(
       valModules,
       valApiEndpoints,

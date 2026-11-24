@@ -1,4 +1,9 @@
-import { SettledCache, settledOnce } from "./settled";
+import {
+  isCrossRequestError,
+  keptOnce,
+  SettledCache,
+  settledOnce,
+} from "./settled";
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
@@ -76,4 +81,77 @@ test("keep and max decide what is kept", async () => {
   await cache.get("b", () => Promise.resolve(2));
   expect(cache.peek("a")).toBeUndefined();
   expect(cache.peek("b")).toEqual({ value: 2 });
+});
+
+/** workerd's refusal, as a joined promise of an ended request rejects with. */
+const refused = () =>
+  new Error(
+    "This promise was created by a request that has since ended, so it can never settle.",
+  );
+
+describe("keptOnce", () => {
+  test("callers that arrive while it loads share the one load", async () => {
+    const load = jest.fn(async () => "server");
+    const get = keptOnce(load);
+    expect(await Promise.all([get(), get(), get()])).toEqual([
+      "server",
+      "server",
+      "server",
+    ]);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps the value, and does not load again", async () => {
+    const load = jest.fn(async () => "server");
+    const get = keptOnce(load);
+    await get();
+    expect(await get()).toBe("server");
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  test("a caller whose joined load was refused as another request's loads again, itself", async () => {
+    let call = 0;
+    const load = jest.fn(async () => {
+      call++;
+      // The first load belongs to a request that ended before it settled.
+      if (call === 1) throw refused();
+      return "server";
+    });
+    const get = keptOnce(load);
+    const first = get(); // the request that started it, and then left
+    const second = get(); // another request, which joined it
+    await expect(first).rejects.toThrow("since ended");
+    expect(await second).toBe("server");
+    expect(await get()).toBe("server");
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  test("any other failure is the joiners' answer too, and keeps nothing", async () => {
+    let call = 0;
+    const load = jest.fn(async () => {
+      call++;
+      if (call === 1) throw new Error("no such module");
+      return "server";
+    });
+    const get = keptOnce(load);
+    const [a, b] = [get(), get()];
+    await expect(a).rejects.toThrow("no such module");
+    await expect(b).rejects.toThrow("no such module");
+    expect(await get()).toBe("server");
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("isCrossRequestError", () => {
+  test("recognises both of workerd's refusals, and nothing else", () => {
+    expect(isCrossRequestError(refused())).toBe(true);
+    expect(
+      isCrossRequestError(
+        new Error(
+          "Cannot perform I/O on behalf of a different request. I/O objects ...",
+        ),
+      ),
+    ).toBe(true);
+    expect(isCrossRequestError(new TypeError("fetch failed"))).toBe(false);
+  });
 });
