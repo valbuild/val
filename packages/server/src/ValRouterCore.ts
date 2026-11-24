@@ -35,13 +35,25 @@ export function createValRequestHandler<Res>(
   // Without this no-op catch, a config error (e.g. proxy mode without a project)
   // rejects with no handler attached, which becomes an unhandledRejection and kills
   // the dev server. The error is still reported per request by the try/catch below.
-  valServerPromise.catch(() => {
-    // handled below
-  });
+  //
+  // The server itself is kept once it is made, and every request after that
+  // reads it rather than awaiting the promise: the promise was made by
+  // whichever request first loaded the app's route module, and on workerd a
+  // request awaiting a promise of one that has ended fails. See
+  // `SettledCache` in `@valbuild/shared/internal`.
+  let made: ValServer | null = null;
+  valServerPromise.then(
+    (server) => {
+      made = server;
+    },
+    () => {
+      // handled below
+    },
+  );
   return async (req): Promise<Res> => {
     let valServer: ValServer;
     try {
-      valServer = await valServerPromise;
+      valServer = made ?? (await valServerPromise);
     } catch (err) {
       const error = {
         message: "Val: could not start the Val server",

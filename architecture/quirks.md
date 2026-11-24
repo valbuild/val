@@ -1785,6 +1785,28 @@ back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
 see it. An app that installs Val from npm is not affected:
 `@valbuild/tanstack` is pre-bundled there, with what it imports lazily.
 
+**"This promise was created by a request that has since ended, so it can
+never settle" is a promise Val KEPT between requests.** On Val's hosting a
+site runs in a workerd isolate, which serves many requests from one module
+scope, and a promise there belongs to the request that made it. The readers
+(`initValContent`), the runtime, its head and the bundle's entry imports all
+live as long as the isolate, so a cache that kept a PENDING promise -- the
+runtime, the head's chain fetch, an entry's `import()` -- handed it to the
+next request, and when the request that made it had ended (the visitor left a
+slow page) that request failed at once. Nothing in Node shows it: there a
+promise is everybody's. So a cache on the serving path keeps what a load
+settled to, and lets concurrent first callers each load: `SettledCache` and
+`settledOnce` in `@valbuild/shared/internal`. A load under way is shared only
+within one `scope` -- a read env, which is one request's `fetchVal` or one
+component's renders -- never by the process.
+`initValContent.crossRequest.test.ts` plays the isolate's rule at the edges
+(the request context, the entry imports, the patch store) against the real
+readers, and `crossRequestRoutes.test.ts` against the API (`/stat`). Such a
+refusal comes back in a millisecond or two with nothing sent, so it is not
+the network: `fetchFresh` makes a refused read once more, and
+`isCrossRequestError` keeps it from being reported as `networkError` -- which
+`/stat` answers as a 503 saying the content service could not be reached.
+
 ## fs mode refuses requests that are not the Studio's own
 
 Symptom: every `/api/val` request answers 403 in local dev, with a message

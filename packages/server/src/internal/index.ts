@@ -13,7 +13,7 @@ export {
   readDraftChanges,
   serverDraftSource,
 } from "../draftReads";
-export type { DraftModuleRead } from "../draftReads";
+export type { DraftModuleRead, ReaderRuntime } from "../draftReads";
 export {
   proposalAsBuilt,
   servingBuildOf,

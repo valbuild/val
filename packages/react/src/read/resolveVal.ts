@@ -141,7 +141,7 @@ function viewOf(
 ) {
   const schemaVersionOf = env.schemaVersionOf;
   return layered(
-    [...env.sources, bundleSource(plan.own)],
+    [...env.sources, bundleSource(plan.own, env)],
     schemaVersionOf
       ? {
           schemaOf: (path) => {

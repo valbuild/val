@@ -26,6 +26,7 @@ import {
 } from "@valbuild/core";
 import {
   readerSchemaVersion,
+  settledOnce,
   type ContentSource,
 } from "@valbuild/shared/internal";
 import {
@@ -39,6 +40,7 @@ import {
   proposalAsBuilt,
   servingBuildOf,
   readDraftChanges,
+  type ReaderRuntime,
   type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";
@@ -68,9 +70,11 @@ import type { ValHttpMode } from "./initValServer";
 /**
  * What the readers read: this process's runtime for the app's `val.modules`
  * (`createValRuntime`), the same one `initValServer`'s server is built on.
- * Its head is the draft, read with the request's session.
+ * Its head is the draft, read with the request's session. A getter, which
+ * keeps the runtime and not the promise of it: see `ReaderRuntime` in
+ * `@valbuild/server`.
  */
-export type ReaderRuntime = Promise<ValRuntime>;
+export type { ReaderRuntime };
 
 /** What a misuse of a reader is told, beside what went wrong. */
 const WHERE =
@@ -187,15 +191,17 @@ export function markContentApplied(
 }
 
 /** The runtime behind a reader: see {@link runtimeOfReaders}. */
-const runtimesOf = new WeakMap<object, ReaderRuntime>();
+const runtimesOf = new WeakMap<object, () => Promise<ValRuntime>>();
 
 /**
  * The runtime a set of readers reads through, by its `fetchValStega`: what
  * the scenario world (`scenarios/`) asks the head's size of. Nothing in the
  * product asks.
  */
-export function runtimeOfReaders(fetchValStega: object): ReaderRuntime | null {
-  return runtimesOf.get(fetchValStega) ?? null;
+export function runtimeOfReaders(
+  fetchValStega: object,
+): Promise<ValRuntime> | null {
+  return runtimesOf.get(fetchValStega)?.() ?? null;
 }
 
 /** What the hooks' server render reads the draft from: see `fetchValDraft`. */
@@ -515,33 +521,44 @@ export function initValContent(
   // One runtime per process for these modules: `initValServer`'s server is
   // built on the same one when it is given the same options, so a save
   // through the API moves what these read.
-  const runtime = createValRuntime(
-    valModules,
-    valApiEndpoints,
-    {
-      versions: {
-        // `next` is the field name in the wire contract; see initValServer.
-        next: tanstackVersion,
-        core: coreVersion,
-        framework: "tanstack",
+  // Kept once it is made -- the runtime, never the promise of it: these
+  // readers outlive the request that made them, and on workerd a promise made
+  // in a request that has ended fails every request that awaits it.
+  const runtime = settledOnce(() =>
+    createValRuntime(
+      valModules,
+      valApiEndpoints,
+      {
+        versions: {
+          // `next` is the field name in the wire contract; see initValServer.
+          next: tanstackVersion,
+          core: coreVersion,
+          framework: "tanstack",
+        },
+        ...config,
+        // Present only when the host supplied them: `sourceFiles` is what
+        // selects memory mode, so a key set to `undefined` would be a different
+        // thing from an absent one.
+        ...(opts?.sourceFiles !== undefined
+          ? { sourceFiles: opts.sourceFiles }
+          : {}),
+        ...(opts?.patchStore !== undefined
+          ? { patchStore: opts.patchStore }
+          : {}),
+        ...(opts?.unsafelyAllowUnauthenticated !== undefined
+          ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
+          : {}),
+        ...(opts?.http !== undefined ? opts.http : {}),
       },
-      ...config,
-      // Present only when the host supplied them: `sourceFiles` is what
-      // selects memory mode, so a key set to `undefined` would be a different
-      // thing from an absent one.
-      ...(opts?.sourceFiles !== undefined
-        ? { sourceFiles: opts.sourceFiles }
-        : {}),
-      ...(opts?.patchStore !== undefined
-        ? { patchStore: opts.patchStore }
-        : {}),
-      ...(opts?.unsafelyAllowUnauthenticated !== undefined
-        ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
-        : {}),
-      ...(opts?.http !== undefined ? opts.http : {}),
-    },
-    config,
+      config,
+    ),
   );
+  // Made now, as it always was -- the options reach it when the readers are
+  // made -- and kept once it is. One that fails is made again by the next
+  // read that needs it, rather than failing every read after it.
+  runtime().catch(() => {
+    // Reported by the read that needed it.
+  });
   const deps: ReaderDeps = {
     runtime,
     isEnabled,

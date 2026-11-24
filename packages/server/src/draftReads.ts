@@ -24,6 +24,21 @@ import type { ValRuntime } from "./valRuntime";
  * nothing is read for it at all.
  */
 
+/**
+ * The runtime a reader reads through. What the frameworks pass is a getter
+ * that keeps the runtime once it is made (`settledOnce`), and asks for it per
+ * read: the readers are made once per process, and a promise made in one
+ * request and awaited in another is what workerd fails a request for (see
+ * `SettledCache` in `@valbuild/shared/internal`). A promise is accepted too,
+ * for a runtime already made (the tests, the scenario world).
+ */
+export type ReaderRuntime = (() => Promise<ValRuntime>) | Promise<ValRuntime>;
+
+/** A fresh promise of the runtime, for this read. */
+function runtimeOf(runtime: ReaderRuntime): Promise<ValRuntime> {
+  return typeof runtime === "function" ? runtime() : runtime;
+}
+
 type Cookies = {
   get(name: string): { name: string; value: string } | undefined;
 };
@@ -58,7 +73,7 @@ const PASS: ModuleRead & EntryRead = { status: "pass" };
  * that fails to render is an outage.
  */
 export async function readDraftChanges(opts: {
-  runtime: Promise<ValRuntime>;
+  runtime: ReaderRuntime;
   isEnabled: () => Promise<boolean>;
   getCookies: () => Promise<Cookies>;
 }): Promise<{
@@ -73,7 +88,7 @@ export async function readDraftChanges(opts: {
     // Possibly absent: a local `fs` server answers without one. The runtime
     // decides, as the API does.
     const session = (await opts.getCookies()).get(VAL_SESSION_COOKIE)?.value;
-    const runtime = await opts.runtime;
+    const runtime = await runtimeOf(opts.runtime);
     if (!runtime.authorize(session)) {
       return null;
     }
@@ -140,7 +155,7 @@ type Loading<T> =
  * `modules: false` (the single-entry readers): every module passes.
  */
 export function serverDraftSource(opts: {
-  runtime: Promise<ValRuntime>;
+  runtime: ReaderRuntime;
   session: string | undefined;
   modules: boolean;
 }): ContentSource {
@@ -153,7 +168,7 @@ export function serverDraftSource(opts: {
    */
   let allowed: Promise<Pinned | null> | null = null;
   const runtime = (): Promise<Pinned | null> => {
-    allowed ??= opts.runtime.then(
+    allowed ??= runtimeOf(opts.runtime).then(
       async (runtime) => {
         if (!runtime.authorize(opts.session)) return null;
         const synced = await runtime.ops.head.sync();
@@ -292,7 +307,7 @@ async function readEntry(
  * gets; without it (the single-entry readers) they stay quiet, as they were.
  */
 export async function draftForRequest(opts: {
-  runtime: Promise<ValRuntime>;
+  runtime: ReaderRuntime;
   isEnabled: () => Promise<boolean>;
   getCookies: () => Promise<Cookies>;
   /**
