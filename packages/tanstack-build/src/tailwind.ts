@@ -78,10 +78,11 @@ export type LoadedCssModule = Awaited<ReturnType<CssModuleLoader>>["module"];
 
 const refuseModule = (): CssModuleLoader => (id, _base, hint) => {
   throw new Error(
-    `Tailwind's '@${hint}' is not supported here: '${id}' would have to be resolved and ` +
-      `executed while compiling CSS, and this build has no module loader for that. ` +
-      `Publishing through the CLI does support it; a browser build does not. ` +
-      `Otherwise, remove the directive or express it with @theme/@utility/@custom-variant.`,
+    `Tailwind's '@${hint} "${id}"' cannot be used in this build: it would have to load and ` +
+      `run '${id}' while compiling CSS, and a build in the browser (the Studio's) cannot ` +
+      `load a module. Express what it adds in the stylesheet instead -- theme values as ` +
+      `@theme, classes as @utility, variants as @custom-variant -- or publish from the CLI ` +
+      `(\`val publish\`), which can load it.`,
   );
 };
 
@@ -170,6 +171,11 @@ export async function compileTailwind(
   }
 
   const compiler = await compile(css, {
+    // The project root, as a project path. Not a directory on any disk: the
+    // CSS pass rewrote every relative `@config` / `@plugin` to be relative to
+    // the root (`rebaseModuleDirectives`), because the sheets were
+    // concatenated and the directory each one was in is not known here. The
+    // loader the caller supplies maps it onto the real project directory.
     base: "/",
     loadStylesheet,
     loadModule: loadModule ?? refuseModule(),

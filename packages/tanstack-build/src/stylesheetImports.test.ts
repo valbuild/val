@@ -16,6 +16,8 @@ import path from "path";
 type Probe = {
   specifiers: Array<string>;
   layerDeps: Array<string>;
+  layerDepsWithBuildTools: Array<string>;
+  layerDepsImportingVite: Array<string>;
   assetNames: Array<string>;
   assetBase64: Array<string>;
   fontBase64: string;
@@ -46,6 +48,14 @@ test("a package a stylesheet imports is collected as a stylesheet", () => {
 
 test("and is not built as code, where it would fail and be reported as skipped", () => {
   expect(probe.layerDeps).not.toContain("@fontsource-variable/inter");
+});
+
+test("a build tool nothing imports gets no layer entry, and one the app imports does", () => {
+  // Every declared dependency gets an entry so the Studio can import one added
+  // since the last publish. A Vite plugin is never imported at runtime, and
+  // building one dragged `vite` into the layer and warned on every publish.
+  expect(probe.layerDepsWithBuildTools).toEqual(["date-fns"]);
+  expect(probe.layerDepsImportingVite).toEqual(["date-fns", "vite"]);
 });
 
 test("the theme the entry sheet imports is compiled by Tailwind", () => {

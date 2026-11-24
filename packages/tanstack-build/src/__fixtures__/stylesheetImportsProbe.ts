@@ -100,6 +100,23 @@ async function main() {
       files,
     );
 
+    // Build tools: left out when nothing imports them, kept when something
+    // does, and the rest of what is declared kept either way.
+    const tooling = {
+      dependencies: {
+        "@tailwindcss/vite": "4.0.0",
+        "@tanstack/devtools-vite": "0.3.0",
+        tailwindcss: "4.0.0",
+        vite: "7.0.0",
+        "date-fns": "4.0.0",
+      },
+    };
+    const layerDepsWithBuildTools = layerDepsOf(tooling, files);
+    const layerDepsImportingVite = layerDepsOf(tooling, {
+      ...files,
+      "src/server.ts": 'import { createServer } from "vite";\n',
+    });
+
     const built = await buildUserApp({
       files,
       target: target(css),
@@ -110,6 +127,8 @@ async function main() {
       JSON.stringify({
         specifiers,
         layerDeps,
+        layerDepsWithBuildTools,
+        layerDepsImportingVite,
         assetNames: Object.keys(assets),
         assetBase64: Object.values(assets),
         fontBase64: FONT_BYTES.toString("base64"),

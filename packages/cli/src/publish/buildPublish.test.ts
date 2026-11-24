@@ -40,6 +40,7 @@ type Run = {
   warnedAboutBranch: boolean;
   warnedAboutPlatformFacts: boolean;
   typecheckSaid: string[];
+  layerSaid: string[];
 };
 
 let probe: { fresh: Run; held: Run; elsewhere: Run };
@@ -151,4 +152,29 @@ test("the build typechecks the project, and says why when it cannot", () => {
     "Typechecking",
     "Not typechecked: there is no pnpm-lock.yaml beside its package.json, and only a pnpm project with its own lockfile is typechecked.",
   ]);
+});
+
+test("a build tool in dependencies is left out of the layer, and the publish says where it belongs", () => {
+  // The starter templates list `@tailwindcss/vite` and `tailwindcss` under
+  // dependencies. Building the Vite plugin pulled `vite` in and warned twice,
+  // and neither warning said what to do. Neither is installed in the probe's
+  // project, so a layer that still tried to build them would skip them too.
+  const said = probe.fresh.layerSaid;
+  expect(said.some((line) => line.includes("@tailwindcss/vite is not"))).toBe(
+    false,
+  );
+  expect(said).toContainEqual(
+    expect.stringMatching(
+      /@tailwindcss\/vite, tailwindcss are build tools .* left out of the dependency layer\. Move them to devDependencies/,
+    ),
+  );
+});
+
+test("a dependency nothing imports that cannot be built says it is not needed to run", () => {
+  const line = probe.fresh.layerSaid.find((said) =>
+    said.includes("unused-and-unbuildable is not in the dependency layer"),
+  );
+  expect(line).toContain("Nothing in the project imports it");
+  expect(line).toContain("move it to devDependencies");
+  expect(line).not.toContain("..");
 });
