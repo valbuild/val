@@ -206,6 +206,16 @@ const buildTargetResponse = z.object({
         browser: z.record(z.string(), z.array(z.string())),
       })
       .optional(),
+    /*
+     * That the platform serves the Studio's files itself (valbuild/home's
+     * `buildAssets.ts`), so the layer carries them as build assets rather than
+     * embedded in its server code. Declared for the same reason as the two
+     * above: dropped, `val publish` built every layer with the whole Studio
+     * inside -- ~80-100 MB of each isolate's 128 MB -- and a hosted site was
+     * started again on nearly every request. Optional, for a platform that
+     * predates it.
+     */
+    buildAssets: z.boolean().optional(),
   }),
   project: z.object({
     rev: z.string().nullable(),

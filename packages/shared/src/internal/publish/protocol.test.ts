@@ -49,6 +49,17 @@ test("a platform that predates them still parses, without them", () => {
   expect(parsed.base.exports).toBeUndefined();
 });
 
+test("buildAssets reaches the build: without it the layer embeds the whole Studio", () => {
+  // Dropped by the parse, `val publish` built every layer with the Studio's
+  // files inside its server code (32 MB instead of 11 MB for 5415389), and
+  // the hosted site was started again on nearly every request.
+  expect(
+    parseBuildTarget({ ...target, base: { ...target.base, buildAssets: true } })
+      .base.buildAssets,
+  ).toBe(true);
+  expect(parseBuildTarget(target).base.buildAssets).toBeUndefined();
+});
+
 test("a failed publish says where its changes went, and that survives the parse", () => {
   // Dropped by the parse, the Studio would offer Try again on changes that
   // are no longer on the site, and never say which proposal has them.
