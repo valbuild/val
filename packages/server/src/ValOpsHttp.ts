@@ -1,5 +1,5 @@
+import { proposalJsonEntries } from "./proposalJsonEntries";
 import {
-  proposalJsonEntries,
   layeredSnapshot,
   proposalSnapshot,
   servingBuildOf,

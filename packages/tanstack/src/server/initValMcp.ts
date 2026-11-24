@@ -1,10 +1,7 @@
 import type { ValConfig, ValModules } from "@valbuild/core";
-import {
-  initValMcp as initValMcpCore,
-  type ValMcp,
-  type ValToolImpl,
-  type ValOAuthConfig,
-} from "@valbuild/mcp";
+import type { ValMcp, ValToolImpl, ValOAuthConfig } from "@valbuild/mcp";
+import { valMcpMetadataOf } from "@valbuild/mcp/metadata";
+import { settledOnce } from "@valbuild/shared/internal";
 import { VERSION } from "../version";
 
 /**
@@ -18,6 +15,13 @@ import { VERSION } from "../version";
  *
  * The version goes in the `next` field because that is the field name in the
  * wire contract; see `initValServer`.
+ *
+ * `@valbuild/mcp` is loaded by the first MCP request, not by this module: it
+ * brings Val's whole server (the tools run against its data layer), and an
+ * app's MCP route is imported by TanStack Start's route tree on every cold
+ * start, so a static import made every visitor's first request pay for it. The
+ * metadata document is the one part that must exist up front, and comes from
+ * `@valbuild/mcp/metadata`, which is light.
  */
 export function initValMcp(
   valModules: ValModules,
@@ -40,8 +44,25 @@ export function initValMcp(
   if (!tanstackVersion) {
     throw new Error("Could not get @valbuild/tanstack package version");
   }
-  return initValMcpCore(valModules, config, {
-    ...opts,
-    versions: { next: tanstackVersion },
-  });
+  // Loaded by the first MCP request, and kept once it is -- the tools, never
+  // the promise of them: on workerd a promise made by a request that has ended
+  // fails every other request awaiting it. One that fails is loaded again.
+  const loadMcp = settledOnce(
+    (): Promise<ValMcp> =>
+      import("@valbuild/mcp").then(({ initValMcp: initValMcpCore }) =>
+        initValMcpCore(valModules, config, {
+          ...opts,
+          versions: { next: tanstackVersion },
+        }),
+      ),
+  );
+  return {
+    valMcpMetadata: valMcpMetadataOf(opts?.oauth),
+    async valMcpTools() {
+      return (await loadMcp()).valMcpTools();
+    },
+    async valMcpAuthorize(request) {
+      return (await loadMcp()).valMcpAuthorize(request);
+    },
+  };
 }

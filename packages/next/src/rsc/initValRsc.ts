@@ -51,9 +51,9 @@ SET_RSC(true);
 /**
  * What the readers read: this process's runtime for the app's `val.modules`
  * (`createValRuntime`), the same one the API route's server is built on.
- * Its head is the draft, read with the request's session. A getter, which
- * keeps the runtime and not the promise of it: see `ReaderRuntime` in
- * `@valbuild/server`.
+ * Its head is the draft, read with the request's session. Asked for by the
+ * first draft read, never by a visitor's. A getter, which keeps the runtime
+ * and not the promise of it: see `ReaderRuntime` in `@valbuild/server`.
  */
 export type { ReaderRuntime };
 
@@ -272,11 +272,14 @@ export function initValRsc(
     throw new Error("Could not get @valbuild/next package version");
   }
   // One runtime per process for these modules: the API route's server is
-  // built on the same one, so a save through it moves what these read.
-  // Kept once it is made -- the runtime, never the promise of it: these
-  // readers outlive the request that made them, and on workerd a promise made
-  // in a request that has ended fails every request that awaits it.
-  const runtime = settledOnce(() =>
+  // built on the same one, so a save through it moves what these read. Built
+  // by the first draft read and not before: building it evaluates the data
+  // layer (TypeScript, the Studio's assets), which a visitor never needs. Kept
+  // once it is made -- the runtime, never the promise of it: these readers
+  // outlive the request that made them, and on workerd a promise made in a
+  // request that has ended fails every request that awaits it. One that fails
+  // is made again by the next read that needs it.
+  const runtime: ReaderRuntime = settledOnce(() =>
     createValRuntime(
       valModules,
       "/api/val",
@@ -291,12 +294,6 @@ export function initValRsc(
       config,
     ),
   );
-  // Made now, as it always was -- the options reach it when the readers are
-  // made -- and kept once it is. One that fails is made again by the next
-  // read that needs it, rather than failing every read after it.
-  runtime().catch(() => {
-    // Reported by the read that needed it.
-  });
   const deps: ReaderDeps = {
     runtime,
     isEnabled: async () => (await rscNextConfig.draftMode()).isEnabled,

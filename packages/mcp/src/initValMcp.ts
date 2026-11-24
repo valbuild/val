@@ -1,13 +1,7 @@
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { initHandlerOptions } from "@valbuild/server";
 import { createValTools } from "./tools";
-import {
-  VAL_SCOPE_READ,
-  VAL_SCOPE_WRITE,
-  type ValToolContext,
-  type ValToolImpl,
-  type ValTools,
-} from "./tools";
+import { type ValToolContext, type ValToolImpl, type ValTools } from "./tools";
 import { VERSION } from "./version";
 import {
   readBearerToken,
@@ -15,7 +9,8 @@ import {
   type ValOAuthConfig,
 } from "./valAccessToken";
 import {
-  createValMcpMetadata,
+  VAL_SCOPES_SUPPORTED,
+  valMcpMetadataOf,
   wwwAuthenticate,
   type ValMcpMetadataHandlers,
 } from "./valMcpMetadata";
@@ -160,10 +155,10 @@ export function initValMcp(
   );
 
   const oauth = opts?.oauth;
-  const scopesSupported = [VAL_SCOPE_READ, VAL_SCOPE_WRITE];
+  const scopesSupported = VAL_SCOPES_SUPPORTED;
 
   return {
-    valMcpMetadata: oauth ? createValMcpMetadata(oauth, scopesSupported) : null,
+    valMcpMetadata: valMcpMetadataOf(oauth),
 
     async valMcpTools() {
       return (setupMade ?? (await setupPromise)).tools;

@@ -8,7 +8,11 @@ import {
 import type { Patch } from "@valbuild/core/patch";
 import { raw } from "@valbuild/react/stega";
 import { InMemoryPatchStore } from "@valbuild/server";
-import { createValRuntime, headWork } from "@valbuild/server/internal";
+import {
+  createValRuntime,
+  headWork,
+  type ReaderRuntime,
+} from "@valbuild/server/internal";
 import { initFetchValKeyStega } from "./initValContent";
 
 const { s, c, config } = initVal();
@@ -28,7 +32,7 @@ const pagesVal = c.define(
 );
 
 /** A real runtime in memory mode, with these edits pending. */
-async function runtimeWith(...patches: Patch[]) {
+async function startRuntimeWith(...patches: Patch[]) {
   const valModules: ValModules = {
     config,
     modules: [{ def: async () => ({ default: pagesVal }) }],
@@ -60,6 +64,12 @@ async function runtimeWith(...patches: Patch[]) {
     );
   }
   return runtime;
+}
+
+/** {@link startRuntimeWith}, as the readers take it: started once, asked lazily. */
+function runtimeWith(...patches: Patch[]): ReaderRuntime {
+  const started = startRuntimeWith(...patches);
+  return () => started;
 }
 
 const cookies = async () => ({
@@ -123,7 +133,7 @@ describe("fetchValKey draft state", () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     try {
       const fetchValKey = initFetchValKeyStega({
-        runtime: Promise.reject(new Error("boom")),
+        runtime: () => Promise.reject(new Error("boom")),
         isEnabled: async () => true,
         getCookies: cookies,
       });

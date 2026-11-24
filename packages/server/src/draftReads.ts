@@ -24,25 +24,24 @@ import type { ValRuntime } from "./valRuntime";
  * nothing is read for it at all.
  */
 
-/**
- * The runtime a reader reads through. What the frameworks pass is a getter
- * that keeps the runtime once it is made (`settledOnce`), and asks for it per
- * read: the readers are made once per process, and a promise made in one
- * request and awaited in another is what workerd fails a request for (see
- * `SettledCache` in `@valbuild/shared/internal`). A promise is accepted too,
- * for a runtime already made (the tests, the scenario world).
- */
-export type ReaderRuntime = (() => Promise<ValRuntime>) | Promise<ValRuntime>;
-
-/** A fresh promise of the runtime, for this read. */
-function runtimeOf(runtime: ReaderRuntime): Promise<ValRuntime> {
-  return typeof runtime === "function" ? runtime() : runtime;
-}
-
 type Cookies = {
   get(name: string): { name: string; value: string } | undefined;
 };
 type Headers = { get(name: string): string | null };
+
+/**
+ * The runtime a reader reads the draft through, asked for when a read first
+ * needs it (`createValRuntime`). A function rather than a promise, so that
+ * building the readers does not build the runtime: the runtime is the data
+ * layer, and a visitor -- draft mode off -- never needs it. A caller that
+ * already has one passes `() => runtime`; it is asked at most once a read.
+ *
+ * The frameworks' getter keeps the runtime once it is made (`settledOnce`),
+ * never the promise of it: the readers are made once per process, and a
+ * promise made in one request and awaited in another is what workerd fails a
+ * request for (see `SettledCache` in `@valbuild/shared/internal`).
+ */
+export type ReaderRuntime = () => Promise<ValRuntime>;
 
 /** One module {@link readDraftChanges} read: what a reader's `reads` record. */
 export type DraftModuleRead = {
@@ -88,7 +87,7 @@ export async function readDraftChanges(opts: {
     // Possibly absent: a local `fs` server answers without one. The runtime
     // decides, as the API does.
     const session = (await opts.getCookies()).get(VAL_SESSION_COOKIE)?.value;
-    const runtime = await runtimeOf(opts.runtime);
+    const runtime = await opts.runtime();
     if (!runtime.authorize(session)) {
       return null;
     }
@@ -168,7 +167,7 @@ export function serverDraftSource(opts: {
    */
   let allowed: Promise<Pinned | null> | null = null;
   const runtime = (): Promise<Pinned | null> => {
-    allowed ??= runtimeOf(opts.runtime).then(
+    allowed ??= opts.runtime().then(
       async (runtime) => {
         if (!runtime.authorize(opts.session)) return null;
         const synced = await runtime.ops.head.sync();
