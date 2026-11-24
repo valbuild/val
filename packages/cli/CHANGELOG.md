@@ -1,5 +1,16 @@
 # @valbuild/cli
 
+## 0.154.2
+
+### Patch Changes
+
+- Updated dependencies [[`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`180b6b7`](https://github.com/valbuild/val/commit/180b6b7513226009e7eb6a768282d70685ccf436)]:
+  - @valbuild/server@0.154.2
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/tanstack-build@0.154.2
+  - @valbuild/language-server@0.154.2
+
 ## 0.154.1
 
 ### Patch Changes
