@@ -89,6 +89,62 @@ function wrap(css: string, conditions: string) {
   return out;
 }
 
+/** `@config "x"` / `@plugin 'x'`, with the quote and the id captured. */
+const MODULE_DIRECTIVE_OR_COMMENT =
+  /\/\*[\s\S]*?\*\/|(@(?:config|plugin)\s+)(["'])([^"']+)\2/g;
+
+/**
+ * `@config` / `@plugin` ids, made relative to the project root rather than to
+ * the sheet that wrote them.
+ *
+ * Tailwind resolves a relative `@config "../tailwind.config.js"` against the
+ * directory of the stylesheet it is in -- `@tailwindcss/vite` compiles each
+ * sheet with that sheet's directory as its `base`. Here the sheets are
+ * concatenated before Tailwind sees them (so the cascade comes out in the
+ * order the CSS pass found it), and the directory of each is gone by the time
+ * Tailwind runs. So it is applied here, where it is still known: the id is
+ * rewritten to the same file named from the project root, and Tailwind is
+ * compiled with the project root as its `base` (see `compileTailwind`).
+ *
+ * The first site moved onto Val failed its first publish on exactly this:
+ * `@config '../tailwind.config.js'` in `src/styles.css` was resolved from `/`.
+ *
+ * A bare id (`@plugin "@tailwindcss/typography"`) is a package, resolved from
+ * node_modules wherever it is written, and is left alone. So is an absolute
+ * one.
+ */
+export function rebaseModuleDirectives(path: string, css: string): string {
+  const from = dirname(path).split("/").filter(Boolean);
+  return css.replace(
+    MODULE_DIRECTIVE_OR_COMMENT,
+    (
+      match,
+      directive: string | undefined,
+      quote: string | undefined,
+      id: string | undefined,
+    ) => {
+      if (directive === undefined || quote === undefined || id === undefined)
+        return match;
+      if (!id.startsWith("./") && !id.startsWith("../")) return match;
+      // Not `resolve`, which stops at the root: a config one level above the
+      // project (a monorepo's shared one) has to stay one level above it,
+      // rather than turn into a file in the project that does not exist.
+      const segments = [...from];
+      let above = 0;
+      for (const segment of id.split("/")) {
+        if (segment === "" || segment === ".") continue;
+        if (segment === "..") {
+          if (segments.length > 0) segments.pop();
+          else above++;
+        } else segments.push(segment);
+      }
+      const rebased =
+        (above > 0 ? "../".repeat(above) : "./") + segments.join("/");
+      return `${directive}${quote}${rebased}${quote}`;
+    },
+  );
+}
+
 /**
  * The stylesheet at `path`, with every `@import` it can resolve inlined.
  *
@@ -102,7 +158,10 @@ export function expandCssImports(
   context: CssImportContext,
   fromDependency = false,
 ): string {
-  return css.replace(
+  // A dependency's sheet is read in CI with its own relative imports already
+  // flattened; its directives, if any, name packages.
+  const own = fromDependency ? css : rebaseModuleDirectives(path, css);
+  return own.replace(
     IMPORT_OR_COMMENT,
     (
       match,

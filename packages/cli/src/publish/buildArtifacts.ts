@@ -441,8 +441,34 @@ export async function buildArtifacts(options: {
      * package: an export the base layer does not have, most of all, which is a
      * version disagreement with the platform rather than a missing package.
      */
+    // The project's own tanstack-build may predate both: then it said
+    // nothing about either, as before.
+    const unimported = new Set(
+      "unimportedDependencies" in node
+        ? node.unimportedDependencies(manifest, sources)
+        : [],
+    );
     for (const { specifier, reason } of layer?.skipped ?? []) {
-      warnings.push(`${specifier} is not in the dependency layer: ${reason}`);
+      warnings.push(
+        `${specifier} is not in the dependency layer: ${reason.replace(/\.$/, "")}` +
+          (unimported.has(node.packageOf(specifier))
+            ? `. Nothing in the project imports it, so the site does not need it to run: ` +
+              `if it is a build tool or only used while building, move it to devDependencies.`
+            : ""),
+      );
+    }
+    const buildTools =
+      "buildToolsInDependencies" in node
+        ? node.buildToolsInDependencies(manifest, sources)
+        : [];
+    if (buildTools.length > 0) {
+      warnings.push(
+        `${buildTools.join(", ")} ${buildTools.length === 1 ? "is a build tool" : "are build tools"} ` +
+          `in dependencies that nothing in the project imports, so ` +
+          `${buildTools.length === 1 ? "it was" : "they were"} left out of the dependency layer. ` +
+          `Move ${buildTools.length === 1 ? "it" : "them"} to devDependencies: ` +
+          `dependencies are what the site needs to run.`,
+      );
     }
 
     const fileBased = await node.isFileBased(root);

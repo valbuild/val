@@ -481,6 +481,7 @@ async function buildTargets(
           externaliseBase(target.baseFrom, platform),
           pinPlatformTanstack(platform),
           stubStartEntries(),
+          externaliseStartVirtuals(),
           stubServerEntries(target.name === "browser"),
           // Before anything that could resolve `@valbuild/ui/server` itself.
           ...(target.name === "worker" && platform.base.buildAssets
@@ -747,6 +748,35 @@ export default { getRouter }
 `;
 
 const PER_PROJECT_ENTRIES = ["#tanstack-router-entry", "#tanstack-start-entry"];
+
+/**
+ * TanStack Start's virtual modules, left external ON PURPOSE.
+ *
+ * `@tanstack/start-server-core` reads the start manifest with
+ * `await import("tanstack-start-manifest:v")`, a module Start's Vite plugin
+ * makes for the app's own build. There is nothing to resolve it to here, and
+ * nothing here should: a dependency that reaches start-server-core wants a
+ * request helper, not the manifest, and the shell -- the one handler there
+ * is -- has its own. So external is the right answer, and rolldown would
+ * reach it anyway, after printing a full `UNRESOLVED_IMPORT` diagnostic for it
+ * on every publish, twice (once per side). A project with nothing wrong then
+ * published with warnings that look like something is.
+ *
+ * Exactly these ids and no pattern: an unresolved import is otherwise worth
+ * seeing (see `onLog`), and a `*:v` rule would hide the next one.
+ */
+export const START_VIRTUAL_MODULES = ["tanstack-start-manifest:v"];
+
+function externaliseStartVirtuals(): Plugin {
+  return {
+    name: "platform:start-virtuals",
+    resolveId(source: string) {
+      return START_VIRTUAL_MODULES.includes(source)
+        ? { id: source, external: true }
+        : null;
+    },
+  };
+}
 
 /**
  * TanStack Start's server entries, for the BROWSER side of a project layer.
@@ -1494,13 +1524,84 @@ export function layerDepsOf(
 
   // A declared dependency nothing imports still gets an entry, so that a
   // project can add one and import it from the studio without a CI round-trip.
+  // Not a build tool: nothing at runtime imports a Vite plugin, in the Studio
+  // or anywhere else, and building one is what dragged `vite` into the layer
+  // (see `isBuildTool`).
   for (const name of declared) {
-    if (cssOnly.has(name)) continue;
+    if (cssOnly.has(name) || isBuildTool(name)) continue;
     if (![...specifiers].some((specifier) => packageOf(specifier) === name))
       specifiers.add(name);
   }
 
   return [...specifiers].sort();
+}
+
+/**
+ * Packages that run while a site is BUILT, never while it is served.
+ *
+ * The starter templates list `@tailwindcss/vite` and `tailwindcss` under
+ * `dependencies`, and every declared dependency used to get a layer entry, so
+ * every publish bundled a Vite plugin -- which pulls `vite` in, which printed
+ * `Could not resolve '@vitejs/devtools/config'`, and loads Tailwind's native
+ * scanner, which printed that `@tailwindcss/vite` is not in the dependency
+ * layer. Nothing was wrong with the site.
+ *
+ * Names, and only names this sure of: a false positive is a package the Studio
+ * cannot import until the next publish from CI, so anything that might be
+ * runtime code is not here. And only when nothing imports it -- `layerDepsOf`
+ * still carries a build tool the app really does import.
+ *
+ * Tailwind itself is here because this build compiles Tailwind with its own
+ * copy (`tailwind.ts`); the project's is never loaded at runtime.
+ */
+const BUILD_TOOLS = [
+  /^vite$/,
+  /^@vitejs\//,
+  /^vite-plugin-/,
+  /^@[^/]+\/vite(-plugin.*)?$/,
+  /^@[^/]+\/[^/]+-vite$/,
+  /^@tailwindcss\/(postcss|oxide|cli)$/,
+  /^tailwindcss$/,
+  /^(postcss|autoprefixer|esbuild|rollup|rolldown)$/,
+  /^@tanstack\/(router-plugin|router-generator)$/,
+];
+
+export const isBuildTool = (name: string) =>
+  BUILD_TOOLS.some((pattern) => pattern.test(name));
+
+/**
+ * Declared `dependencies` that nothing in the project imports, from a module
+ * or a stylesheet.
+ *
+ * For the publish's report, not for the layer: a dependency that cannot be
+ * bundled is worth a different sentence when nothing needs it at runtime --
+ * it belongs in `devDependencies` -- than when the app imports it.
+ */
+export function unimportedDependencies(
+  manifest: { dependencies?: Record<string, string> },
+  files: Record<string, string> = {},
+): Array<string> {
+  const used = new Set<string>();
+  for (const specifier of importedSpecifiers(files)) {
+    used.add(packageOf(specifier));
+  }
+  for (const specifier of cssSpecifiersOf(files))
+    used.add(packageOf(specifier));
+  return Object.keys(manifest.dependencies ?? {})
+    .filter((name) => !BASE_PROVIDED.has(name) && !used.has(name))
+    .sort();
+}
+
+/**
+ * Declared `dependencies` that `layerDepsOf` left out of the layer because
+ * they are build tools nothing imports (`isBuildTool`): what to tell a
+ * project to move to `devDependencies`.
+ */
+export function buildToolsInDependencies(
+  manifest: { dependencies?: Record<string, string> },
+  files: Record<string, string> = {},
+): Array<string> {
+  return unimportedDependencies(manifest, files).filter(isBuildTool);
 }
 
 /**

@@ -37,6 +37,13 @@ const PROJECT: Record<string, string> = {
       "@tanstack/react-start": "^1.0.0",
       // Not in the base set, so it has to be layered.
       picocolors: "^1.0.0",
+      // Build tools, where the starter templates list them: nothing imports
+      // either, and neither is installed here, so building one would fail.
+      "@tailwindcss/vite": "^4.0.0",
+      tailwindcss: "^4.0.0",
+      // Not a build tool by name, imported by nothing, and not buildable: the
+      // layer skips it, and says it is not needed to run.
+      "unused-and-unbuildable": "^1.0.0",
     },
   }),
   "src/router.tsx": `import { createRouter } from "@tanstack/react-router";
@@ -110,6 +117,8 @@ type Report = {
   warnedAboutPlatformFacts: boolean;
   /** What it said of the typecheck. */
   typecheckSaid: string[];
+  /** What it said about the dependency layer leaving something out. */
+  layerSaid: string[];
 };
 
 /** A 1x1 PNG: small enough to inline, so the page carries it as a data URI. */
@@ -232,6 +241,9 @@ async function publishOnce(
       (line) => line.startsWith("warn:") && line.includes("publishes"),
     ),
     typecheckSaid: logged.filter((line) => /typecheck/i.test(line)),
+    layerSaid: logged.filter((line) =>
+      /dependency layer:|build tool/.test(line),
+    ),
   };
 }
 
