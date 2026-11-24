@@ -8,7 +8,10 @@ import {
 import type { Patch } from "@valbuild/core/patch";
 import { raw } from "@valbuild/react/stega";
 import { InMemoryPatchStore } from "@valbuild/server";
-import { createValRuntime } from "@valbuild/server/internal";
+import {
+  createValRuntime,
+  type ReaderRuntime,
+} from "@valbuild/server/internal";
 import { initFetchValKeyStega, initFetchValStega } from "./initValRsc";
 
 const { s, c, config } = initVal();
@@ -51,7 +54,7 @@ const cookies = async () => ({
 });
 
 /** A real runtime in memory mode for `module`, with these edits pending. */
-async function runtimeWith(
+async function startRuntimeWith(
   module: ReturnType<typeof notes>,
   ...patches: Patch[]
 ) {
@@ -83,6 +86,15 @@ async function runtimeWith(
     );
   }
   return runtime;
+}
+
+/** {@link startRuntimeWith}, as the readers take it: started once, asked lazily. */
+function runtimeWith(
+  module: ReturnType<typeof notes>,
+  ...patches: Patch[]
+): ReaderRuntime {
+  const started = startRuntimeWith(module, ...patches);
+  return () => started;
 }
 
 /*

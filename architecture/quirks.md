@@ -1638,6 +1638,25 @@ layouts passed `draft` (and fails on Next without it).
 
 ## TanStack Start
 
+**`examples/tanstack`'s production server answering every page with
+`TypeError: ZodEnum is not a constructor` (a 500) is rolldown's chunk merging,
+not zod.** The readers and `initValServer` load Val's server with a dynamic
+`import()` (it is tens of megabytes a visitor's page never needs; see
+`servingPath.test.ts`), so the modules of `@valbuild/shared/internal` are
+needed both at startup and by those lazy chunks. This repository bundles
+Val's SOURCE, where that entry is dozens of modules, and rolldown's
+`mergeCommonChunks` moved some of them -- `publish/protocol.ts`, which calls
+`z.enum` at its top level -- into a lazy chunk that the startup chunk then
+imports in a cycle: the lazy chunk ran first, before zod in the other one.
+The server came in eagerly as well, undoing the laziness. The example turns
+`build.rolldownOptions.experimental.chunkOptimization` off for that reason.
+An app that installs Val from npm is not affected: each entry is one
+prebuilt file, which no bundler can split across chunks, and its default
+build was measured working and lazy (`scenarios/measure/coldStart.ts`).
+`vite dev` does not chunk at all, so the e2e suite cannot see this; run the
+built server (`node -e` importing `dist/server/server.js` and calling its
+`fetch`) to.
+
 **`AbortError: This operation was aborted … status: 500, unhandled: true` on
 the dev server's console is a browser leaving, not a failure, and it is not
 Val's.** TanStack Start's handler (`createStartHandler` in

@@ -28,17 +28,23 @@ import {
   readerSchemaVersion,
   type ContentSource,
 } from "@valbuild/shared/internal";
-import {
-  layeredSnapshot,
-  proposalSnapshotForReaders,
-  type ValPatchStore,
-} from "@valbuild/server";
+/*
+ * `@valbuild/server/internal` and nothing heavier: this module is on every
+ * page's path, so what it imports statically a cold isolate evaluates before
+ * it answers a visitor. That entry reaches the data layer only through
+ * `createValRuntime`, which loads it when a draft read first asks -- see its
+ * header, and `servingPath.test.ts` beside this file.
+ */
 import {
   createValRuntime,
   draftForRequest,
+  layeredSnapshot,
   proposalAsBuilt,
+  readerSnapshot,
   servingBuildOf,
   readDraftChanges,
+  type ReaderRuntime,
+  type ValPatchStore,
   type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";
@@ -68,9 +74,10 @@ import type { ValHttpMode } from "./initValServer";
 /**
  * What the readers read: this process's runtime for the app's `val.modules`
  * (`createValRuntime`), the same one `initValServer`'s server is built on.
- * Its head is the draft, read with the request's session.
+ * Its head is the draft, read with the request's session. Asked for by the
+ * first draft read, never by a visitor's.
  */
-export type ReaderRuntime = Promise<ValRuntime>;
+export type { ReaderRuntime };
 
 /** What a misuse of a reader is told, beside what went wrong. */
 const WHERE =
@@ -107,8 +114,11 @@ export type ReaderDeps = {
   getCookies: () => Promise<{
     get(name: string): { name: string; value: string } | undefined;
   }>;
-  /** A proposal's saved Source; see `ValDraft.snapshot`. */
-  snapshot?: Snapshot;
+  /**
+   * A proposal's saved Source; see `ValDraft.snapshot`. Possibly still being
+   * read: see {@link snapshotForReaders}.
+   */
+  snapshot?: Snapshot | Promise<Snapshot | undefined>;
 };
 
 /** `fetchVal`, with what it read: see `readsOfFetchVal`. */
@@ -124,7 +134,7 @@ function fetchValWithReads(deps: ReaderDeps) {
       modules: { getHeaders: deps.getHeaders },
       where: WHERE,
     });
-    const env = requestEnv(enabled, draft, deps.snapshot);
+    const env = requestEnv(enabled, draft, await deps.snapshot);
     return awaitResolved((settled) =>
       resolveVal(selector, env, { settled, ...opts }),
     );
@@ -141,15 +151,19 @@ type Snapshot = Record<ModuleFilePath, Json>;
  * What the readers render over the bundle: a proposal's saves over the
  * content version the site serves (`layeredSnapshot` in @valbuild/server),
  * either alone, or nothing.
+ *
+ * A promise because a saved `.jsonValues()` entry takes the compiler to place
+ * (`readerSnapshot`), which is loaded only then: a snapshot without one is
+ * ready at once, and no snapshot at all is `undefined`.
  */
-export function snapshotForReaders(
+export async function snapshotForReaders(
   http:
     | Pick<
         ValHttpMode,
         "proposal" | "contentVersion" | "projectSource" | "moduleDependencies"
       >
     | undefined,
-): Snapshot | undefined {
+): Promise<Snapshot | undefined> {
   const source = layeredSnapshot(
     // Not a module staged after the build serving the address -- its own
     // file, or a file it imports: its Source fits code these readers have
@@ -160,7 +174,7 @@ export function snapshotForReaders(
     http?.contentVersion,
   );
   return source !== undefined
-    ? proposalSnapshotForReaders(source, http?.projectSource)
+    ? readerSnapshot(source, http?.projectSource)
     : undefined;
 }
 
@@ -235,8 +249,8 @@ export const initFetchValDraft = (
     atProposal?: boolean;
   },
 ) => {
-  const { snapshot } = deps;
   const withReads = async (): Promise<Ready<ValDraft | null>> => {
+    const snapshot = await deps.snapshot;
     const proposal: Pick<ValDraft, "atProposal"> =
       deps.atProposal === true ? { atProposal: true } : {};
     const changes = await readDraftChanges(deps);
@@ -334,7 +348,7 @@ export const initFetchValKeyStega =
       isEnabled: deps.isEnabled,
       getCookies: deps.getCookies,
     });
-    const env = requestEnv(enabled, draft, deps.snapshot);
+    const env = requestEnv(enabled, draft, await deps.snapshot);
     return (
       await awaitResolved((settled) =>
         resolveValEntry(selector, key, env, { settled }),
@@ -508,46 +522,54 @@ export function initValContent(
     throw new Error("Could not get @valbuild/tanstack package version");
   }
   const snapshot = snapshotForReaders(opts?.http);
+  // Read once per process and awaited by every read; a failure is each
+  // read's to report, not an unhandled rejection at startup.
+  snapshot.catch(() => {});
   markContentApplied(opts?.http);
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
 
   // One runtime per process for these modules: `initValServer`'s server is
   // built on the same one when it is given the same options, so a save
-  // through the API moves what these read.
-  const runtime = createValRuntime(
-    valModules,
-    valApiEndpoints,
-    {
-      versions: {
-        // `next` is the field name in the wire contract; see initValServer.
-        next: tanstackVersion,
-        core: coreVersion,
-        framework: "tanstack",
+  // through the API moves what these read. Built by the first draft read and
+  // not before: building it evaluates the data layer, which a visitor's page
+  // never needs.
+  let started: Promise<ValRuntime> | null = null;
+  const runtime: ReaderRuntime = () => (started ??= startRuntime());
+  const startRuntime = () =>
+    createValRuntime(
+      valModules,
+      valApiEndpoints,
+      {
+        versions: {
+          // `next` is the field name in the wire contract; see initValServer.
+          next: tanstackVersion,
+          core: coreVersion,
+          framework: "tanstack",
+        },
+        ...config,
+        // Present only when the host supplied them: `sourceFiles` is what
+        // selects memory mode, so a key set to `undefined` would be a different
+        // thing from an absent one.
+        ...(opts?.sourceFiles !== undefined
+          ? { sourceFiles: opts.sourceFiles }
+          : {}),
+        ...(opts?.patchStore !== undefined
+          ? { patchStore: opts.patchStore }
+          : {}),
+        ...(opts?.unsafelyAllowUnauthenticated !== undefined
+          ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
+          : {}),
+        ...(opts?.http !== undefined ? opts.http : {}),
       },
-      ...config,
-      // Present only when the host supplied them: `sourceFiles` is what
-      // selects memory mode, so a key set to `undefined` would be a different
-      // thing from an absent one.
-      ...(opts?.sourceFiles !== undefined
-        ? { sourceFiles: opts.sourceFiles }
-        : {}),
-      ...(opts?.patchStore !== undefined
-        ? { patchStore: opts.patchStore }
-        : {}),
-      ...(opts?.unsafelyAllowUnauthenticated !== undefined
-        ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
-        : {}),
-      ...(opts?.http !== undefined ? opts.http : {}),
-    },
-    config,
-  );
+      config,
+    );
   const deps: ReaderDeps = {
     runtime,
     isEnabled,
     getHeaders: requestHeaders,
     getCookies: requestCookies,
-    ...(snapshot !== undefined ? { snapshot } : {}),
+    snapshot,
   };
   const fetchValStega = initFetchValStega(deps);
   runtimesOf.set(fetchValStega, runtime);

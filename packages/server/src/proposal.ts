@@ -1,11 +1,5 @@
 import { Internal, type Json, type ModuleFilePath } from "@valbuild/core";
-import type { JSONValue } from "@valbuild/core/patch";
-import { result } from "@valbuild/core/fp";
 import { STAGED_SCHEMA_PREFIX } from "@valbuild/shared/internal";
-import ts from "typescript";
-import { analyzeValModule } from "./patch/ts/valModule";
-import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
-import { resolveExistingJsonPath } from "./patch/jsonValuesPatch";
 
 /**
  * A proposal this server runs at the address of: an editor-managed branch of
@@ -542,153 +536,36 @@ export function proposalSnapshot(
 }
 
 /**
- * The `.jsonValues()` entries the proposal saved, by module and key.
+ * `proposalSnapshotForReaders`, loading the compiler only when the snapshot
+ * needs it: what the server-side readers render over the bundle.
  *
- * An entry's content is not in its module's Source -- that holds a marker per
- * entry -- but in the entry's own `*.val.json`, and a save writes that file:
- * it reaches the proposal's address as saved TEXT ({@link ValProposal.files}),
- * not as Source. So the snapshot alone shows the build's entries. This is the
- * other half: each saved `*.val.json`, read as the entry its module names.
- *
- * Which entry a file is comes from the module's `.val.ts`, whose
- * `c.json(() => import("..."))` thunks name the files -- the saved text if
- * the save rewrote it, else the build's own (`projectSource`). An entry whose
- * module cannot be read that way is left to the build, as before: this adds
- * what it can find and never fails the address.
+ * A saved `.jsonValues()` entry is found through its module's `.val.ts`, which
+ * takes TypeScript to read (`./proposalJsonEntries`). Without one -- every
+ * site serving published content, and a proposal or content version that saved
+ * no entry -- the snapshot is {@link proposalSnapshot} and nothing is loaded:
+ * the readers are on every page's path, and a cold isolate pays for every
+ * module it evaluates.
  */
-export function proposalJsonEntries(
+export async function readerSnapshot(
   proposal: Pick<ValProposal, "modules" | "files">,
   projectSource?: Record<string, string>,
-): Map<ModuleFilePath, Map<string, JSONValue>> {
-  const found = new Map<ModuleFilePath, Map<string, JSONValue>>();
-  const savedJson = Object.keys(proposal.files).filter((path) =>
-    path.endsWith(".val.json"),
-  );
-  if (savedJson.length === 0) return found;
-  const savedJsonPaths = new Set(savedJson);
-  for (const [moduleFilePath, source] of Object.entries(proposal.modules)) {
-    if (!holdsJsonMarkers(source)) continue;
-    const relative = moduleFilePath.replace(/^\//, "");
-    const text = proposal.files[relative] ?? projectSource?.[relative];
-    if (text === undefined) continue;
-    const entries = jsonEntryPaths(relative, text);
-    if (entries === null) continue;
-    const byKey = new Map<string, JSONValue>();
-    for (const [key, importPath] of entries) {
-      const jsonPath = resolveExistingJsonPath(
-        moduleFilePath,
-        importPath,
-      ).replace(/^\//, "");
-      if (!savedJsonPaths.has(jsonPath)) continue;
-      const content = parseJson(proposal.files[jsonPath]);
-      if (content !== undefined) byKey.set(key, content);
-    }
-    if (byKey.size > 0) found.set(moduleFilePath as ModuleFilePath, byKey);
+): Promise<Record<ModuleFilePath, Json>> {
+  // The same test `proposalJsonEntries` starts with: no saved entry file, no
+  // entry to put in place of a marker.
+  if (!Object.keys(proposal.files).some((path) => path.endsWith(".val.json"))) {
+    return proposalSnapshot(proposal);
   }
-  return found;
+  const { proposalSnapshotForReaders } = await import("./proposalJsonEntries");
+  return proposalSnapshotForReaders(proposal, projectSource);
 }
 
-/**
- * The snapshot as a page reads it: {@link proposalSnapshot}, with each saved
- * `.jsonValues()` entry's content in place of its marker -- the shape a draft
- * already has, where the entries it edits hold content and the rest are
- * markers the readers resolve from the build. See {@link proposalJsonEntries}.
- *
- * For the readers only. Val's own server keeps the markers
- * ({@link proposalSnapshot}): its patching works on them, and it takes the
- * saved entries separately.
- */
-export function proposalSnapshotForReaders(
-  proposal: Pick<ValProposal, "modules" | "files">,
-  projectSource?: Record<string, string>,
-): Record<ModuleFilePath, Json> {
-  const snapshot = proposalSnapshot(proposal);
-  for (const [moduleFilePath, entries] of proposalJsonEntries(
-    proposal,
-    projectSource,
-  )) {
-    const source = snapshot[moduleFilePath];
-    if (!isObject(source)) continue;
-    const filled: Record<string, Json> = {};
-    for (const [key, value] of Object.entries(source)) {
-      if (isJsonValue(value)) filled[key] = value;
-    }
-    for (const [key, content] of entries) {
-      // Own keys only: an entry may be named `toString`.
-      if (Object.prototype.hasOwnProperty.call(filled, key)) {
-        filled[key] = content;
-      }
-    }
-    snapshot[moduleFilePath] = filled;
-  }
-  return snapshot;
-}
-
-/** A record of `.jsonValues()` markers (`{ _type: "json" }`), at least one. */
-function holdsJsonMarkers(source: unknown): boolean {
-  return (
-    isObject(source) &&
-    Object.values(source).some(
-      (value) => isObject(value) && value["_type"] === "json",
-    )
-  );
-}
-
-/** Each entry key's import path, from a `.jsonValues()` module's text. */
-function jsonEntryPaths(
-  fileName: string,
-  text: string,
-): Map<string, string> | null {
-  try {
-    const analysis = analyzeValModule(
-      ts.createSourceFile(fileName, text, ts.ScriptTarget.ES2015, true),
-    );
-    if (result.isErr(analysis)) return null;
-    const paths = new Map<string, string>();
-    for (const [key, entry] of analyzeJsonValuesEntries(
-      analysis.value.source,
-    )) {
-      paths.set(key, entry.importPath);
-    }
-    return paths;
-  } catch {
-    // Not a module this can read: its entries stay the build's.
-    return null;
-  }
-}
-
-function parseJson(text: string | undefined): JSONValue | undefined {
-  if (text === undefined) return undefined;
-  try {
-    const value: unknown = JSON.parse(text);
-    return isMutableJsonValue(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** {@link isJsonValue}, for the mutable JSON a server patches. */
-function isMutableJsonValue(value: unknown): value is JSONValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return true;
-  }
-  if (Array.isArray(value)) {
-    return value.every(isMutableJsonValue);
-  }
-  return isObject(value) && Object.values(value).every(isMutableJsonValue);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
+/** A plain object: not `null`, not an array. */
+export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** What `JSON.parse` can produce, checked rather than assumed. */
-function isJsonValue(value: unknown): value is Json {
+export function isJsonValue(value: unknown): value is Json {
   if (
     value === null ||
     typeof value === "string" ||

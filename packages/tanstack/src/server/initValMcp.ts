@@ -1,10 +1,6 @@
 import type { ValConfig, ValModules } from "@valbuild/core";
-import {
-  initValMcp as initValMcpCore,
-  type ValMcp,
-  type ValToolImpl,
-  type ValOAuthConfig,
-} from "@valbuild/mcp";
+import type { ValMcp, ValToolImpl, ValOAuthConfig } from "@valbuild/mcp";
+import { valMcpMetadataOf } from "@valbuild/mcp/metadata";
 import { VERSION } from "../version";
 
 /**
@@ -18,6 +14,13 @@ import { VERSION } from "../version";
  *
  * The version goes in the `next` field because that is the field name in the
  * wire contract; see `initValServer`.
+ *
+ * `@valbuild/mcp` is loaded by the first MCP request, not by this module: it
+ * brings Val's whole server (the tools run against its data layer), and an
+ * app's MCP route is imported by TanStack Start's route tree on every cold
+ * start, so a static import made every visitor's first request pay for it. The
+ * metadata document is the one part that must exist up front, and comes from
+ * `@valbuild/mcp/metadata`, which is light.
  */
 export function initValMcp(
   valModules: ValModules,
@@ -40,8 +43,29 @@ export function initValMcp(
   if (!tanstackVersion) {
     throw new Error("Could not get @valbuild/tanstack package version");
   }
-  return initValMcpCore(valModules, config, {
-    ...opts,
-    versions: { next: tanstackVersion },
-  });
+  let mcp: Promise<ValMcp> | null = null;
+  const loadMcp = (): Promise<ValMcp> => {
+    // Forgotten when it fails, so the next request tries again.
+    mcp ??= import("@valbuild/mcp")
+      .then(({ initValMcp: initValMcpCore }) =>
+        initValMcpCore(valModules, config, {
+          ...opts,
+          versions: { next: tanstackVersion },
+        }),
+      )
+      .catch((err: unknown) => {
+        mcp = null;
+        throw err;
+      });
+    return mcp;
+  };
+  return {
+    valMcpMetadata: valMcpMetadataOf(opts?.oauth),
+    async valMcpTools() {
+      return (await loadMcp()).valMcpTools();
+    },
+    async valMcpAuthorize(request) {
+      return (await loadMcp()).valMcpAuthorize(request);
+    },
+  };
 }
