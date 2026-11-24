@@ -43,10 +43,21 @@ test("the platform's pins and exports survive the parse", () => {
   expect(parsed.base.exports).toEqual(exports);
 });
 
+test("the platform's buildAssets survives the parse", () => {
+  // Dropped, a CLI publish built every layer with the Studio inside it.
+  expect(
+    parseBuildTarget({
+      ...target,
+      base: { ...target.base, buildAssets: true },
+    }).base.buildAssets,
+  ).toBe(true);
+});
+
 test("a platform that predates them still parses, without them", () => {
   const parsed = parseBuildTarget(target);
   expect(parsed.base.pins).toBeUndefined();
   expect(parsed.base.exports).toBeUndefined();
+  expect(parsed.base.buildAssets).toBeUndefined();
 });
 
 test("a failed publish says where its changes went, and that survives the parse", () => {

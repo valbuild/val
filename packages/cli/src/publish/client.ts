@@ -16,6 +16,25 @@ import {
   parseStatus,
   parseVerify,
 } from "@valbuild/shared/internal";
+import type { BuildTarget } from "@valbuild/tanstack-build";
+
+/**
+ * Every key the platform's build target carries survives `parseBuildTarget`.
+ *
+ * Its schema is a `z.object`, which DROPS a key it does not name, silently:
+ * `pins` and `exports` were lost that way once, and `buildAssets` was lost for
+ * long enough that every CLI publish built its layer with the whole Studio in
+ * it. A key added to `BuildTarget` and not to the schema is now a compile
+ * error here, naming the key, rather than a behaviour nobody sees.
+ */
+type DroppedByTheParse<Target, Parsed> = Exclude<keyof Target, keyof Parsed>;
+type NoneDropped<Dropped extends never> = Dropped;
+export type BuildTargetBaseKeysSurviveTheParse = NoneDropped<
+  DroppedByTheParse<BuildTarget["base"], BuildTargetResponse["base"]>
+>;
+export type BuildTargetProjectKeysSurviveTheParse = NoneDropped<
+  DroppedByTheParse<BuildTarget["project"], BuildTargetResponse["project"]>
+>;
 
 export type PublishClient = {
   /** What to build against: the platform's base and this project's layer. */
