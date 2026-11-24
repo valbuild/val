@@ -25,7 +25,12 @@ const load = () => Promise.resolve({ default: Noop });
 
 const hero = s
   .object({ type: s.literal("hero"), title: s.string() })
-  .component(load, { example: { type: "hero", title: "Long" } });
+  .component(load, {
+    examples: {
+      longTitle: { type: "hero", title: "Long" },
+      empty: { type: "hero", title: "" },
+    },
+  });
 const quote = s
   .object({ type: s.literal("quote"), quote: s.string() })
   .component(load);
@@ -130,9 +135,9 @@ describe("collectComponents", () => {
     ]);
   });
 
-  test("says which have an example", () => {
-    expect(named("Hero").hasExample).toBe(true);
-    expect(named("Quote").hasExample).toBe(false);
+  test("says which examples each has, by name, in order", () => {
+    expect(named("Hero").examples).toEqual(["longTitle", "empty"]);
+    expect(named("Quote").examples).toEqual([]);
   });
 
   test("the id is stable, and the same for the same schema", () => {

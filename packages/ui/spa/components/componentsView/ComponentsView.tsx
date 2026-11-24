@@ -4,6 +4,7 @@ import {
   type JsonArray,
   type JsonObject,
   type ModuleFilePath,
+  prettyExampleName,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
@@ -175,7 +176,7 @@ export function ComponentsStage() {
         device={view.state.device}
         onDevice={(device) => view.update({ device })}
         onOpen={(component) =>
-          view.update({ component: component.id, instance: 0, example: false })
+          view.update({ component: component.id, instance: 0, example: null })
         }
         missing={view.state.component !== null}
       />
@@ -216,7 +217,7 @@ export function ComponentsContent() {
       <ComponentsIndex
         components={view.components}
         onOpen={(component) =>
-          view.update({ component: component.id, instance: 0, example: false })
+          view.update({ component: component.id, instance: 0, example: null })
         }
       />
     );
@@ -226,8 +227,7 @@ export function ComponentsContent() {
   const index =
     count === 0 ? 0 : Math.min(Math.max(view.state.instance, 0), count - 1);
   const instance = component.instances[index];
-  const example =
-    view.state.example && component.hasExample && instance !== undefined;
+  const example = shownExample(component, view.state, instance);
   return (
     <div className="flex flex-col gap-4" data-testid="component-fields">
       <div>
@@ -243,17 +243,17 @@ export function ComponentsContent() {
           {component.name}
         </h1>
         <p className="text-sm text-fg-tertiary">
-          {example
-            ? "Its example"
+          {example !== null
+            ? `Example: ${prettyExampleName(example)}`
             : count === 0
               ? "Not used yet"
               : `Use ${index + 1} of ${count}`}
         </p>
       </div>
-      {instance === undefined || example ? (
+      {instance === undefined || example !== null ? (
         <p className="text-sm text-fg-secondary">
-          {example
-            ? "The example is written in the code, next to .component(...), and is not content an editor can change."
+          {example !== null
+            ? "Examples are written in the code, next to .component(...), and are not content an editor can change."
             : "Nothing to edit: no content uses this component yet."}
         </p>
       ) : (
@@ -378,7 +378,7 @@ function NoComponents() {
         {`const hero = s
   .object({ type: s.literal("hero"), title: s.string() })
   .component(() => import("../components/Hero"), {
-    example: { type: "hero", title: "A long title" },
+    examples: { longTitle: { type: "hero", title: "A long title" } },
   });`}
       </pre>
       <p>
@@ -559,8 +559,7 @@ function ComponentDetail({
   const index =
     count === 0 ? 0 : Math.min(Math.max(state.instance, 0), count - 1);
   const instance: SourcePath | undefined = component.instances[index];
-  const example =
-    state.example && component.hasExample && instance !== undefined;
+  const example = shownExample(component, state, instance);
   const [reloadKey, setReloadKey] = useState(0);
   const select = useStageSelect();
   const [noAnswer, setNoAnswer] = useState(false);
@@ -586,7 +585,7 @@ function ComponentDetail({
   const step = useCallback(
     (by: number) => {
       if (count === 0) return;
-      update({ instance: (index + by + count) % count, example: false });
+      update({ instance: (index + by + count) % count, example: null });
     },
     [count, index, update],
   );
@@ -597,7 +596,7 @@ function ComponentDetail({
         components[
           (componentIndex + by + components.length) % components.length
         ];
-      update({ component: next.id, instance: 0, example: false });
+      update({ component: next.id, instance: 0, example: null });
     },
     [components, componentIndex, update],
   );
@@ -650,7 +649,7 @@ function ComponentDetail({
                 <button
                   type="button"
                   onClick={() =>
-                    update({ instance: at, layout: "one", example: false })
+                    update({ instance: at, layout: "one", example: null })
                   }
                   className={cn(
                     "flex flex-col w-full overflow-hidden text-left border rounded-lg bg-bg-primary hover:border-border-secondary",
@@ -683,6 +682,40 @@ function ComponentDetail({
               </li>
             );
           })}
+          {component.examples.map((name) => (
+            <li key={`example:${name}`}>
+              <button
+                type="button"
+                onClick={() => update({ example: name, layout: "one" })}
+                className="flex flex-col w-full overflow-hidden text-left border border-dashed rounded-lg bg-bg-primary hover:border-border-secondary border-border-primary"
+              >
+                <div className="w-full border-b border-border-primary bg-bg-secondary">
+                  <ComponentFrame
+                    path={component.instances[0]}
+                    example={name}
+                    width={widthOf(state.device)}
+                    maxHeight={320}
+                    lazy
+                    reloadKey={reloadKey}
+                    title={`${component.name}: ${prettyExampleName(name)}`}
+                    onStatus={onStatus}
+                  />
+                </div>
+                <div className="flex items-center min-w-0 gap-1.5 px-3 py-2">
+                  <FlaskConical
+                    size={12}
+                    className="shrink-0 text-fg-tertiary"
+                  />
+                  <span className="text-sm truncate text-fg-primary">
+                    {prettyExampleName(name)}
+                  </span>
+                  <span className="text-xs shrink-0 text-fg-tertiary">
+                    Example
+                  </span>
+                </div>
+              </button>
+            </li>
+          ))}
         </ul>
       ) : (
         <div className="flex flex-col gap-2">
@@ -701,7 +734,9 @@ function ComponentDetail({
               className="text-sm tabular-nums text-fg-secondary"
               data-testid="component-instance-position"
             >
-              {example ? "Example" : `${index + 1} of ${count}`}
+              {example !== null
+                ? prettyExampleName(example)
+                : `${index + 1} of ${count}`}
             </span>
             <Button
               variant="outline"
@@ -716,13 +751,15 @@ function ComponentDetail({
             <select
               aria-label="Use"
               className="h-8 min-w-0 px-2 text-sm border rounded-md max-w-[24rem] flex-1 bg-bg-primary border-border-primary text-fg-primary"
-              value={example ? "example" : String(index)}
+              value={example !== null ? `example:${example}` : String(index)}
               onChange={(event) =>
-                event.target.value === "example"
-                  ? update({ example: true })
+                event.target.value.startsWith("example:")
+                  ? update({
+                      example: event.target.value.slice("example:".length),
+                    })
                   : update({
                       instance: Number(event.target.value),
-                      example: false,
+                      example: null,
                     })
               }
             >
@@ -734,8 +771,14 @@ function ComponentDetail({
                   </option>
                 );
               })}
-              {component.hasExample && (
-                <option value="example">Example (not on the site)</option>
+              {component.examples.length > 0 && (
+                <optgroup label="Examples (not on the site)">
+                  {component.examples.map((name) => (
+                    <option key={name} value={`example:${name}`}>
+                      {prettyExampleName(name)}
+                    </option>
+                  ))}
+                </optgroup>
               )}
             </select>
           </div>
@@ -748,17 +791,17 @@ function ComponentDetail({
                 path={instance}
                 example={example}
                 width={widthOf(state.device)}
-                picking={select.picking && !example}
+                picking={select.picking && example === null}
                 onPick={(paths) => select.onPick(instance, paths)}
-                inline={example ? null : select.inlineFor(instance)}
+                inline={example !== null ? null : select.inlineFor(instance)}
                 reloadKey={reloadKey}
                 contentVersion={moduleSourceOf(sources, instance)}
-                title={`${component.name}: ${example ? "example" : (shownLabel?.title ?? "")}`}
+                title={`${component.name}: ${example !== null ? prettyExampleName(example) : (shownLabel?.title ?? "")}`}
                 onStatus={onStatus}
               />
             </div>
           </div>
-          {shownLabel !== null && !example && (
+          {shownLabel !== null && example === null && (
             <p className="text-xs text-fg-tertiary">
               {shownLabel.title} · {shownLabel.where}
             </p>
@@ -790,7 +833,7 @@ function ComponentDetail({
             update({
               component: event.target.value,
               instance: 0,
-              example: false,
+              example: null,
             })
           }
         >
@@ -826,18 +869,25 @@ function ComponentDetail({
         />
         <div className="flex items-center gap-1 ml-auto">
           <ComponentSearch components={components} />
-          {component.hasExample && instance !== undefined && (
+          {component.examples.length > 0 && instance !== undefined && (
             <ToolbarToggle
-              pressed={example}
+              pressed={example !== null}
               label={
-                example
-                  ? "Showing the example. Show the content instead"
-                  : "Show the example: content written in the code, not on the site"
+                example !== null
+                  ? "Showing an example. Show the content instead"
+                  : "Show the examples: content written in the code, not on the site"
               }
-              onClick={() => update({ example: !example, layout: "one" })}
+              onClick={() =>
+                update({
+                  example: example !== null ? null : component.examples[0],
+                  layout: "one",
+                })
+              }
             >
               <FlaskConical size={14} />
-              Example
+              {component.examples.length === 1
+                ? "Example"
+                : `Examples (${component.examples.length})`}
             </ToolbarToggle>
           )}
           {state.layout === "one" && <StageSelectButton select={select} />}
@@ -942,7 +992,7 @@ function ComponentSearch({ components }: { components: StudioComponent[] }) {
     updateComponentsUrlState({
       component: hit.component.id,
       instance: hit.instance,
-      example: false,
+      example: null,
       layout: "one",
     });
     setOpen(false);
@@ -1346,7 +1396,7 @@ function UseBlock({
               block: null,
               component: use.component.id,
               instance: use.instance,
-              example: false,
+              example: null,
               layout: "one",
             })
           }
@@ -1575,4 +1625,21 @@ function StagePanel({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+/**
+ * The example on screen: the one the address names, when the component has
+ * it and something to render it through (a use: the preview finds the
+ * component by path). `null` for a use.
+ */
+function shownExample(
+  component: StudioComponent,
+  state: ComponentsUrlState,
+  instance: SourcePath | undefined,
+): string | null {
+  return state.example !== null &&
+    instance !== undefined &&
+    component.examples.includes(state.example)
+    ? state.example
+    : null;
 }

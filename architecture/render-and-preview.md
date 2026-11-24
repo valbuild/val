@@ -85,7 +85,7 @@ export const heroFields = s.object({
 });
 export const hero = heroFields.component(
   () => import("../components/HeroSection"),
-  { example: { type: "hero", title: "A very long title" } },
+  { examples: { longTitle: { type: "hero", title: "A very long title" } } },
 );
 ```
 
@@ -96,8 +96,15 @@ preview route (`val-preview`), which renders it alone, in an iframe.
 It was `.render({ as: "component", component })`, and is its own method
 because it stopped being a render: a render is layout in the editor and
 applies only while the field is open, and this decides what a visitor gets.
-The wire form did not move - the marker is still the serialized `render`,
-`{ as: "component", example?: true }` - so the Studio's side is unchanged.
+The wire form is the serialized `render`, `{ as: "component", examples?,
+name? }`, where `examples` is the NAMES of the examples - their content is
+read by the host app, which renders them, like the component itself.
+
+**Examples are named, as stories are** (`examples: { longTitle: {...} }`),
+so a component can have as many as it needs to show its edge cases, and the
+Studio lists them by their names made readable - `longTitle` is "Long
+title" (`prettyExampleName` in `render.ts`). The preview route takes one by
+name (`&example=longTitle`).
 
 It holds CLOSURES (the import thunk, and `props`), so it is plumbed like a
 preview: only the marker travels, and the host app, which has the schema
@@ -288,7 +295,8 @@ On the stage, the board shows every component as it is first used, at one
 screen width (phone, tablet, desktop); one component is stepped through use
 by use (the arrows, `←` / `→`, `[` / `]` between components, and a list of
 every use named by its preview or its first written string, and the page it
-is on), or every use side by side, and its `example`.
+is on), or every use side by side - its examples beside them, dashed and
+named, as a story book would show them.
 
 **Pages** is the other list (`mode=pages`): the pages that use components
 (`componentPages` - a page router's entries by route, any other module as
@@ -298,14 +306,36 @@ walk is in document order, so an ancestor comes before what is inside it and
 a stack nests them. Content shows the page's outline and the fields of the
 use picked there or on the stage.
 
-**Select** is Content's Select from beside a page's preview - the same
-`SelectButton`, the same two modes and the same remembered choice
-(`useSelectModePreference`). Select opens the picked field in Content;
-Select & edit also puts the caret in it - in Content, not in the rendered
-component, because the preview route does not take part in editing on the
-page (`inlineEditing.ts` and its messages are the canvas bridge's). That is
-the one difference from the canvas, and the work to remove it is the
-preview route speaking that protocol.
+**Select** is Content's Select from beside a page's preview: the same
+`SelectButton`, and the same STATE - the shell hands the stage its mode and
+its one `useCanvasInlineEdit` (`ComponentsCode` in `componentsCode.ts`), so
+switching the mode in either place switches it in both. Select opens the
+picked field in Content. **Select & edit types in the component's
+preview**, exactly as on the page: the frame relays the canvas's own
+messages (`editInline`, `inlineEditStarted`, `inlineEdit`, ...), the preview
+route's bridge (`ValPreviewBridgeCore`) answers them with the same
+`startInlineEditFirst` the canvas bridges use (`inlineEditOnPage.ts` in
+`@valbuild/shared`, one copy for the three), and holds the keys typed while
+the Studio is asked, as the canvas bridge does - which it does only when
+the `picking` message says `editing`, so plain Select never swallows
+typing. A frame does not refresh its content while a text in it is being
+typed in, and does once it ends. What it does not do yet that the canvas
+does: start the edit IN the click (the canvas is told its texts ahead,
+`textFields`), and show a richtext's formatting controls beside the text.
+
+The previews outline in the project's selection colour: the frame sends
+it (`VAL_PREVIEW_MESSAGES.theme`) as the canvas sends its page `theme`.
+
+**Ways in.** The Preview switch's menu offers what the pane shows - Page or
+Components (`PreviewSource` in `PaneSwitches.tsx`) - and in Components the
+switch hides and shows the stage as it does the page; Sketch stays in the
+bar, disabled. From a page in the canvas, the controls over a component
+(`ValComponentEditorChrome`) have **Open in Components** (`openComponent`,
+a canvas page message); from the fields, a linked object - or a union whose
+variant is one - has a discreet **Show in Components** icon in its header
+and in the heading of an opened item (`ShowInComponentsButton`, read off
+the schema in hand so a field pays nothing for it). Both land on that
+component at that use (`componentUseAt`).
 
 **Code mode** reaches the previews as it reaches the canvas: a component is
 the site's code, and the preview route is in the same app bundle a quick

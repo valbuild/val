@@ -412,7 +412,14 @@ export const heroFields = s.object({
 export const hero = heroFields.component(
   () => import("../components/HeroSection"),
   {
-    example: { type: "hero", title: "A very long title, to test the layout" },
+    // Named, as stories are: the Studio lists them as "Long title" and "Empty"
+    examples: {
+      longTitle: {
+        type: "hero",
+        title: "A very long title, to test the layout",
+      },
+      empty: { type: "hero", title: "" },
+    },
   },
 );
 ```
@@ -475,9 +482,9 @@ result) arrives without it.
 ### A preview route
 
 A linked object can also be rendered on its own, by your app, at
-`/val-preview?p=<source path>` - with `&example=1`, from its `example`. Val
-Studio does not load it yet: it is there for a component view that is still
-to come. To have it, add the route outside the layout that holds
+`/val-preview?p=<source path>` - with `&example=<name>`, from one of its
+`examples`. Val Studio's Components view (`/val/components`) renders every
+component through it. To have it, add the route outside the layout that holds
 `ValProvider`:
 
 ```tsx
@@ -503,7 +510,7 @@ export const Route = createFileRoute("/val-preview")({
       <Unstable_ValComponentPreview
         valModules={valModules}
         source={Route.useLoaderData()}
-        example={Route.useSearch().example === "1"}
+        example={Route.useSearch().example}
       />
     </ValPreviewBridge>
   ),

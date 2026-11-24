@@ -5,6 +5,7 @@ import {
   componentPropsOf,
   getComponentRender,
   loadComponent,
+  prettyExampleName,
 } from "../render";
 import type { ValComponent } from "../source/component";
 import type { SelectorOfSchema } from "./index";
@@ -21,7 +22,10 @@ function Quote(props: { quote: string }) {
 const hero = s
   .object({ type: s.literal("hero"), title: s.string() })
   .component(() => Promise.resolve({ default: Hero }), {
-    example: { type: "hero", title: "A very long title" },
+    examples: {
+      longTitle: { type: "hero", title: "A very long title" },
+      empty: { type: "hero", title: "" },
+    },
   });
 const quote = s
   .object({ type: s.literal("quote"), quote: s.string() })
@@ -31,12 +35,12 @@ describe("s.object(...).component(...)", () => {
   test("serialize: a marker, never the component", () => {
     expect(hero["executeSerialize"]()).toMatchObject({
       type: "object",
-      render: { as: "component", example: true },
+      render: { as: "component", examples: ["longTitle", "empty"] },
     });
     const serialized = quote["executeSerialize"]();
     expect(serialized.type === "object" && serialized.render).toEqual({
       as: "component",
-      example: undefined,
+      examples: undefined,
     });
   });
 
@@ -48,7 +52,7 @@ describe("s.object(...).component(...)", () => {
     const serialized = named["executeSerialize"]();
     expect(serialized.type === "object" && serialized.render).toEqual({
       as: "component",
-      example: undefined,
+      examples: undefined,
       name: "Hero",
     });
     expect(getComponentRender(named, null)?.name).toBe("Hero");
@@ -61,7 +65,7 @@ describe("s.object(...).component(...)", () => {
 
   test("survives the other modifiers", () => {
     const schema = hero.describe("A hero").nullable().readonly();
-    expect(getComponentRender(schema, null)?.example).toEqual({
+    expect(getComponentRender(schema, null)?.examples?.longTitle).toEqual({
       type: "hero",
       title: "A very long title",
     });
@@ -104,7 +108,7 @@ describe("s.object(...).component(...)", () => {
     const serialized = banner["executeSerialize"]();
     expect(serialized.type === "object" && serialized.render).toEqual({
       as: "component",
-      example: undefined,
+      examples: undefined,
     });
   });
 
@@ -189,5 +193,20 @@ describe("s.object(...).component(...)", () => {
       stillNullable,
       title,
     ]).toEqual([true, false, false, true, true, true, true]);
+  });
+});
+
+describe("prettyExampleName", () => {
+  test("an identifier is made words, as a story's name is", () => {
+    expect(prettyExampleName("longTitle")).toBe("Long title");
+    expect(prettyExampleName("long-title")).toBe("Long title");
+    expect(prettyExampleName("long_title")).toBe("Long title");
+    expect(prettyExampleName("empty")).toBe("Empty");
+    expect(prettyExampleName("ctaURL")).toBe("Cta URL");
+  });
+  test("a name that is already words is left as written", () => {
+    expect(prettyExampleName("With a very long title")).toBe(
+      "With a very long title",
+    );
   });
 });

@@ -440,14 +440,19 @@ export class ObjectSchema<
    * the schema's, and TypeScript gives up on both. Declare the fields first
    * and link them in a second `const`, or let the component own its props.
    *
-   * `example` is content that is not on the site, to preview with as well:
-   * long titles and empty lists that make layout problems easy to spot.
+   * `examples` is content that is not on the site, to preview with as well,
+   * by name, as stories are: long titles and empty lists that make layout
+   * problems easy to spot. The Studio shows the names made readable
+   * (`longTitle` is "Long title").
    *
    * @example
    * const hero = s
    *   .object({ title: s.string() })
    *   .component(() => import("./HeroSection"), {
-   *     example: { title: "A very long title that should wrap nicely" },
+   *     examples: {
+   *       longTitle: { title: "A very long title that should wrap nicely" },
+   *       empty: { title: "" },
+   *     },
    *   });
    * export default c.define("/example.val.ts", s.array(hero), []);
    *
@@ -469,7 +474,9 @@ export class ObjectSchema<
       as: "component",
       component: load,
       ...(options?.props !== undefined ? { props: options.props } : {}),
-      ...(options?.example !== undefined ? { example: options.example } : {}),
+      ...(options?.examples !== undefined
+        ? { examples: options.examples }
+        : {}),
       ...(options?.name !== undefined ? { name: options.name } : {}),
     };
     return new ObjectSchema<Props, LinkedToComponent<Src>>(
@@ -527,8 +534,10 @@ export class ObjectSchema<
         ? {
             render: {
               as: "component",
-              example:
-                this.renderInput.example !== undefined ? true : undefined,
+              examples:
+                this.renderInput.examples !== undefined
+                  ? Object.keys(this.renderInput.examples)
+                  : undefined,
               ...(this.renderInput.name !== undefined
                 ? { name: this.renderInput.name }
                 : {}),

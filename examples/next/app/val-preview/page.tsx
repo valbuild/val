@@ -10,7 +10,8 @@ import { fetchVal } from "../../val/rsc";
  * app's own React, CSS and providers, and so that server components work.
  *
  * - `p` the source path to render, e.g. `/content/pages.val.ts?p="landing"."sections".0`
- * - `example=1` render the render's `example` instead of the content at `p`
+ * - `example=<name>` render the render's example of that name (from
+ *   `.component(load, { examples })`) instead of the content at `p`
  * - `props` explicit props as JSON (written as source), overriding both
  */
 export default async function ValPreviewPage({
@@ -39,7 +40,7 @@ export default async function ValPreviewPage({
       {await unstable_renderValComponent({
         valModules,
         sourcePath: p,
-        example: example === "1",
+        example,
         props: parsedProps,
         fetchVal,
       })}

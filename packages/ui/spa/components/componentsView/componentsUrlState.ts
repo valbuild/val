@@ -27,8 +27,8 @@ export type ComponentsUrlState = {
   component: string | null;
   /** Which of its uses, by position. */
   instance: number;
-  /** Its example rather than a use. */
-  example: boolean;
+  /** One of its examples, by name, rather than a use. */
+  example: string | null;
   /** One use at a time, or all of them side by side. */
   layout: "one" | "all";
   device: Device;
@@ -61,7 +61,7 @@ export function readComponentsUrlState(search: string): ComponentsUrlState {
     block: params.get("block"),
     component: params.get("component"),
     instance: Number.isInteger(use) && use >= 1 ? use - 1 : 0,
-    example: params.get("example") === "1",
+    example: params.get("example"),
     layout: params.get("layout") === "all" ? "all" : "one",
     device: SCREENS.find((option) => option === screen) ?? DEFAULT_DEVICE,
   };
@@ -85,7 +85,7 @@ export function componentsUrlSearch(
   } else if (state.component !== null) {
     params.set("component", state.component);
     if (state.instance > 0) params.set("use", String(state.instance + 1));
-    if (state.example) params.set("example", "1");
+    if (state.example !== null) params.set("example", state.example);
     if (state.layout === "all") params.set("layout", "all");
   }
   if (state.device !== DEFAULT_DEVICE) params.set("screen", state.device);

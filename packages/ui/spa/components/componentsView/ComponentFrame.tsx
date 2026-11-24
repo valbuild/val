@@ -74,7 +74,7 @@ export type ComponentFrameInline = {
  */
 export function ComponentFrame({
   path,
-  example = false,
+  example = null,
   width,
   maxHeight,
   picking = false,
@@ -88,8 +88,8 @@ export function ComponentFrame({
   className,
 }: {
   path: SourcePath;
-  /** Render the component's `example` rather than the content at `path`. */
-  example?: boolean;
+  /** One of the component's `examples`, by name, rather than the content at `path`. */
+  example?: string | null;
   /** The width the component is laid out at: a screen's. */
   width: number;
   /** Cut the frame off below this height, scaled: for a thumbnail. */

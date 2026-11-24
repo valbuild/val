@@ -51,7 +51,7 @@ const NumberRender = z
 const ComponentRender = z
   .object({
     as: z.literal("component"),
-    example: z.literal(true).optional(),
+    examples: z.array(z.string()).optional(),
     name: z.string().optional(),
   })
   .optional();

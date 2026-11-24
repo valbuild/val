@@ -303,7 +303,12 @@ describe("the Studio's preview of one component", () => {
   const row = s
     .object({ heading: s.string(), cards: s.array(card) })
     .component(() => Promise.resolve({ default: Row }), {
-      example: { heading: "Example", cards: [{ title: "An example card" }] },
+      examples: {
+        withCards: {
+          heading: "Example",
+          cards: [{ title: "An example card" }],
+        },
+      },
     });
   const rowVal = c.define("/row.val.ts", s.object({ row }), {
     row: { heading: "Cards", cards: [{ title: "One" }, { title: "Two" }] },
@@ -330,12 +335,12 @@ describe("the Studio's preview of one component", () => {
     ]);
   });
 
-  test("and so does the example", async () => {
+  test("and so does an example, by its name", async () => {
     const resolved = await resolveValComponentPreview({
       valModule: rowVal,
       sourcePath: ROW,
       moduleValue: Internal.getSource(rowVal),
-      example: true,
+      example: "withCards",
     });
     expect(resolved.status).toBe("ok");
     if (resolved.status !== "ok") return;

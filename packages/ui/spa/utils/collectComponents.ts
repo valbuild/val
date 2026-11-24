@@ -24,8 +24,11 @@ export type StudioComponent = {
   name: string;
   /** Whether {@link name} was given (`.component(load, { name })`). */
   named: boolean;
-  /** Whether `.component(load, { example })` gave it one to preview with. */
-  hasExample: boolean;
+  /**
+   * The names of its examples (`.component(load, { examples })`), as
+   * written: shown made readable (`prettyExampleName`).
+   */
+  examples: string[];
   /**
    * Where the schemas link it, whether or not any content uses it: the
    * module, and the way down to the object in its schema with `*` for an
@@ -129,7 +132,7 @@ export function collectComponents(
       id: entry.id,
       name: count === 1 ? name : `${name} ${count}`,
       named,
-      hasExample: entry.schema.render?.example === true,
+      examples: entry.schema.render?.examples ?? [],
       linkedAt: entry.linkedAt,
       instances: entry.instances,
     };

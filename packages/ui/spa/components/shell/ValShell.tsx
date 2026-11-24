@@ -1405,7 +1405,7 @@ function ValShellBody({
         block: null,
         component: use?.component.id ?? null,
         instance: use?.instance ?? 0,
-        example: false,
+        example: null,
         layout: "one",
       });
     },

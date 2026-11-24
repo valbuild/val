@@ -10,14 +10,14 @@ import {
 } from "./componentReview";
 
 describe("componentPreviewUrl", () => {
-  test("the path in the query, and example when asked", () => {
+  test("the path in the query, and the example by name when asked", () => {
     const path = '/page.val.ts?p="sections".0' as SourcePath;
-    const url = new URL(componentPreviewUrl(path, true), "http://site");
+    const url = new URL(componentPreviewUrl(path, "longTitle"), "http://site");
     expect(url.pathname).toBe("/val-preview");
     expect(url.searchParams.get("p")).toBe(path);
-    expect(url.searchParams.get("example")).toBe("1");
+    expect(url.searchParams.get("example")).toBe("longTitle");
     expect(
-      new URL(componentPreviewUrl(path, false), "http://site").searchParams.has(
+      new URL(componentPreviewUrl(path, null), "http://site").searchParams.has(
         "example",
       ),
     ).toBe(false);

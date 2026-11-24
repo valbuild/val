@@ -19,16 +19,16 @@ export const VAL_COMPONENT_PREVIEW_ROUTE = "/val-preview";
 
 /**
  * Where the preview route renders `path`: its content, or with `example`,
- * the `.component(load, { example })` content instead - looked up through
+ * that one of `.component(load, { examples })` instead - looked up through
  * `path`, since which component a union's item is depends on its value.
  */
 export function componentPreviewUrl(
   path: SourcePath,
-  example: boolean,
+  example: string | null,
 ): string {
   const query = new URLSearchParams({ p: path });
-  if (example) {
-    query.set("example", "1");
+  if (example !== null) {
+    query.set("example", example);
   }
   return `${VAL_COMPONENT_PREVIEW_ROUTE}?${query.toString()}`;
 }
