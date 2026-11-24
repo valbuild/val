@@ -125,15 +125,21 @@ Options:
 
 export type CommandName = keyof typeof COMMAND_HELP;
 
-/** `val idate` is a pun on `val validate`, and runs it. */
-const COMMAND_ALIASES: Record<string, CommandName> = { idate: "validate" };
+/**
+ * `val idate` is a pun on `val validate`, and runs it. A Map, not an object
+ * literal: an object would answer `constructor` or `toString` with what it
+ * inherits from Object.prototype, as if those were commands.
+ */
+const COMMAND_ALIASES: ReadonlyMap<string, CommandName> = new Map([
+  ["idate", "validate"],
+]);
 
 function isCommandName(name: string): name is CommandName {
   return Object.prototype.hasOwnProperty.call(COMMAND_HELP, name);
 }
 
 export function resolveCommandName(name: string): CommandName | undefined {
-  return isCommandName(name) ? name : COMMAND_ALIASES[name];
+  return isCommandName(name) ? name : COMMAND_ALIASES.get(name);
 }
 
 const COMMAND_NAMES: CommandName[] =

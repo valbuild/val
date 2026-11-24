@@ -65,6 +65,26 @@ describe("decideCliAction", () => {
     }
   });
 
+  test("names Object.prototype has are not commands", () => {
+    for (const name of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+    ]) {
+      expect(decideCliAction([name], {})).toEqual({
+        type: "unknown-command",
+        input: [name],
+      });
+      expect(decideCliAction(["help", name], {})).toEqual({
+        type: "help",
+        text: fullHelp(),
+        exitCode: 2,
+        error: `Unknown command "${name}"`,
+      });
+    }
+  });
+
   test("a version flag after a command prints the version instead of running it", () => {
     expect(decideCliAction(["publish"], { version: true })).toEqual({
       type: "version",
