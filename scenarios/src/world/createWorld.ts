@@ -2374,7 +2374,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     async head() {
       const runtime = runtimeOfReaders(readersFor({ on: true }).fetchValStega);
       if (runtime === null) throw new Error("the readers have no runtime");
-      return (await runtime).ops.head.stats();
+      return (await runtime()).ops.head.stats();
     },
     workPosition: serverWork,
     expectWork(since, budget) {

@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-mcp-metadata.cjs.js",
+  "module": "dist/valbuild-mcp-metadata.esm.js"
+}

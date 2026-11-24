@@ -5,10 +5,10 @@ import {
   proposalAsBuilt,
   proposalFromEnv,
   proposalSnapshot,
-  proposalSnapshotForReaders,
   stagedAfterBuild,
   type ValProposal,
 } from "./proposal";
+import { proposalSnapshotForReaders } from "./proposalJsonEntries";
 
 const { s, c, config } = initVal();
 

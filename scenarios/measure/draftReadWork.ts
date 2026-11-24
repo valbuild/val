@@ -283,7 +283,7 @@ export async function readEveryModule(
   valModules: ValModules,
 ): Promise<void> {
   const source = serverDraftSource({
-    runtime,
+    runtime: () => runtime,
     session: undefined,
     modules: true,
   });

@@ -15,7 +15,14 @@ export { initValServer } from "./initValServer";
  * be invisible to a draft render. A host holding its own source constructs one
  * of these and passes it to both.
  */
-export { InMemoryPatchStore, type ValPatchStore } from "@valbuild/server";
+//
+// From `@valbuild/server/internal`, which is light, rather than the package
+// root, which is the whole server: everything this entry imports statically is
+// evaluated on every page's first request. See `servingPath.test.ts`.
+export {
+  InMemoryPatchStore,
+  type ValPatchStore,
+} from "@valbuild/server/internal";
 // The type the `http` option is named with. Exported from initValServer.ts
 // but not from here, so the option could be passed and never annotated.
 export type { ValHttpMode } from "./initValServer";
@@ -34,11 +41,16 @@ export { initValMcp } from "./initValMcp";
 // and so the app and `val validate --fix` format identically — they run this
 // same code. See `createPrettierFormatter` for why `prettier.format(code, {
 // filepath })` on its own is not enough.
+//
+// Pass `() => import("prettier")` rather than `prettier`: `val.server.ts` is
+// imported by every page, so a static `import prettier from "prettier"` there
+// is evaluated on every cold start, for a formatter that only runs on a save.
 export {
   createPrettierFormatter,
   type PrettierLike,
+  type PrettierLoader,
   type ValFormatter,
-} from "@valbuild/server";
+} from "@valbuild/server/internal";
 // Re-exported so an app that mounts the MCP endpoint through this package does
 // not also have to depend on `@valbuild/mcp` for the types it hands back.
 export type {

@@ -32,6 +32,7 @@ import {
   createValRuntime,
   draftForRequest,
   readDraftChanges,
+  type ReaderRuntime,
   type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";
@@ -50,9 +51,10 @@ SET_RSC(true);
 /**
  * What the readers read: this process's runtime for the app's `val.modules`
  * (`createValRuntime`), the same one the API route's server is built on.
- * Its head is the draft, read with the request's session.
+ * Its head is the draft, read with the request's session. Asked for by the
+ * first draft read, never by a visitor's.
  */
-export type ReaderRuntime = Promise<ValRuntime>;
+export type { ReaderRuntime };
 
 /** What a misuse of a reader is told, beside what went wrong. */
 const WHERE = "fetchVal can only be used server-side. Use useVal on clients.";
@@ -269,20 +271,25 @@ export function initValRsc(
     throw new Error("Could not get @valbuild/next package version");
   }
   // One runtime per process for these modules: the API route's server is
-  // built on the same one, so a save through it moves what these read.
-  const runtime = createValRuntime(
-    valModules,
-    "/api/val",
-    {
-      versions: {
-        next: nextVersion,
-        core: coreVersion,
-        framework: "next",
+  // built on the same one, so a save through it moves what these read. Built
+  // by the first draft read and not before: building it evaluates the data
+  // layer (TypeScript, the Studio's assets), which a visitor never needs.
+  let started: Promise<ValRuntime> | null = null;
+  const runtime: ReaderRuntime = () => (started ??= startRuntime());
+  const startRuntime = () =>
+    createValRuntime(
+      valModules,
+      "/api/val",
+      {
+        versions: {
+          next: nextVersion,
+          core: coreVersion,
+          framework: "next",
+        },
+        ...config,
       },
-      ...config,
-    },
-    config,
-  );
+      config,
+    );
   const deps: ReaderDeps = {
     runtime,
     isEnabled: async () => (await rscNextConfig.draftMode()).isEnabled,

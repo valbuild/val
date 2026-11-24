@@ -1,7 +1,7 @@
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
 import { type ValOps, type ValServerConfig } from "@valbuild/server";
-import { valRuntime } from "@valbuild/server/internal";
+import { valRuntime } from "@valbuild/server";
 import type { SerializedSchema, ModuleFilePath } from "@valbuild/core";
 import type { ValToolDeps, ValToolImpl, ValToolState } from "./defineTool";
 import { readTools } from "./readTools";
