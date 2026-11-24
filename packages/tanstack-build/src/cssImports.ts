@@ -90,6 +90,32 @@ function wrap(css: string, conditions: string) {
 }
 
 /**
+ * `@plugin "./x.js"` and `@config "../tailwind.config.js"`: a module Tailwind
+ * loads while compiling, named relative to the sheet that wrote it.
+ */
+const RELATIVE_MODULE_DIRECTIVE =
+  /(@(?:plugin|config)\s+)(["'])(\.\.?\/[^"']+)\2/g;
+
+/**
+ * Anchors each relative `@plugin` / `@config` in a project sheet at the
+ * project root (`/src/tw/brand.js`).
+ *
+ * Tailwind compiles the CONCATENATED stylesheet, so by the time it asks for
+ * the module the sheet that named it is gone, and it asks relative to `/`.
+ * `@config "../tailwind.config.js"` from `src/styles.css` -- which `vite build`
+ * resolves to the project's own config -- was resolved from the project root
+ * instead, one directory above the project, and the publish stopped with
+ * "could not be resolved from the project".
+ */
+export function anchorModuleDirectives(path: string, css: string): string {
+  return css.replace(
+    RELATIVE_MODULE_DIRECTIVE,
+    (_match, directive: string, quote: string, specifier: string) =>
+      `${directive}${quote}/${resolve(dirname(path), specifier)}${quote}`,
+  );
+}
+
+/**
  * The stylesheet at `path`, with every `@import` it can resolve inlined.
  *
  * `path` is the project path of the sheet, or the specifier of a dependency's
@@ -102,6 +128,7 @@ export function expandCssImports(
   context: CssImportContext,
   fromDependency = false,
 ): string {
+  if (!fromDependency) css = anchorModuleDirectives(path, css);
   return css.replace(
     IMPORT_OR_COMMENT,
     (

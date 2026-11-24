@@ -42,7 +42,9 @@ const CLASS_SELECTOR = /\.(-?[A-Za-z_][\w-]*)/g;
 const UNSUPPORTED: Array<[RegExp, string]> = [
   [/:global\b/, ":global() is not supported; the class would be scoped anyway"],
   [
-    /^\s*composes\s*:/m,
+    // After a `{` or `;` as well as at a line start: `.a { composes: b; }`
+    // on one line is how it is usually written, and was not noticed.
+    /(?:^|[{;])\s*composes\s*:/m,
     "composes: is not supported; the composed class is not merged",
   ],
 ];

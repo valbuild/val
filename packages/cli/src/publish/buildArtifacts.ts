@@ -496,6 +496,10 @@ export async function buildArtifacts(options: {
       ...(splitter ? { routeSplitter: splitter } : {}),
       rsc: target.project.rsc,
     });
+    // What the build itself noticed -- a `composes:` it cannot honour, an
+    // `@import` with nothing at its path, an ignored `@source` -- was built
+    // and then dropped here, so a publish said nothing about any of it.
+    warnings.push(...built.warnings);
     const artifacts: PublishArtifact[] = await builder.publishArtifacts(built, {
       projectSource,
     });

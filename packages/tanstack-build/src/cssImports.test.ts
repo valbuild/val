@@ -105,3 +105,16 @@ test("what cannot be found is dropped and named, not handed to Tailwind to fail 
     ),
   ]);
 });
+
+test("a relative @plugin / @config is anchored at the project, from the sheet that wrote it", () => {
+  // Tailwind compiles the concatenated sheet and asks relative to "/", so
+  // `../tailwind.config.js` from src/ was looked for above the project.
+  const ctx = context({
+    "src/styles.css": `@import "tailwindcss";\n@config "../tailwind.config.js";\n@import "./theme/theme.css";`,
+    "src/theme/theme.css": `@plugin './plugins/brand.js';\n@plugin "@tailwindcss/typography";`,
+  });
+  const out = expand(ctx);
+  expect(out).toContain(`@config "/tailwind.config.js";`);
+  expect(out).toContain(`@plugin '/src/theme/plugins/brand.js';`);
+  expect(out).toContain(`@plugin "@tailwindcss/typography";`);
+});

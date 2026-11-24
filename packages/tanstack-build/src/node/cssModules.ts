@@ -19,17 +19,40 @@ export function cssModuleLoader(dir: string): CssModuleLoader {
   // rejects a relative path.
   const require = createRequire(join(resolve(dir), "package.json"));
 
-  return async (id, base, hint) => {
+  return async (id, _base, hint) => {
+    /*
+     * A project file: the CSS pass anchors a relative `@plugin` / `@config`
+     * at the project root (`anchorModuleDirectives`), because the sheet that
+     * named it is gone by the time Tailwind asks.
+     */
+    if (id.startsWith("/")) {
+      const file = join(resolve(dir), id);
+      let resolvedFile: string;
+      try {
+        resolvedFile = require.resolve(file);
+      } catch {
+        throw new Error(
+          `Tailwind's '@${hint}' names '${id.slice(1)}', which is not in the project. ` +
+            `Check the path: it is relative to the stylesheet that has the directive.`,
+        );
+      }
+      return load(resolvedFile);
+    }
     let resolved: string;
     try {
-      resolved = require.resolve(id, { paths: [base, dir] });
+      // Not from `base`: Tailwind compiles the concatenated stylesheet with a
+      // base of "/", which is the filesystem's root, not anything of ours.
+      resolved = require.resolve(id, { paths: [dir] });
     } catch {
       throw new Error(
         `Tailwind's '@${hint} "${id}"' could not be resolved from the project. ` +
           `Add it to package.json and install, or remove the directive.`,
       );
     }
+    return load(resolved);
+  };
 
+  async function load(resolved: string) {
     // Default export when there is one: Tailwind plugins are written as
     // `export default plugin(...)`, and a namespace would not be callable.
     //
@@ -47,5 +70,5 @@ export function cssModuleLoader(dir: string): CssModuleLoader {
       base: dirname(resolved),
       module: loaded.default ?? loaded,
     };
-  };
+  }
 }
