@@ -18,6 +18,7 @@
  */
 
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import { fetchFresh } from "./crossRequest";
 
 export const STUDIO_API_PREFIX = "/v1/studio/";
 
@@ -54,7 +55,7 @@ export async function forwardToStudioApi({
   body,
   credential,
   contentUrl,
-  fetchImpl = fetch,
+  fetchImpl = fetchFresh,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: AdminProxyRequest): Promise<AdminProxyResult> {
   const url = studioApiUrl(contentUrl, path, rawQuery);

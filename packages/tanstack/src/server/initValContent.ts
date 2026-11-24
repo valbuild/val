@@ -26,6 +26,7 @@ import {
 } from "@valbuild/core";
 import {
   readerSchemaVersion,
+  keptOnce,
   type ContentSource,
 } from "@valbuild/shared/internal";
 /*
@@ -45,7 +46,6 @@ import {
   readDraftChanges,
   type ReaderRuntime,
   type ValPatchStore,
-  type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
@@ -75,7 +75,8 @@ import type { ValHttpMode } from "./initValServer";
  * What the readers read: this process's runtime for the app's `val.modules`
  * (`createValRuntime`), the same one `initValServer`'s server is built on.
  * Its head is the draft, read with the request's session. Asked for by the
- * first draft read, never by a visitor's.
+ * first draft read, never by a visitor's. A getter, which keeps the runtime
+ * and not the promise of it: see `ReaderRuntime` in `@valbuild/server`.
  */
 export type { ReaderRuntime };
 
@@ -533,10 +534,11 @@ export function initValContent(
   // built on the same one when it is given the same options, so a save
   // through the API moves what these read. Built by the first draft read and
   // not before: building it evaluates the data layer, which a visitor's page
-  // never needs.
-  let started: Promise<ValRuntime> | null = null;
-  const runtime: ReaderRuntime = () => (started ??= startRuntime());
-  const startRuntime = () =>
+  // never needs. Kept once it is made -- the runtime, never the promise of it:
+  // these readers outlive the request that made them, and on workerd a promise
+  // made in a request that has ended fails every request that awaits it.
+  // Built once (`keptOnce`), and one that fails is made again by the next read.
+  const runtime: ReaderRuntime = keptOnce(() =>
     createValRuntime(
       valModules,
       valApiEndpoints,
@@ -563,7 +565,8 @@ export function initValContent(
         ...(opts?.http !== undefined ? opts.http : {}),
       },
       config,
-    );
+    ),
+  );
   const deps: ReaderDeps = {
     runtime,
     isEnabled,

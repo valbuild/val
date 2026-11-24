@@ -217,7 +217,9 @@ async function refetchForUnknownKid(
   if (existing) {
     // Somebody is already asking. Waiting for their answer adds no request to
     // the issuer, so the rate limit has nothing to protect against here.
-    return existing;
+    return joined(url, existing, () =>
+      fetchJwks(config, nowMs, { keepCacheOnError: true }),
+    );
   }
   const lastAttemptMs = unknownKidRefetchAtMs.get(url);
   if (
@@ -265,7 +267,9 @@ async function fetchJwks(
   const url = jwksUrl(config.issuer);
   const existing = inFlight.get(url);
   if (existing) {
-    return existing;
+    return joined(url, existing, () =>
+      fetchJwks(config, nowMs, { keepCacheOnError }),
+    );
   }
   const fetchImpl = config.fetchImpl ?? fetch;
   const pending = (async (): Promise<JwksCacheEntry> => {
@@ -306,6 +310,26 @@ async function fetchJwks(
   } finally {
     inFlight.delete(url);
   }
+}
+
+/**
+ * Another caller's fetch, joined -- or, when it fails, one of this caller's
+ * own. {@link fetchJwks} never rejects, so a join that does is a fetch that
+ * belonged to another request: on workerd a promise is its request's, and
+ * once that request has ended (the client went away) every other request
+ * awaiting it is failed with "This promise was created by a request that has
+ * since ended". Its own `finally` never runs there either, so the entry is
+ * dropped here, or every later call would join it too.
+ */
+function joined(
+  url: string,
+  existing: Promise<JwksCacheEntry>,
+  retry: () => Promise<JwksCacheEntry>,
+): Promise<JwksCacheEntry> {
+  return existing.catch(() => {
+    if (inFlight.get(url) === existing) inFlight.delete(url);
+    return retry();
+  });
 }
 
 function readKeys(body: unknown): Jwk[] | null {
