@@ -145,6 +145,10 @@ import {
   AITool,
 } from "../hooks/useAIWebSocket";
 import { concatModulePath } from "../utils/sourcePath";
+import {
+  REMOTE_SETTINGS_RETRY_MS,
+  shouldRetryRemoteSettings,
+} from "../utils/remoteSettingsRetry";
 
 export type { AITool };
 
@@ -1045,56 +1049,65 @@ export function ValProvider({
     }
   }, [schemas]);
   useEffect(() => {
+    if (!requiresRemoteFiles) return;
     let retries = 0;
+    let stopped = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    function retryLater(status: number | null) {
+      if (stopped || !shouldRetryRemoteSettings(status, retries)) return;
+      timeout = setTimeout(loadRemoteSettings, REMOTE_SETTINGS_RETRY_MS);
+    }
     function loadRemoteSettings() {
       retries++;
-      if (remoteFiles.status !== "ready" && retries < 10) {
-        client("/remote/settings", "GET", {})
-          .then((res) => {
-            if (res.status === 200) {
-              setRemoteFiles({
-                status: "ready",
-                coreVersion: res.json.coreVersion,
-                buckets: res.json.remoteFileBuckets.map(
-                  (bucket) => bucket.bucket,
-                ),
-                publicProjectId: res.json.publicProjectId,
-                ...(res.json.remoteHost !== undefined
-                  ? { remoteHost: res.json.remoteHost }
-                  : {}),
-              });
-            } else {
-              if ("errorCode" in res.json && res.json.errorCode) {
-                setRemoteFiles({
-                  status: "inactive",
-                  reason: res.json.errorCode,
-                  message: res.json.message,
-                });
-              } else {
-                setRemoteFiles({
-                  status: "inactive",
-                  reason: "unknown-error",
-                  message: "An unknown error has occurred",
-                });
-              }
-              setTimeout(loadRemoteSettings, 5000);
-            }
-          })
-          .catch((err) => {
-            Internal.log.error("Error getting remote settings", err);
+      client("/remote/settings", "GET", {})
+        .then((res) => {
+          if (stopped) return;
+          if (res.status === 200) {
+            setRemoteFiles({
+              status: "ready",
+              coreVersion: res.json.coreVersion,
+              buckets: res.json.remoteFileBuckets.map(
+                (bucket) => bucket.bucket,
+              ),
+              publicProjectId: res.json.publicProjectId,
+              ...(res.json.remoteHost !== undefined
+                ? { remoteHost: res.json.remoteHost }
+                : {}),
+            });
+            return;
+          }
+          if ("errorCode" in res.json && res.json.errorCode) {
+            setRemoteFiles({
+              status: "inactive",
+              reason: res.json.errorCode,
+              message: res.json.message,
+            });
+          } else {
             setRemoteFiles({
               status: "inactive",
               reason: "unknown-error",
               message: "An unknown error has occurred",
             });
-            setTimeout(loadRemoteSettings, 5000);
+          }
+          retryLater(res.status);
+        })
+        .catch((err) => {
+          if (stopped) return;
+          Internal.log.error("Error getting remote settings", err);
+          setRemoteFiles({
+            status: "inactive",
+            reason: "unknown-error",
+            message: "An unknown error has occurred",
           });
-      }
+          retryLater(null);
+        });
     }
-    if (requiresRemoteFiles) {
-      setRemoteFiles({ status: "loading" });
-      loadRemoteSettings();
-    }
+    setRemoteFiles({ status: "loading" });
+    loadRemoteSettings();
+    return () => {
+      stopped = true;
+      if (timeout !== undefined) clearTimeout(timeout);
+    };
   }, [requiresRemoteFiles]);
 
   /**
