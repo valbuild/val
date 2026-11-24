@@ -209,7 +209,8 @@ function mergeIntoLinkWithSpan(
 
 const CUSTOM_STYLE_PREFIX = "custom_style_";
 
-function marksToStyles(marks: readonly Mark[]): EditorNodeStyle[] {
+/** A span's `styles`, for these marks: what a richtext's source calls them. */
+export function marksToStyles(marks: readonly Mark[]): EditorNodeStyle[] {
   const styles: EditorNodeStyle[] = [];
   for (const mark of marks) {
     switch (mark.type.name) {

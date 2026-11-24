@@ -13,240 +13,127 @@ import { publish } from "./publish";
 import { ciReport } from "./ciReport";
 import { errors } from "./errors";
 import { checkBuildTools } from "./checkBuildTools";
+import { decideCliAction, fullHelp } from "./help";
 
 async function main(): Promise<void> {
-  const { input, flags, showHelp } = meow(
-    `
-      Usage:
-        $ val [command]
-      
-      Options:
-        --help                   Show this message
-      
-      Commands:
-        validate
-        login
-        files
-        connect
-        publish
-        errors
-        versions
-        lsp
-        debug
-        delete-unappliable-patches
-
-      Command: validate
-      Description: val-idate val modules
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-        --fix  [fix]             Attempt to fix validation errors
-        --watch, -w              Re-validate on changes to val.config, val.modules and *.val files
-        --strict                 Fail on warnings too (local files in a project with remote files)
-
-      
-      Command: login
-      Description: login to admin.val.build and generate a Personal Access Token
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-
-
-      Command: connect
-      Description: open admin.val.build to connect this project, with its repository
-                   and val.config.ts project filled in
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-
-      Command: ci-report
-      Description: tell content how CI's build of a commit went, for a connected
-                   project's workflow. Run as its last step, whatever the build did:
-                   a failed build then reads "Published, not on the site yet" in the
-                   Studio, with a link to the run. Never fails the job.
-      Options:
-        --status [failed|succeeded]  How the build went
-        --commit [sha]           The commit built (default GITHUB_SHA)
-        --branch [name]          Its branch (default GITHUB_REF_NAME, else the project's)
-        --url [url]              The run (default this GitHub Actions run)
-
-      Command: publish
-      Description: build this project and publish it through content.val.build.
-        Asks content what to build against, builds the site and its dependency layer from
-        the checkout (needs @valbuild/tanstack-build, rolldown, @tanstack/router-generator
-        and @tanstack/router-plugin installed), declares the artifacts, uploads the ones
-        content does not already hold, and has content verify it by building and rendering
-        a canary before the site changes. With --artifacts, or a .val/publish directory,
-        it publishes that build instead of making one. Authenticates with VAL_PROJECT_TOKEN,
-        or with the "val login" token in .val/pat.json (which needs the project, as
-        "<org>/<project>", in val.config or VAL_PROJECT). Never as a flag: an argument is
-        visible to anyone who can list processes, and it is kept in shell history and in
-        every CI log.
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-        --artifacts [dir]        Publish a build made elsewhere (default: build the checkout,
-                                 unless <root>/.val/publish exists). The path of each file
-                                 under it is its artifact key: server, client, css, rsc,
-                                 layer, source, or a path under chunk/server, chunk/client,
-                                 chunk/rsc, asset, public
-        --commit [sha]           The commit this build is of (default VAL_GIT_COMMIT,
-                                 else GITHUB_SHA, else git HEAD)
-        --branch [name]          The branch content commits saves to (default VAL_GIT_BRANCH,
-                                 else GITHUB_REF_NAME, else the current git branch)
-        --layer-rev [rev]        Name the dependency layer content already holds, when this
-                                 build does not send one
-        --build-hash [hash]      Identify the build (default: a hash of its artifacts).
-                                 Declaring the same one twice resumes that publish
-        --links-own-css          The app links its own CSS (--no-links-own-css for the
-                                 opposite; omit it when the build did not say)
-        --dry-run                Verify, and stop before the site changes
-        --skip-validation        Publish without running "val validate" first. It runs by
-                                 default, and an error stops the publish
-        --strict                 Let a validation warning stop the publish too
-
-      Command: check-build-tools
-      Description: load what "val publish" builds with, and build a one-line module with
-        it: whether this install could publish, without asking content anything. Val Build
-        runs it on an upgrade's install before a connected project can publish the upgrade.
-        Fails when it could not.
-
-      Command: errors
-      Description: what the hosted site has thrown, warned or been stopped for in the last
-        7 days, grouped and newest first, with which ones the live build brought. Kept by
-        Val Build for sites it hosts. Authenticates with the "val login" token in
-        .val/pat.json, else VAL_API_KEY, for the project in val.config (or VAL_PROJECT).
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-        --limit [n]              At most this many groups, 1 to 200 (default 100)
-        --json                   Print Val Build's answer as JSON
-        --verbose                Print each error's stack
-
-      Command: list-unused-files
-      Description: EXPERIMENTAL.
-        List files that are in the configured files directory (public/val) but not in use by any Val module.
-        This is useful for cleaning up unused files.
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-
-      Command: lsp
-      Description: start the Val language server (used by editor integrations)
-      Options:
-        --stdio                  Communicate over stdin/stdout
-        --node-ipc               Communicate over Node IPC
-        --socket=[port]          Communicate over a socket
-
-      Command: debug
-      Description: Create a self-contained snapshot (the pending patches plus the modules they
-        touch or reference) that Val developers can replay to reproduce validation and save
-        errors. Read-only.
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-        --out [file]             Output zip (default ./val-debug-<branch>-<commit>-<timestamp>.zip)
-        --remote                 Read the patches from the hosted project instead of <root>/.val
-                                 (requires "val login"; implied by VAL_API_KEY)
-        --commit [sha]           Commit to read module sources at (default VAL_GIT_COMMIT, else git HEAD)
-        --branch [name]          Branch (default VAL_GIT_BRANCH, else the current git branch)
-        --include-files          Also download the binary files the patches reference
-        --verbose                List every pending patch, not just the failing ones
-
-      Command: delete-unappliable-patches
-      Description: Delete the pending patches that cannot be applied. This is what unblocks a
-        publish failing with "Failed to create commit". Capture a "val debug" snapshot first:
-        deleting discards the changes those patches contain.
-      Options:
-        --root [root], -r [root] Set project root directory (default process.cwd())
-        --remote                 Operate on the hosted project instead of <root>/.val
-                                 (requires "val login"; implied by VAL_API_KEY)
-        --commit [sha]           Commit to read module sources at (default VAL_GIT_COMMIT, else git HEAD)
-        --branch [name]          Branch (default VAL_GIT_BRANCH, else the current git branch)
-        --dry-run                Only list what would be deleted
-        --yes                    Do not ask for confirmation
-        --verbose                List every pending patch, not just the failing ones
-    `,
-    {
-      flags: {
-        root: {
-          type: "string",
-          alias: "r",
-        },
-        fix: {
-          type: "boolean",
-        },
-        watch: {
-          type: "boolean",
-          alias: "w",
-        },
-        noEslint: {
-          type: "boolean",
-        },
-        managedDir: {
-          type: "string",
-        },
-        out: {
-          type: "string",
-        },
-        artifacts: {
-          type: "string",
-        },
-        layerRev: {
-          type: "string",
-        },
-        buildHash: {
-          type: "string",
-        },
-        linksOwnCss: {
-          type: "boolean",
-        },
-        commit: {
-          type: "string",
-        },
-        branch: {
-          type: "string",
-        },
-        includeFiles: {
-          type: "boolean",
-        },
-        remote: {
-          type: "boolean",
-        },
-        dryRun: {
-          type: "boolean",
-        },
-        skipValidation: {
-          type: "boolean",
-        },
-        strict: {
-          type: "boolean",
-        },
-        yes: {
-          type: "boolean",
-        },
-        verbose: {
-          type: "boolean",
-        },
-        status: {
-          type: "string",
-        },
-        url: {
-          type: "string",
-        },
-        limit: {
-          type: "number",
-        },
-        json: {
-          type: "boolean",
-        },
+  const { input, flags, pkg, showVersion } = meow(fullHelp(), {
+    // meow only honours these when they are the sole argument, so
+    // `val publish --help` would publish. decideCliAction handles them.
+    autoHelp: false,
+    autoVersion: false,
+    flags: {
+      help: {
+        type: "boolean",
+        alias: "h",
       },
-      hardRejection: false,
+      version: {
+        type: "boolean",
+        alias: "v",
+      },
+      root: {
+        type: "string",
+        alias: "r",
+      },
+      fix: {
+        type: "boolean",
+      },
+      watch: {
+        type: "boolean",
+        alias: "w",
+      },
+      noEslint: {
+        type: "boolean",
+      },
+      managedDir: {
+        type: "string",
+      },
+      out: {
+        type: "string",
+      },
+      artifacts: {
+        type: "string",
+      },
+      layerRev: {
+        type: "string",
+      },
+      buildHash: {
+        type: "string",
+      },
+      linksOwnCss: {
+        type: "boolean",
+      },
+      commit: {
+        type: "string",
+      },
+      branch: {
+        type: "string",
+      },
+      includeFiles: {
+        type: "boolean",
+      },
+      remote: {
+        type: "boolean",
+      },
+      dryRun: {
+        type: "boolean",
+      },
+      skipValidation: {
+        type: "boolean",
+      },
+      strict: {
+        type: "boolean",
+      },
+      // On unless --no-typecheck: an absent boolean is false to meow.
+      typecheck: {
+        type: "boolean",
+        default: true,
+      },
+      yes: {
+        type: "boolean",
+      },
+      verbose: {
+        type: "boolean",
+      },
+      status: {
+        type: "string",
+      },
+      url: {
+        type: "string",
+      },
+      limit: {
+        type: "number",
+      },
+      json: {
+        type: "boolean",
+      },
     },
-  );
+    hardRejection: false,
+  });
 
-  if (input.length === 0) {
-    return showHelp();
+  const action = decideCliAction(input, flags);
+  if (action.type === "help") {
+    if (action.error) {
+      error(action.error);
+    }
+    console.log(
+      (pkg.description ? `\n  ${pkg.description}\n` : "") +
+        `\n${action.text}\n`,
+    );
+    process.exitCode = action.exitCode;
+    return;
+  }
+  if (action.type === "version") {
+    return showVersion();
+  }
+  if (action.type === "unknown-command") {
+    error(
+      `Unknown command "${action.input.join(" ")}". Run "val help" to see the commands.`,
+    );
+    process.exitCode = 2;
+    return;
   }
 
-  if (input.length !== 1) {
-    return error(`Unknown command "${input.join(" ")}"`);
-  }
-
-  const [command] = input;
+  const { command } = action;
   switch (command) {
     case "list-unused-files":
       if (flags.fix || flags.noEslint) {
@@ -310,6 +197,7 @@ async function main(): Promise<void> {
         dryRun: flags.dryRun,
         skipValidation: flags.skipValidation,
         strict: flags.strict,
+        typecheck: flags.typecheck,
       });
     case "login":
       return login({
@@ -325,7 +213,6 @@ async function main(): Promise<void> {
         root: flags.root,
       });
     case "validate":
-    case "idate":
       if (flags.managedDir) {
         return error(`Command "validate" does not support --managedDir flag`);
       }
@@ -340,8 +227,10 @@ async function main(): Promise<void> {
         watch: flags.watch,
         strict: flags.strict,
       });
-    default:
-      return error(`Unknown command "${input.join(" ")}"`);
+    default: {
+      const unhandled: never = command;
+      return error(`Unknown command "${unhandled}"`);
+    }
   }
 }
 

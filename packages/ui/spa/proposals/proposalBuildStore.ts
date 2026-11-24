@@ -48,6 +48,33 @@ export type ProposalBuildState = {
   stepLabel: string | null;
   /** How the last build ended, and what it took; `null` before the first. */
   last: LastBuild | null;
+  /**
+   * What the last staging made from this Studio left staged, as the staging
+   * itself answered ({@link proposalStaged}): what shows the change starts
+   * from this rather than reading the proposal again to learn it. `null`
+   * before the first. A staging made elsewhere is not here: it is heard of
+   * through the proposal's `seq`.
+   */
+  staged: StagedNow | null;
+  /**
+   * The assistant is working on a turn in this Studio
+   * ({@link setAssistantWorking}): more writes may follow the last one. The
+   * one bit of the chat that what shows a change needs, to tell a pause
+   * between two edits from the end of the change.
+   */
+  assistantWorking: boolean;
+};
+
+/** A proposal's staged files as a staging answered them. */
+export type StagedNow = {
+  /** The proposal. */
+  name: string;
+  /** What a build of the staged files is named for; `null`: nothing staged. */
+  inputs: string | null;
+  /** Its address does not serve a build of them. */
+  buildRequired: boolean;
+  /** Counts this Studio's stagings: a read begun before it is older. */
+  count: number;
 };
 
 /** One step of a build, and how long it took. */
@@ -74,6 +101,8 @@ const INITIAL: ProposalBuildState = {
   timings: [],
   stepLabel: null,
   last: null,
+  staged: null,
+  assistantWorking: false,
 };
 let current: ProposalBuildState = INITIAL;
 const listeners = new Set<() => void>();
@@ -98,6 +127,32 @@ export function proposalBuildState(): ProposalBuildState {
 /** The proposal's code may have changed: read it again. */
 export function proposalCodeChanged() {
   set({ changed: current.changed + 1 });
+}
+
+/**
+ * Files were staged in proposal `name` from this Studio, and this is what
+ * the staging answered. Called by the proposals client for every staging it
+ * makes -- the assistant's writes, a format, lint fixes -- so there is one
+ * place a staging is announced from.
+ */
+export function proposalStaged(
+  name: string,
+  staged: { inputs: string | null; buildRequired: boolean },
+) {
+  set({
+    staged: {
+      name,
+      inputs: staged.inputs,
+      buildRequired: staged.buildRequired,
+      count: (current.staged?.count ?? 0) + 1,
+    },
+  });
+}
+
+/** The assistant began a turn in this Studio, or ended one. */
+export function setAssistantWorking(working: boolean) {
+  if (current.assistantWorking === working) return;
+  set({ assistantWorking: working });
 }
 
 /** Ask the person to open a proposal: code is changed in one. */

@@ -9,7 +9,10 @@ expensive to re-derive from the code:
 
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
-  reference stability is load-bearing.
+  reference stability is load-bearing. **Read "A reader renders when its
+  answer moves" before adding a hook to `ValShell`, `useShellData` or a
+  field**: one that renders its caller for every field write renders the
+  whole Studio there.
 - [`architecture/content-versions.md`](../architecture/content-versions.md) —
   the one content model every reader goes through: a module's base plus its
   chain of patches through one engine, versions (`{ schema, base, chain }`)
@@ -653,7 +656,14 @@ content analytics, switched on by `VAL_ANALYTICS=true` in its `.env.development`
 option) and read in `_site.tsx`'s loader, so its content is tagged for every
 visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
 page writing JSON-LD and a share link through `val.raw()`, which the dev-only
-leak warning checks (`e2e/tanstack/leakWarning.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
+leak warning checks (`e2e/tanstack/leakWarning.spec.ts`); and, EXPERIMENTAL,
+`.component(() => import(...))` on the sections of `/landing`
+(`_site.landing.val.ts`), with `example`, a
+`props` function for a component with props of its own, a list of components
+inside a component and a single linked object, all rendered by
+`ValComponentEditor` (`_site.landing.tsx`), arranged on the page in the
+Studio's canvas (`e2e/tanstack/componentEditor.spec.ts`), with a preview
+route of their own in `src/routes/val-preview.tsx`. What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
@@ -927,6 +937,13 @@ pnpm exec playwright test --project=tanstack                         # ~1 min
 pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts                                       # ~4 min
 ```
+
+`chromium-proposal` (`e2e/proposal/`) is a third copy of `examples/tanstack`,
+in proxy mode at a PROPOSAL's address (`VAL_E2E_PROPOSAL`, read by the
+example's `src/val/server.ts`), on the same mock content host: the only place
+a real browser drives code mode. The mock's Val Build makes quick previews
+there once a spec turns them on (`mock.quickPreviews()`), with no files in
+them, and its scripted assistant takes a `pause` step between tool calls.
 
 `webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
 in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`

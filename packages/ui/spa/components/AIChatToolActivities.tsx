@@ -72,6 +72,15 @@ export type ToolActivity = {
    * `CodeModeRequestCard`.
    */
   codeModeRequest?: CodeModeRequest;
+  /**
+   * The model is still writing this call: it has not reached the Studio yet,
+   * and nothing runs. A row for it all the same, because a call that writes a
+   * file takes the model many seconds to write. Cleared when the call comes;
+   * a row still writing when its turn ends is removed.
+   */
+  writing?: boolean;
+  /** What the call is about, once known: a file's path. */
+  detail?: string;
 };
 
 /**
@@ -426,7 +435,8 @@ function summarize(activities: ToolActivity[]): string {
   // running does the row become a count of what happened.
   const running = activities.find((a) => a.status === "pending");
   if (running) {
-    return `${toolDisplay(running.name).label}…`;
+    const label = toolDisplay(running.name).label;
+    return running.detail ? `${label}: ${running.detail}…` : `${label}…`;
   }
   if (activities.length === 1) {
     return toolDisplay(activities[0].name).label;
@@ -524,6 +534,11 @@ function ToolCallGroup({
                     {display.label}
                     {activity.status === "pending" ? "…" : ""}
                   </span>
+                  {activity.detail && (
+                    <span className="ml-1.5 text-fg-tertiary">
+                      {activity.detail}
+                    </span>
+                  )}
                 </span>
               </li>
             );

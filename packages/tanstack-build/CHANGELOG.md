@@ -1,5 +1,49 @@
 # @valbuild/tanstack-build
 
+## 0.154.2
+
+### Patch Changes
+
+- [#1049](https://github.com/valbuild/val/pull/1049) [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff) Thanks [@freekh](https://github.com/freekh)! - Experimental: link an object to the component that renders it, and let Val render and arrange it
+
+  `s.object(...).component(() => import("./Hero"))` links an object schema to a component. The link is type checked against the component's own props: when the object's fields are the props nothing else is needed, and for any other component a `props` function says how to make them.
+
+  ```ts
+  export const heroFields = s.object({
+    type: s.literal("hero"),
+    title: s.string(),
+  });
+  export const hero = heroFields.component(() => import("../components/Hero"));
+
+  export const note = s
+    .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+    .component(() => import("../components/Callout"), {
+      props: (note) => ({
+        heading: note.title,
+        tone: note.urgent ? "warning" : "info",
+      }),
+    });
+  ```
+
+  `<ValComponentEditor value={page.sections} />`, from `@valbuild/tanstack` and `@valbuild/next`, renders a list of linked objects (or a single one) with their components, with no map from a `type` to a component to keep. It only accepts values that are linked: a list with a variant that has no component is a type error. It is optional, and a component can use it for a list of components of its own.
+
+  In Val Studio, a list rendered this way can be arranged on the page itself: drag a section to another place, add one between two others, or remove one.
+
+  This replaces the experimental `.render({ as: "component", component })` on objects. Move its `component` to the first argument of `.component()` and the rest of its options to the second.
+
+## 0.154.0
+
+### Minor Changes
+
+- [#895](https://github.com/valbuild/val/pull/895) [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834) Thanks [@freekh](https://github.com/freekh)! - A `PUBLIC_` variable set in Val Build now wins over the same name given at build time.
+
+  Since 0.153.0 a hosted site reads its `PUBLIC_` variables when it runs, but a value passed to `buildUserApp({ env })` (for example by `val publish` from a shell or `.env` that had it) still won. Changing that variable in Val Build then did nothing until somebody published again. Now:
+
+  - A `PUBLIC_` value given at build time is only the fallback: the runtime value wins, for `import.meta.env.NAME` and `process.env.NAME` alike, on the server and in the browser.
+  - Other values given at build time are still read by name only, on the server only: `const { NAME } = import.meta.env` does not find them, as in Vite.
+  - In the browser, `process.env` carries `NODE_ENV: "production"`, so `const { NODE_ENV } = process.env` no longer reads `undefined` and takes the development branch.
+  - `import.meta.env` is no longer frozen: it is one object shared by every module, as in Vite, so an assignment to it no longer throws.
+
 ## 0.153.0
 
 ### Minor Changes

@@ -22,8 +22,10 @@ import path from "path";
 import {
   DEFAULT_CONTENT_HOST,
   DEFAULT_VAL_REMOTE_HOST,
+  Internal,
   type ModuleFilePath,
   type SourcePath,
+  type ValidationError,
   type ValidationFix,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
@@ -183,7 +185,11 @@ async function withProgress(
   connection: Connection,
   title: string,
   message: string,
-): Promise<{ signal: AbortSignal; done: () => void }> {
+): Promise<{
+  signal: AbortSignal;
+  report: (message: string) => void;
+  done: () => void;
+}> {
   const controller = new AbortController();
   try {
     const reporter = await connection.window.createWorkDoneProgress();
@@ -192,6 +198,7 @@ async function withProgress(
     let finished = false;
     return {
       signal: controller.signal,
+      report: (next) => reporter.report(next),
       done: () => {
         if (!finished) {
           finished = true;
@@ -201,7 +208,7 @@ async function withProgress(
     };
   } catch {
     connection.window.showInformationMessage(`${title}. ${message}`);
-    return { signal: controller.signal, done: () => {} };
+    return { signal: controller.signal, report: () => {}, done: () => {} };
   }
 }
 
@@ -294,13 +301,10 @@ export function createValCommands(deps: ValCommandDeps): {
       SourcePath,
       { ref: string; metadata?: Record<string, unknown> }
     > = {};
-    const validationError = {
-      message: args.message,
-      value: args.value,
-      fixes: [args.fix],
-    };
+    // One entry, or for a gallery fix every entry of that gallery that needs it.
+    const targets = await fixTargets(project, args);
 
-    // Bytes over the network: how long depends on the file, so the editor needs
+    // Bytes over the network: how long depends on the files, so the editor needs
     // to say something is happening.
     const progress = await withProgress(
       connection,
@@ -309,40 +313,58 @@ export function createValCommands(deps: ValCommandDeps): {
         : "Val: downloading from Val Remote",
       args.sourcePath,
     );
-    let outcome;
-    try {
-      outcome = await project.runFixHandler({
-        moduleFilePath: args.moduleFilePath,
-        sourcePath: args.sourcePath,
-        validationError,
-        // The upload or download itself is the point; it cannot be an edit.
-        fix: true,
-        remote: createRemote(remoteHost),
-        ...(projectName ? { project: projectName } : {}),
-        remoteFiles,
-      });
-    } catch (e: unknown) {
-      progress.done();
-      connection.window.showErrorMessage(
-        `Val: ${args.fix} failed. ${e instanceof Error ? e.message : String(e)}`,
-      );
-      return;
+    const done: FixTarget[] = [];
+    const otherModulePatches: ModulePatch[] = [];
+    let failure: string | undefined;
+    for (const [i, target] of targets.entries()) {
+      if (targets.length > 1) {
+        progress.report(`${i + 1} of ${targets.length}: ${target.sourcePath}`);
+      }
+      let outcome;
+      try {
+        outcome = await project.runFixHandler({
+          moduleFilePath: args.moduleFilePath,
+          sourcePath: target.sourcePath,
+          validationError: target.validationError,
+          // The upload or download itself is the point; it cannot be an edit.
+          fix: true,
+          remote: createRemote(remoteHost),
+          ...(projectName ? { project: projectName } : {}),
+          remoteFiles,
+        });
+      } catch (e: unknown) {
+        failure = `${args.fix} failed. ${e instanceof Error ? e.message : String(e)}`;
+        break;
+      }
+      if (!outcome) {
+        failure = `could not run ${args.fix} — the project would not evaluate.`;
+        break;
+      }
+      if (!outcome.success) {
+        failure = outcome.errorMessage ?? `${args.fix} failed.`;
+        break;
+      }
+      if (!outcome.shouldApplyPatch) {
+        // The handler did the work and there is nothing left to rewrite.
+        continue;
+      }
+      done.push(target);
+      otherModulePatches.push(...(outcome.otherModulePatches ?? []));
     }
     progress.done();
-    if (!outcome) {
-      connection.window.showErrorMessage(
-        `Val: could not run ${args.fix} — the project would not evaluate.`,
-      );
-      return;
-    }
-    if (!outcome.success) {
-      connection.window.showErrorMessage(
-        `Val: ${outcome.errorMessage ?? `${args.fix} failed.`}`,
-      );
-      return;
-    }
-    if (!outcome.shouldApplyPatch) {
-      // The handler did the work and there is nothing left to rewrite.
+    // What went up before a failure is still written: the files are there, and
+    // nothing would name them otherwise. Running the fix again picks up the rest.
+    const reportFailure = () => {
+      if (failure) {
+        connection.window.showErrorMessage(
+          targets.length > 1 && done.length > 0
+            ? `Val: ${done.length} of ${targets.length} done, then ${failure} Run the fix again for the rest.`
+            : `Val: ${failure}`,
+        );
+      }
+    };
+    if (done.length === 0) {
+      reportFailure();
       return;
     }
 
@@ -352,17 +374,20 @@ export function createValCommands(deps: ValCommandDeps): {
     if (moduleResult.status === "error") {
       return;
     }
-    let fixed;
+    const patch: Patch = [];
     try {
-      fixed = await createFixPatch(
-        { projectRoot: project.valRoot, remoteHost },
-        true,
-        args.sourcePath,
-        validationError,
-        remoteFiles,
-        moduleResult.content.source,
-        moduleResult.content.schema,
-      );
+      for (const target of done) {
+        const fixed = await createFixPatch(
+          { projectRoot: project.valRoot, remoteHost },
+          true,
+          target.sourcePath,
+          target.validationError,
+          remoteFiles,
+          moduleResult.content.source,
+          moduleResult.content.schema,
+        );
+        patch.push(...(fixed?.patch ?? []));
+      }
     } catch (e: unknown) {
       connection.window.showErrorMessage(
         `Val: ${args.fix} could not be written. ${
@@ -371,11 +396,12 @@ export function createValCommands(deps: ValCommandDeps): {
       );
       return;
     }
-    if (!fixed || fixed.patch.length === 0) {
+    if (patch.length === 0) {
+      reportFailure();
       return;
     }
     const before = document.getText();
-    const patched = patchSourceFile(before, fixed.patch);
+    const patched = patchSourceFile(before, patch);
     if (result.isErr(patched)) {
       connection.window.showErrorMessage(
         `Val: ${args.fix} produced a patch that would not apply.`,
@@ -391,10 +417,12 @@ export function createValCommands(deps: ValCommandDeps): {
       return;
     }
     const changes: Record<string, TextEdit[]> = { [args.uri]: [edit] };
-    // A fix that renames what other modules name (a video set's key) rewrites
-    // them in the same edit, so one undo takes back all of it.
+    // A fix that renames what other modules name (a gallery's key, a video set's)
+    // rewrites them in the same edit, so one undo takes back all of it. Several
+    // entries can change one module: its patches become one edit, since edits
+    // made against the same text must not overlap.
     const unwritten: string[] = [];
-    for (const other of outcome.otherModulePatches ?? []) {
+    for (const other of mergeByModule(otherModulePatches)) {
       const otherEdits = await editsForModulePatch(project, other);
       if (otherEdits) {
         for (const otherEdit of otherEdits) {
@@ -423,6 +451,7 @@ export function createValCommands(deps: ValCommandDeps): {
       );
       return;
     }
+    reportFailure();
     if (unwritten.length > 0) {
       connection.window.showWarningMessage(
         `Val: ${args.fix} could not rewrite ${unwritten.join(", ")}. Run "val validate" to see what still points at the old path.`,
@@ -553,4 +582,84 @@ function isRemoteFixCommandArgs(raw: unknown): raw is RemoteFixCommandArgs {
     typeof candidate.fix === "string" &&
     typeof candidate.message === "string"
   );
+}
+
+/** The fixes offered on one gallery entry that act on the whole gallery, as their titles say. */
+const GALLERY_FIXES: ReadonlySet<ValidationFix> = new Set<ValidationFix>([
+  "images:upload-remote",
+  "files:upload-remote",
+]);
+
+type FixTarget = { sourcePath: SourcePath; validationError: ValidationError };
+
+/**
+ * What a remote-fix command runs on: the entry it was offered on, or for a
+ * gallery fix ("upload this gallery's images") every entry of that gallery that
+ * has the same fix, in the order the gallery lists them. In that order the
+ * entries keep their places, since each is renamed by removing it and adding
+ * it again at the end.
+ */
+async function fixTargets(
+  project: ValProject,
+  args: RemoteFixCommandArgs,
+): Promise<FixTarget[]> {
+  const own: FixTarget = {
+    sourcePath: args.sourcePath,
+    validationError: {
+      message: args.message,
+      value: args.value,
+      fixes: [args.fix],
+    },
+  };
+  if (!GALLERY_FIXES.has(args.fix)) {
+    return [own];
+  }
+  const moduleResult = await project.getModule(args.moduleFilePath, {
+    validate: true,
+  });
+  if (moduleResult.status === "error") {
+    return [own];
+  }
+  const { errors: moduleErrors } = moduleResult.content;
+  const validation = (moduleErrors && moduleErrors.validation) || {};
+  const gallery = Internal.parentOfSourcePath(args.sourcePath);
+  const targets: FixTarget[] = [];
+  for (const [sourcePath, errors] of Object.entries(validation) as [
+    SourcePath,
+    ValidationError[],
+  ][]) {
+    if (Internal.parentOfSourcePath(sourcePath) !== gallery) {
+      continue;
+    }
+    for (const error of errors) {
+      if (error.fixes?.includes(args.fix)) {
+        targets.push({
+          sourcePath,
+          validationError: {
+            message: error.message,
+            value: error.value,
+            fixes: [args.fix],
+          },
+        });
+      }
+    }
+  }
+  return targets.some((t) => t.sourcePath === args.sourcePath)
+    ? targets
+    : [own, ...targets];
+}
+
+/** One patch per module, in the order they came. */
+function mergeByModule(patches: ModulePatch[]): ModulePatch[] {
+  const byModule = new Map<ModuleFilePath, Patch>();
+  for (const { moduleFilePath, patch } of patches) {
+    byModule.set(moduleFilePath, [
+      ...(byModule.get(moduleFilePath) ?? []),
+      ...patch,
+    ]);
+  }
+  return [...byModule].map(([moduleFilePath, patch]) => ({
+    moduleFilePath,
+    patch,
+  }));
 }

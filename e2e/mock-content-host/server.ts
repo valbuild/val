@@ -354,7 +354,9 @@ type AiScriptStep =
    * An `ai_usage` report — sent only if the prompt asked for them
    * (`reportUsage`), as the real service does.
    */
-  | { type: "usage"; outputTokens: number; estimated?: boolean };
+  | { type: "usage"; outputTokens: number; estimated?: boolean }
+  /** The model thinking between two steps: nothing is sent for `ms`. */
+  | { type: "pause"; ms: number };
 
 type AiScript = {
   steps: AiScriptStep[];
@@ -512,10 +514,21 @@ type State = {
    * Set by a test (`PUT /__test__/project-source`), as a publish would.
    */
   projectSource: Record<string, string> | null;
+  /**
+   * Val Build's quick preview (`POST /proposals/:name/quick-preview`): `null`
+   * while Val Build does not build this project, which is the default and
+   * what every spec that builds in the tab expects. Turned on by a test
+   * (`POST /__test__/quick-preview`), which also says how long one takes;
+   * `made` is every one answered, with the staged inputs it was of.
+   */
+  quickPreview: { delayMs: number } | null;
+  quickPreviewsMade: { proposal: string; inputs: string }[];
 };
 
 function emptyState(): State {
   return {
+    quickPreview: null,
+    quickPreviewsMade: [],
     patches: new Map(),
     proposals: new Map(),
     proposalsEnabled: false,
@@ -2421,6 +2434,7 @@ async function playAiTurn(
     sessionId?: string;
     message?: unknown;
     reportUsage?: boolean;
+    reportTimings?: boolean;
   },
 ): Promise<void> {
   /**
@@ -2467,9 +2481,14 @@ async function playAiTurn(
     steps: [],
     response: "No script was queued for this turn.",
   };
+  let timedSteps = 0;
   for (const step of script.steps) {
     if (step.type === "text") {
       send({ type: "ai_streaming", id: messageId, chunk: step.text });
+      continue;
+    }
+    if (step.type === "pause") {
+      await new Promise((resolve) => setTimeout(resolve, step.ms));
       continue;
     }
     if (step.type === "usage") {
@@ -2504,6 +2523,7 @@ async function playAiTurn(
         }
       },
     );
+    const calledAt = Date.now();
     send({
       type: "ai_tool_call",
       id: messageId,
@@ -2512,6 +2532,37 @@ async function playAiTurn(
       arguments: args,
     });
     const answer = await answered;
+    /*
+     * The service's own timings (valbuild/home, `ai_step_timing`), only when
+     * the prompt asked: a reply that made this call, then the round of tools.
+     * The reply's numbers are made up, since no model ran; the round's is the
+     * real wait for the Studio's answer.
+     */
+    if (prompt.reportTimings) {
+      timedSteps += 1;
+      send({
+        type: "ai_step_timing",
+        id: messageId,
+        kind: "reply",
+        step: timedSteps,
+        totalMs: 0,
+        firstByteMs: 0,
+        firstOutputMs: 0,
+        inputTokens: 1000,
+        cacheReadTokens: 900,
+        outputTokens: 10,
+        toolCalls: [step.name],
+      });
+      send({
+        type: "ai_step_timing",
+        id: messageId,
+        kind: "tools",
+        step: timedSteps,
+        totalMs: Date.now() - calledAt,
+        afterMs: 0,
+        toolCalls: [step.name],
+      });
+    }
     state.aiToolCalls.push({
       name: step.name,
       arguments: args,
@@ -3769,6 +3820,14 @@ async function proposalStage(
     if (JSON.stringify(now) === JSON.stringify(source)) continue;
     proposal.saved.modules[moduleFilePath] = source;
   }
+  /*
+   * A staging moves the branch's chain version, as `home` counts it
+   * (`patches.countStaging`), and its Studios hear: what every Studio open
+   * on the proposal re-reads its staged files on (`ManifestSource.seq`), and
+   * what ends the assistant's held copy of them (`projectSnapshot.ts`).
+   */
+  bumpChainVersion(proposal.branch);
+  broadcastChain(proposal.branch);
   json(res, 200, { commit: commitSha, staged: stagedJson(proposal) });
 }
 
@@ -4175,10 +4234,35 @@ async function proposalsRoute(
     case "POST /build":
       await proposalServeBuild(req, res, proposal);
       return;
-    // Val Build's quick preview, which the mock does not make either.
-    case "POST /quick-preview":
-      serverBuildsOff(res);
+    /*
+     * Val Build's quick preview, which the mock does not make unless a test
+     * turned it on. Nothing is bundled: it answers no files, which is a quick
+     * preview whose browser half is the served build's, and all a test of
+     * WHEN one is made and how the canvas takes it needs.
+     */
+    case "POST /quick-preview": {
+      const quick = state.quickPreview;
+      if (quick === null) {
+        serverBuildsOff(res);
+        return;
+      }
+      const body = await readJsonBody<{ inputs?: unknown }>(req);
+      const inputs = stagedJson(proposal).inputs;
+      if (inputs === null || body?.inputs !== inputs) {
+        json(res, 409, {
+          statusCode: 409,
+          message: "The staged files changed since this was asked for.",
+          details: { code: "inputs-moved" },
+        });
+        return;
+      }
+      if (quick.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, quick.delayMs));
+      }
+      state.quickPreviewsMade.push({ proposal: proposal.name, inputs });
+      json(res, 200, { inputs, files: {} });
       return;
+    }
     case "POST /close":
     case "POST /reopen":
       proposal.status = route === "POST /close" ? "closed" : "open";
@@ -4296,6 +4380,20 @@ const controlPlane: Handler = async (req, res, url) => {
     const body = await readJsonBody<{ enabled?: boolean }>(req);
     state.publishJobsEnabled = body?.enabled !== false;
     json(res, 200, { ok: true, enabled: state.publishJobsEnabled });
+    return;
+  }
+  if (action === "quick-preview" && req.method === "POST") {
+    // Val Build makes quick previews for this project, each taking `delayMs`.
+    const body = await readJsonBody<{ enabled?: boolean; delayMs?: number }>(
+      req,
+    );
+    state.quickPreview =
+      body?.enabled === false ? null : { delayMs: body?.delayMs ?? 0 };
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (action === "quick-previews" && req.method === "GET") {
+    json(res, 200, { made: state.quickPreviewsMade });
     return;
   }
   if (action === "proposals-enabled" && req.method === "POST") {

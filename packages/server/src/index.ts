@@ -33,14 +33,18 @@ export {
   proposalFromEnv,
   layeredSnapshot,
   proposalSnapshot,
-  proposalSnapshotForReaders,
 } from "./proposal";
+export { proposalSnapshotForReaders } from "./proposalJsonEntries";
 export type { ValContentVersion, ValProposal } from "./proposal";
 // Exported for a host that has to build the same config the API router builds:
 // two copies of this decision drift, and a registry that thinks it is in fs mode
 // while the Studio thinks it is in proxy mode reads different content from the
 // same project.
 export { initHandlerOptions, createValOps } from "./valServerConfig";
+// The process's runtime for a project, for `@valbuild/mcp`'s tools to share
+// with the API and the readers. Here rather than in `./internal`, which the
+// readers import on every page and must not evaluate the data layer.
+export { valRuntime, type ValRuntime } from "./valRuntime";
 // Which credential talks to the content host about remote files: the app's api
 // key, else the developer's own `val login` token off disk. Exported for
 // `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api
@@ -156,6 +160,7 @@ export { createPrettierFormatter } from "./createPrettierFormatter";
 export type {
   PrettierLike,
   PrettierLikeConfig,
+  PrettierLoader,
   ValFormatter,
 } from "./createPrettierFormatter";
 export {

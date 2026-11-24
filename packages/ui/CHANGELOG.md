@@ -1,5 +1,171 @@
 # @valbuild/ui
 
+## 0.154.2
+
+### Patch Changes
+
+- [#1049](https://github.com/valbuild/val/pull/1049) [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff) Thanks [@freekh](https://github.com/freekh)! - Experimental: link an object to the component that renders it, and let Val render and arrange it
+
+  `s.object(...).component(() => import("./Hero"))` links an object schema to a component. The link is type checked against the component's own props: when the object's fields are the props nothing else is needed, and for any other component a `props` function says how to make them.
+
+  ```ts
+  export const heroFields = s.object({
+    type: s.literal("hero"),
+    title: s.string(),
+  });
+  export const hero = heroFields.component(() => import("../components/Hero"));
+
+  export const note = s
+    .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+    .component(() => import("../components/Callout"), {
+      props: (note) => ({
+        heading: note.title,
+        tone: note.urgent ? "warning" : "info",
+      }),
+    });
+  ```
+
+  `<ValComponentEditor value={page.sections} />`, from `@valbuild/tanstack` and `@valbuild/next`, renders a list of linked objects (or a single one) with their components, with no map from a `type` to a component to keep. It only accepts values that are linked: a list with a variant that has no component is a type error. It is optional, and a component can use it for a list of components of its own.
+
+  In Val Studio, a list rendered this way can be arranged on the page itself: drag a section to another place, add one between two others, or remove one.
+
+  This replaces the experimental `.render({ as: "component", component })` on objects. Move its `component` to the first argument of `.component()` and the rest of its options to the second.
+
+- [#1086](https://github.com/valbuild/val/pull/1086) [`a52c184`](https://github.com/valbuild/val/commit/a52c184687849ba9c2c2a4929871b60502a6ee55) Thanks [@freekh](https://github.com/freekh)! - Signed out, the Studio's **Log in** button can be clicked again, including on a phone
+
+  On a site with Tailwind CSS of its own, the signed-out Studio laid an invisible full-screen layer over its login dialog, so the **Log in** button could not be clicked or tapped and nobody could sign in. The dialog now has one backdrop, inside the Studio.
+
+  A signed-out Studio also no longer asks the server for its remote file settings every five seconds while the login dialog is up. They are asked again only after a network error or a server error.
+
+- [#1085](https://github.com/valbuild/val/pull/1085) [`6c26409`](https://github.com/valbuild/val/commit/6c2640966779e20931672dc78ff6e3c0d19e4183) Thanks [@freekh](https://github.com/freekh)! - The editor scrolls again while the Pages, Media or Data panel is open beside it. A click on the editor still closes the panel, and now also lands on what you clicked.
+
+- [#1049](https://github.com/valbuild/val/pull/1049) [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff) Thanks [@freekh](https://github.com/freekh)! - **Typing in the Studio no longer stutters.** A field saves a moment after you stop typing, and every couple of seconds while you keep going. Each of those saves used to redraw the whole Studio, several times over, and again when the server confirmed it, so typing froze for a moment in the middle of a word. A save now redraws the field you are typing in and the few places that show it: the save indicator, the count on Review and Publish.
+
+  On the page this was measured on, one save went from redrawing about 13,000 components to about 300.
+
+## 0.154.1
+
+### Patch Changes
+
+- [#1079](https://github.com/valbuild/val/pull/1079) [`37e4f39`](https://github.com/valbuild/val/commit/37e4f390d1fd6a930488c9487de43f8c1a390122) Thanks [@freekh](https://github.com/freekh)! - The assistant no longer goes quiet while it works out a change.
+
+  - While it thinks, the chat shows one line of what it is thinking about. The line goes away as soon as it starts to answer or to do something. (Claude models only.)
+  - When it starts to change a file, the chat says so at once, with the file's name: "Changing the code: src/components/Hero.tsx…". Before, nothing showed until the whole file had been written, which could take many seconds.
+
+  Both need a content server that sends them; with one that does not, nothing changes.
+
+- [#1069](https://github.com/valbuild/val/pull/1069) [`245843e`](https://github.com/valbuild/val/commit/245843ec527212dc31c6e1da1f0bd5f9d99cf8d3) Thanks [@freekh](https://github.com/freekh)! - The assistant makes a code change in fewer steps.
+
+  In code mode, the assistant now starts with a map of your project: which file serves each route, which Val modules there are and which components use each one, and the files by folder. It no longer has to list and search the project before it can open the file a change is in.
+
+  - It reads the files a change needs together, and makes all of the change's edits together, instead of one at a time.
+  - A change to a component or a style no longer starts by reading every schema, and is no longer followed by a content check it did not need.
+  - When you point at something in the preview, the assistant is told which file renders it.
+
+  Nothing changes for content editing outside code mode.
+
+- [#1070](https://github.com/valbuild/val/pull/1070) [`d4e514f`](https://github.com/valbuild/val/commit/d4e514f9eac2f014fc07aa768787d637898dc744) Thanks [@freekh](https://github.com/freekh)! - Code mode no longer flashes while the assistant changes code.
+
+  A second after every file the assistant wrote, the Studio made a quick preview and showed it by loading the page again, so the preview went blank for most of a second once per write, each time for a change that was only half made. A change of three edits was three blank pages.
+
+  - **One quick preview per change.** It starts when the assistant's turn ends, or when its writes have paused for four seconds, and it shows what the last write left. A burst of edits is one quick preview, not one each. A change staged outside a turn, or by someone else in the proposal, is still shown at once.
+  - **The page you are looking at stays until the new one is ready.** A new quick preview, and a new build, load behind the page on screen and replace it once they have rendered, at the same place and scroll position. Nothing is swapped in while you are typing in the page, as before. A reload you ask for still reloads in the open.
+  - **It starts sooner.** The quick preview is asked for with what the write itself answered. The proposal was read twice on the way before, with a second's wait in between.
+  - **Half the work on Val Build.** Each quick preview was asked for a second time when the page it was shown in came up, and thrown away. It is asked for once.
+  - The editor no longer re-reads every field after a write that changed no `.val.ts`.
+
+- [#1072](https://github.com/valbuild/val/pull/1072) [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe) Thanks [@freekh](https://github.com/freekh)! - The assistant's code tools answer faster in a proposal.
+
+  - **Reading costs no request after the first.** The Studio keeps the proposal's project in the tab for the life of the chat, instead of fetching the site's source and the proposal's files again for every `read_file`, `search_code`, `list_files`, `edit_file`, `format_files` and `lint`. It is read again when someone changes the proposal, when the site is published, and after the assistant's own changes.
+  - **A change is one or two requests instead of four.** `edit_file`, `write_files`, `format_files` and `lint` with `fix` no longer ask whether code mode is on before each write: Val's server already refuses a write while it is off, and the assistant is still told who turned it off. Before a file is edited, the Studio asks what the proposal stages now, so a change someone else made to it is edited rather than overwritten.
+  - **A change does not wait for the schema to be re-read unless it can change it.** Only a write to a `.val.ts`, `val.modules.ts`, `val.config.ts` or a file they import waits for the Studio to evaluate the Val modules. A component, a stylesheet or a route is answered at once, and several edits in one reply are evaluated together rather than one after another.
+
+## 0.154.0
+
+### Minor Changes
+
+- [#895](https://github.com/valbuild/val/pull/895) [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834) Thanks [@freekh](https://github.com/freekh)! - Set a hosted project's variables and secrets from the Studio: **Settings › Variables**.
+
+  The tab shows Val Build's own `<val-env-vars>` for a project connected to Val Build, the same panel as the project's **Variables** page in Val Build:
+
+  - **Variables** are configuration, such as an API's address or a feature flag. Their values are shown and edited in place. Names starting with `PUBLIC_` reach the browser as `import.meta.env.NAME`; every variable is `process.env.NAME` on the server.
+  - **Secrets** are credentials. A secret is sealed in the browser it is typed into before it is sent, and nobody can read it back. On the server it is `process.env.NAME`; it never reaches the browser.
+
+  A change is live on the site within a minute, with no build. Owners and developers can change them; everyone in the project can see the variables and the secrets' names. A project on its own hosting is told to set them at its host.
+
+### Patch Changes
+
+- [#1073](https://github.com/valbuild/val/pull/1073) [`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641) Thanks [@freekh](https://github.com/freekh)! - The assistant in code mode checks its changes beside the conversation, not in it, so you can keep going while they run.
+
+  - After each code change, the Studio typechecks and lints the proposal in the background. Whatever those checks find goes with the assistant's next tool answer, whichever tool that is, once for each version of the files.
+  - A page check, which is a second assistant on a smaller model, reads the preview once the assistant's turn ends, or after 30 seconds without another change. It only reads: it never changes code or content, and never clicks. Its report reaches the assistant the same way, and only while it is about the files as they are now.
+  - The assistant no longer waits for a typecheck in the middle of a turn. It stages the change, says so and ends its turn, and the checks report back afterwards. A turn in code mode ends as soon as the change is in the preview, so you can write your next message sooner.
+  - The assistant can start a page check itself with `verify`, saying what to look at, and send a running one a note with `message_verifier`.
+  - When a check finds a problem after the assistant's turn has ended, the Studio sends it the findings in a turn of their own. The chat shows that message as a notice, not as yours. If you have a message waiting, nothing extra is sent: the findings go with your message.
+  - A bar above the composer shows each check as it runs, and when the assistant is fixing what one found.
+  - The assistant gets at most 2 of these automatic fixes for each message you send, and none when its last fix changed nothing the checks find. After that, the bar lists what is still wrong, and **Fix it** asks for it as your message. At most 3 page checks run per message, so the checks and the assistant cannot keep each other going.
+
+- [#1060](https://github.com/valbuild/val/pull/1060) [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea) Thanks [@freekh](https://github.com/freekh)! - The assistant can now use the page in the preview, not only read it. A new `interact_page` tool opens a path on the site, clicks an element, types into a field, presses a key (Enter, Escape, Tab, the arrows), or shows the page at phone, tablet or desktop width — and answers with the page as it is afterwards: it waits for the page to settle (no changes and no requests in flight for a moment, at most 15 seconds), then gives the page's outline, whether the address or title changed, and what the page logged as going wrong since. When the page is still busy after that, the answer says so instead of describing it as finished. The assistant is told to use it to check its own changes: after a quick preview or a build, open the route, try what changed, and read the log.
+
+  The preview is the real site, talking to its real backend. What is enforced:
+
+  - **Every click, and every Enter or Space, asks you first.** A card in the chat — written by the Studio, not the assistant — names the element as the page shows it (its label, what it is, the page it is on, and whether Enter would submit its form), and nothing reaches the page until you allow it. Allow does exactly that, once, on that element; if the element changed in the meantime, you are asked again.
+  - **While the assistant types, presses other keys, or waits for a page it opened or resized to settle,** requests the page makes with any method but `GET`, `HEAD` and `OPTIONS` are held until the page settles, and a card shows each one — its method, its address and an excerpt of what it sends. Allow sends exactly those, as they were; Don't allow, or stopping the answer, drops them and the page sees them fail.
+  - **Sends of data to another site** (`POST`, `PUT`, `PATCH`, `DELETE`, forms, beacons) are refused, and so are links and forms that go to another site or open a new window. It never types into a password field.
+  - After a web search in the same answer, the assistant asks before it uses the preview at all.
+
+  What is **not** covered:
+
+  - requests a page sends while it loads, after `open` or after any navigation, and requests sent later on their own (an autosave after a delay);
+  - requests made through a `fetch` or `XMLHttpRequest` the page's code captured before the action (some libraries do this), and XHRs opened before it;
+  - `GET`, `HEAD` and `OPTIONS` requests — a `GET` to another site can still carry data in its address — and image or script loads;
+  - WebSockets, workers and embedded frames;
+  - script navigations and redirects, which can still leave the site; and plain links, which can have side effects of their own, such as a logout or unsubscribe link.
+
+  The ask-first rule is `interact_page`'s, not the whole session's: `quick_preview` runs code the assistant wrote in the preview, and what that code does is not asked about.
+
+  Reading pages needs no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.
+
+- [#1065](https://github.com/valbuild/val/pull/1065) [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687) Thanks [@freekh](https://github.com/freekh)! - You can now redirect the assistant while it works, without pressing Stop. A message you send while your own question is being answered goes to the assistant at once, and it reads it at its next step: "only the blog posts, not the pages" changes the answer that is already under way.
+
+  - The message shows in the chat straight away, marked "Sent; the assistant will read it at its next step". Once the assistant has it, it becomes an ordinary message, in the place it was read: between what the assistant did before it and what it did after.
+  - Once sent, it cannot be edited any more, and the chat says so.
+  - If the answer finishes before the assistant takes another step, the message is sent as your next question, in the order you wrote it.
+  - If the assistant cannot take it right now (for example, because five messages are already waiting), it says why and queues the message instead: it is sent when the answer is done, and you can edit or remove it in the queue until then.
+  - A message is only ever sent to the chat it was written in. If you open another chat while the assistant is still working, what you sent stays with the first chat; anything that chat's answer did not get to read is kept for you, with Edit and Remove, and is not sent anywhere by itself.
+  - If the turn fails and you press Retry, the question is asked again together with the messages you sent into it, in order.
+  - Pressing Stop puts anything the assistant has not read yet back in the queue, where it waits for you, as queued messages always have.
+  - With a content server that cannot do this yet, nothing changes: after a few seconds without an answer, the message waits in the queue and is sent when the answer is done, as before.
+
+  In a proposal's shared chat, a message you write while someone else's question is running still waits for it to finish.
+
+- [#1053](https://github.com/valbuild/val/pull/1053) [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1) Thanks [@freekh](https://github.com/freekh)! - **Select & edit.** Text can now be edited where it is, in the Studio's preview, instead of in the column beside it. Select has a menu beside it with two modes:
+
+  - **Select** opens the field you click in the column, as before. It is the mode Select starts in.
+  - **Select & edit** puts the caret in the text you click, on the page. The mode you used last is remembered per browser.
+
+  In Select & edit:
+
+  - **Strings** — a headline, a label, a link's words. Enter ends the edit (in a `.multiline()` string it is a new line), Esc ends it too.
+  - **Richtext** rendered with `ValRichText` — type and delete anywhere, Enter splits a paragraph, heading or list item, Backspace and Delete join them. Formatting controls float beside the text: bold, italic, strikethrough, links, headings and lists, whichever the field's schema allows. They are the same controls the field has in the column, and pressed with only a caret they apply to what you type next. Undo and redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y) go back over typing, Enter, Backspace and the controls alike.
+
+  The caret goes in as you click, so you can start typing straight away. A text you have emptied stays on the page as a line you can click while Select is on, in either mode, so you can pick it or type in it again; with Select off the page is laid out as before.
+
+  While you type, the "On this page" column scrolls to the same field and shows it selected, with what you type appearing in it. A validation error for the field shows by the text on the page as well as in the column, and goes when you fix it. Zooming the preview, fitting it or changing its width does not end the edit: the caret stays in the text and you can keep typing. Reloading the page, changing its address or leaving the preview ends the edit, and what you typed is saved.
+
+  Everything else still opens in the column when clicked: a field that is not a text (an image, a number, a date), a text the page shows as part of something larger (inside a sentence, in an `alt` or `href`), a richtext rendered with a `transform` that changes its structure, and a `readonly` field. Images cannot be added to a richtext from the page yet.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to use it. A site on an older version is unaffected: in either mode, every click opens the field in the column.
+
+- [#1067](https://github.com/valbuild/val/pull/1067) [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee) Thanks [@freekh](https://github.com/freekh)! - Two answers from `/api/val/patches` no longer tell the Studio something false when the content service behind it fails part of the way.
+
+  - **Discarding a change while the content service is down no longer looks like it worked.** If the content service answered with an error or could not be reached, `DELETE /api/val/patches` answered 200 with every patch as deleted. The Studio then forgot changes that still existed: a reload brought them back, and the next publish could ship a change you had discarded. It now answers 502 with the content service's reason, and the Studio keeps the change and says the discard failed.
+  - **An edit made while someone else is editing is no longer stuck unsaved.** A batch of edits is saved one patch at a time, so another editor's change can land between two of yours. When it did, the server answered the conflict without saying the first patch had been saved, the Studio sent that patch again, and the content service refused it as one it already had. The save then retried forever and the edit after it was never saved. The conflict now names what was saved, as the other partial failures already did, and the Studio sends only the rest.
+
+- [#961](https://github.com/valbuild/val/pull/961) [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e) Thanks [@freekh](https://github.com/freekh)! - An upgrade proposal no longer lists packages as `6.0.3 → 6.0.3`. When an upgrade only raises a package's version range (pnpm moves `^6.0.2` up to `^6.0.3` when 6.0.3 is already installed), the list now reads `typescript range ^6.0.2 → ^6.0.3`. And the notice names Val's version only when Val's version moved, instead of "This proposal upgrades Val 0.150.0 → 0.150.0".
+
 ## 0.153.6
 
 ### Patch Changes

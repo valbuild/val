@@ -1,5 +1,65 @@
 # @valbuild/react
 
+## 0.154.3
+
+### Patch Changes
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/ui@0.154.2
+
+## 0.154.2
+
+### Patch Changes
+
+- [#1049](https://github.com/valbuild/val/pull/1049) [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff) Thanks [@freekh](https://github.com/freekh)! - Experimental: link an object to the component that renders it, and let Val render and arrange it
+
+  `s.object(...).component(() => import("./Hero"))` links an object schema to a component. The link is type checked against the component's own props: when the object's fields are the props nothing else is needed, and for any other component a `props` function says how to make them.
+
+  ```ts
+  export const heroFields = s.object({
+    type: s.literal("hero"),
+    title: s.string(),
+  });
+  export const hero = heroFields.component(() => import("../components/Hero"));
+
+  export const note = s
+    .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+    .component(() => import("../components/Callout"), {
+      props: (note) => ({
+        heading: note.title,
+        tone: note.urgent ? "warning" : "info",
+      }),
+    });
+  ```
+
+  `<ValComponentEditor value={page.sections} />`, from `@valbuild/tanstack` and `@valbuild/next`, renders a list of linked objects (or a single one) with their components, with no map from a `type` to a component to keep. It only accepts values that are linked: a list with a variant that has no component is a type error. It is optional, and a component can use it for a list of components of its own.
+
+  In Val Studio, a list rendered this way can be arranged on the page itself: drag a section to another place, add one between two others, or remove one.
+
+  This replaces the experimental `.render({ as: "component", component })` on objects. Move its `component` to the first argument of `.component()` and the rest of its options to the second.
+
+- Updated dependencies [[`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`a52c184`](https://github.com/valbuild/val/commit/a52c184687849ba9c2c2a4929871b60502a6ee55), [`6c26409`](https://github.com/valbuild/val/commit/6c2640966779e20931672dc78ff6e3c0d19e4183), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff)]:
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/ui@0.154.2
+
+## 0.154.1
+
+### Patch Changes
+
+- Updated dependencies [[`37e4f39`](https://github.com/valbuild/val/commit/37e4f390d1fd6a930488c9487de43f8c1a390122), [`245843e`](https://github.com/valbuild/val/commit/245843ec527212dc31c6e1da1f0bd5f9d99cf8d3), [`d4e514f`](https://github.com/valbuild/val/commit/d4e514f9eac2f014fc07aa768787d637898dc744), [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe), [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e)]:
+  - @valbuild/ui@0.154.1
+  - @valbuild/shared@0.154.1
+
+## 0.154.0
+
+### Patch Changes
+
+- Updated dependencies [[`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641), [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e)]:
+  - @valbuild/ui@0.154.0
+  - @valbuild/shared@0.154.0
+
 ## 0.153.6
 
 ### Patch Changes

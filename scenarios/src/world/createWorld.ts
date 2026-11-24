@@ -83,8 +83,15 @@ import type { CodeReload } from "../../../packages/ui/spa/stores/HostStore";
 import {
   reloadStaged,
   runStagedCode,
+  stagedCodeReach,
   stagedProject,
+  type StagedCodeDeps,
 } from "../../../packages/ui/spa/proposals/stagedCode";
+import {
+  createProjectSnapshot,
+  type ProjectSnapshot,
+} from "../../../packages/ui/spa/proposals/projectSnapshot";
+import { createCodeClients } from "../../../packages/ui/spa/proposals/codeClients";
 import { readValModules } from "../../../packages/ui/spa/proposals/readValModules";
 import { statSnapshotOf } from "../../../packages/ui/spa/stores/react/statSnapshotOf";
 import {
@@ -143,6 +150,7 @@ import {
   buildProposal,
   runCodeTool,
   type CodeToolAnswer,
+  type CodeToolDeps,
   type ProposalBuildOutcome,
 } from "../../../packages/ui/spa/proposals/proposalCode";
 import {
@@ -150,7 +158,10 @@ import {
   type StudioJobClient,
 } from "@valbuild/shared/publish";
 import { createProjectSourceReader } from "@valbuild/shared/internal";
-import { readCodeMode } from "../../../packages/ui/spa/proposals/codeMode";
+import {
+  codeModeHeldFor,
+  readCodeMode,
+} from "../../../packages/ui/spa/proposals/codeMode";
 import {
   commitProposal,
   type CommitOutcome,
@@ -354,6 +365,30 @@ export type WorldWorkBudget = {
   "head:entry-resolve"?: { atMost: number } | { exactly: number };
 };
 
+/** See {@link ProposalAt.assistant}. */
+export type Assistant = {
+  /**
+   * Run one code tool. `evaluateIn`: the tab's evaluation of the staged
+   * code after a write, as {@link ProposalAt.stage}'s; without it nothing
+   * is evaluated. `formatCode`: prettier, at the world's edge.
+   */
+  run(
+    tool: string,
+    args: unknown,
+    options?: {
+      evaluateIn?: { modules: AnyModule[] | ValModules };
+      formatCode?: CodeToolDeps["formatCode"];
+    },
+  ): Promise<CodeToolAnswer>;
+  /**
+   * The requests its tools made since this was last asked, as
+   * `"METHOD /path"`, in the order they were sent.
+   */
+  requests(): string[];
+  /** How many evaluations of the staged code its writes started. */
+  evaluations(): number;
+};
+
 /**
  * The proposal a world is at the address of, and what the platform and the
  * Studio do with it.
@@ -387,6 +422,16 @@ export type ProposalAt = {
    * (`createProjectSourceReader`, through the app's `/publish-api`).
    */
   readFile(path: string): Promise<CodeToolAnswer>;
+  /**
+   * The assistant's code tools in one Studio's chat, wired as `useAI` wires
+   * them: one `createCodeClients` for the chat's life -- its snapshot of the
+   * project anchored on that Studio's `seq` (`ManifestSource.seq`) and told
+   * when it moves -- code mode as the tab holds it (`codeModeHeldFor`, which
+   * the top bar's `reportCodeMode` feeds) before it is asked for, and each
+   * tool run by `runCodeTool`. Its requests go through the network as
+   * `assistant:<studio>`, which is what a scenario counts.
+   */
+  assistant(studio: Studio): Assistant;
   /**
    * What the platform does once what is staged is BUILT: serve the address
    * from a new isolate of that build, with the overlay content's overlay
@@ -1652,40 +1697,64 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       if (!answer.isError) await serveStaging();
       return answer;
     };
-    const stageWith: ProposalAt["stage"] = (files, message, evaluateIn) =>
-      runCodeTool(
+    /** The tab's evaluation of a staging, with the bundler at the edge. */
+    const evaluationIn = (
+      studio: Studio,
+      modules: AnyModule[] | ValModules,
+      snapshot: Pick<ProjectSnapshot, "read">,
+      /** The project files the bundle reads, where the bundler says. */
+      reads?: (files: Record<string, string>) => Record<string, string[]>,
+    ): StagedCodeDeps => ({
+      project: stagedProject(name, snapshot),
+      // The bundler, at the edge: what the files evaluate to.
+      bundle: async (files) => {
+        const code = `world-bundle:${bundles.size}`;
+        if (Array.isArray(modules)) {
+          // And what a build of the staged files serves
+          // (`redeploy`), as `changeCode` says it.
+          serverModules = modules;
+          bundles.set(code, registryOf(modules));
+        } else {
+          bundles.set(code, modules);
+        }
+        return {
+          code,
+          ...(reads !== undefined ? { dependencies: reads(files) } : {}),
+        };
+      },
+      // What the worker runs on the imported bundle.
+      evaluate: (code) =>
+        readValModules({ default: bundleAt(code) }, () => null),
+      importRegistry: async (code) => bundleAt(code),
+      reloadCode: reloadStaged(studio.system.host),
+    });
+    const stageWith: ProposalAt["stage"] = (files, message, evaluateIn) => {
+      // No chat here: a snapshot for this one call, which asks every time.
+      const snapshot = createProjectSnapshot({
+        client,
+        siteSource: async () => null,
+        seq: () => null,
+      });
+      return runCodeTool(
         "write_files",
         { files, ...(message !== undefined ? { message } : {}) },
         {
           ...(evaluateIn !== undefined
             ? {
                 evaluateStaged: () =>
-                  runStagedCode(name, {
-                    project: stagedProject(name, client, async () => null),
-                    // The bundler, at the edge: what the files evaluate to.
-                    bundle: async () => {
-                      const code = `world-bundle:${bundles.size}`;
-                      const evaluated = evaluateIn.modules;
-                      if (Array.isArray(evaluated)) {
-                        // And what a build of the staged files serves
-                        // (`redeploy`), as `changeCode` says it.
-                        serverModules = evaluated;
-                        bundles.set(code, registryOf(evaluated));
-                      } else {
-                        bundles.set(code, evaluated);
-                      }
-                      return { code };
-                    },
-                    // What the worker runs on the imported bundle.
-                    evaluate: (code) =>
-                      readValModules({ default: bundleAt(code) }, () => null),
-                    importRegistry: async (code) => bundleAt(code),
-                    reloadCode: reloadStaged(evaluateIn.studio.system.host),
-                  }),
+                  runStagedCode(
+                    name,
+                    evaluationIn(
+                      evaluateIn.studio,
+                      evaluateIn.modules,
+                      snapshot,
+                    ),
+                  ),
               }
             : {}),
           proposal: { name },
           client,
+          snapshot,
           siteSource: async () => null,
           build: {
             start: notWriteFiles,
@@ -1699,11 +1768,108 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           codeMode: () => readCodeMode(client, name, () => null),
         },
       );
+    };
+    const notThisTool = (): never => {
+      throw new Error("The world's assistant does not build or typecheck");
+    };
+    /**
+     * Every project file is one the bundle reads if it is a Val file or
+     * something `val.modules.ts` names: what a bundler would say of a
+     * project whose `.val.ts` files import only `val.config`.
+     */
+    const valFilesOf = (files: Record<string, string>) =>
+      Object.fromEntries(
+        Object.keys(files)
+          .filter((path) => /\.val\.(ts|js)$/.test(path))
+          .map((path) => [
+            path,
+            Object.keys(files).filter((file) =>
+              /^val\.config\.(ts|js)$/.test(file),
+            ),
+          ]),
+      );
+    const assistant: ProposalAt["assistant"] = (studio) => {
+      const from = `assistant:${studio.name}`;
+      const clients = createCodeClients({
+        api: "/api/val",
+        fetchImpl: asFetch(withSession(host, network.fetchFor(from))),
+        seq: () => studio.system.manifest.seq(),
+      });
+      studio.system.manifest.onSeq(() => clients.snapshot.seqMoved());
+      let counted = network.log.length;
+      let evaluations = 0;
+      return {
+        async run(tool, args, options) {
+          const evaluateIn = options?.evaluateIn;
+          const answer = await runCodeTool(tool, args, {
+            proposal: { name },
+            client: clients.proposals,
+            siteSource: clients.siteSource,
+            snapshot: clients.snapshot,
+            build: {
+              start: notThisTool,
+              running: () => null,
+              report: notThisTool,
+              cancel: () => false,
+            },
+            typecheck: notThisTool,
+            offerProposal: notThisTool,
+            codeMode: () => readCodeMode(clients.proposals, name, () => null),
+            // `studioCodeToolDeps` is what the Studio makes these with, and
+            // cannot be loaded here: it brings the browser's builder.
+            // `codeToolRequests.test.ts` in `@valbuild/ui` counts through it.
+            codeModeHere: () => codeModeHeldFor(name),
+            nameOf: () => null,
+            ...(options?.formatCode !== undefined
+              ? { formatCode: options.formatCode }
+              : {}),
+            ...(evaluateIn !== undefined
+              ? {
+                  evaluateStaged: () => {
+                    const deps = evaluationIn(
+                      studio,
+                      evaluateIn.modules,
+                      clients.snapshot,
+                      valFilesOf,
+                    );
+                    return runStagedCode(name, {
+                      ...deps,
+                      // Once per evaluation that runs, joined ones not counted.
+                      project: () => {
+                        evaluations++;
+                        return deps.project();
+                      },
+                    });
+                  },
+                  stagedCodeReach: (paths) => stagedCodeReach(name, paths),
+                }
+              : {}),
+          });
+          const staged =
+            !answer.isError &&
+            (tool === "write_files" ||
+              tool === "edit_file" ||
+              tool === "format_files" ||
+              tool === "lint");
+          if (staged) await serveStaging();
+          return answer;
+        },
+        requests() {
+          const since = network.log.slice(counted);
+          counted = network.log.length;
+          return since
+            .filter((exchange) => exchange.from === from)
+            .map((exchange) => `${exchange.method} ${exchange.path}`);
+        },
+        evaluations: () => evaluations,
+      };
+    };
     return {
       name,
       branch,
       client,
       stage: stageThrough,
+      assistant,
       readFile: (path) =>
         runCodeTool(
           "read_file",
@@ -2208,7 +2374,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     async head() {
       const runtime = runtimeOfReaders(readersFor({ on: true }).fetchValStega);
       if (runtime === null) throw new Error("the readers have no runtime");
-      return (await runtime).ops.head.stats();
+      return (await runtime()).ops.head.stats();
     },
     workPosition: serverWork,
     expectWork(since, budget) {

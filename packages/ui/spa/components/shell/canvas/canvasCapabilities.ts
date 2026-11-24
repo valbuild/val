@@ -24,6 +24,14 @@ const WHAT: Record<CanvasRequest, string> = {
   readPageLog:
     "say what went wrong on it (its console errors and failed requests)",
   quickPreview: "show a quick preview",
+  editInline: "be edited in place",
+  "interact:settle":
+    "be used from the Studio (opened at another path, or resized and read again)",
+  "interact:click": "be clicked from the Studio",
+  "interact:type": "be typed into from the Studio",
+  "interact:press": "be sent keys from the Studio",
+  "interact:release":
+    "hold what it sends for your approval, so the assistant cannot use it",
 };
 
 /**

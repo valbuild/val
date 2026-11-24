@@ -17,10 +17,14 @@
       "module": "./sharp/dist/valbuild-mcp-sharp.esm.js",
       "default": "./sharp/dist/valbuild-mcp-sharp.cjs.js"
     },
+    "./metadata": {
+      "module": "./metadata/dist/valbuild-mcp-metadata.esm.js",
+      "default": "./metadata/dist/valbuild-mcp-metadata.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-mcp.cjs.d.ts",
-  "version": "0.153.6",
+  "version": "0.154.3",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -29,7 +33,8 @@
   "preconstruct": {
     "entrypoints": [
       "./index.ts",
-      "./sharp/index.ts"
+      "./sharp/index.ts",
+      "./metadata/index.ts"
     ],
     "exports": true
   },
@@ -61,6 +66,8 @@
     "CHANGELOG.md",
     "dist",
     "sharp/dist",
-    "sharp/package.json"
+    "sharp/package.json",
+    "metadata/dist",
+    "metadata/package.json"
   ]
 }

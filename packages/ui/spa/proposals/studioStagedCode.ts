@@ -1,9 +1,9 @@
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import { canBuildHere } from "../publish/handoff";
 import { loadBuilder } from "../publish/loadBuilder";
-import type { System } from "../stores/createSystem";
+import type { HostStore } from "../stores/HostStore";
 import { evaluateTree } from "./evaluateTree";
-import type { ProposalsClient } from "./proposalsClient";
+import type { ProjectSnapshot } from "./projectSnapshot";
 import {
   importBundle,
   reloadStaged,
@@ -17,20 +17,36 @@ import {
  * (`evaluateStagedCode`). The bundle is made against the site's vendor
  * layer, served on this origin, as update with code makes it
  * (`studioCodeUpdateDeps`); and only where the page can run the builder.
+ *
+ * The project is the chat's snapshot of it, which the staging that asked
+ * for this was laid over: it used to be read again here, the proposal's
+ * files and the site's whole source, for every evaluation.
  */
 export function studioStagedCodeDeps(
   name: string,
-  client: Pick<ProposalsClient, "files">,
-  system: System,
+  snapshot: Pick<ProjectSnapshot, "read">,
+  /** The Studio's system, of which only the host is used: it takes the code. */
+  system: { host: Pick<HostStore, "reloadCode"> },
 ): StagedCodeDeps {
   const publish = createStudioPublishClient({ api: "/api/val" });
+  const project = stagedProject(name, snapshot);
+  const buildHere = canBuildHere();
+  /** Asked for beside the project, not after it. */
+  let target: ReturnType<typeof publish.buildTarget> | null = null;
   return {
-    project: stagedProject(name, client, () => publish.projectSource()),
-    bundle: canBuildHere()
+    project: () => {
+      if (buildHere) {
+        target = publish.buildTarget();
+        // Its failure is the bundle's to report.
+        target.catch(() => undefined);
+      }
+      return project();
+    },
+    bundle: buildHere
       ? async (files) =>
           (await loadBuilder()).bundleValModules({
             files,
-            target: await publish.buildTarget(),
+            target: await (target ?? publish.buildTarget()),
             origin: window.location.origin,
           })
       : null,

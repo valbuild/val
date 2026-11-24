@@ -1,5 +1,54 @@
 # @valbuild/cli
 
+## 0.154.3
+
+### Patch Changes
+
+- [#1089](https://github.com/valbuild/val/pull/1089) [`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51) Thanks [@freekh](https://github.com/freekh)! - **`val publish` no longer puts Val's Studio inside a hosted site's server code.** The build target Val's hosting sends says whether the platform serves the Studio's files itself (`buildAssets`), but `val publish` dropped that field while reading it, so every layer it built carried the whole Studio: about 80 MB of a hosted isolate's 128 MB, enough that the site was started again on nearly every request and took seconds to answer. Val's hosting now refuses such a layer, so publishing from the CLI failed with "carries Val's Studio inside its server code". With this release the layer is built without the Studio, the platform serves its files, and the site's isolate stays warm.
+
+  A field the hosting adds to the build target and the CLI does not read is now a compile error in Val itself, so this cannot happen silently again.
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/language-server@0.154.3
+  - @valbuild/server@0.154.3
+
+## 0.154.2
+
+### Patch Changes
+
+- Updated dependencies [[`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`180b6b7`](https://github.com/valbuild/val/commit/180b6b7513226009e7eb6a768282d70685ccf436)]:
+  - @valbuild/server@0.154.2
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/tanstack-build@0.154.2
+  - @valbuild/language-server@0.154.2
+
+## 0.154.1
+
+### Patch Changes
+
+- [#1077](https://github.com/valbuild/val/pull/1077) [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e) Thanks [@freekh](https://github.com/freekh)! - `val publish` now typechecks the project while it builds. It uses the `node_modules` the build already reads for the dependency layer, so nothing is downloaded for the check. It is the same typecheck the Studio runs for a proposal that changes dependencies. Type errors are printed as warnings, first line each (at most 20), and do not stop the publish. `--no-typecheck` turns the check off.
+
+  Only a pnpm project with its own `pnpm-lock.yaml` is typechecked. Anything else says why it was skipped and publishes as before.
+
+  For a build on the server, `@valbuild/shared/typecheck/node` exports `typecheckInstalled({ root, files })` and `installedSources(root)`: the typecheck run against a project installed on that machine.
+
+- Updated dependencies [[`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe), [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e)]:
+  - @valbuild/server@0.154.1
+  - @valbuild/shared@0.154.1
+  - @valbuild/language-server@0.154.1
+
+## 0.154.0
+
+### Patch Changes
+
+- Updated dependencies [[`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1)]:
+  - @valbuild/shared@0.154.0
+  - @valbuild/server@0.154.0
+  - @valbuild/tanstack-build@0.154.0
+  - @valbuild/language-server@0.154.0
+
 ## 0.153.6
 
 ### Patch Changes

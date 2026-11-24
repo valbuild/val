@@ -49,13 +49,44 @@ export default defineConfig({
    * test on a fresh checkout lost what it was editing to that reload. An app
    * that installs Val from npm has none of this, since `@valbuild/tanstack` is
    * pre-bundled with everything it imports, lazily or not.
+   *
+   * `modern-screenshot` and `@vercel/stega` are the same case, and were left
+   * to be found at run time: every cold start discovered both after the page
+   * had begun loading, and whether that reloaded the page ("optimized
+   * dependencies changed. reloading") was a race the Studio's import order
+   * decided. A change that moved one import took the first cold `/val` load
+   * from never reloading to reloading one time in five, and the e2e warm-ups
+   * failed on it. When a cold `vite dev` logs "dependencies optimized: x"
+   * after its first bundling, x belongs in this list.
    */
   optimizeDeps: {
     include: [
       "@valbuild/tanstack > @valbuild/shared > zod",
       "@valbuild/tanstack > @valbuild/shared > zod-validation-error",
       "@valbuild/tanstack > @valbuild/shared > flexsearch",
+      "@valbuild/tanstack > @valbuild/shared > modern-screenshot",
+      "@valbuild/tanstack > @valbuild/react > @vercel/stega",
     ],
+  },
+  /*
+   * No common-chunk merging in the production build, because this app
+   * bundles Val's SOURCE.
+   *
+   * The readers load Val's server lazily (`import()` behind the Val API and
+   * a draft read), so `@valbuild/shared/internal`'s modules are needed both
+   * at startup and by those lazy chunks. Bundled from source, the entry is
+   * dozens of modules, and rolldown's chunk merging moved some of them (with
+   * zod at their top level) into a lazy chunk that the startup chunk imports
+   * in a cycle. The first request then failed with `ZodEnum is not a
+   * constructor`, and the server was loaded eagerly anyway. An app that
+   * installs Val from npm bundles each entry as ONE prebuilt file, which
+   * cannot be split like that: its default build is fine and stays lazy. See
+   * `architecture/quirks.md`, "TanStack Start".
+   */
+  build: {
+    rolldownOptions: {
+      experimental: { chunkOptimization: false },
+    },
   },
   plugins: [
     tanstackStart({

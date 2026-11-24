@@ -111,6 +111,7 @@ import {
   warnAnalyticsUnauthorizedOnce,
 } from "./analyticsForward";
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import { fetchFresh } from "./crossRequest";
 import { moduleFilePathOfRoute } from "./routePath";
 import { isLastingAnswer } from "./head";
 
@@ -433,7 +434,7 @@ export const ValServer = (
     if (!options.apiKey) {
       return null;
     }
-    return fetch(url, {
+    return fetchFresh(url, {
       method: "POST",
       headers: getAuthHeaders(options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
     })
@@ -1334,19 +1335,34 @@ export const ValServer = (
         },
       };
     }
-    const saved = await saveBeforeCode(
+    const saved = await saveBeforeCodeOutcome(
       cookies,
       "Saved before the code was changed",
     );
-    return saved === null
-      ? null
-      : {
-          status: saved.status,
-          json: {
-            message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
-            details: { code: "save-failed" },
-          },
-        };
+    if ("saved" in saved) {
+      const savedFirst = saved.saved;
+      const staged = await proxyProposalsApi(
+        path,
+        "POST",
+        profileId,
+        JSON.stringify(body ?? {}),
+      );
+      /*
+       * `savedFirst` goes with content's answer: the tab that staged holds
+       * the proposal's files (`projectSnapshot.ts` in `@valbuild/ui`), and a
+       * save made here wrote `.val.ts` files it did not write itself.
+       */
+      return staged.status === 200 && isJsonObject(staged.json)
+        ? { status: 200, json: { ...staged.json, savedFirst } }
+        : staged;
+    }
+    return {
+      status: saved.status,
+      json: {
+        message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
+        details: { code: "save-failed" },
+      },
+    };
   };
 
   /**
@@ -1357,6 +1373,20 @@ export const ValServer = (
     cookies: Parameters<typeof getAuth>[0],
     message: string,
   ): Promise<{ status: number; message: string } | null> => {
+    const outcome = await saveBeforeCodeOutcome(cookies, message);
+    return "saved" in outcome ? null : outcome;
+  };
+
+  /**
+   * {@link saveBeforeCode}, saying whether anything was saved: `saved: false`
+   * when nothing was pending. What a staging's answer tells the tab
+   * (`savedFirst`), which holds the proposal's files and has to know whether
+   * a save changed a `.val.ts` under them.
+   */
+  const saveBeforeCodeOutcome = async (
+    cookies: Parameters<typeof getAuth>[0],
+    message: string,
+  ): Promise<{ saved: boolean } | { status: number; message: string }> => {
     const chain = await serverOps.fetchPatches({ excludePatchOps: true });
     if (chain.error) {
       return { status: 502, message: chain.error.message };
@@ -1364,9 +1394,9 @@ export const ValServer = (
     const pending = chain.patches
       .filter((patch) => patch.appliedAt === null)
       .map((patch) => patch.patchId);
-    if (pending.length === 0) return null;
+    if (pending.length === 0) return { saved: false };
     const saved = await saveChanges(cookies, { patchIds: pending, message });
-    if (saved.status === 200) return null;
+    if (saved.status === 200) return { saved: true };
     const said =
       "message" in saved.json && typeof saved.json.message === "string"
         ? saved.json.message
@@ -2717,12 +2747,20 @@ export const ValServer = (
           );
           if (result.isErr(createPatchRes)) {
             if (createPatchRes.error.errorType === "patch-head-conflict") {
+              /*
+               * The patches before this one in the batch ARE saved: each is
+               * its own write, and someone else's can land between two of
+               * ours. Reported as a 200 would report them, so the client does
+               * not send them again -- the content service refuses a patch it
+               * already has.
+               */
               return {
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
                   message:
                     "The change was written against a different starting point than the server has.",
+                  ...savedSoFar(),
                 },
               };
             } else if (createPatchRes.error.errorType === "plan-refused") {
@@ -2899,6 +2937,25 @@ export const ValServer = (
         }
         const ids = query.id;
         const deleteRes = await serverOps.deletePatches(ids);
+        if ("error" in deleteRes && deleteRes.error !== undefined) {
+          /*
+           * The store failed -- the content service, or in fs mode the patch
+           * store's lock or log -- so nothing is known to be deleted.
+           * Answered as a failure, never as the 200 below: that names every
+           * id as deleted, and the Studio forgets patches that still exist --
+           * a reload brings the change back, and the next publish ships it.
+           */
+          Internal.log.error("Failed to delete patches", deleteRes.error);
+          return {
+            status: 502,
+            json: {
+              message: deleteRes.error.message,
+              ...(typeof deleteRes.error.details === "string"
+                ? { details: deleteRes.error.details }
+                : {}),
+            },
+          };
+        }
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           Internal.log.error("Failed to delete patches", deleteRes.errors);
           return {
@@ -3527,7 +3584,7 @@ export const ValServer = (
         const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/profiles`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "GET",
               headers,
             });
@@ -3632,7 +3689,7 @@ export const ValServer = (
         const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/initialize`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "POST",
               headers,
               body: JSON.stringify({}),
@@ -3814,7 +3871,7 @@ export const ValServer = (
             }
             const qs = params.toString();
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions${qs ? `?${qs}` : ""}`;
-            const upstreamRes = await fetch(upstreamUrl, { headers });
+            const upstreamRes = await fetchFresh(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
               return {
@@ -3902,7 +3959,7 @@ export const ValServer = (
         const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "PATCH",
               headers,
               body: JSON.stringify({ name: req.body.name }),
@@ -4018,7 +4075,7 @@ export const ValServer = (
             const upstreamUrl =
               `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages` +
               (qs ? `?${qs}` : "");
-            const upstreamRes = await fetch(upstreamUrl, { headers });
+            const upstreamRes = await fetchFresh(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
               return {
@@ -4120,7 +4177,7 @@ export const ValServer = (
         const execFetch = async () => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/patches/${encodeURIComponent(req.body.patchId)}/files/from-session-file`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "POST",
               headers,
               body: JSON.stringify({
@@ -4224,7 +4281,7 @@ export const ValServer = (
                 const downloadUrl = `${options.valContentUrl}/v1/${options.project}/ai/images?key=${encodeURIComponent(sessionKey)}`;
                 let binaryRes: Response;
                 try {
-                  binaryRes = await fetch(downloadUrl, { headers });
+                  binaryRes = await fetchFresh(downloadUrl, { headers });
                 } catch (err) {
                   return {
                     status: 500 as const,
@@ -4341,7 +4398,7 @@ export const ValServer = (
         const execFetch = async () => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/images`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "PATCH",
               headers,
               body: JSON.stringify({
@@ -5394,4 +5451,8 @@ function sourceFilePatchErrorsOf(json: unknown): string[] {
     }
   }
   return messages;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

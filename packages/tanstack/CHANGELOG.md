@@ -1,5 +1,148 @@
 # @valbuild/tanstack
 
+## 0.154.3
+
+### Patch Changes
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/language-server@0.154.3
+  - @valbuild/mcp@0.154.3
+  - @valbuild/react@0.154.3
+  - @valbuild/server@0.154.3
+  - @valbuild/ui@0.154.2
+
+## 0.154.2
+
+### Patch Changes
+
+- [#1087](https://github.com/valbuild/val/pull/1087) [`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82) Thanks [@freekh](https://github.com/freekh)! - **A published page no longer loads the Studio, TypeScript, sucrase or prettier.** A site's first request in a fresh server process (on Val's hosting, every request a cold isolate answers) used to evaluate all of Val's server: the Studio's embedded assets (about 22 MB), TypeScript (9 MB), sucrase and the MCP tools. A page only needs that when someone edits it. These now load when they are first used, by the Val API, a draft read, a save or an MCP call, and a visitor's page never loads them.
+
+  We measured this in a fresh Node process, with the TanStack example app built the way a deployed app is built and running as a deployed site does (`http` mode). The first request for a public page used to load 38.8 MB of modules, take about 1.06 s and leave 170 MB of heap in use. It now loads 5.3 MB, takes about 0.23 s and leaves 38 MB of heap. An isolate counts more than Node does, so treat these heap figures as a lower bound.
+
+  What changed for an app:
+
+  - `initValContent` (and `initValRsc` in `@valbuild/next`) no longer start Val's server when they are created. They start it on the first draft read.
+  - With TanStack Start, `initValServer` loads the server on its first request in `http` mode, which is what a deployed site runs in. In local development (`fs` mode) and memory mode it still starts with the app. Those modes need the newest build in a process to exist before the previous build answers a request.
+  - `initValMcp` from `@valbuild/tanstack/server` loads the MCP tools on the first MCP request. Its `valMcpMetadata` comes from the new `@valbuild/mcp/metadata` entry, which is small.
+  - `createPrettierFormatter` now also accepts a loader. **Update your `val.server.ts`** so prettier is loaded by the first save rather than by every page:
+
+    ```ts
+    // before
+    import prettier from "prettier";
+    formatter: createPrettierFormatter(prettier, { projectRoot: process.cwd() }),
+
+    // after
+    formatter: createPrettierFormatter(() => import("prettier"), {
+      projectRoot: process.cwd(),
+    }),
+    ```
+
+    Passing `prettier` itself still works.
+
+  - If your app serves MCP from a TanStack Start route, import the MCP SDK inside the handler (`await import("@modelcontextprotocol/server")`), not at the top of the file. TanStack Start's route tree imports every server route's module on every cold start.
+
+- [#1049](https://github.com/valbuild/val/pull/1049) [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff) Thanks [@freekh](https://github.com/freekh)! - Experimental: link an object to the component that renders it, and let Val render and arrange it
+
+  `s.object(...).component(() => import("./Hero"))` links an object schema to a component. The link is type checked against the component's own props: when the object's fields are the props nothing else is needed, and for any other component a `props` function says how to make them.
+
+  ```ts
+  export const heroFields = s.object({
+    type: s.literal("hero"),
+    title: s.string(),
+  });
+  export const hero = heroFields.component(() => import("../components/Hero"));
+
+  export const note = s
+    .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+    .component(() => import("../components/Callout"), {
+      props: (note) => ({
+        heading: note.title,
+        tone: note.urgent ? "warning" : "info",
+      }),
+    });
+  ```
+
+  `<ValComponentEditor value={page.sections} />`, from `@valbuild/tanstack` and `@valbuild/next`, renders a list of linked objects (or a single one) with their components, with no map from a `type` to a component to keep. It only accepts values that are linked: a list with a variant that has no component is a type error. It is optional, and a component can use it for a list of components of its own.
+
+  In Val Studio, a list rendered this way can be arranged on the page itself: drag a section to another place, add one between two others, or remove one.
+
+  This replaces the experimental `.render({ as: "component", component })` on objects. Move its `component` to the first argument of `.component()` and the rest of its options to the second.
+
+- Updated dependencies [[`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`180b6b7`](https://github.com/valbuild/val/commit/180b6b7513226009e7eb6a768282d70685ccf436), [`a52c184`](https://github.com/valbuild/val/commit/a52c184687849ba9c2c2a4929871b60502a6ee55), [`6c26409`](https://github.com/valbuild/val/commit/6c2640966779e20931672dc78ff6e3c0d19e4183), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff)]:
+  - @valbuild/server@0.154.2
+  - @valbuild/mcp@0.154.2
+  - @valbuild/core@0.154.2
+  - @valbuild/react@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/ui@0.154.2
+  - @valbuild/language-server@0.154.2
+
+## 0.154.1
+
+### Patch Changes
+
+- Updated dependencies [[`37e4f39`](https://github.com/valbuild/val/commit/37e4f390d1fd6a930488c9487de43f8c1a390122), [`245843e`](https://github.com/valbuild/val/commit/245843ec527212dc31c6e1da1f0bd5f9d99cf8d3), [`d4e514f`](https://github.com/valbuild/val/commit/d4e514f9eac2f014fc07aa768787d637898dc744), [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe), [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e)]:
+  - @valbuild/ui@0.154.1
+  - @valbuild/server@0.154.1
+  - @valbuild/shared@0.154.1
+  - @valbuild/react@0.154.1
+  - @valbuild/language-server@0.154.1
+  - @valbuild/mcp@0.154.1
+
+## 0.154.0
+
+### Patch Changes
+
+- [#1060](https://github.com/valbuild/val/pull/1060) [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea) Thanks [@freekh](https://github.com/freekh)! - The assistant can now use the page in the preview, not only read it. A new `interact_page` tool opens a path on the site, clicks an element, types into a field, presses a key (Enter, Escape, Tab, the arrows), or shows the page at phone, tablet or desktop width — and answers with the page as it is afterwards: it waits for the page to settle (no changes and no requests in flight for a moment, at most 15 seconds), then gives the page's outline, whether the address or title changed, and what the page logged as going wrong since. When the page is still busy after that, the answer says so instead of describing it as finished. The assistant is told to use it to check its own changes: after a quick preview or a build, open the route, try what changed, and read the log.
+
+  The preview is the real site, talking to its real backend. What is enforced:
+
+  - **Every click, and every Enter or Space, asks you first.** A card in the chat — written by the Studio, not the assistant — names the element as the page shows it (its label, what it is, the page it is on, and whether Enter would submit its form), and nothing reaches the page until you allow it. Allow does exactly that, once, on that element; if the element changed in the meantime, you are asked again.
+  - **While the assistant types, presses other keys, or waits for a page it opened or resized to settle,** requests the page makes with any method but `GET`, `HEAD` and `OPTIONS` are held until the page settles, and a card shows each one — its method, its address and an excerpt of what it sends. Allow sends exactly those, as they were; Don't allow, or stopping the answer, drops them and the page sees them fail.
+  - **Sends of data to another site** (`POST`, `PUT`, `PATCH`, `DELETE`, forms, beacons) are refused, and so are links and forms that go to another site or open a new window. It never types into a password field.
+  - After a web search in the same answer, the assistant asks before it uses the preview at all.
+
+  What is **not** covered:
+
+  - requests a page sends while it loads, after `open` or after any navigation, and requests sent later on their own (an autosave after a delay);
+  - requests made through a `fetch` or `XMLHttpRequest` the page's code captured before the action (some libraries do this), and XHRs opened before it;
+  - `GET`, `HEAD` and `OPTIONS` requests — a `GET` to another site can still carry data in its address — and image or script loads;
+  - WebSockets, workers and embedded frames;
+  - script navigations and redirects, which can still leave the site; and plain links, which can have side effects of their own, such as a logout or unsubscribe link.
+
+  The ask-first rule is `interact_page`'s, not the whole session's: `quick_preview` runs code the assistant wrote in the preview, and what that code does is not asked about.
+
+  Reading pages needs no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.
+
+- [#1053](https://github.com/valbuild/val/pull/1053) [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1) Thanks [@freekh](https://github.com/freekh)! - **Select & edit.** Text can now be edited where it is, in the Studio's preview, instead of in the column beside it. Select has a menu beside it with two modes:
+
+  - **Select** opens the field you click in the column, as before. It is the mode Select starts in.
+  - **Select & edit** puts the caret in the text you click, on the page. The mode you used last is remembered per browser.
+
+  In Select & edit:
+
+  - **Strings** — a headline, a label, a link's words. Enter ends the edit (in a `.multiline()` string it is a new line), Esc ends it too.
+  - **Richtext** rendered with `ValRichText` — type and delete anywhere, Enter splits a paragraph, heading or list item, Backspace and Delete join them. Formatting controls float beside the text: bold, italic, strikethrough, links, headings and lists, whichever the field's schema allows. They are the same controls the field has in the column, and pressed with only a caret they apply to what you type next. Undo and redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y) go back over typing, Enter, Backspace and the controls alike.
+
+  The caret goes in as you click, so you can start typing straight away. A text you have emptied stays on the page as a line you can click while Select is on, in either mode, so you can pick it or type in it again; with Select off the page is laid out as before.
+
+  While you type, the "On this page" column scrolls to the same field and shows it selected, with what you type appearing in it. A validation error for the field shows by the text on the page as well as in the column, and goes when you fix it. Zooming the preview, fitting it or changing its width does not end the edit: the caret stays in the text and you can keep typing. Reloading the page, changing its address or leaving the preview ends the edit, and what you typed is saved.
+
+  Everything else still opens in the column when clicked: a field that is not a text (an image, a number, a date), a text the page shows as part of something larger (inside a sentence, in an `alt` or `href`), a richtext rendered with a `transform` that changes its structure, and a `readonly` field. Images cannot be added to a richtext from the page yet.
+
+  Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to use it. A site on an older version is unaffected: in either mode, every click opens the field in the column.
+
+- Updated dependencies [[`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641), [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e)]:
+  - @valbuild/ui@0.154.0
+  - @valbuild/shared@0.154.0
+  - @valbuild/server@0.154.0
+  - @valbuild/react@0.154.0
+  - @valbuild/language-server@0.154.0
+  - @valbuild/mcp@0.154.0
+
 ## 0.153.6
 
 ### Patch Changes

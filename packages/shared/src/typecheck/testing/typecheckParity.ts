@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { adeptSources } from "../adeptSources";
 import { typecheckProject, type TypeErrorEntry } from "../typecheckProject";
-import { nodeModulesSources } from "./nodeModulesSources";
+import { installedSources } from "../node/installedSources";
 
 /**
  * Typechecks a checkout the way the Studio does, and compares the result
@@ -142,7 +142,7 @@ async function main() {
     : null;
   const sources = adept
     ? adeptSources({ base: adept })
-    : nodeModulesSources(root);
+    : installedSources(root);
   const result = await typecheckProject({
     files,
     lockfile,

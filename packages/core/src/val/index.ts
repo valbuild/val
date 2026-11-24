@@ -113,6 +113,24 @@ export function getValPath(
   return valOrSelector[Path];
 }
 
+function carriesValPath(
+  value: object,
+): value is { readonly [Path]: SourcePath } {
+  return Path in value && typeof value[Path] === "string";
+}
+
+/**
+ * The path a value was read from, for a value of ANY type: `getValPath` for
+ * code that was handed something and does not know it to be a `Val`. An
+ * object or a list a reader gave back carries one in draft mode
+ * (`setValPath`); anything else, and everything in production, does not.
+ */
+export function valPathOf(value: unknown): SourcePath | undefined {
+  return typeof value === "object" && value !== null && carriesValPath(value)
+    ? value[Path]
+    : undefined;
+}
+
 /**
  * Gives an object Val read the path it was read from, where `getValPath`
  * finds it: the readers' (`stegaEncode`'s) half of `getValPath`, for objects,

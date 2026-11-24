@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, RefObject, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint } from "./types";
@@ -110,8 +110,9 @@ export type FloatingPanelProps = {
  *
  * Panels overlay the editor: they are absolutely positioned inside the shell
  * and never take part in its layout, so opening one cannot resize or shift
- * the content canvas. Closing works from the header button, a click on the
- * scrim, or Escape.
+ * the content canvas. Closing works from the header button, a click outside
+ * the panel (on the scrim, which off a phone the wheel passes through), or
+ * Escape.
  */
 export function FloatingPanel({
   side,
@@ -155,24 +156,33 @@ export function FloatingPanel({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, hidden, isPhonePane]);
+  const scrim =
+    !hidden &&
+    modal &&
+    !(docked && !isMobile) &&
+    !(isMobile && mobileVariant === "pane");
+  /** Off a phone, the scrim lets the wheel through. See `useClickOutside`. */
+  const scrimPassesThrough = scrim && !isMobile;
+  const scrimRef = useRef<HTMLDivElement>(null);
+  useClickOutside(scrimRef, scrimPassesThrough, onClose);
   return (
     <>
       {/* Scrim: dark and dismissive on mobile where the sheet dominates the
-          screen, invisible but still click-to-close on larger screens where
-          the editor stays visible behind the panel. */}
-      {!hidden &&
-        modal &&
-        !(docked && !isMobile) &&
-        !(isMobile && mobileVariant === "pane") && (
-          <div
-            onClick={onClose}
-            aria-hidden
-            className={cn(
-              "absolute inset-0 z-window",
-              isMobile ? "bg-black/40" : "bg-transparent",
-            )}
-          />
-        )}
+          screen. On larger screens, where the editor stays visible behind
+          the panel, it is invisible and lets the pointer through, so the
+          editor still scrolls under the wheel: a click it would have caught
+          closes the panel AND lands on what was clicked. */}
+      {scrim && (
+        <div
+          ref={scrimRef}
+          onClick={scrimPassesThrough ? undefined : onClose}
+          aria-hidden
+          className={cn(
+            "absolute inset-0 z-window",
+            isMobile ? "bg-black/40" : "pointer-events-none bg-transparent",
+          )}
+        />
+      )}
       <div
         ref={panelRef}
         role="dialog"
@@ -352,4 +362,96 @@ export function PanelEmptyState({ children }: { children: ReactNode }) {
   return (
     <div className="px-4 py-6 text-xs text-fg-secondary-alt">{children}</div>
   );
+}
+
+/**
+ * Calls `onClose` for a click that would have landed on `scrimRef`'s element
+ * if it took the pointer, and lets the click through to what is under it.
+ *
+ * The scrim used to catch clicks itself, and with them every wheel event over
+ * the editor: an invisible layer the size of the screen has nothing to
+ * scroll, so opening Pages, Media or Data froze the page beside it. So the
+ * scrim is `pointer-events: none`, and whether a click was "outside" is asked
+ * of the browser rather than worked out here: for the length of one hit test
+ * the scrim takes the pointer, and if it is the topmost element under the
+ * click, the click was outside. That keeps the stacking the scrim always had,
+ * exactly: the panel, the rail, the top bar, the status bar and anything
+ * portalled above them (a menu opened from inside the panel) are over it, and
+ * a click on them does not close the panel; the editor is under it, and a
+ * click there does.
+ *
+ * Capture phase, on the window, so it runs whatever the target does with the
+ * event. A click with `detail === 0` came from a keyboard, which has no point
+ * on screen to test, and the scrim never saw those either.
+ *
+ * A click in an IFRAME never reaches this window -- the canvas's preview of
+ * the site is one -- and the scrim used to be what caught it. What does reach
+ * the window is the focus leaving for the frame, so on `blur` the frame that
+ * took focus is hit tested instead: if the scrim would cover it, it was
+ * outside. A frame inside the panel (a proposal's code) is not under the
+ * scrim, and does not close it.
+ */
+function useClickOutside(
+  scrimRef: RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+  onClose: () => void,
+) {
+  useEffect(() => {
+    if (!enabled) return;
+    const onClick = (e: MouseEvent) => {
+      const scrim = scrimRef.current;
+      if (!scrim || e.detail === 0) return;
+      if (scrimCoversAny(scrim, [[e.clientX, e.clientY]])) onClose();
+    };
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const onBlur = () => {
+      // The frame is the active element once the focus has moved, which is
+      // not yet true in every browser while `blur` is dispatched.
+      clearTimeout(pending);
+      pending = setTimeout(() => {
+        const scrim = scrimRef.current;
+        if (!scrim) return;
+        const root = scrim.getRootNode();
+        if (!(root instanceof ShadowRoot || root instanceof Document)) return;
+        const frame = root.activeElement;
+        if (!(frame instanceof HTMLIFrameElement)) return;
+        const r = frame.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        // A panel can cover part of the frame, so more than its middle.
+        const points: [number, number][] = [
+          [r.left + r.width / 2, r.top + r.height / 2],
+          [r.left + 4, r.top + 4],
+          [r.right - 4, r.top + 4],
+          [r.left + 4, r.bottom - 4],
+          [r.right - 4, r.bottom - 4],
+        ];
+        if (scrimCoversAny(scrim, points)) onClose();
+      }, 0);
+    };
+    window.addEventListener("click", onClick, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      clearTimeout(pending);
+      window.removeEventListener("click", onClick, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [scrimRef, enabled, onClose]);
+}
+
+/**
+ * Whether the scrim, if it took the pointer, would be the topmost element at
+ * any of `points`. Asked of the browser, so it is the real stacking.
+ */
+function scrimCoversAny(
+  scrim: HTMLElement,
+  points: [number, number][],
+): boolean {
+  const root = scrim.getRootNode();
+  if (!(root instanceof ShadowRoot || root instanceof Document)) return false;
+  scrim.style.pointerEvents = "auto";
+  try {
+    return points.some(([x, y]) => root.elementFromPoint(x, y) === scrim);
+  } finally {
+    scrim.style.pointerEvents = "";
+  }
 }

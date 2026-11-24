@@ -1,5 +1,79 @@
 # @valbuild/server
 
+## 0.154.3
+
+### Patch Changes
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/ui@0.154.2
+
+## 0.154.2
+
+### Patch Changes
+
+- [#1087](https://github.com/valbuild/val/pull/1087) [`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82) Thanks [@freekh](https://github.com/freekh)! - **A published page no longer loads the Studio, TypeScript, sucrase or prettier.** A site's first request in a fresh server process (on Val's hosting, every request a cold isolate answers) used to evaluate all of Val's server: the Studio's embedded assets (about 22 MB), TypeScript (9 MB), sucrase and the MCP tools. A page only needs that when someone edits it. These now load when they are first used, by the Val API, a draft read, a save or an MCP call, and a visitor's page never loads them.
+
+  We measured this in a fresh Node process, with the TanStack example app built the way a deployed app is built and running as a deployed site does (`http` mode). The first request for a public page used to load 38.8 MB of modules, take about 1.06 s and leave 170 MB of heap in use. It now loads 5.3 MB, takes about 0.23 s and leaves 38 MB of heap. An isolate counts more than Node does, so treat these heap figures as a lower bound.
+
+  What changed for an app:
+
+  - `initValContent` (and `initValRsc` in `@valbuild/next`) no longer start Val's server when they are created. They start it on the first draft read.
+  - With TanStack Start, `initValServer` loads the server on its first request in `http` mode, which is what a deployed site runs in. In local development (`fs` mode) and memory mode it still starts with the app. Those modes need the newest build in a process to exist before the previous build answers a request.
+  - `initValMcp` from `@valbuild/tanstack/server` loads the MCP tools on the first MCP request. Its `valMcpMetadata` comes from the new `@valbuild/mcp/metadata` entry, which is small.
+  - `createPrettierFormatter` now also accepts a loader. **Update your `val.server.ts`** so prettier is loaded by the first save rather than by every page:
+
+    ```ts
+    // before
+    import prettier from "prettier";
+    formatter: createPrettierFormatter(prettier, { projectRoot: process.cwd() }),
+
+    // after
+    formatter: createPrettierFormatter(() => import("prettier"), {
+      projectRoot: process.cwd(),
+    }),
+    ```
+
+    Passing `prettier` itself still works.
+
+  - If your app serves MCP from a TanStack Start route, import the MCP SDK inside the handler (`await import("@modelcontextprotocol/server")`), not at the top of the file. TanStack Start's route tree imports every server route's module on every cold start.
+
+- Updated dependencies [[`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`a52c184`](https://github.com/valbuild/val/commit/a52c184687849ba9c2c2a4929871b60502a6ee55), [`6c26409`](https://github.com/valbuild/val/commit/6c2640966779e20931672dc78ff6e3c0d19e4183), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff)]:
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/ui@0.154.2
+
+## 0.154.1
+
+### Patch Changes
+
+- [#1072](https://github.com/valbuild/val/pull/1072) [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe) Thanks [@freekh](https://github.com/freekh)! - The assistant's code tools answer faster in a proposal.
+
+  - **Reading costs no request after the first.** The Studio keeps the proposal's project in the tab for the life of the chat, instead of fetching the site's source and the proposal's files again for every `read_file`, `search_code`, `list_files`, `edit_file`, `format_files` and `lint`. It is read again when someone changes the proposal, when the site is published, and after the assistant's own changes.
+  - **A change is one or two requests instead of four.** `edit_file`, `write_files`, `format_files` and `lint` with `fix` no longer ask whether code mode is on before each write: Val's server already refuses a write while it is off, and the assistant is still told who turned it off. Before a file is edited, the Studio asks what the proposal stages now, so a change someone else made to it is edited rather than overwritten.
+  - **A change does not wait for the schema to be re-read unless it can change it.** Only a write to a `.val.ts`, `val.modules.ts`, `val.config.ts` or a file they import waits for the Studio to evaluate the Val modules. A component, a stylesheet or a route is answered at once, and several edits in one reply are evaluated together rather than one after another.
+
+- Updated dependencies [[`37e4f39`](https://github.com/valbuild/val/commit/37e4f390d1fd6a930488c9487de43f8c1a390122), [`245843e`](https://github.com/valbuild/val/commit/245843ec527212dc31c6e1da1f0bd5f9d99cf8d3), [`d4e514f`](https://github.com/valbuild/val/commit/d4e514f9eac2f014fc07aa768787d637898dc744), [`def1434`](https://github.com/valbuild/val/commit/def1434324a0b3e26202148cb11726e02bd5bffe), [`82c641c`](https://github.com/valbuild/val/commit/82c641ca00ddfe1ed5b07b9ccb5ee39b0c6f102e)]:
+  - @valbuild/ui@0.154.1
+  - @valbuild/shared@0.154.1
+
+## 0.154.0
+
+### Patch Changes
+
+- [#1067](https://github.com/valbuild/val/pull/1067) [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee) Thanks [@freekh](https://github.com/freekh)! - Two answers from `/api/val/patches` no longer tell the Studio something false when the content service behind it fails part of the way.
+
+  - **Discarding a change while the content service is down no longer looks like it worked.** If the content service answered with an error or could not be reached, `DELETE /api/val/patches` answered 200 with every patch as deleted. The Studio then forgot changes that still existed: a reload brought them back, and the next publish could ship a change you had discarded. It now answers 502 with the content service's reason, and the Studio keeps the change and says the discard failed.
+  - **An edit made while someone else is editing is no longer stuck unsaved.** A batch of edits is saved one patch at a time, so another editor's change can land between two of yours. When it did, the server answered the conflict without saying the first patch had been saved, the Studio sent that patch again, and the content service refused it as one it already had. The save then retried forever and the edit after it was never saved. The conflict now names what was saved, as the other partial failures already did, and the Studio sends only the rest.
+
+- [#1068](https://github.com/valbuild/val/pull/1068) [`0b1cbe6`](https://github.com/valbuild/val/commit/0b1cbe6858094b21fa15a8fa9b88d5f4304d68e1) Thanks [@freekh](https://github.com/freekh)! - Saving an edit no longer fails with `Converting circular structure to JSON` when a `.val.ts` file uses object spreads, such as `{ title: "…", ...noMedia, learnMore: null }`.
+
+  An edit to a key written out after every spread in its object is now saved, and the spread is left as it is. An edit to a key a spread supplies, or one a later spread may override, is refused with a message that names the file, the line and the spread, so you know which value to write out — before, any spread anywhere along the edited path refused the save, and the refusal itself crashed `/save` with a 500.
+
+- Updated dependencies [[`d2956df`](https://github.com/valbuild/val/commit/d2956df9d82f7cba1cd26a754ccbd0fa10a5d641), [`c71a92c`](https://github.com/valbuild/val/commit/c71a92ccc40eed16c9b2669d6b26efee51240eea), [`9ee9bdf`](https://github.com/valbuild/val/commit/9ee9bdf8f1feb57b2ab2f70c82a8c839256f8687), [`af4f6fc`](https://github.com/valbuild/val/commit/af4f6fc2b2f344ca474fc80664365a6fac4325b1), [`70bd897`](https://github.com/valbuild/val/commit/70bd89741d23f89407ddab56de2a70ad62e79fee), [`d85f2d7`](https://github.com/valbuild/val/commit/d85f2d75c3dd2732ad1fb9f0c6c0023f4f5de834), [`7f49d72`](https://github.com/valbuild/val/commit/7f49d72b5d2a447025cfec474ff1d85b21e4333e)]:
+  - @valbuild/ui@0.154.0
+  - @valbuild/shared@0.154.0
+
 ## 0.153.6
 
 ### Patch Changes

@@ -1,9 +1,10 @@
-import type { AIChatHandle } from "../components/AIChat";
+import type { AIChatHandle, ChatMessage } from "../components/AIChat";
 import type { ToolActivity } from "../components/AIChatToolActivities";
 import type { ProposalParticipant } from "../components/proposals/types";
 import type { AIMessagesResponse } from "../components/ValProvider";
 import type { AIMessageContentBlock, AIWatchedMessage } from "./useAIWebSocket";
 import { AskUserQuestionArgs, AskUserQuestionResult } from "./askUserQuestion";
+import { isChecksContent, withoutRideAlong } from "../proposals/checksMessage";
 
 /**
  * Reading a proposal's chat that others write in too (valbuild/home
@@ -60,11 +61,17 @@ export type WatchedChat = {
     | "addToolCall"
     | "completeToolCall"
     | "errorToolCall"
+    | "showSteer"
   > | null;
   /** The watched turn whose answer is on screen as it streams. */
   activeId: { current: string | null };
   /** Watched turns whose question was seen asked, not joined midway. */
   started: Set<string>;
+  /**
+   * Who asked each watched turn that was seen asked: a message they steer
+   * into it is theirs too.
+   */
+  askers: Map<string, ProposalParticipant>;
   participantOf: (id: string) => ProposalParticipant;
   setTurnBy: (by: ProposalParticipant | null) => void;
   /**
@@ -95,6 +102,7 @@ export function applyWatchedEvent(
   if (event.type === "ai_turn_started") {
     watched.started.add(event.id);
     const author = watched.participantOf(event.authorId);
+    watched.askers.set(event.id, author);
     chat?.appendMessage({
       id: `watched-${event.id}`,
       role: "user",
@@ -136,8 +144,27 @@ export function applyWatchedEvent(
   } else if (event.type === "ai_error") {
     openAnswer(event.id);
     chat?.errorAssistantMessage(event.id, event.message, event.code);
+  } else if (event.type === "ai_steer_status") {
+    // The asker sent a message into their running turn, and the agent has
+    // it: shown where the turn has got to. A server that does not say what
+    // it was leaves the turn to be read again whole when it ends, which
+    // puts it where it was delivered.
+    if (event.status !== "delivered") return;
+    if (event.message === undefined || !chat) {
+      watched.started.delete(event.id);
+      return;
+    }
+    const author = watched.askers.get(event.id);
+    chat.showSteer(event.steerId, {
+      id: event.steerId,
+      role: "user",
+      content: watchedQuestionText(event.message),
+      status: "complete",
+      ...(author ? { author } : {}),
+    });
   } else if (event.type === "ai_turn_ended") {
     if (activeId.current === event.id) activeId.current = null;
+    watched.askers.delete(event.id);
     const joinedMidway = !watched.started.delete(event.id);
     watched.setTurnBy(null);
     watched.turnEnded(joinedMidway);
@@ -193,4 +220,64 @@ export function storedToolActivities(
           { cancelled: true }),
     };
   });
+}
+
+/**
+ * A chat as the server stores it, for the transcript. A tool call goes on
+ * the assistant message after the user message that carries it: the
+ * question's on the first part of its answer, and a steered message's -- the
+ * calls made after it was delivered -- on the part after the steer.
+ */
+export function toChatMessages(
+  sessionId: string,
+  messages: ServerMessage[],
+  participantOf: (id: string) => ProposalParticipant,
+): ChatMessage[] {
+  const chat: ChatMessage[] = [];
+  /** The tools the last question's turn called: they go on its answer. */
+  let toolActivities: ToolActivity[] = [];
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    // Numbered among the messages shown, as they always were.
+    const id = `history-${sessionId}-${chat.length}`;
+    if (m.role === "user") {
+      // A steer read before the assistant had written anything: the server
+      // stores no answer part above it, but the tools run before it are
+      // still the turn's. They go on an empty part of their own, as the
+      // chat showed them while the turn ran.
+      if (toolActivities.length > 0) {
+        chat.push({
+          id,
+          role: "assistant",
+          content: "",
+          status: "complete",
+          toolActivities,
+        });
+      }
+      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
+      const userId = `history-${sessionId}-${chat.length}`;
+      chat.push({
+        id: userId,
+        role: "user",
+        content: withoutRideAlong(m.content),
+        status: "complete",
+        // The Studio's message for its background checks, as it was shown.
+        ...(isChecksContent(m.content)
+          ? { fromChecks: true }
+          : m.authorId
+            ? { author: participantOf(m.authorId) }
+            : {}),
+      });
+      continue;
+    }
+    chat.push({
+      id,
+      role: "assistant",
+      content: m.content,
+      status: "complete",
+      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+    });
+    toolActivities = [];
+  }
+  return chat;
 }

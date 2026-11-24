@@ -1,5 +1,7 @@
 import {
+  assistantCodeTools,
   buildProposal,
+  stagedCode,
   buildProposalOnServer,
   CODE_TOOLS,
   editText,
@@ -420,6 +422,50 @@ describe("the code tools", () => {
     expect(isCodeTool("write_files")).toBe(true);
     // create_patch is a content tool.
     expect(isCodeTool("create_patch")).toBe(false);
+  });
+
+  test("the assistant is not offered typecheck, which waits: the Studio typechecks by itself, and it still runs when called", async () => {
+    const offered = assistantCodeTools().map((tool) => tool.name);
+    expect(offered).not.toContain("typecheck");
+    expect(offered).toContain("typecheck_status");
+    expect(offered).toContain("lint");
+    expect(isCodeTool("typecheck")).toBe(true);
+  });
+
+  test("only a tool that staged files counts as a change to check", () => {
+    const ok = (result: unknown) => ({ result, isError: false });
+    expect(stagedCode("edit_file", {}, ok({ success: true }))).toBe(true);
+    expect(stagedCode("edit_file", {}, { result: {}, isError: true })).toBe(
+      false,
+    );
+    expect(stagedCode("lint", {}, ok({ success: true, problems: [] }))).toBe(
+      false,
+    );
+    expect(
+      stagedCode("lint", { fix: true }, ok({ fixedAndStaged: ["a.val.ts"] })),
+    ).toBe(true);
+    expect(
+      stagedCode(
+        "format_files",
+        {},
+        ok({ files: [{ path: "a.tsx", status: "unchanged" }] }),
+      ),
+    ).toBe(false);
+    expect(
+      stagedCode(
+        "format_files",
+        {},
+        ok({ files: [{ path: "a.tsx", status: "changed" }] }),
+      ),
+    ).toBe(true);
+    expect(
+      stagedCode(
+        "format_files",
+        { write: false },
+        ok({ files: [{ path: "a.tsx", status: "changed" }] }),
+      ),
+    ).toBe(false);
+    expect(stagedCode("read_file", {}, ok({}))).toBe(false);
   });
 
   test("search the project as grep would: every matching line, where it is", async () => {

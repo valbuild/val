@@ -1668,6 +1668,37 @@ export class PatchStore {
    * over what looks like a stale value produces a "fix" for something that was
    * never wrong, and the patch lands underneath it a moment later.
    */
+  /**
+   * Resolves `true` once {@link chainSettled} is, at once if it already is;
+   * `false` if `signal` aborts first.
+   *
+   * For something that ACTS on the chain rather than showing it: "Check
+   * everything" names the patches this Studio shows, and pressed in the
+   * moment after a load -- before they have arrived -- it named none, had
+   * the server check the published content, and said it had checked
+   * everything.
+   */
+  whenChainSettled(signal?: AbortSignal): Promise<boolean> {
+    if (this.chainSettled()) return Promise.resolve(true);
+    if (signal?.aborted) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const done = (settled: boolean) => {
+        offChain();
+        offHead();
+        signal?.removeEventListener("abort", onAbort);
+        resolve(settled);
+      };
+      const check = () => {
+        if (this.chainSettled()) done(true);
+      };
+      const onAbort = () => done(false);
+      // The two events `useInitialPatchesApplied` hears it move on.
+      const offChain = this.events.on("patch:chain", check);
+      const offHead = this.events.on("patch:head", check);
+      signal?.addEventListener("abort", onAbort);
+    });
+  }
+
   chainSettled(): boolean {
     if (!this.statSeen) return false;
     for (const patchId of this.ordered) {
@@ -1812,9 +1843,13 @@ export class PatchStore {
    * the base has moved and the patch is out of the chain.
    *
    * Reference-stable across an unchanged chain, because this is a
-   * `useSyncExternalStore` snapshot. Memoised on {@link chainVersion} rather
-   * than recomputed-and-compared: unlike the render map, two of these are not
-   * comparable more cheaply than one is built.
+   * `useSyncExternalStore` snapshot: memoised on {@link chainVersion}. AND
+   * across a chain that moved without moving a file: the map built for the
+   * new version is compared with the one before, and the one before is kept
+   * when they say the same. Comparing costs what building does, and it used
+   * to be skipped for that -- but the map is read by the shell and by every
+   * media field, and nearly every change to the chain is a text edit, so a
+   * new map for each was a render of all of them per field write.
    */
   filePatchIds(): ReadonlyMap<string, PatchId> {
     const cached = this.filePatchIdsAt;
@@ -1834,8 +1869,10 @@ export class PatchStore {
         }
       }
     }
-    this.filePatchIdsAt = { n: this.version, map };
-    return map;
+    const kept =
+      cached !== null && sameFilePatchIds(cached.map, map) ? cached.map : map;
+    this.filePatchIdsAt = { n: this.version, map: kept };
+    return kept;
   }
 
   /**
@@ -1959,4 +1996,16 @@ export class PatchStore {
     n: number;
     map: ReadonlyMap<string, PatchId>;
   } | null = null;
+}
+
+/** Whether two {@link PatchStore.filePatchIds} maps say the same. */
+function sameFilePatchIds(
+  a: ReadonlyMap<string, PatchId>,
+  b: ReadonlyMap<string, PatchId>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [filePath, patchId] of a) {
+    if (b.get(filePath) !== patchId) return false;
+  }
+  return true;
 }

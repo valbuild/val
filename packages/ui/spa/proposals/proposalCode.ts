@@ -1,16 +1,24 @@
+import { changesCode } from "./changesCode";
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
+import type { PickedSources } from "./projectMap";
 import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import { lintWithValRules, pathsToLint } from "./lintCode";
-import { codeModeOffMessage, type CodeModeNow } from "./codeMode";
+import {
+  codeModeOffMessage,
+  codeModeRefusalOf,
+  type CodeModeNow,
+} from "./codeMode";
 import {
   markStagedCodeTold,
   stagedCodeNotice,
   type StagedCodeOutcome,
+  type StagedCodeReach,
 } from "./stagedCode";
+import { createProjectSnapshot, type ProjectSnapshot } from "./projectSnapshot";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -275,7 +283,7 @@ const FORMAT_FILES_TOOL: AITool = {
   name: "format_files",
   description:
     "Format the proposal's files the way the project formats them -- Prettier, with the project's config -- " +
-    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files, before typecheck. " +
+    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files. " +
     "A config it cannot read (JavaScript or YAML, plugins) is reported, not guessed at.",
   parameters: {
     type: "object",
@@ -302,7 +310,9 @@ const LINT_TOOL: AITool = {
     "Check the proposal's files with Val's lint rules -- the ones a developer's editor runs: a c.define path that is not the file's own, " +
     "a module missing from val.modules.ts, c.define content that is a variable (it validates, then fails at publish), " +
     "an import a .val file may not make. When one fires, something is wrong: fix it. " +
-    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). Call it after format_files, with typecheck.",
+    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). " +
+    "The Studio lints what you stage by itself after each change, and what it finds comes with a tool answer as lint_problems: " +
+    "call this to fix what the rules can fix (fix: true), or to lint other files, not to check each change.",
   parameters: {
     type: "object",
     properties: {
@@ -321,6 +331,17 @@ const LINT_TOOL: AITool = {
   },
 };
 
+/**
+ * The code tools the assistant is offered: {@link CODE_TOOLS} without
+ * `typecheck`, which waits for the typecheck. The Studio typechecks what is
+ * staged by itself and tells the assistant (`toolNotices.ts`), so a turn
+ * never waits on it. `typecheck` still runs when called, for a chat that
+ * began with it.
+ */
+export function assistantCodeTools(): AITool[] {
+  return CODE_TOOLS.filter((tool) => tool.name !== TYPECHECK_TOOL.name);
+}
+
 export const CODE_TOOLS: AITool[] = [
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
@@ -336,6 +357,83 @@ export const CODE_TOOLS: AITool[] = [
   CANCEL_BUILD_TOOL,
   WAIT_TOOL,
 ];
+
+/**
+ * Whether a code tool's answer says it staged files: what makes the
+ * background checks and the page check run. A `lint` without `fix`, or a
+ * `format_files` that changed nothing, changed no code, and checking it again
+ * would spend a page check on nothing.
+ */
+export function stagedCode(
+  name: string,
+  args: unknown,
+  answer: CodeToolAnswer,
+): boolean {
+  if (answer.isError) return false;
+  if (name === "write_files" || name === "edit_file") return true;
+  const result = isRecord(answer.result) ? answer.result : {};
+  if (name === "lint") {
+    const fixed = result["fixedAndStaged"];
+    return Array.isArray(fixed) && fixed.length > 0;
+  }
+  if (name === "format_files") {
+    const input = isRecord(args) ? args : {};
+    const files = result["files"];
+    return (
+      input["write"] !== false &&
+      Array.isArray(files) &&
+      files.some((file) => isRecord(file) && file["status"] === "changed")
+    );
+  }
+  return false;
+}
+
+/**
+ * The code tools that only read: what the page check is given
+ * (`pageCheck.ts`), which must never change the proposal it is checking.
+ */
+export const READ_ONLY_CODE_TOOLS: AITool[] = [
+  LIST_FILES_TOOL,
+  READ_FILE_TOOL,
+  SEARCH_CODE_TOOL,
+];
+
+/**
+ * One of {@link READ_ONLY_CODE_TOOLS}, run as the assistant's are
+ * (`runCodeTool`), with everything that could write, build or typecheck
+ * refused: a call of any other tool is refused before it runs.
+ */
+export async function runReadOnlyCodeTool(
+  name: string,
+  args: unknown,
+  deps: ProjectReadDeps,
+): Promise<CodeToolAnswer> {
+  const refuse = (): never => {
+    throw new Error(`${name} only reads here: nothing can be changed.`);
+  };
+  if (!READ_ONLY_CODE_TOOLS.some((tool) => tool.name === name)) {
+    return {
+      result: {
+        success: false,
+        error: `${name} is not one of the tools here: ${READ_ONLY_CODE_TOOLS.map((tool) => tool.name).join(", ")}.`,
+      },
+      isError: true,
+    };
+  }
+  return runCodeTool(name, args, {
+    proposal: deps.proposal,
+    client: { files: deps.client.files, stageFiles: refuse },
+    siteSource: deps.siteSource,
+    build: {
+      start: refuse,
+      running: () => null,
+      report: () => ({ status: "idle", last: null }),
+      cancel: () => false,
+    },
+    typecheck: refuse,
+    offerProposal: () => {},
+  });
+}
 
 /**
  * The assistant asking for code mode: a card in the chat with a button that
@@ -392,7 +490,8 @@ export const QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
   description:
     "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
-    "Where Val Build makes quick previews, one runs by itself after each change, so call this only to see the change now, or when none ran. " +
+    "Where Val Build makes quick previews, one runs by itself for the whole change, when your turn ends or once you have not written for a few seconds. " +
+    "So call this only to read the page yourself before the turn ends, or when the preview does not show what is staged. " +
     "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
     "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
     "Answers once the page shows it, with what each step took.",
@@ -471,13 +570,14 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (edit_file, write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (edit_file, write_files), format it (format_files) and build it (build_proposal). The Studio checks it for you. Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, with its line, then read_file the lines around it (offset, limit) rather than the whole file when the file is long.
 - Change a file that exists with edit_file: old_string is copied exactly from what read_file gave you, with enough lines around it to match once, and only what changes is sent. Make several edit_file calls for several places. Use write_files for a new file, to delete one (null), or when most of a file changes; it takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
-- The preview: a second after files are staged, the preview shows them as a quick preview by itself -- components, layout, styles and text, in seconds, without a build. Call quick_preview only to see a change now, or when none ran. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build.
-- A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
+- After changing code, call format_files so the files are formatted as the project's are. Then carry on, or end your turn: never wait to check. The Studio typechecks and lints what you staged by itself, beside you, and a page check reads the preview once your turn ends. What they find comes back to you, as below; typecheck_status says where the typecheck is, without waiting. The person can write while the checks run, so end the turn as soon as the change is staged. Tell them it is in the preview, not on the site: the site changes when the proposal is published.
+- The preview: when you finish, or once you have not written for a few seconds, the preview shows what is staged as a quick preview by itself -- components, layout, styles and text, without a build, and one quick preview for the whole change, not one per file. Do not call quick_preview to show the person a change: ending your turn shows it. Call it only when you need to read the page yourself before the turn ends (read_page, interact_page), or when the preview does not show what is staged. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build. The code you stage runs in the preview, on the real site, without asking the person: interact_page asks before each click and holds what the page sends, but that is interact_page's rule, not your code's -- never stage code that sends, deletes or buys by itself.
+- A tool's answer can carry \`typecheck_errors\` or \`lint_problems\`: the background typecheck or Val's lint rules found these in what is staged, after a change. Fix them before you build.
+- What those checks find after your turn ends comes as a message that starts with [Background checks], sent by the Studio and not by the person, or at the end of the person's next message inside <background_checks>. Fix what is still there; do not thank the person for it.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
 - Code mode: in a proposal, the tools that change code (edit_file, write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
 - ${here}`;
@@ -488,17 +588,31 @@ Besides content, you can read the project's code (list_files, read_file, search_
  * after the person's message, which the prompt explains (`PAGE_PROMPT_SECTION`
  * in `hooks/pageTools.ts`). Attribute values are escaped, so text on the
  * customer's page cannot close the tag and pass for the person's words.
+ *
+ * In code mode it also names where the element is in the code, as far as
+ * the tab can tell (`pickedElementSources`), so the model reads those files
+ * instead of searching for them.
  */
-export function pickedElementPrompt(picked: PickedElement): string {
+export function pickedElementPrompt(
+  picked: PickedElement,
+  sources: PickedSources = {},
+): string {
   const attribute = (name: string, value: string) =>
     ` ${name}="${escapePickedText(value)}"`;
+  const files = (name: string, paths: string[] | undefined) =>
+    paths !== undefined && paths.length > 0
+      ? attribute(name, paths.join(", "))
+      : "";
   return `<picked${attribute("tag", picked.tag)}${
     picked.classes.length > 0
       ? attribute("classes", picked.classes.join(" "))
       : ""
   }${attribute("selector", picked.selector)}${
     picked.valPath !== undefined ? attribute("path", picked.valPath) : ""
-  }${attribute("text", picked.text)}/>`;
+  }${sources.module !== undefined ? attribute("module", sources.module) : ""}${files(
+    "imported-by",
+    sources.importedBy,
+  )}${files("classes-in", sources.classesIn)}${attribute("text", picked.text)}/>`;
 }
 
 function escapePickedText(value: string): string {
@@ -520,6 +634,12 @@ export type CodeToolDeps = {
   client: Pick<ProposalsClient, "files" | "stageFiles">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
+  /**
+   * The project as this tab holds it, for the life of the chat
+   * (`projectSnapshot.ts`): what the tools read from and stage through.
+   * Absent: `client` and `siteSource` are asked on every call.
+   */
+  snapshot?: ProjectSnapshot;
   /** The proposal's build: start or join it, see where it is, stop it. */
   build: ProposalBuildControl;
   /** For tests: waiting. */
@@ -546,31 +666,38 @@ export type CodeToolDeps = {
    */
   codeMode?: () => Promise<CodeModeNow>;
   /**
+   * Code mode as this tab last heard it (`codeModeState`), without asking;
+   * `null` when it has not heard. While it says on, a write does not ask
+   * (`codeMode`) first: Val's server refuses a write while code mode is off
+   * (`beforeProposalCodeWrite`), and that refusal is answered in the same
+   * words. Absent: every write asks first.
+   */
+  codeModeHere?: () => boolean | null;
+  /** A person's name by profile id, for who turned code mode off. */
+  nameOf?: (profileId: string) => string | null;
+  /**
    * Evaluate the staged code in this tab and swap its schema in
    * (`runStagedCode`): started after each `write_files`, and its outcome
    * goes with the answer when it is done in time. Absent: nothing is
    * evaluated, and the schema arrives with a build.
    */
   evaluateStaged?: () => Promise<StagedCodeOutcome>;
+  /**
+   * Whether a write of these paths can change what `evaluateStaged` finds
+   * (`stagedCodeReach`): a write that cannot is answered at once, and one
+   * that may is evaluated without the answer waiting for it. Absent: every
+   * write waits, as one that can.
+   */
+  stagedCodeReach?: (paths: string[]) => StagedCodeReach;
 };
 
 /**
- * How long `write_files` waits for the staged code's evaluation before it
- * answers without it: seconds is normal, and the outcome otherwise reaches
- * the assistant with its next tool answer (`untoldStagedCode`).
+ * How long a write that can change the Val modules waits for the staged
+ * code's evaluation before it answers without it: seconds is normal, and the
+ * outcome otherwise reaches the assistant with its next tool answer
+ * (`untoldStagedCode`).
  */
 const STAGED_CODE_WAIT_SECONDS = 20;
-
-/**
- * The tools that change the proposal's code: refused while code mode is off.
- * Reading it, typechecking it and building what is staged change nothing.
- */
-function changesCode(name: string, input: Record<string, unknown>): boolean {
-  if (name === "write_files" || name === "edit_file") return true;
-  if (name === "format_files") return input["write"] !== false;
-  if (name === "lint") return input["fix"] === true;
-  return false;
-}
 
 /**
  * The proposal's build, as the assistant's tools reach it: `useProposalBuild`'s
@@ -685,11 +812,15 @@ async function runCodeToolNow(
     isError: true,
   });
   const input = isRecord(args) ? args : {};
+  const snapshot = snapshotOf(deps);
   try {
     if (
       deps.proposal !== null &&
       deps.codeMode !== undefined &&
-      changesCode(name, input)
+      changesCode(name, input) &&
+      // On, as far as this tab has heard: the server's refusal is the
+      // answer if it has been turned off since (the catch below).
+      deps.codeModeHere?.() !== true
     ) {
       const mode = await deps.codeMode();
       if (!mode.on) return fail(codeModeOffMessage(mode));
@@ -720,7 +851,7 @@ async function runCodeToolNow(
       if (replaceAll !== undefined && typeof replaceAll !== "boolean") {
         return fail("replace_all must be true or false.");
       }
-      const { project } = await readProject(deps);
+      const { project } = await snapshot.read(deps.proposal.name, "to-write");
       const filePath = path.replace(/^\/+/, "");
       const text = project[filePath];
       if (text === undefined) {
@@ -734,6 +865,7 @@ async function runCodeToolNow(
         typeof input["message"] === "string" ? input["message"] : undefined;
       const answer = await stageCode(
         deps,
+        snapshot,
         deps.proposal.name,
         { [filePath]: edit.text },
         message,
@@ -768,7 +900,13 @@ async function runCodeToolNow(
       const message =
         typeof input["message"] === "string" ? input["message"] : undefined;
       // Awaited here, so a refused staging is answered by the catch below
-      return await stageCode(deps, deps.proposal.name, written, message);
+      return await stageCode(
+        deps,
+        snapshot,
+        deps.proposal.name,
+        written,
+        message,
+      );
     }
     if (name === "typecheck_status") {
       if (deps.proposal === null || deps.typecheckStatus === undefined) {
@@ -787,7 +925,7 @@ async function runCodeToolNow(
           ...(status.current
             ? {}
             : {
-                note: "This check is of files staged before the last change: call typecheck once your edits are done.",
+                note: "This check is of files staged before the last change. The Studio typechecks the files as they are now by itself, and what it finds comes with a tool answer: do not wait for it.",
               }),
         },
         isError: false,
@@ -883,7 +1021,11 @@ async function runCodeToolNow(
         isError: false,
       };
     }
-    const { project, staged } = await readProject(deps);
+    const { project, staged } = await snapshot.read(
+      deps.proposal?.name ?? null,
+      // What a write is made from is checked, not only held.
+      changesCode(name, input) ? "to-write" : undefined,
+    );
     if (name === "list_files") {
       const prefix = typeof input["prefix"] === "string" ? input["prefix"] : "";
       const paths = Object.keys(project)
@@ -944,7 +1086,7 @@ async function runCodeToolNow(
       }
       const write = input["write"] !== false;
       if (write && Object.keys(changed).length > 0) {
-        await deps.client.stageFiles(deps.proposal.name, changed, "Format");
+        await snapshot.stage(deps.proposal.name, changed, "Format");
       }
       const failed = files.some((f) => f.status === "failed");
       return {
@@ -983,7 +1125,7 @@ async function runCodeToolNow(
       const lintCode = deps.lintCode ?? lintWithValRules;
       const { messages, fixed } = await lintCode(project, paths, { fix });
       if (Object.keys(fixed).length > 0) {
-        await deps.client.stageFiles(deps.proposal.name, fixed, "Lint fixes");
+        await snapshot.stage(deps.proposal.name, fixed, "Lint fixes");
       }
       return {
         result: {
@@ -1102,8 +1244,30 @@ async function runCodeToolNow(
     }
     return fail(`Unknown code tool ${name}.`);
   } catch (error) {
+    // Code mode was turned off since this tab last heard: the server
+    // refused the write, and the model is told who did, as it is when the
+    // tab asks first.
+    const off = codeModeRefusalOf(
+      error,
+      deps.nameOf ?? (() => null),
+      Date.now(),
+    );
+    if (off !== null) return fail(codeModeOffMessage(off));
     return fail(messageOf(error));
   }
+}
+
+/** The snapshot the tools go through: the chat's, or one for this call. */
+function snapshotOf(deps: ProjectReadDeps): ProjectSnapshot {
+  return (
+    deps.snapshot ??
+    createProjectSnapshot({
+      client: deps.client,
+      siteSource: deps.siteSource,
+      // No `seq`: never current, so every read asks.
+      seq: () => null,
+    })
+  );
 }
 
 /** `work`, or `null` once `seconds` have passed without it. */
@@ -1136,17 +1300,26 @@ async function withinSeconds<T>(
  */
 async function stageCode(
   deps: CodeToolDeps,
+  snapshot: ProjectSnapshot,
   proposalName: string,
   written: Record<string, string | null>,
   message: string | undefined,
 ): Promise<CodeToolAnswer> {
-  const staged = await deps.client.stageFiles(proposalName, written, message);
-  // The tab evaluates `val.modules` as the staging left it, and swaps the
-  // schema in: what moved, or why it does not run, goes with this answer
-  // when it is done in time, else with the next one.
-  const evaluation = deps.evaluateStaged?.();
+  const staged = await snapshot.stage(proposalName, written, message);
+  /*
+   * The tab evaluates `val.modules` as the staging left it, and swaps the
+   * schema in: what moved, or why it does not run, goes with this answer
+   * when it is done in time, else with the next one. Only a write that can
+   * change it is waited for: a component `val.modules.ts` never imports
+   * changes no schema, and its answer does not wait for one to be read.
+   */
+  const reach: StagedCodeReach =
+    deps.evaluateStaged === undefined
+      ? "cannot"
+      : (deps.stagedCodeReach?.(Object.keys(written)) ?? "can");
+  const evaluation = reach === "cannot" ? undefined : deps.evaluateStaged?.();
   const evaluated =
-    evaluation === undefined
+    evaluation === undefined || reach !== "can"
       ? undefined
       : await withinSeconds(deps.sleep, evaluation, STAGED_CODE_WAIT_SECONDS);
   if (evaluated !== undefined && evaluated !== null) {
@@ -1159,7 +1332,7 @@ async function stageCode(
       buildRequired: staged.staged.buildRequired,
       next: !staged.staged.buildRequired
         ? "The preview already shows these files."
-        : "The preview shows them as a quick preview by itself in a moment. Call build_proposal once the change is complete.",
+        : "The preview shows them as a quick preview by itself when you finish, or once you have not written for a few seconds: one quick preview for the change, not one per file. No build is needed to see components, styles and text; build only for what a quick preview cannot show, once, when the request is finished.",
       ...(evaluated === undefined
         ? {}
         : {
@@ -1177,28 +1350,25 @@ async function stageCode(
 }
 
 /** What the code tools read the project through. */
-export type ProjectReadDeps = Pick<CodeToolDeps, "proposal" | "siteSource"> & {
-  client: Pick<ProposalsClient, "files">;
+export type ProjectReadDeps = Pick<
+  CodeToolDeps,
+  "proposal" | "siteSource" | "snapshot"
+> & {
+  client: Pick<ProposalsClient, "files"> &
+    Partial<Pick<ProposalsClient, "stageFiles">>;
 };
 
 /**
  * The project the code tools read: the proposal's (the site's files with
  * the proposal's laid over), or the site's on the site. Paths are relative
- * to the project root.
+ * to the project root. From the chat's snapshot where there is one
+ * (`projectSnapshot.ts`), which asks only when what it holds is not current.
  */
 export async function readProject(deps: ProjectReadDeps): Promise<{
   project: Record<string, string>;
   staged: ProposalStaged | null;
 }> {
-  const site = (await deps.siteSource()) ?? {};
-  let own: Record<string, string | null> = {};
-  let staged: ProposalStaged | null = null;
-  if (deps.proposal !== null) {
-    const read = await deps.client.files(deps.proposal.name);
-    own = read.files;
-    staged = read.staged;
-  }
-  return { project: proposalProject(site, own), staged };
+  return snapshotOf(deps).read(deps.proposal?.name ?? null);
 }
 
 /** What `edit_file` made of a file, or why it did not. */
@@ -1436,6 +1606,13 @@ export async function readProjectInstructions(
   deps: ProjectReadDeps,
 ): Promise<string | null> {
   const { project } = await readProject(deps);
+  return projectInstructionsOf(project);
+}
+
+/** {@link readProjectInstructions}, of a project already read. */
+export function projectInstructionsOf(
+  project: Record<string, string>,
+): string | null {
   const found = PROJECT_INSTRUCTION_FILES.flatMap((path) => {
     const text = project[path];
     return text === undefined || text.trim() === ""

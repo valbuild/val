@@ -23,12 +23,20 @@ import {
   SLIDE_MS,
 } from "../workspace/phoneTrack";
 import { usePickingDefault } from "./usePickingDefault";
+import { useFieldShownInColumn } from "./useFieldShownInColumn";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
-import { CanvasFields } from "./CanvasFields";
+import {
+  CanvasFields,
+  type FocusRequest,
+  type PickedHow,
+} from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
+import { collapseShownPaths } from "./shownPaths";
+import { useSchemas } from "../../ValFieldProvider";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
+import type { CanvasSelectMode } from "../../../hooks/selectModePreference";
 import type { ContentPlacement } from "../workspace/placePanes";
 import { PaneStrip } from "../workspace/WorkspaceChrome";
 import { ColumnDivider } from "../workspace/ColumnDivider";
@@ -83,7 +91,7 @@ export type PageWorkspaceProps = {
        * filter has to know whether it is hiding it. `null` where a pick has no
        * source path behind it — the demo page's fields are not Val's.
        */
-      onPicked: (path: SourcePath | null) => void;
+      onPicked: (path: SourcePath | null, how?: PickedHow) => void;
       /** Esc on the page while picking fields: Content's Select turns off. */
       onPickingStopped: () => void;
     },
@@ -100,6 +108,21 @@ export type PageWorkspaceProps = {
   onSelectCanvasPath?: (path: SourcePath) => void;
   /** The path the editor is on, highlighted in the fields column to match. */
   selectedCanvasPath?: SourcePath | null;
+  /**
+   * The field being typed in ON the page, while it is (Select & edit: see
+   * `useCanvasInlineEdit`). The editor does not move for it, so the column
+   * is told here: it turns to "On this page", scrolls to the field and
+   * shows it as the selected one. See `useFieldShownInColumn`.
+   */
+  editingCanvasPath?: SourcePath | null;
+  /**
+   * What Content's Select does with a pick (`CanvasSelectMode`), and how to
+   * change it. With `onSelectModeChange`, Select has a menu for it; without
+   * -- Storybook's demo page, which has no page to type on -- it is the one
+   * Select it always was.
+   */
+  selectMode?: CanvasSelectMode;
+  onSelectModeChange?: (mode: CanvasSelectMode) => void;
   /**
    * The route the canvas is showing, and how to change it.
    *
@@ -272,6 +295,9 @@ export function PageWorkspace({
   canvasPaths,
   onSelectCanvasPath,
   selectedCanvasPath,
+  editingCanvasPath = null,
+  selectMode,
+  onSelectModeChange,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -360,7 +386,38 @@ export function PageWorkspace({
    * the view, so the check has to wait for the column rather than happen here.
    */
   const [pickToReveal, setPickToReveal] = useState<SourcePath | null>(null);
+  /*
+   * The field picked on the page last, for the fields column to put the
+   * cursor in. Numbered, so picking the same field again focuses it again.
+   */
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const clearPickToReveal = useCallback(() => setPickToReveal(null), []);
+
+  /**
+   * A text being typed in on the page is shown in the column too.
+   *
+   * What a pick does, less the part that would take the caret away. The
+   * column turns to the page's fields and stops hiding the one being edited
+   * behind its filter, exactly as `onPicked` does further down; the column
+   * then scrolls to the field because it is told which one is selected
+   * (`fieldShownInColumn`). What it does NOT do is change pane on a phone:
+   * the person is typing on the page, and the column is the other pane.
+   *
+   * Only when an edit starts. The filter is read through a ref so that
+   * turning it on mid-edit is not answered by turning it straight off.
+   */
+  const fieldShownInColumn = useFieldShownInColumn(
+    selectedCanvasPath ?? null,
+    editingCanvasPath,
+  );
+  const whenEditingStarts = useRef({ onViewChange, changedFieldsOnly });
+  whenEditingStarts.current = { onViewChange, changedFieldsOnly };
+  useEffect(() => {
+    if (editingCanvasPath === null) return;
+    const { onViewChange, changedFieldsOnly } = whenEditingStarts.current;
+    onViewChange("fields");
+    if (changedFieldsOnly) setPickToReveal(editingCanvasPath);
+  }, [editingCanvasPath]);
 
   /**
    * Leaving the canvas leaves nothing behind.
@@ -521,6 +578,8 @@ export function PageWorkspace({
       // the focus is one the preview will not turn preview mode on in.
       pressed={isPicking && fieldCount > 0}
       onPressedChange={setIsPicking}
+      mode={selectMode}
+      onModeChange={onSelectModeChange}
       unavailable={
         fieldCount > 0
           ? undefined
@@ -529,7 +588,10 @@ export function PageWorkspace({
       label={!compact}
       className={
         compact && isPhone
-          ? "h-[2.125rem] w-[2.125rem] justify-center px-0"
+          ? // With the menu beside it the button is wider than it is tall.
+            onSelectModeChange !== undefined
+            ? "h-[2.125rem]"
+            : "h-[2.125rem] w-[2.125rem] justify-center px-0"
           : undefined
       }
     />
@@ -561,13 +623,21 @@ export function PageWorkspace({
    * state that reads as the canvas being broken.
    */
   const onPicked = useCallback(
-    (path: SourcePath | null) => {
+    (path: SourcePath | null, how?: PickedHow) => {
       if (!isPicking) return;
       onViewChange("fields");
       if (isPhone) onPaneChange("editor");
       // Pointing at something is asking to edit it, and a filter hiding it
       // would answer with an empty column. See `pickToReveal`.
       if (path !== null && changedFieldsOnly) setPickToReveal(path);
+      // Pointing at a field is asking to type in it, on a phone as well.
+      if (path !== null) {
+        setFocusRequest((previous) => ({
+          path,
+          id: (previous?.id ?? 0) + 1,
+          added: how?.added === true,
+        }));
+      }
     },
     [isPicking, onViewChange, isPhone, onPaneChange, changedFieldsOnly],
   );
@@ -607,9 +677,18 @@ export function PageWorkspace({
       // The reload BUTTON's counter, which nothing else bumps — see the hook.
       resetKey: `${canvasRoute ?? ""}\n${reloadKey}`,
     });
+  // A component's own fields are in its row: listed once, not twice.
+  const schemas = useSchemas();
+  const listedPaths = useMemo(
+    () =>
+      schemas.status === "success"
+        ? collapseShownPaths(reportedPaths, schemas.data)
+        : reportedPaths,
+    [reportedPaths, schemas],
+  );
   const fieldCount = page
     ? Object.keys(page.fields).length
-    : reportedPaths.length;
+    : listedPaths.length;
   const viewToggle = (
     <ViewToggle
       view={view}
@@ -782,15 +861,16 @@ export function PageWorkspace({
           attachedFieldIds={attachedFieldIds}
           isDevMode={isDevMode}
         />
-      ) : reportedPaths.length > 0 ? (
+      ) : listedPaths.length > 0 ? (
         <CanvasFields
-          paths={reportedPaths}
+          paths={listedPaths}
           offPagePaths={offPagePaths}
           changedOnly={changedFieldsOnly}
           onChangedOnlyChange={setChangedFieldsOnly}
           pickToReveal={pickToReveal}
+          focusRequest={focusRequest}
           onPickRevealed={clearPickToReveal}
-          selectedPath={selectedCanvasPath}
+          selectedPath={fieldShownInColumn}
           onSelect={onSelectCanvasPath}
         />
       ) : (
