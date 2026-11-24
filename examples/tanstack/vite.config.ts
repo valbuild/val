@@ -68,6 +68,26 @@ export default defineConfig({
       "@valbuild/tanstack > @valbuild/react > @vercel/stega",
     ],
   },
+  /*
+   * No common-chunk merging in the production build, because this app
+   * bundles Val's SOURCE.
+   *
+   * The readers load Val's server lazily (`import()` behind the Val API and
+   * a draft read), so `@valbuild/shared/internal`'s modules are needed both
+   * at startup and by those lazy chunks. Bundled from source, the entry is
+   * dozens of modules, and rolldown's chunk merging moved some of them (with
+   * zod at their top level) into a lazy chunk that the startup chunk imports
+   * in a cycle. The first request then failed with `ZodEnum is not a
+   * constructor`, and the server was loaded eagerly anyway. An app that
+   * installs Val from npm bundles each entry as ONE prebuilt file, which
+   * cannot be split like that: its default build is fine and stays lazy. See
+   * `architecture/quirks.md`, "TanStack Start".
+   */
+  build: {
+    rolldownOptions: {
+      experimental: { chunkOptimization: false },
+    },
+  },
   plugins: [
     tanstackStart({
       /*

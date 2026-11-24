@@ -1,5 +1,47 @@
 # @valbuild/shared
 
+## 0.154.3
+
+### Patch Changes
+
+- [#1089](https://github.com/valbuild/val/pull/1089) [`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51) Thanks [@freekh](https://github.com/freekh)! - **`val publish` no longer puts Val's Studio inside a hosted site's server code.** The build target Val's hosting sends says whether the platform serves the Studio's files itself (`buildAssets`), but `val publish` dropped that field while reading it, so every layer it built carried the whole Studio: about 80 MB of a hosted isolate's 128 MB, enough that the site was started again on nearly every request and took seconds to answer. Val's hosting now refuses such a layer, so publishing from the CLI failed with "carries Val's Studio inside its server code". With this release the layer is built without the Studio, the platform serves its files, and the site's isolate stays warm.
+
+  A field the hosting adds to the build target and the CLI does not read is now a compile error in Val itself, so this cannot happen silently again.
+
+## 0.154.2
+
+### Patch Changes
+
+- [#1049](https://github.com/valbuild/val/pull/1049) [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff) Thanks [@freekh](https://github.com/freekh)! - Experimental: link an object to the component that renders it, and let Val render and arrange it
+
+  `s.object(...).component(() => import("./Hero"))` links an object schema to a component. The link is type checked against the component's own props: when the object's fields are the props nothing else is needed, and for any other component a `props` function says how to make them.
+
+  ```ts
+  export const heroFields = s.object({
+    type: s.literal("hero"),
+    title: s.string(),
+  });
+  export const hero = heroFields.component(() => import("../components/Hero"));
+
+  export const note = s
+    .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+    .component(() => import("../components/Callout"), {
+      props: (note) => ({
+        heading: note.title,
+        tone: note.urgent ? "warning" : "info",
+      }),
+    });
+  ```
+
+  `<ValComponentEditor value={page.sections} />`, from `@valbuild/tanstack` and `@valbuild/next`, renders a list of linked objects (or a single one) with their components, with no map from a `type` to a component to keep. It only accepts values that are linked: a list with a variant that has no component is a type error. It is optional, and a component can use it for a list of components of its own.
+
+  In Val Studio, a list rendered this way can be arranged on the page itself: drag a section to another place, add one between two others, or remove one.
+
+  This replaces the experimental `.render({ as: "component", component })` on objects. Move its `component` to the first argument of `.component()` and the rest of its options to the second.
+
+- Updated dependencies [[`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff)]:
+  - @valbuild/core@0.154.2
+
 ## 0.154.1
 
 ### Patch Changes

@@ -206,6 +206,15 @@ const buildTargetResponse = z.object({
         browser: z.record(z.string(), z.array(z.string())),
       })
       .optional(),
+    /*
+     * Whether the platform serves the Studio's files itself, so the layer is
+     * built without the copy `@valbuild/ui/server` embeds (`studioAssets.ts`
+     * in @valbuild/tanstack-build). Dropped by this schema until it was named
+     * here, every `val publish` built a layer carrying the whole Studio -- some
+     * 80 MB of a hosted isolate's 128 MB -- so the site was started again on
+     * nearly every request, and the platform now refuses such a layer.
+     */
+    buildAssets: z.boolean().optional(),
   }),
   project: z.object({
     rev: z.string().nullable(),

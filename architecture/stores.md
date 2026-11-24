@@ -59,6 +59,56 @@ silently when it does not.
 > mentions nothing about source. The engine is copy-on-write too, which is why a
 > view is made in one place and handed out by key.
 
+## A reader renders when its answer moves
+
+`peek` being reference-stable is the store's half. The other half is the
+hook: what a component is handed as its `useSyncExternalStore` snapshot is
+what decides whether it renders.
+
+- **Never a version number, with the answer derived from it in a `useMemo`.**
+  `useChainVersion()` and `useAllSources()` move with every field write, so a
+  hook built on them renders its caller for every write -- to work out the
+  answer it already had. The memo keeps the answer stable and cannot stop the
+  render. This was most of why one write rendered the whole Studio nine times
+  (`docs/plans/studio-write-lag.md`).
+- **The derivation is the snapshot: `useStoreValue`**
+  (`stores/react/useStoreValue.ts`). The store's event runs `read`, and React
+  hears nothing unless the answer is different (`isSame`: `sameItems`,
+  `sameMembers`, `sameDeep`). `version` says whether `read` needs running at
+  all. `useChainValue` in `ValProvider.tsx` is that for the chain;
+  `useModuleSources` for a list of modules' sources. `useLateStoreValue` reads
+  after the event, in a task of its own, for a derivation that walks
+  something and decides only a marker.
+- **A hook needed some of the time takes `watch`.** A hook cannot be called
+  conditionally, and calling it at all is the subscription:
+  `useChangesToReview(inProposal)`, `useAllSourcesWhen(wanted)`,
+  `useSettledProjectSeq(ms, inProposal)`.
+- **A context value is one object per change to what it holds**, each field
+  of it kept while it says the same. An object literal in a provider's JSX is
+  a render of every reader of the context for every render of the provider.
+  A value that moves often does not go in a context at all: the context holds
+  a store of it (`createValueStore`), as `ValProvider` does for what content
+  holds and `Shell` for what a write moves.
+- **What a write moves in the shell is read where it is shown.**
+  `ValShellBody` builds the props of the whole Studio and `useShellData` its
+  data, so neither reads anything that moves per write
+  (`shellWriteSubscriptions.test.ts`). The save state, the pending and review
+  counts, Recent activity and Discard all are read in `ValShellLive`, below
+  it, and shown from `ShellLive`'s store by the status bar, the top bar and
+  the utility panel; the rest of `Shell` is a `memo` (`shellLive.test.tsx`).
+- **A container lists its fields as `LabeledField`**, a `memo` whose props are
+  a path, strings, booleans and the item's schema: a container is woken when
+  anything inside it is written, and that must not be every field in it
+  rendering.
+
+One trap in reading a store from its event rather than from a render: **the
+chain is announced before the patch is applied to source** (`bump`, then
+`patch:create`). See `quirks.md`.
+
+To see who renders and why, run `e2e/measure/studioWriteRenders.measure.ts`:
+it prints, per commit, the components that woke and the hook, context or
+`memo` prop that moved for each.
+
 ## What a field reads: the engine, at a version
 
 How content is versioned and loaded for every reader, the Studio included,
@@ -309,6 +359,8 @@ manifest); the Studio does not move to its versions and asks again (S26).
 | new code: `reloadCode(registry)`           | `stores/HostStore.ts`                              |
 | a new build's code: import, or reload      | `stores/buildCode.ts`                              |
 | a fake server to test against              | `stores/testSystem.ts`                             |
+| a hook that renders when its answer moves  | `stores/react/useStoreValue.ts`                    |
+| what a write moves in the shell            | `components/shell/ShellLive.tsx`, `ValShellLive`   |
 | what a store _did_, not what it announced  | the activity channel, `stores/activity.ts`         |
 
 ## Debugging in a browser

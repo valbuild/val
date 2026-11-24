@@ -1,5 +1,29 @@
 # @valbuild/cli
 
+## 0.154.3
+
+### Patch Changes
+
+- [#1089](https://github.com/valbuild/val/pull/1089) [`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51) Thanks [@freekh](https://github.com/freekh)! - **`val publish` no longer puts Val's Studio inside a hosted site's server code.** The build target Val's hosting sends says whether the platform serves the Studio's files itself (`buildAssets`), but `val publish` dropped that field while reading it, so every layer it built carried the whole Studio: about 80 MB of a hosted isolate's 128 MB, enough that the site was started again on nearly every request and took seconds to answer. Val's hosting now refuses such a layer, so publishing from the CLI failed with "carries Val's Studio inside its server code". With this release the layer is built without the Studio, the platform serves its files, and the site's isolate stays warm.
+
+  A field the hosting adds to the build target and the CLI does not read is now a compile error in Val itself, so this cannot happen silently again.
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/language-server@0.154.3
+  - @valbuild/server@0.154.3
+
+## 0.154.2
+
+### Patch Changes
+
+- Updated dependencies [[`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`180b6b7`](https://github.com/valbuild/val/commit/180b6b7513226009e7eb6a768282d70685ccf436)]:
+  - @valbuild/server@0.154.2
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/tanstack-build@0.154.2
+  - @valbuild/language-server@0.154.2
+
 ## 0.154.1
 
 ### Patch Changes

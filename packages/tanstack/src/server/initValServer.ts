@@ -1,13 +1,15 @@
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
-import {
-  createValApiRouter,
-  createValServer,
-  type CommitContext,
-  type CommitResult,
-  type ValPatchStore,
-  type ValContentVersion,
-  type ValProposal,
+import type {
+  CommitContext,
+  CommitResult,
+  ValPatchStore,
+  ValContentVersion,
+  ValProposal,
 } from "@valbuild/server";
+import {
+  serverCanStartLazily,
+  type ValApiOptions,
+} from "@valbuild/server/internal";
 import { VERSION } from "../version";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
 
@@ -117,6 +119,14 @@ export type ValHttpMode = {
  * a `Request` and hands back a `ValServerGenericResult` — so all this adds is
  * the conversion to a `Response`, which for Next needed `NextResponse` and here
  * does not need anything.
+ *
+ * `@valbuild/server` is imported by the first request to the API, not by this
+ * module. An app builds this handler in the `val.server.ts` its pages read
+ * content from, and TanStack Start's route tree imports the API route's module
+ * to match a URL at all, so a static import put the whole server -- the data
+ * layer, TypeScript, sucrase, and the Studio's assets, tens of megabytes -- in
+ * front of every visitor's first request to a cold isolate. See
+ * `servingPath.test.ts`.
  */
 const initValApiHandler = (
   valModules: ValModules,
@@ -144,112 +154,142 @@ const initValApiHandler = (
     throw new Error("Could not get @valbuild/tanstack package version");
   }
 
-  return createValApiRouter(
-    route,
-    createValServer(
-      valModules,
-      route,
-      {
-        versions: {
-          /*
-           * Reported as `next` because that is the field the wire contract has.
-           *
-           * `Versions` in `@valbuild/server` names the framework half of the
-           * pair `next`, and admin.val.build reads it. Renaming it is a change
-           * to a published contract with a server on the other end, so the
-           * TanStack package fills the same field rather than adding one
-           * nothing reads.
-           */
-          next: tanstackVersion,
-          core: coreVersion,
-          framework: "tanstack",
-        },
-        ...config,
-        /*
-         * Present only when the host supplied one: `sourceFiles` is what
-         * SELECTS the in-memory store, so a key set to `undefined` would be
-         * indistinguishable from a host that meant to supply nothing, and
-         * `initHandlerOptions` checks presence.
-         */
-        ...(sourceFiles !== undefined ? { sourceFiles } : {}),
-        ...(patchStore !== undefined ? { patchStore } : {}),
-        ...(unsafelyAllowUnauthenticated !== undefined
-          ? { unsafelyAllowUnauthenticated }
-          : {}),
-        ...(apiKey !== undefined ? { apiKey } : {}),
-        /*
-         * What puts the server in `http` mode: CREDENTIALS. The patches live
-         * on Val's content service, which is the store of record for them.
-         *
-         * `gitCommit` / `gitBranch` are optional and say where, if anywhere,
-         * a publish also MIRRORS the content as `.val.ts`. Where there is
-         * one, the commit is the one the RUNNING code was built from and is
-         * load bearing
-         * rather than bookkeeping: producing that mirror means reading the
-         * current text from the content service AT THAT COMMIT, so a commit
-         * the deployed code did not come from writes over a different version
-         * of the file than the one the site is running.
-         */
-        ...(http !== undefined ? http : {}),
-        ...(valContentUrl !== undefined ? { valContentUrl } : {}),
-      },
-      config,
-      {
-        isEnabled() {
-          return draftMode.isEnabled();
-        },
-        onEnable() {
-          return draftMode.enable();
-        },
-        onDisable() {
-          return draftMode.disable();
-        },
-      },
-      formatter,
-      commitPrepared,
-      publishOverride,
-    ),
-    (valRes): Response => {
-      const headers = new Headers();
-      const valResHeaders = ("headers" in valRes && valRes.headers) || {};
-      for (const key in valResHeaders) {
-        const value = valResHeaders[key];
-        if (typeof value === "string") {
-          headers.set(key, value);
-        }
-      }
-      if ("cookies" in valRes && valRes.cookies) {
-        for (const [cookieName, cookie] of Object.entries(valRes.cookies)) {
-          headers.append("Set-Cookie", serializeCookie(cookieName, cookie));
-        }
-      }
-      if ("json" in valRes) {
-        headers.set("Content-Type", "application/json");
-        return new Response(JSON.stringify(valRes.json), {
-          headers,
-          status: valRes.status,
-        });
-      }
-      if (valRes.status === 302) {
-        headers.set("Location", valRes.redirectTo);
-        /*
-         * Built by hand rather than with `Response.redirect`.
-         *
-         * `Response.redirect` produces an immutable response whose headers
-         * cannot be added to, and the redirect that enables Val is precisely
-         * the one that has to set cookies on its way out.
-         */
-        return new Response(null, {
-          status: valRes.status,
-          headers,
-        });
-      }
-      return new Response("body" in valRes ? valRes.body : null, {
-        headers,
-        status: valRes.status,
-      });
+  const options: ValApiOptions = {
+    versions: {
+      /*
+       * Reported as `next` because that is the field the wire contract has.
+       *
+       * `Versions` in `@valbuild/server` names the framework half of the
+       * pair `next`, and admin.val.build reads it. Renaming it is a change
+       * to a published contract with a server on the other end, so the
+       * TanStack package fills the same field rather than adding one
+       * nothing reads.
+       */
+      next: tanstackVersion,
+      core: coreVersion,
+      framework: "tanstack",
     },
-  );
+    ...config,
+    /*
+     * Present only when the host supplied one: `sourceFiles` is what
+     * SELECTS the in-memory store, so a key set to `undefined` would be
+     * indistinguishable from a host that meant to supply nothing, and
+     * `initHandlerOptions` checks presence.
+     */
+    ...(sourceFiles !== undefined ? { sourceFiles } : {}),
+    ...(patchStore !== undefined ? { patchStore } : {}),
+    ...(unsafelyAllowUnauthenticated !== undefined
+      ? { unsafelyAllowUnauthenticated }
+      : {}),
+    ...(apiKey !== undefined ? { apiKey } : {}),
+    /*
+     * What puts the server in `http` mode: CREDENTIALS. The patches live
+     * on Val's content service, which is the store of record for them.
+     *
+     * `gitCommit` / `gitBranch` are optional and say where, if anywhere,
+     * a publish also MIRRORS the content as `.val.ts`. Where there is
+     * one, the commit is the one the RUNNING code was built from and is
+     * load bearing
+     * rather than bookkeeping: producing that mirror means reading the
+     * current text from the content service AT THAT COMMIT, so a commit
+     * the deployed code did not come from writes over a different version
+     * of the file than the one the site is running.
+     */
+    ...(http !== undefined ? http : {}),
+    ...(valContentUrl !== undefined ? { valContentUrl } : {}),
+  };
+  let router: Promise<(req: Request) => Promise<Response>> | null = null;
+  const loadRouter = async (): Promise<(req: Request) => Promise<Response>> => {
+    const { createValApiRouter, createValServer } =
+      await import("@valbuild/server");
+    return createValApiRouter(
+      route,
+      createValServer(
+        valModules,
+        route,
+        options,
+        config,
+        {
+          isEnabled() {
+            return draftMode.isEnabled();
+          },
+          onEnable() {
+            return draftMode.enable();
+          },
+          onDisable() {
+            return draftMode.disable();
+          },
+        },
+        formatter,
+        commitPrepared,
+        publishOverride,
+      ),
+      (valRes): Response => {
+        const headers = new Headers();
+        const valResHeaders = ("headers" in valRes && valRes.headers) || {};
+        for (const key in valResHeaders) {
+          const value = valResHeaders[key];
+          if (typeof value === "string") {
+            headers.set(key, value);
+          }
+        }
+        if ("cookies" in valRes && valRes.cookies) {
+          for (const [cookieName, cookie] of Object.entries(valRes.cookies)) {
+            headers.append("Set-Cookie", serializeCookie(cookieName, cookie));
+          }
+        }
+        if ("json" in valRes) {
+          headers.set("Content-Type", "application/json");
+          return new Response(JSON.stringify(valRes.json), {
+            headers,
+            status: valRes.status,
+          });
+        }
+        if (valRes.status === 302) {
+          headers.set("Location", valRes.redirectTo);
+          /*
+           * Built by hand rather than with `Response.redirect`.
+           *
+           * `Response.redirect` produces an immutable response whose headers
+           * cannot be added to, and the redirect that enables Val is precisely
+           * the one that has to set cookies on its way out.
+           */
+          return new Response(null, {
+            status: valRes.status,
+            headers,
+          });
+        }
+        return new Response("body" in valRes ? valRes.body : null, {
+          headers,
+          status: valRes.status,
+        });
+      },
+    );
+  };
+  /*
+   * Built now in `fs` and `memory` mode, at the first request in `http` mode.
+   *
+   * In the first two the newest server built in a process is the build its
+   * patches are relative to (`ValOps.chainBaseSha`): a previous build still
+   * answering a long poll after a reload names the newest one's base, which
+   * only works if the newest one exists. In `http` mode the content service
+   * says which build is live, so nothing depends on when this one is built --
+   * and a deployed site's cold start does not pay for it.
+   */
+  if (!serverCanStartLazily(options)) {
+    router = loadRouter();
+    // Reported by the first request, not as an unhandled rejection at start.
+    router.catch(() => {});
+  }
+  return async (req: Request): Promise<Response> => {
+    // Forgotten when it fails, so the next request tries again rather than
+    // failing on the same rejected promise for the life of the process.
+    router ??= loadRouter().catch((err: unknown) => {
+      router = null;
+      throw err;
+    });
+    return (await router)(req);
+  };
 };
 
 /**

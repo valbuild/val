@@ -24,6 +24,7 @@ import {
 } from "@valbuild/core";
 import { useRemoteHost } from "./ValRemoteProvider";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
+import { useStoreValue } from "../stores/react/useStoreValue";
 import { writePatch as writeFieldPatch } from "../stores/react/writePatch";
 import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
@@ -110,13 +111,14 @@ export function ValFieldProvider({
   >;
   config: ValConfig | undefined;
 }) {
+  // One object while neither moved: every field reads this context, so a
+  // new one per render of `ValProvider` was a render of every field.
+  const value = useMemo(
+    () => ({ getDirectFileUploadSettings, config }),
+    [getDirectFileUploadSettings, config],
+  );
   return (
-    <ValFieldContext.Provider
-      value={{
-        getDirectFileUploadSettings,
-        config,
-      }}
-    >
+    <ValFieldContext.Provider value={value}>
       {children}
     </ValFieldContext.Provider>
   );
@@ -404,6 +406,35 @@ export function usePatchSyncState(): SyncState | null {
     getSyncState,
     getSyncState,
   );
+}
+
+/**
+ * The save that failed and will not be retried by itself, or `null`.
+ *
+ * {@link usePatchSyncState} for a reader that only says something when a
+ * save has failed: the sync state moves three times per field write (pending,
+ * saving, in sync), and this answers `null` through all of them, so its
+ * reader -- the shell, for the "Not saved" notice -- is not rendered for a
+ * write that went through.
+ */
+export function useFailedSave(): Extract<
+  SyncState,
+  { status: "failed" }
+> | null {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchSync.events.on("patch:sync-state", onChange);
+    },
+    [val],
+  );
+  const read = useCallback(() => {
+    if (val === null) return null;
+    const state = val.system.patchSync.currentState();
+    return state.status === "failed" ? state : null;
+  }, [val]);
+  return useStoreValue(subscribe, read);
 }
 
 /**
@@ -1204,6 +1235,39 @@ export function useAllSources(): Record<ModuleFilePath, Json> {
     void version;
     return val.system.sourceStore.allSources();
   }, [val, version]);
+}
+
+const NO_SOURCES: Record<ModuleFilePath, Json> = {};
+
+/**
+ * {@link useAllSources} while `wanted`, and nothing -- with no subscription
+ * to it -- otherwise.
+ *
+ * For a reader that needs every module's source only some of the time: the
+ * shell where the project has languages, a record entry's tools where there
+ * is a record to scan references to. The rules of hooks forbid calling
+ * `useAllSources` conditionally, and calling it at all is a render for every
+ * field write in the project, whatever is then done with the answer.
+ */
+export function useAllSourcesWhen(
+  wanted: boolean,
+): Record<ModuleFilePath, Json> {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null || !wanted) return () => {};
+      return val.system.sourceStore.events.on("source:change", onChange);
+    },
+    [val, wanted],
+  );
+  const read = useCallback(
+    () =>
+      val === null || !wanted
+        ? NO_SOURCES
+        : val.system.sourceStore.allSources(),
+    [val, wanted],
+  );
+  return useStoreValue(subscribe, read);
 }
 
 /**

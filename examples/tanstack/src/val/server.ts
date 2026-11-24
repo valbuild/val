@@ -6,7 +6,6 @@ import {
   unstable_fetchValPreviewSource,
   type ValHttpMode,
 } from "@valbuild/tanstack/server";
-import prettier from "prettier";
 import { config } from "../../val.config";
 import valModules from "../../val.modules";
 
@@ -51,8 +50,12 @@ const { valApiHandler, draftMode } = initValServer(
      * `filepath` only picks the parser. `createPrettierFormatter` resolves the
      * config and `.prettierignore` per file, and is what `val validate --fix`
      * runs too, so an edit saved here and a fix applied there come out the same.
+     *
+     * Loaded by the first save, not imported here: every page imports this
+     * module for its readers, so a static `import prettier` would be evaluated
+     * on every cold start of the site.
      */
-    formatter: createPrettierFormatter(prettier, {
+    formatter: createPrettierFormatter(() => import("prettier"), {
       projectRoot: process.cwd(),
     }),
   },
