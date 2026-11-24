@@ -1,5 +1,15 @@
 # @valbuild/language-server
 
+## 0.154.2
+
+### Patch Changes
+
+- [#1084](https://github.com/valbuild/val/pull/1084) [`180b6b7`](https://github.com/valbuild/val/commit/180b6b7513226009e7eb6a768282d70685ccf436) Thanks [@freekh](https://github.com/freekh)! - **"Upload this gallery's images to Val Remote" uploads the whole gallery.** The quick fix in the editor uploaded only the image it was offered on, although its title promised the gallery, and the image moved to the end of the gallery. It now uploads every image in that gallery that still has a local path, one after another, in the order the gallery lists them, so they keep their places. The gallery and every field that shows one of its images are rewritten in a single edit, which one undo takes back. If an upload fails partway, what was uploaded is still written, and running the fix again uploads the rest. The same goes for "upload this gallery's files".
+- Updated dependencies [[`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff)]:
+  - @valbuild/server@0.154.2
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+
 ## 0.154.1
 
 ### Patch Changes
