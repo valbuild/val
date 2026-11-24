@@ -250,11 +250,24 @@ export function ComponentsContent() {
               : `Use ${index + 1} of ${count}`}
         </p>
       </div>
-      {instance === undefined || example !== null ? (
+      {example !== null ? (
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-sm text-fg-secondary">
+            Examples are written in the code, next to .component(...), to show
+            how the component looks with content that is not on the site. They
+            are not content an editor can change.
+          </p>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => view.update({ example: null })}
+          >
+            Show the content instead
+          </Button>
+        </div>
+      ) : instance === undefined ? (
         <p className="text-sm text-fg-secondary">
-          {example !== null
-            ? "Examples are written in the code, next to .component(...), and are not content an editor can change."
-            : "Nothing to edit: no content uses this component yet."}
+          Nothing to edit: no content uses this component yet.
         </p>
       ) : (
         <InstanceFields key={instance} path={instance} />
@@ -582,12 +595,24 @@ function ComponentDetail({
     [descriptions, sources, schemas],
   );
 
+  /*
+   * ← and → go through everything there is to look at: the uses, then the
+   * examples - which render through a use, so there are none without one.
+   */
+  const total = count === 0 ? 0 : count + component.examples.length;
+  const position =
+    example !== null ? count + component.examples.indexOf(example) : index;
   const step = useCallback(
     (by: number) => {
-      if (count === 0) return;
-      update({ instance: (index + by + count) % count, example: null });
+      if (total === 0) return;
+      const next = (position + by + total) % total;
+      if (next < count) {
+        update({ instance: next, example: null });
+      } else {
+        update({ example: component.examples[next - count] });
+      }
     },
-    [count, index, update],
+    [total, position, count, component.examples, update],
   );
   const componentIndex = components.findIndex((c) => c.id === component.id);
   const stepComponent = useCallback(
@@ -725,7 +750,7 @@ function ComponentDetail({
               size="icon-sm"
               aria-label="Previous use"
               title="Previous use (←)"
-              disabled={count < 2}
+              disabled={total < 2}
               onClick={() => step(-1)}
             >
               <ChevronLeft size={16} />
@@ -735,7 +760,7 @@ function ComponentDetail({
               data-testid="component-instance-position"
             >
               {example !== null
-                ? prettyExampleName(example)
+                ? `Example ${component.examples.indexOf(example) + 1} of ${component.examples.length}`
                 : `${index + 1} of ${count}`}
             </span>
             <Button
@@ -743,7 +768,7 @@ function ComponentDetail({
               size="icon-sm"
               aria-label="Next use"
               title="Next use (→)"
-              disabled={count < 2}
+              disabled={total < 2}
               onClick={() => step(1)}
             >
               <ChevronRight size={16} />
@@ -801,11 +826,6 @@ function ComponentDetail({
               />
             </div>
           </div>
-          {shownLabel !== null && example === null && (
-            <p className="text-xs text-fg-tertiary">
-              {shownLabel.title} · {shownLabel.where}
-            </p>
-          )}
         </div>
       )}
     </div>
@@ -1000,7 +1020,7 @@ function ComponentSearch({ components }: { components: StudioComponent[] }) {
   const trimmed = query.trim();
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex items-center h-8 gap-1.5 px-2 border rounded-md w-56 border-border-primary bg-bg-primary focus-within:border-border-secondary">
+      <div className="flex items-center h-8 gap-1.5 px-2 border rounded-md w-44 focus-within:w-56 transition-[width] border-border-primary bg-bg-primary focus-within:border-border-secondary">
         <Search size={14} className="shrink-0 text-fg-tertiary" />
         <input
           type="search"
@@ -1400,10 +1420,11 @@ function UseBlock({
               layout: "one",
             })
           }
-          className="text-xs shrink-0 text-fg-tertiary hover:text-fg-primary"
-          title={`Every use of ${use.component.name}`}
+          className="grid w-6 h-6 rounded shrink-0 place-items-center text-fg-tertiary hover:text-fg-primary hover:bg-bg-secondary"
+          title={`Open in Components: every use of ${use.component.name}`}
+          aria-label="Open in Components"
         >
-          Open in Components
+          <Blocks size={13} />
         </button>
       </div>
       <div className="bg-bg-secondary">
