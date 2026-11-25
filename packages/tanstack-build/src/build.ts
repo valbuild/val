@@ -424,6 +424,39 @@ export interface BuildOutput {
   /** Wall-clock milliseconds per phase; the number the whole design lives on. */
   timings: { server: number; client: number; tailwind: number; total: number };
   warnings: Array<string>;
+  /**
+   * Imports this build could not resolve and left for the runtime to load.
+   *
+   * A bare specifier rolldown cannot resolve is not an error to it -- it is
+   * "treated as an external dependency" -- so the import survives into the
+   * output and fails in the browser or the isolate, after the publish has
+   * succeeded. Listed so a caller can hold them against what `vite build`
+   * made of the same import (`val publish --dry-run`).
+   */
+  unresolvedImports?: Array<UnresolvedImport>;
+  /**
+   * The stylesheets in `cssCode`, in cascade order: project paths or
+   * specifiers. Optional, like `unresolvedImports`: a CLI can run against a
+   * builder older than either.
+   */
+  stylesheets?: Array<string>;
+}
+
+/** An import the build left unresolved: in `importer` (a project path), of `specifier`. */
+export interface UnresolvedImport {
+  importer: string;
+  specifier: string;
+}
+
+/**
+ * The project path inside one of the build's own module ids --
+ * `\0platform:tsr-split:component:src/routes/index.tsx` is
+ * `src/routes/index.tsx`.
+ */
+function projectPathOfId(id: string): string {
+  const bare = id.replace(/^\0/, "");
+  const at = bare.lastIndexOf(":");
+  return at === -1 ? bare : bare.slice(at + 1);
 }
 
 /**
@@ -924,6 +957,7 @@ async function buildOnce(
   cssModules: Record<string, Record<string, string>> = {},
   aliases: AliasMap | null = null,
   moduleDependencies: Record<string, string[]> | null = null,
+  unresolved: Array<UnresolvedImport> = [],
 ) {
   const vendor = vendorRules(input.target);
   /*
@@ -961,6 +995,18 @@ async function buildOnce(
     // import is a hard build error unless its module type is declared. 'empty'
     // drops it from the JS graph; the stylesheet itself comes from collectCss.
     moduleTypes: { ".css": "empty" },
+    onLog(level, log, defaultHandler) {
+      // Collected rather than printed: rolldown prints it to stderr, where
+      // `val publish` never looked, and then builds a site that imports it.
+      if (log.code === "UNRESOLVED_IMPORT" && log.id && log.exporter) {
+        unresolved.push({
+          importer: projectPathOfId(log.id),
+          specifier: log.exporter,
+        });
+        return;
+      }
+      defaultHandler(level, log);
+    },
     plugins: [
       runtimeEnvPlugin(env.runtime),
       projectPlugin(
@@ -1124,6 +1170,9 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
    * to the server's bundle.
    */
   const hash = await buildInputId(input);
+  // One list for every pass: the server, client and rsc builds each meet the
+  // same import, and the caller wants it once.
+  const unresolved: Array<UnresolvedImport> = [];
   const registryEntry = await valModulesEntry(input, hash, warnings);
 
   const serverStarted = performance.now();
@@ -1139,6 +1188,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     css.modules,
     aliases,
     registryEntry.dependencies,
+    unresolved,
   );
   const server = performance.now() - serverStarted;
 
@@ -1154,6 +1204,8 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     assetUrls,
     css.modules,
     aliases,
+    null,
+    unresolved,
   );
   const client = performance.now() - clientStarted;
 
@@ -1178,6 +1230,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
         css.modules,
         aliases,
         registryEntry.dependencies,
+        unresolved,
       )
     : undefined;
 
@@ -1235,6 +1288,12 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
       total: performance.now() - started,
     },
     warnings: [...new Set(warnings)],
+    unresolvedImports: [
+      ...new Map(
+        unresolved.map((u) => [`${u.importer}\u0000${u.specifier}`, u]),
+      ).values(),
+    ],
+    stylesheets: css.files,
   };
 }
 

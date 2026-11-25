@@ -25,6 +25,7 @@ import {
   pool,
 } from "./client";
 import { ContentHostError, detailText, getContentHost } from "./contentHost";
+import { compareWithVite, unrunPlugins, viteReference } from "./viteReference";
 import { resolvePublishCredential } from "./credentials";
 import {
   DeclareResponse,
@@ -60,6 +61,12 @@ export type PublishOptions = {
    * refused on: see `buildArtifacts`.
    */
   typecheck?: boolean;
+  /**
+   * With `dryRun`, also build the client with the project's own Vite and stop
+   * on anything it does that Val's build does not (`viteReference`). On by
+   * default for a dry run; `--no-vite-check` turns it off.
+   */
+  viteCheck?: boolean;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -242,6 +249,13 @@ export async function runPublish(
       built = build;
       for (const warning of build.warnings) log(`warn: ${warning}`);
       for (const line of typecheckReport(build.typecheck)) log(line);
+      if (options.dryRun === true && options.viteCheck !== false) {
+        const checked = await checkAgainstVite(root, build, log);
+        if (checked.status === "error") {
+          fs.rmSync(build.dir, { recursive: true, force: true });
+          return checked;
+        }
+      }
       const fromBuild = await collectPrebuilt(root, build.dir, log);
       if (fromBuild.status === "error") return fromBuild;
       collected = fromBuild.collected;
@@ -805,4 +819,50 @@ function remoteFilesRefusal(
     return `${APP_MODE_REQUIRES_REMOTE_FILES}\n\nval.config.ts could not be read, so this could not be checked: ${reason}`;
   }
   return `${APP_MODE_REQUIRES_REMOTE_FILES}\n\nThere is no val.config.ts (or val.config.js) in this project to say it.`;
+}
+
+/**
+ * `--dry-run`'s comparison with the project's own `vite build`: anything Vite
+ * puts on the page that Val's build would not stops the dry run, because the
+ * publish itself would succeed and the site would be wrong.
+ */
+async function checkAgainstVite(
+  root: string,
+  build: Extract<BuiltArtifacts, { status: "built" }>,
+  log: (line: string) => void,
+): Promise<{ status: "ok" } | { status: "error"; message: string }> {
+  log("Comparing with vite build");
+  const reference = await viteReference(root);
+  if (reference.status === "skipped") {
+    log(`Not compared with vite build: ${reference.reason}.`);
+    return { status: "ok" };
+  }
+  if (reference.status === "failed") {
+    // The project's own build failing is the project's to fix, and says
+    // nothing about Val's: reported, not a reason to stop.
+    log(
+      `warn: vite build failed, so this build was not compared with it: ${reference.message.split("\n")[0]}`,
+    );
+    return { status: "ok" };
+  }
+  const plugins = unrunPlugins(reference);
+  if (plugins.length > 0) {
+    log(
+      `warn: Val's build does not run these Vite plugins from vite.config: ${plugins.join(", ")}. ` +
+        `Anything they change is not in the published site.`,
+    );
+  }
+  const differences = compareWithVite(reference, build);
+  if (differences.length === 0) {
+    log("Compared with vite build: no differences found.");
+    return { status: "ok" };
+  }
+  for (const difference of differences) log(`error: ${difference.message}`);
+  return {
+    status: "error",
+    message:
+      `${count(differences.length, "import")} that vite build handles would be missing ` +
+      `or broken in the published site (listed above). Fix them, or run with ` +
+      `--no-vite-check to publish anyway.`,
+  };
 }

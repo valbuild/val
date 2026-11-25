@@ -26,6 +26,8 @@ export async function publish(options: {
   strict?: boolean;
   /** `false` (`--no-typecheck`): build without typechecking the project. */
   typecheck?: boolean;
+  /** `false` (`--no-vite-check`): a dry run does not compare with `vite build`. */
+  viteCheck?: boolean;
 }): Promise<void> {
   // Content that does not validate is not published. This is the check that
   // lets the Studio trust a connected project's published content without
@@ -75,6 +77,7 @@ export async function publish(options: {
       : { linksOwnCss: options.linksOwnCss }),
     ...(options.dryRun ? { dryRun: options.dryRun } : {}),
     ...(options.typecheck === false ? { typecheck: false } : {}),
+    ...(options.viteCheck === false ? { viteCheck: false } : {}),
     log: (line) => console.log(pc.dim(line)),
   });
 

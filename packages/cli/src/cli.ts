@@ -101,6 +101,9 @@ async function main(): Promise<void> {
         --no-typecheck           Build without typechecking the project. It runs by default,
                                  on the install the build reads, and type errors are
                                  printed without stopping the publish
+        --no-vite-check          With --dry-run, skip building the client with the project's
+                                 own vite build to find what Val's build would miss. It runs
+                                 by default with --dry-run, and a difference stops it
 
       Command: check-build-tools
       Description: load what "val publish" builds with, and build a one-line module with
@@ -210,6 +213,11 @@ async function main(): Promise<void> {
           type: "boolean",
           default: true,
         },
+        // On unless --no-vite-check, like typecheck.
+        viteCheck: {
+          type: "boolean",
+          default: true,
+        },
         yes: {
           type: "boolean",
         },
@@ -293,6 +301,7 @@ async function main(): Promise<void> {
         skipValidation: flags.skipValidation,
         strict: flags.strict,
         typecheck: flags.typecheck,
+        viteCheck: flags.viteCheck,
       });
     case "login":
       return login({

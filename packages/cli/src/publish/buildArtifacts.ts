@@ -36,6 +36,10 @@ export type BuiltArtifacts =
       dir: string;
       buildHash: string;
       linksOwnCss: boolean;
+      /** Imports the build left for the runtime to load; see `viteReference`. */
+      unresolvedImports: Array<{ importer: string; specifier: string }>;
+      /** The stylesheets in the site's CSS, in cascade order. */
+      stylesheets: string[];
       /**
        * The layer by name, when content already holds it and it was not
        * written; `null` when the project declares nothing beyond the base set.
@@ -524,6 +528,9 @@ export async function buildArtifacts(options: {
       dir,
       buildHash: built.hash,
       linksOwnCss: built.linksOwnCss,
+      // Absent from a builder older than this CLI, which reports neither.
+      unresolvedImports: built.unresolvedImports ?? [],
+      stylesheets: built.stylesheets ?? [],
       ...(layerRev !== undefined ? { layerRev } : {}),
       baseRev: target.base.rev,
       warnings,
