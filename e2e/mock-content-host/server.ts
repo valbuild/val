@@ -417,6 +417,12 @@ type State = {
    */
   proposalsEnabled: boolean;
   /**
+   * Code mode on the site (valbuild/home `docs/proposals.md`, "Code mode on
+   * the site"): which proposal `</>` on the site opens, and the address the
+   * platform serves it at. `null` is a project that has it off.
+   */
+  siteCode: { proposal: string; address: string } | null;
+  /**
    * Uploaded bytes, keyed by patch id and then by file path.
    *
    * Kept apart from the patch records because the client uploads a patch's files
@@ -539,6 +545,7 @@ function emptyState(): State {
     patches: new Map(),
     proposals: new Map(),
     proposalsEnabled: false,
+    siteCode: null,
     patchFiles: new Map(),
     commits: [],
     deployments: [],
@@ -3203,6 +3210,11 @@ type MockProposal = {
    * on, and before each code write, is Val's server's.
    */
   codeMode: { on: boolean; changedBy: string | null; changedAt: string | null };
+  /**
+   * Where the platform serves it, once a test has said (`site-code`): what
+   * a Studio goes to when it opens the proposal.
+   */
+  address?: string;
   /** What `GET /proposals/:name` lists in `events`: code mode and commits. */
   events: MockProposalEvent[];
   /**
@@ -3358,7 +3370,7 @@ function proposalJson(proposal: MockProposal, read = false) {
     status: proposal.status,
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,
-    address: null,
+    address: proposal.address ?? null,
     changes: patchesOn(proposal.branch).filter((patch) => !patch.applied)
       .length,
     kind: "editor",
@@ -4139,9 +4151,9 @@ async function proposalsRoute(
         proposals: [...state.proposals.values()].map((p) => proposalJson(p)),
         siteUrl: null,
         // valbuild/home `docs/proposals.md`, "Code mode on the site". Off
-        // here: this mock opens editor proposals only, and the specs drive
-        // `</>`'s menu of them.
-        siteCodeMode: false,
+        // unless a spec turns it on (`site-code`): most drive `</>`'s menu
+        // of editor proposals.
+        siteCodeMode: state.siteCode !== null,
       });
       return;
     }
@@ -4159,11 +4171,41 @@ async function proposalsRoute(
         return;
       }
       if (body.kind === "site-code") {
-        // As home answers a project that turned it off.
-        json(res, 403, {
-          message: "Code mode on the site is turned off for this project.",
-          details: { code: "site-code-mode-off" },
-        });
+        const siteCode = state.siteCode;
+        const proposal =
+          siteCode === null
+            ? undefined
+            : state.proposals.get(siteCode.proposal);
+        if (siteCode === null || proposal === undefined) {
+          // As home answers a project that turned it off.
+          json(res, 403, {
+            message: "Code mode on the site is turned off for this project.",
+            details: { code: "site-code-mode-off" },
+          });
+          return;
+        }
+        if (owner === null) {
+          json(res, 403, {
+            message:
+              "Proposals are changed by people: this credential names nobody",
+          });
+          return;
+        }
+        // The site-code proposal, got rather than made (the spec seeded
+        // it), in code mode, at its address: as home answers once the
+        // site's pending changes are in it.
+        if (!proposal.codeMode.on) {
+          const at = nowIso();
+          proposal.codeMode = { on: true, changedBy: owner, changedAt: at };
+          proposal.events.push({
+            kind: "code-mode",
+            actorId: owner,
+            at,
+            data: { on: true },
+          });
+        }
+        proposal.address = siteCode.address;
+        json(res, 200, { proposal: proposalJson(proposal), movedPatchIds: [] });
         return;
       }
       if (body.kind !== undefined && body.kind !== "editor") {
@@ -4527,6 +4569,24 @@ const controlPlane: Handler = async (req, res, url) => {
   }
   if (action === "quick-previews" && req.method === "GET") {
     json(res, 200, { made: state.quickPreviewsMade });
+    return;
+  }
+  if (action === "site-code" && req.method === "POST") {
+    // Code mode on the site: `</>` there opens `proposal`, served at
+    // `address`. A `proposal` of null turns it off again.
+    const body = await readJsonBody<{
+      proposal?: string | null;
+      address?: string;
+    }>(req);
+    if (
+      typeof body?.proposal === "string" &&
+      typeof body.address === "string"
+    ) {
+      state.siteCode = { proposal: body.proposal, address: body.address };
+    } else {
+      state.siteCode = null;
+    }
+    json(res, 200, { siteCode: state.siteCode });
     return;
   }
   if (action === "proposals-enabled" && req.method === "POST") {

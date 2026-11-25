@@ -450,6 +450,19 @@ function mockOf(target: HttpTarget) {
      * the served build's browser half -- which is all a spec about WHEN one
      * is made, and how the canvas takes it, needs.
      */
+    /**
+     * Code mode on the site: `</>` there, and the assistant's card, open
+     * proposal `name` (seed it with {@link proposal} first) in code mode at
+     * `address`, as home does for a project that lets the site's code be
+     * changed.
+     */
+    async siteCode(name: string, address: string): Promise<void> {
+      await control(target, "site-code", {
+        method: "POST",
+        body: { proposal: name, address },
+      });
+    },
+
     async quickPreviews(options: { delayMs?: number } = {}): Promise<void> {
       await control(target, "quick-preview", {
         method: "POST",

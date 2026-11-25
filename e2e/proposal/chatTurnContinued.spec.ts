@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { MOCK_PROPOSAL } from "../http/config";
 import { httpTarget, PROPOSAL_APP } from "../http/httpMode";
 import { composer, send } from "../http/assistant";
+import { expectTurnShown, runningOnScreen } from "./chatTurns";
 
 /**
  * A chat taken up again while its turn is running.
@@ -18,7 +19,7 @@ import { composer, send } from "../http/assistant";
  * ever ends it, so every message after it is refused as `session_busy`.
  *
  * So the rule each test checks, wherever the person goes in between
- * ({@link expectTurnShown}): while the service runs a turn in the chat on
+ * (`expectTurnShown` in `chatTurns.ts`): while the service runs a turn in the chat on
  * screen, the chat says so and can stop it, and what the turn waits on is
  * there to answer. And once that turn is over, the next message is answered.
  *
@@ -82,62 +83,6 @@ async function openChat(page: Page): Promise<void> {
   await composer(page);
 }
 
-/** The chat whose id the address names: the one on screen. */
-function chatOnScreen(page: Page): string | null {
-  return new URL(page.url()).searchParams.get("session");
-}
-
-/** The turn the service is running in the chat on screen, if any. */
-async function runningOnScreen(page: Page) {
-  const session = chatOnScreen(page);
-  if (session === null) return null;
-  const { runningTurns } = await mock.aiState();
-  return runningTurns.find((turn) => turn.sessionId === session) ?? null;
-}
-
-/**
- * The rule: while the service runs a turn in the chat on screen, the chat
- * offers to stop it, and a call that waits on the person is on screen to be
- * answered. Polled, since the two sides settle a moment apart; a chat that
- * lost its turn never settles.
- */
-async function expectTurnShown(page: Page): Promise<void> {
-  const studio = studioOf(page);
-  let why = "";
-  await expect
-    .poll(
-      async () => {
-        const running = await runningOnScreen(page);
-        if (running === null) return true;
-        const stop = await studio
-          .getByRole("button", { name: "Stop generating" })
-          .isVisible();
-        if (!stop) {
-          why = `the service is running a turn in the chat on screen (waiting on ${running.waitingOn?.name ?? "the model"}), and the chat offers no way to stop it`;
-          return false;
-        }
-        if (running.waitingOn?.name === "request_code_mode") {
-          const card = await studio
-            .getByRole("group", { name: "The assistant asks for code mode" })
-            .isVisible();
-          if (!card) {
-            why =
-              "the turn waits on the person to turn on code mode, and the card that asks them is not on screen";
-            return false;
-          }
-        }
-        return true;
-      },
-      { timeout: 15_000, message: "" },
-    )
-    .toBe(true)
-    .catch((error: unknown) => {
-      throw new Error(`The chat lost its running turn: ${why}`, {
-        cause: error,
-      });
-    });
-}
-
 /** Open a chat from History, by the name its turn gave it. */
 async function openFromHistory(page: Page, name: string): Promise<void> {
   const studio = studioOf(page);
@@ -170,7 +115,7 @@ async function waitForName(name: string): Promise<void> {
  */
 async function finishAndAskAgain(page: Page): Promise<void> {
   const studio = studioOf(page);
-  const running = await runningOnScreen(page);
+  const running = await runningOnScreen(page, mock);
   if (running?.waitingOn?.name === "request_code_mode") {
     await studio
       .getByRole("group", { name: "The assistant asks for code mode" })
@@ -181,7 +126,7 @@ async function finishAndAskAgain(page: Page): Promise<void> {
     ).toBeVisible({ timeout: 30_000 });
   }
   await expect
-    .poll(async () => (await runningOnScreen(page)) === null, {
+    .poll(async () => (await runningOnScreen(page, mock)) === null, {
       timeout: 30_000,
       message: "the chat's turn never ended",
     })
@@ -202,19 +147,19 @@ test("a chat opened again from History while its turn runs still shows the turn,
   await mock.aiScript(askingForCodeMode("Testimonials"));
   await send(page, "Add a testimonials section");
   await waitForName("Testimonials");
-  await expectTurnShown(page);
+  await expectTurnShown(page, mock);
 
   // Going on with the chat: picked from History, mid-turn.
   await openFromHistory(page, "Testimonials");
-  await expectTurnShown(page);
+  await expectTurnShown(page, mock);
 
   // The turn asks for code mode once it has thought.
   await expect
-    .poll(async () => (await runningOnScreen(page))?.waitingOn?.name, {
+    .poll(async () => (await runningOnScreen(page, mock))?.waitingOn?.name, {
       timeout: 30_000,
     })
     .toBe("request_code_mode");
-  await expectTurnShown(page);
+  await expectTurnShown(page, mock);
 
   await finishAndAskAgain(page);
 });
@@ -242,7 +187,7 @@ test("a chat left for another while its turn runs, and opened again, still shows
   await mock.aiScript(askingForCodeMode("Testimonials"));
   await send(page, "Add a testimonials section");
   await waitForName("Testimonials");
-  await expectTurnShown(page);
+  await expectTurnShown(page, mock);
 
   // Away to the other chat while this one's turn runs...
   await openFromHistory(page, "Prices");
@@ -266,7 +211,7 @@ test("a chat left for another while its turn runs, and opened again, still shows
     )
     .toBe(true);
   await openFromHistory(page, "Testimonials");
-  await expectTurnShown(page);
+  await expectTurnShown(page, mock);
 
   await finishAndAskAgain(page);
 });

@@ -141,6 +141,9 @@ const needsTanstackApp =
  */
 const needsHttpApp =
   willRun("chromium-http") ||
+  // A proposal's specs also start on the site: `</>` there is how a site-code
+  // proposal is opened (`e2e/proposal/codeModeFromSite.spec.ts`).
+  willRun("chromium-proposal") ||
   willRun("tanstack-http") ||
   willRun("http-warmup") ||
   (webkitRequested &&
