@@ -110,8 +110,10 @@ describe("a remote image is served at the width it is shown", () => {
     const widths = (el.getAttribute("srcset") ?? "")
       .split(", ")
       .map((entry) => entry.split(" ")[1]);
-    // 700 wide: 750 is the first rung past it, and the last one asked for.
-    expect(widths).toEqual(["64w", "128w", "256w", "384w", "640w", "750w"]);
+    // 700 wide: 750 is the first rung past it, and the last one asked for --
+    // described as the 700 pixels the host answers it with.
+    expect(widths).toEqual(["64w", "128w", "256w", "384w", "640w", "700w"]);
+    expect(el.getAttribute("srcset")).toContain(`${REF}?w=750 700w`);
   });
 
   test("with a fixed width, 1x and 2x it", () => {
@@ -228,18 +230,62 @@ describe("placeholder", () => {
     expect(el.style.backgroundImage).toBe("");
   });
 
+  /**
+   * The SVG the placeholder is drawn with, as the browser reads it: the
+   * outer data URL decoded once, then parsed as XML. Read from the server's
+   * HTML, because jsdom's CSS parser drops a `url()` this long.
+   */
+  function placeholderSvg(element: React.ReactElement): Document {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(element);
+    const style = container.querySelector("img")?.getAttribute("style") ?? "";
+    const match = /url\("data:image\/svg\+xml;charset=utf-8,(.*?)"\)/.exec(
+      style,
+    );
+    if (!match) throw new Error(`no blurred placeholder in: ${style}`);
+    return new DOMParser().parseFromString(
+      decodeURIComponent(match[1]),
+      "image/svg+xml",
+    );
+  }
+
   test("`blur` with a data URL blurs it", () => {
-    // From the server's HTML: jsdom's CSS parser drops a `url()` this long.
-    const html = renderToString(
+    const svg = placeholderSvg(
       <ValImage
         src={images.local}
         placeholder="blur"
         blurDataURL="data:image/png;base64,AAAA"
       />,
     );
-    expect(html).toMatch(/background-image:url\(&quot;data:image\/svg\+xml/);
-    expect(html).toContain("feGaussianBlur");
-    expect(html).toContain("data:image/png;base64,AAAA");
+    expect(svg.querySelector("feGaussianBlur")).not.toBeNull();
+    expect(svg.querySelector("image")?.getAttribute("href")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+  });
+
+  test("a percent-encoded SVG `blurDataURL` survives being nested in the blur", () => {
+    const blurDataURL = `data:image/svg+xml,${encodeURIComponent(
+      "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect fill=\"#c33\" width='1' height='1'/></svg>",
+    )}`;
+    const svg = placeholderSvg(
+      <ValImage
+        src={images.local}
+        placeholder="blur"
+        blurDataURL={blurDataURL}
+      />,
+    );
+    expect(svg.querySelector("parsererror")).toBeNull();
+    expect(svg.querySelector("image")?.getAttribute("href")).toBe(blurDataURL);
+  });
+
+  test("a data URL given as the placeholder is shown as it is, not blurred", () => {
+    const html = renderToString(
+      <ValImage src={images.local} placeholder="data:image/png;base64,AAAA" />,
+    );
+    expect(html).toContain(
+      "background-image:url(&quot;data:image/png;base64,AAAA&quot;)",
+    );
+    expect(html).not.toContain("feGaussianBlur");
   });
 
   test("the caller's `onLoad` is still called", () => {

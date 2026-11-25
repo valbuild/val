@@ -192,11 +192,17 @@ export function valImageAttributes(props: ValImageProps): ValImageAttributes {
   const urls = ladder.widths.map((w) => urlAt(w));
   const optimized = urls.length > 0 && urls.every((u) => u !== null);
   if (optimized) {
+    // The host never scales up, so the width past the image's own is
+    // answered at the image's own width, and says so: a descriptor larger than
+    // the response makes the browser get its density and size wrong. A loader
+    // of your own may scale up, and is taken at its word.
+    const intrinsicWidth = loader ? undefined : src?.width;
     srcSet = urls
-      .map(
-        (u, i) =>
-          `${u} ${ladder.kind === "w" ? `${ladder.widths[i]}w` : `${i + 1}x`}`,
-      )
+      .map((u, i) => {
+        if (ladder.kind === "x") return `${u} ${i + 1}x`;
+        const w = ladder.widths[i];
+        return `${u} ${intrinsicWidth ? Math.min(w, intrinsicWidth) : w}w`;
+      })
       .join(", ");
     sizes = sizesProp ?? (ladder.kind === "w" ? "100vw" : undefined);
     chosenSrc = urls[urls.length - 1] ?? url;

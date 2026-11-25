@@ -97,7 +97,7 @@ export function ValImage(props: ValImageProps) {
       style={
         showPlaceholder
           ? {
-              ...placeholderStyle(placeholderUrl, img),
+              ...placeholderStyle(placeholderUrl, placeholder === "blur", img),
               ...img.style,
             }
           : img.style
@@ -108,18 +108,21 @@ export function ValImage(props: ValImageProps) {
 
 /**
  * The placeholder as a background of the `<img>` itself, as `next/image` draws
- * it, sized and placed as the image will be. A data URL is blurred by an SVG
- * filter; a remote image's smallest copy cannot be (an SVG used as an image
- * loads nothing from the network), and is shown scaled up instead.
+ * it, sized and placed as the image will be. With `placeholder="blur"` a data
+ * URL is blurred by an SVG filter; a remote image's smallest copy cannot be
+ * (an SVG used as an image loads nothing from the network), and is shown
+ * scaled up instead. A data URL given AS the placeholder is shown as it is.
  */
 function placeholderStyle(
   placeholderUrl: string,
+  blur: boolean,
   img: { width?: number; height?: number; style?: React.CSSProperties },
 ): React.CSSProperties {
   const objectFit = img.style?.objectFit;
-  const image = placeholderUrl.startsWith("data:")
-    ? `url("data:image/svg+xml;charset=utf-8,${blurSvg(placeholderUrl, img.width, img.height, objectFit)}")`
-    : `url("${placeholderUrl}")`;
+  const image =
+    blur && placeholderUrl.startsWith("data:")
+      ? `url("data:image/svg+xml;charset=utf-8,${blurSvg(placeholderUrl, img.width, img.height, objectFit)}")`
+      : `url("${placeholderUrl.replace(/"/g, "%22")}")`;
   return {
     backgroundImage: image,
     backgroundSize:
@@ -133,7 +136,14 @@ function placeholderStyle(
   };
 }
 
-/** `next/image`'s blur: the image, blurred, with its edges kept opaque. */
+/**
+ * `next/image`'s blur: the image, blurred, with its edges kept opaque.
+ *
+ * The result is itself the body of a percent-encoded data URL, which the
+ * browser decodes once before parsing it as XML. So the nested URL is
+ * XML-escaped and then percent-encoded: an SVG `blurDataURL` is
+ * percent-encoded too, and decoded unescaped its `<` would end the attribute.
+ */
 function blurSvg(
   dataUrl: string,
   width: number | undefined,
@@ -149,5 +159,14 @@ function blurSvg(
       : objectFit === "cover"
         ? "xMidYMid slice"
         : "none";
-  return `%3Csvg xmlns='http://www.w3.org/2000/svg' ${viewBox}%3E%3Cfilter id='b' color-interpolation-filters='sRGB'%3E%3CfeGaussianBlur stdDeviation='${std}'/%3E%3CfeColorMatrix values='1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 100 -1' result='s'/%3E%3CfeFlood x='0' y='0' width='100%25' height='100%25'/%3E%3CfeComposite operator='out' in='s'/%3E%3CfeComposite in2='SourceGraphic'/%3E%3CfeGaussianBlur stdDeviation='${std}'/%3E%3C/filter%3E%3Cimage width='100%25' height='100%25' x='0' y='0' preserveAspectRatio='${preserveAspectRatio}' style='filter: url(%23b);' href='${dataUrl}'/%3E%3C/svg%3E`;
+  return `%3Csvg xmlns='http://www.w3.org/2000/svg' ${viewBox}%3E%3Cfilter id='b' color-interpolation-filters='sRGB'%3E%3CfeGaussianBlur stdDeviation='${std}'/%3E%3CfeColorMatrix values='1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 100 -1' result='s'/%3E%3CfeFlood x='0' y='0' width='100%25' height='100%25'/%3E%3CfeComposite operator='out' in='s'/%3E%3CfeComposite in2='SourceGraphic'/%3E%3CfeGaussianBlur stdDeviation='${std}'/%3E%3C/filter%3E%3Cimage width='100%25' height='100%25' x='0' y='0' preserveAspectRatio='${preserveAspectRatio}' style='filter: url(%23b);' href='${encodeURIComponent(escapeXml(dataUrl))}'/%3E%3C/svg%3E`;
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
