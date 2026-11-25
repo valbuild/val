@@ -250,6 +250,12 @@ type ValContextValue = {
    */
   historyBranch: string | null;
   /**
+   * The branch the site publishes to, in a proposal too; `null` in `fs` mode
+   * or from a server that predates `siteBranch` on `/stat`, when
+   * `config.gitBranch` is all there is.
+   */
+  siteBranch: string | null;
+  /**
    * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
    * address moves the base the server answers with; see `useStatus`.
    */
@@ -1630,6 +1636,9 @@ export function ValProvider({
   const historyBranch = statData
     ? (statData.historyBranch ?? statData.config.gitBranch ?? null)
     : null;
+  const siteBranch = statData
+    ? (statData.siteBranch ?? statData.config.gitBranch ?? null)
+    : null;
   const profileAuthError =
     profilesData.status === "auth-error" ? profilesData.error : null;
   const profilesErrorMessage =
@@ -1674,6 +1683,7 @@ export function ValProvider({
       sourceMode,
       proposal,
       historyBranch,
+      siteBranch,
       refreshStat,
       profileAuthError,
       profilesError,
@@ -1718,6 +1728,7 @@ export function ValProvider({
       sourceMode,
       proposal,
       historyBranch,
+      siteBranch,
       refreshStat,
       profileAuthError,
       profilesError,
@@ -3111,6 +3122,11 @@ export function useCurrentProposal(): { name: string; branch: string } | null {
 /** See `historyBranch` on the context: `null` where History has nothing to list. */
 export function useHistoryBranch(): string | null {
   return useContext(ValContext).historyBranch;
+}
+
+/** See `siteBranch` on the context. */
+export function useSiteBranch(): string | null {
+  return useContext(ValContext).siteBranch;
 }
 
 export function usePublishRefusal(): string | null {

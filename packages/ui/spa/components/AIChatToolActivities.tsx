@@ -7,6 +7,8 @@ import {
   Copy,
   FileCode,
   FolderTree,
+  GitBranch,
+  GitPullRequest,
   Hammer,
   Hourglass,
   ListChecks,
@@ -230,6 +232,23 @@ type ToolDisplay = { label: string; icon: React.ReactNode };
  * MCP server shares, so not checked for completeness by `TOOL_DISPLAY`.
  */
 const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
+  // `BRANCH_TOOLS` in `proposals/branchTools.ts`: they only read.
+  get_branch_context: {
+    label: "Checking where this work goes",
+    icon: <GitBranch className="h-3 w-3" />,
+  },
+  list_branches: {
+    label: "Looking at the branches",
+    icon: <GitBranch className="h-3 w-3" />,
+  },
+  list_proposals: {
+    label: "Looking at the proposals",
+    icon: <GitPullRequest className="h-3 w-3" />,
+  },
+  check_build: {
+    label: "Checking whether it can be published",
+    icon: <ListChecks className="h-3 w-3" />,
+  },
   list_files: {
     label: "Looking through the code",
     icon: <FolderTree className="h-3 w-3" />,

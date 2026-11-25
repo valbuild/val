@@ -10,7 +10,7 @@ import {
   runProposalTypecheck,
   type ProposalTypecheckStep,
 } from "@valbuild/shared/typecheck";
-import type { CodeTypecheck } from "./proposalCode";
+import type { CodeTypecheck, CodeTypecheckStatus } from "./proposalCode";
 import {
   createProposalsClient,
   type ProposalTypeError,
@@ -330,4 +330,36 @@ export function useProposalTypecheck(options: {
     [name, client, onReported],
   );
   return { state, run: name === null ? null : run };
+}
+
+/**
+ * Proposal `name`'s background typecheck as the assistant is told it:
+ * `typecheck_status`, and `check_build` for the proposal the Studio is in.
+ * `stagedInputs` is what is staged now, so a check of older files says so;
+ * errors of what is staged now count as told.
+ */
+export async function codeTypecheckStatus(
+  name: string,
+  stagedInputs: () => Promise<string | null>,
+): Promise<CodeTypecheckStatus> {
+  const status = typecheckStatusOf(name);
+  if (status.status === "running") {
+    return {
+      status: "running",
+      step:
+        status.step === null
+          ? null
+          : status.step.step === "checking"
+            ? `checking the ${status.step.which}'s code`
+            : status.step.step,
+    };
+  }
+  if (status.status !== "done") return status;
+  const now = await stagedInputs();
+  if (now === status.inputs) markTypeErrorsTold(status.inputs);
+  return {
+    status: "done",
+    errors: status.errors,
+    current: now === status.inputs,
+  };
 }

@@ -1105,6 +1105,14 @@ export const Api = {
                */
               historyBranch: z.string().optional(),
               /**
+               * The branch the SITE publishes to: the git mirror's, or the one
+               * content reports for a managed project -- in a proposal too,
+               * where `historyBranch` is the proposal's. Absent in `fs` mode
+               * and from a server that predates it. The assistant's
+               * `get_branch_context` reads it (`branchTools.ts`).
+               */
+              siteBranch: z.string().optional(),
+              /**
                * What this answer is relative to: the build that served it
                * and how far along the project's changes it is (`seq`). Of two
                * answers, the higher `seq` is the newer. Optional: a server
@@ -1253,6 +1261,14 @@ export const Api = {
                * Absent where there is no history to show.
                */
               historyBranch: z.string().optional(),
+              /**
+               * The branch the SITE publishes to: the git mirror's, or the one
+               * content reports for a managed project -- in a proposal too,
+               * where `historyBranch` is the proposal's. Absent in `fs` mode
+               * and from a server that predates it. The assistant's
+               * `get_branch_context` reads it (`branchTools.ts`).
+               */
+              siteBranch: z.string().optional(),
               /**
                * What this answer is relative to: the build that served it
                * and how far along the project's changes it is (`seq`). Of two

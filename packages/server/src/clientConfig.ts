@@ -104,3 +104,18 @@ export function historyBranchOf(input: {
   if (input.mode !== "http") return null;
   return input.proposal?.branch ?? input.gitBranch ?? input.projectBranch;
 }
+
+/**
+ * The branch the site publishes to, or `null` where there is none: the git
+ * mirror's, else the one content reports for the project. Unlike
+ * {@link historyBranchOf} it is the site's in a proposal too, which is what
+ * lets the assistant say where the proposal will land.
+ */
+export function siteBranchOf(input: {
+  mode: "fs" | "http";
+  gitBranch: string | null;
+  projectBranch: string | null;
+}): string | null {
+  if (input.mode !== "http") return null;
+  return input.gitBranch ?? input.projectBranch;
+}

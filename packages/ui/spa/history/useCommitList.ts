@@ -1,6 +1,7 @@
 import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useClient } from "../components/ValProvider";
+import { fetchCommitPage } from "./commitPage";
 
 export type CommitListState =
   | { status: "loading" }
@@ -20,10 +21,6 @@ export type CommitListState =
       loadMoreError: string | null;
     }
   | { status: "error"; message: string };
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /**
  * The commits on a branch, newest first, a page at a time.
@@ -70,33 +67,20 @@ export function useCommitList(
     if (branch === null) return;
     const id = ++requestId.current;
     setState({ status: "loading" });
-    client("/history/commits", "GET", {
-      query: { branch, limit: pageSize, cursor: undefined },
-    })
-      .then((res) => {
-        if (requestId.current !== id) return;
-        if (res.status === 200) {
-          setState({
-            status: "success",
-            commits: res.json.commits,
-            nextCursor: res.json.nextCursor,
-            loadingMore: false,
-            loadMoreError: null,
-          });
-        } else {
-          setState({
-            status: "error",
-            message:
-              "message" in res.json
-                ? res.json.message
-                : "The commit history could not be read.",
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        if (requestId.current !== id) return;
-        setState({ status: "error", message: messageOf(err) });
-      });
+    void fetchCommitPage(client, branch, pageSize, undefined).then((page) => {
+      if (requestId.current !== id) return;
+      if (page.status === "success") {
+        setState({
+          status: "success",
+          commits: page.commits,
+          nextCursor: page.nextCursor,
+          loadingMore: false,
+          loadMoreError: null,
+        });
+      } else {
+        setState({ status: "error", message: page.message });
+      }
+    });
   }, [client, branch, pageSize]);
 
   const loadMore = useCallback(() => {
@@ -112,43 +96,29 @@ export function useCommitList(
     const id = ++requestId.current;
     const cursor = current.nextCursor;
     setState({ ...current, loadingMore: true, loadMoreError: null });
-    client("/history/commits", "GET", {
-      query: { branch, limit: pageSize, cursor },
-    })
-      .then((res) => {
-        if (requestId.current !== id) return;
-        setState((previous) => {
-          if (previous.status !== "success") return previous;
-          if (res.status !== 200) {
-            // The pages already read stay on screen - failing to fetch page
-            // three is not a reason to take pages one and two away - but the
-            // button has to say something, or it just stops working.
-            return {
-              ...previous,
-              loadingMore: false,
-              loadMoreError:
-                "message" in res.json
-                  ? res.json.message
-                  : "Could not load more commits.",
-            };
-          }
+    void fetchCommitPage(client, branch, pageSize, cursor).then((page) => {
+      if (requestId.current !== id) return;
+      setState((previous) => {
+        if (previous.status !== "success") return previous;
+        if (page.status !== "success") {
+          // The pages already read stay on screen - failing to fetch page
+          // three is not a reason to take pages one and two away - but the
+          // button has to say something, or it just stops working.
           return {
-            status: "success",
-            commits: [...previous.commits, ...res.json.commits],
-            nextCursor: res.json.nextCursor,
+            ...previous,
             loadingMore: false,
-            loadMoreError: null,
+            loadMoreError: page.message,
           };
-        });
-      })
-      .catch((err: unknown) => {
-        if (requestId.current !== id) return;
-        setState((previous) =>
-          previous.status === "success"
-            ? { ...previous, loadingMore: false, loadMoreError: messageOf(err) }
-            : previous,
-        );
+        }
+        return {
+          status: "success",
+          commits: [...previous.commits, ...page.commits],
+          nextCursor: page.nextCursor,
+          loadingMore: false,
+          loadMoreError: null,
+        };
       });
+    });
   }, [client, branch, pageSize]);
 
   return { state, loadMore };

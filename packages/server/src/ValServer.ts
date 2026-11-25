@@ -49,7 +49,7 @@ import {
   type StatManifestT,
 } from "@valbuild/shared/internal";
 import type { JwtFailureReason, JwtResult } from "./jwt";
-import { clientConfig, historyBranchOf } from "./clientConfig";
+import { clientConfig, historyBranchOf, siteBranchOf } from "./clientConfig";
 import { z } from "zod";
 import { parseRangeHeader } from "./httpRange";
 import { isPublicFilePath, isSafePatchId } from "./safeFilePath";
@@ -2254,6 +2254,11 @@ export const ValServer = (
           gitBranch: config.gitBranch ?? null,
           projectBranch: serverOps.projectBranch(),
         });
+        const siteBranch = siteBranchOf({
+          mode,
+          gitBranch: config.gitBranch ?? null,
+          projectBranch: serverOps.projectBranch(),
+        });
         /*
          * What the answer is relative to: the store's own `seq` as the stat
          * read it (fs, memory), or the content service's `headVersion`
@@ -2297,6 +2302,7 @@ export const ValServer = (
             ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
             ...(proposal ? { proposal } : {}),
             ...(historyBranch ? { historyBranch } : {}),
+            ...(siteBranch ? { siteBranch } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.

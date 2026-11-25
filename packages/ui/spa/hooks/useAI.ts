@@ -94,6 +94,7 @@ import {
   useCurrentProfile,
   useCurrentProposal,
   useProfilesByAuthorId,
+  useSiteBranch,
   useValMode,
   useAIContext,
   useClient,
@@ -202,11 +203,10 @@ import {
 } from "../components/shell/canvas/AssistantPage";
 import type { PageApproval, PickedElement } from "@valbuild/shared/internal";
 import {
-  markTypeErrorsTold,
   scheduleTypecheck,
   subscribeProposalTypecheck,
   typecheckProposal,
-  typecheckStatusOf,
+  codeTypecheckStatus,
 } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
@@ -233,6 +233,12 @@ import {
   type PickedSources,
 } from "../proposals/projectMap";
 import { assistantSystemPrompt } from "./assistantSystemPrompt";
+import {
+  BRANCH_TOOLS,
+  isBranchTool,
+  runBranchTool,
+} from "../proposals/branchTools";
+import { fetchCommitPage } from "../history/commitPage";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
 import { allSchemaAnswer } from "./allSchemaAnswer";
@@ -1158,6 +1164,14 @@ export function useAI(
   const valMode = useValMode();
   const hostedRef = useRef(valMode === "http");
   hostedRef.current = valMode === "http";
+  /** For the branch tools: `fs` has no branches, and `unknown` is too early. */
+  const valModeRef = useRef(valMode);
+  valModeRef.current = valMode;
+  const siteBranch = useSiteBranch();
+  const siteBranchRef = useRef(siteBranch);
+  siteBranchRef.current = siteBranch;
+  const valClientRef = useRef(valClient);
+  valClientRef.current = valClient;
   /**
    * The project's own instructions (`AGENTS.md`, `CLAUDE.md`) and the map
    * of its files, for the prompt in code mode: read as `read_file` reads
@@ -2942,6 +2956,44 @@ export function useAI(
               chatRef.current?.completeToolCall(messageId, toolCallId);
             },
           );
+        } else if (isBranchTool(message.name)) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const proposalName = currentProposalRef.current?.name ?? null;
+          void runBranchTool(message.name, message.arguments, {
+            mode: valModeRef.current,
+            proposal: currentProposalRef.current,
+            siteBranch: siteBranchRef.current,
+            client: codeClients.proposals,
+            commits: (branch, limit) =>
+              fetchCommitPage(valClientRef.current, branch, limit, undefined),
+            nameOf: (id) => profilesRef.current[id]?.fullName ?? null,
+            buildReport: () =>
+              proposalBuildControl(proposalBuildRef.current).report(),
+            ...(proposalName !== null
+              ? {
+                  typecheckStatus: () =>
+                    codeTypecheckStatus(
+                      proposalName,
+                      async () =>
+                        (await codeClients.proposals.get(proposalName)).staged
+                          ?.inputs ?? null,
+                    ),
+                }
+              : {}),
+          }).then(({ result, isError }) => {
+            sendToolResult({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            if (isError) {
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+            } else {
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            }
+          });
         } else if (isCodeTool(message.name)) {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
@@ -2987,29 +3039,10 @@ export function useAI(
                     proposalCodeChanged,
                     stagedInputs,
                   ),
-            typecheckStatus: async () => {
-              if (proposalName === null) return { status: "none" };
-              const status = typecheckStatusOf(proposalName);
-              if (status.status === "running") {
-                return {
-                  status: "running",
-                  step:
-                    status.step === null
-                      ? null
-                      : status.step.step === "checking"
-                        ? `checking the ${status.step.which}'s code`
-                        : status.step.step,
-                };
-              }
-              if (status.status !== "done") return status;
-              const now = await stagedInputs();
-              if (now === status.inputs) markTypeErrorsTold(status.inputs);
-              return {
-                status: "done",
-                errors: status.errors,
-                current: now === status.inputs,
-              };
-            },
+            typecheckStatus: () =>
+              proposalName === null
+                ? Promise.resolve({ status: "none" })
+                : codeTypecheckStatus(proposalName, stagedInputs),
             offerProposal: requestProposal,
             ...studioCodeToolDeps(codeClients, {
               proposal: currentProposalRef.current,
@@ -3828,6 +3861,9 @@ export function useAI(
               withWebSearchWaits(
                 [
                   ...ALL_TOOLS,
+                  // Everywhere: in local development they say there are no
+                  // branches here, rather than the assistant guessing.
+                  ...BRANCH_TOOLS,
                   ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
                   // In the Studio: the page in its preview. Without
                   // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.

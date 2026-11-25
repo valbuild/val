@@ -15,6 +15,7 @@ import {
 } from "../proposals/proposalCode";
 import { projectMapPromptSection } from "../proposals/projectMap";
 import { PAGE_CHECK_PROMPT_SECTION } from "../proposals/pageCheck";
+import { BRANCH_TOOLS_PROMPT_SECTION } from "../proposals/branchTools";
 
 /**
  * The assistant's system prompt: one function, so what a model is told can
@@ -187,7 +188,13 @@ Do not describe what you will do unless you do it for clarification — just do 
     input.settings,
   )}${webSearchRequestPromptSection(input.webSearchSetting)}${
     input.page ? PAGE_PROMPT_SECTION : ""
-  }${input.code !== null ? codeToolsPromptSection(input.code) : ""}${input.pageCheck ? PAGE_CHECK_PROMPT_SECTION : ""}${
+  }${
+    // Hosted only, where there are branches: in local development the
+    // tools say there are none by themselves.
+    input.code !== null
+      ? `${BRANCH_TOOLS_PROMPT_SECTION}${codeToolsPromptSection(input.code)}`
+      : ""
+  }${input.pageCheck ? PAGE_CHECK_PROMPT_SECTION : ""}${
     input.codeMode ? CODE_MODE_PROMPT_SECTION : ""
   }${
     input.codeMode

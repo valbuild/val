@@ -1,6 +1,6 @@
 import type { ValConfig } from "@valbuild/core";
 import { Api } from "@valbuild/shared/internal";
-import { clientConfig, historyBranchOf } from "./clientConfig";
+import { clientConfig, historyBranchOf, siteBranchOf } from "./clientConfig";
 
 /**
  * Which branch the Studio is told about.
@@ -195,5 +195,26 @@ describe("the branch History lists", () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.json).toHaveProperty("historyBranch", "main");
+  });
+});
+
+describe("the branch the site publishes to", () => {
+  test("is the site's in a proposal too: the git mirror's, else the project's", () => {
+    expect(
+      siteBranchOf({
+        mode: "http",
+        gitBranch: "release",
+        projectBranch: "main",
+      }),
+    ).toBe("release");
+    expect(
+      siteBranchOf({ mode: "http", gitBranch: null, projectBranch: "main" }),
+    ).toBe("main");
+  });
+
+  test("none in fs mode", () => {
+    expect(
+      siteBranchOf({ mode: "fs", gitBranch: "main", projectBranch: null }),
+    ).toBe(null);
   });
 });
