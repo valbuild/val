@@ -44,6 +44,12 @@ export type ReviewRow = FieldDiff & {
 };
 
 export type ReviewPane = {
+  /**
+   * The page or module this pane is of, as a source path. Absent in a model
+   * written by hand; set by `toReviewPageModel`, which is how a pane is
+   * named from its preview and found from a link.
+   */
+  sourcePath?: string;
   title: string;
   /** A page's URL, or a data module's folders. Never a file path. */
   location?: string;
@@ -72,8 +78,11 @@ export type ReviewCodeGroup = {
 
 export type ReviewCode = {
   groups: ReviewCodeGroup[];
-  /** Whether the proposal's address serves this code: `Build is up to date`. */
-  build: string;
+  /**
+   * Whether the proposal's address serves this code: `Build is up to date`.
+   * Absent where nothing is known about a build.
+   */
+  build?: string;
 };
 
 export type ReviewAffectedPage = {

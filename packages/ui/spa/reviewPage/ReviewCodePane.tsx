@@ -39,7 +39,13 @@ export function ReviewCodePane({
     <div className="flex min-w-0 flex-col gap-6">
       {code.groups.map((group, index) => (
         <section key={group.session?.id ?? `none-${index}`} className="min-w-0">
-          <GroupHeading group={group} onOpenSession={onOpenSession} />
+          {/*
+           * No heading where nothing is known about any file's origin: "not
+           * from a chat" would be a claim, and one group needs no name.
+           */}
+          {(group.session !== null || code.groups.length > 1) && (
+            <GroupHeading group={group} onOpenSession={onOpenSession} />
+          )}
           <ul className="min-w-0 overflow-hidden rounded-md border border-border-secondary">
             {group.files.map((file) => (
               <FileRow
@@ -160,6 +166,8 @@ function FileRow({
 /** `4 files · 2 chats`, for the nav entry and the pane's heading. */
 export function codeSummary(code: ReviewCode): string {
   const files = code.groups.reduce((sum, group) => sum + group.files.length, 0);
+  // Code mode lists the entry before anything is staged.
+  if (files === 0) return "No code changed yet";
   const sessions = code.groups.filter((group) => group.session !== null).length;
   const parts = [`${files} ${files === 1 ? "file" : "files"}`];
   if (sessions > 0) {

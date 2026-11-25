@@ -57,7 +57,8 @@ export function DiffFields({
       {fields.map((field) => (
         <section
           key={field.id}
-          className="group/field min-w-0"
+          // `data-linked` is set on the field a link opened the page on.
+          className="group/field min-w-0 rounded-md data-[linked=true]:outline data-[linked=true]:outline-2 data-[linked=true]:outline-offset-4 data-[linked=true]:outline-border-focus"
           data-field-id={field.id}
         >
           {/*

@@ -175,7 +175,8 @@ import {
   withQuickPreviewState,
 } from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
-import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
+import { ReviewPageRoute } from "../../reviewPage/ReviewPageRoute";
+import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
 import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
 import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
@@ -1624,17 +1625,16 @@ function ValShellBody({
    */
   const inProposal = useCurrentProposal() !== null;
   const siteChanges = useSiteChanges(inProposal);
-  const [siteCompareOpen, setSiteCompareOpen] = useState(false);
   /** Review opened on the code changes, from code mode's menu. */
-  const [siteCompareOnCode, setSiteCompareOnCode] = useState(false);
+  const [reviewOnCode, setReviewOnCode] = useState(false);
   const openSiteCompare = useCallback(() => {
-    setSiteCompareOnCode(false);
-    setSiteCompareOpen(true);
-  }, []);
+    setReviewOnCode(false);
+    navigation.navigate(VAL_REVIEW_ROUTE);
+  }, [navigation]);
   const openCodeChanges = useCallback(() => {
-    setSiteCompareOnCode(true);
-    setSiteCompareOpen(true);
-  }, []);
+    setReviewOnCode(true);
+    navigation.navigate(VAL_REVIEW_ROUTE);
+  }, [navigation]);
   const {
     proposals: proposalsBar,
     dialogs: proposalDialogs,
@@ -1776,6 +1776,7 @@ function ValShellBody({
     !navigation.isErrorsView &&
     !navigation.isHistoryView &&
     !navigation.isReviewView &&
+    !navigation.isChangesView &&
     !navigation.isAdeptView &&
     selectionId === null &&
     navigation.currentSourcePath
@@ -1785,11 +1786,36 @@ function ValShellBody({
     <CompareView />
   ) : navigation.isReviewView ? (
     /*
-     * What is going out, as the whole editor column.
-     *
-     * Beside `/val/compare` rather than replacing it, for now: the two answer
-     * different questions ("what is going out" and "what changed"), and this
-     * one leads to that one by its Compare button.
+     * What is going out, as what would change: the whole editor column. On
+     * the site, pending against published; in a proposal, the proposal
+     * against the site, with its code. See `ReviewPageRoute`.
+     */
+    <ReviewPageRoute
+      siteChanges={siteChanges}
+      siteUrl={proposalSiteUrl}
+      onCode={reviewOnCode}
+      /*
+       * In code mode the code changes keep the view code mode has for them,
+       * with the state of the build and the way to reload the preview.
+       */
+      renderCode={
+        codeChanges !== null
+          ? () => (
+              <CodeChangesConnected
+                name={codeChanges.name}
+                build={withQuickPreviewState(codeChanges.build, quickPreview)}
+                onReload={() => setCodeReloads((count) => count + 1)}
+                // Back to the content, where the Studio was.
+                onEditContent={() => navigation.navigate(VAL_HOME_ROUTE)}
+              />
+            )
+          : undefined
+      }
+    />
+  ) : navigation.isChangesView ? (
+    /*
+     * The pending changes as steps, and the way to take steps back: what
+     * Review's "Changes and revert" leads to.
      */
     <ReviewRoute canPublishSelected={restoreDestination.kind === "proposal"} />
   ) : navigation.isErrorsView ? (
@@ -2178,26 +2204,6 @@ function ValShellBody({
               />,
               portalContainer,
             )}
-          <ProposalSiteCompare
-            changes={siteChanges}
-            siteUrl={proposalSiteUrl}
-            open={siteCompareOpen}
-            onOpenChange={setSiteCompareOpen}
-            portalContainer={portalContainer}
-            code={
-              codeChanges !== null
-                ? {
-                    name: codeChanges.name,
-                    build: withQuickPreviewState(
-                      codeChanges.build,
-                      quickPreview,
-                    ),
-                    onReload: () => setCodeReloads((count) => count + 1),
-                  }
-                : undefined
-            }
-            initialView={siteCompareOnCode ? "code" : undefined}
-          />
           {handoff.state !== null && handoffCardInStudio(handoff.state) && (
             /*
              * A publish this Studio handed to a builder tab, because it cannot

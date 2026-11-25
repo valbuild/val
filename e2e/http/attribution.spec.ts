@@ -31,7 +31,8 @@ const ADA = "Ada Lovelace";
 const UNKNOWN = "Unknown author";
 
 /**
- * Open the review view and the change history of the change in it.
+ * Open the change history of the pending change: Review, then the steps
+ * behind what it shows.
  *
  * The history popover is where a name is written out rather than reduced to
  * initials or an id — `FieldPatchAuthorsPure` prints the profile's full name, or
@@ -47,6 +48,8 @@ async function openChangeHistory(studio: Locator): Promise<void> {
   const review = studio.getByRole("button", { name: /Review \d+ change/ });
   await expect(review).toBeVisible({ timeout: 30000 });
   await review.click();
+  // Review shows what changed. Who changed it, step by step, is one click on.
+  await studio.getByRole("button", { name: "Changes and revert" }).click();
   const history = studio
     .getByRole("button", { name: "Change history" })
     .first();

@@ -2,18 +2,19 @@ import { expect, test } from "@playwright/test";
 import { clearPatchChain, navigateStudio, openStudio } from "./studio";
 
 /**
- * The review page's compare dialog, as a link.
+ * Review, as a page, and a link to one change in it.
  *
- * `/val/review?compare` opens it, and `?compare=<source path>` opens it on that
- * change. The media gallery's "View in Compare" is the link that names a path,
- * and it used to go to the old `/val/compare` view and try to scroll.
+ * `/val/review` shows what the pending changes change, and
+ * `?compare=<source path>` opens it on that change. The media gallery's "View
+ * in Compare" is the link that names a path. It used to open a dialog over a
+ * list; the differences are the page now.
  */
-test.describe("linking into the compare dialog", () => {
+test.describe("Review, and linking to a change in it", () => {
   test.beforeEach(async ({ request }) => {
     await clearPatchChain(request);
   });
 
-  test("a bare ?compare opens it, and closing it takes the param away", async ({
+  test("shows what a pending edit changes, and leads to the steps behind it", async ({
     page,
   }) => {
     await openStudio(page, "/val/~/content/kb.val.ts?p=%22kb-000%22");
@@ -22,17 +23,23 @@ test.describe("linking into the compare dialog", () => {
     await expect(editor).toBeVisible({ timeout: 30000 });
     await editor.fill("Linked title");
 
-    await navigateStudio(page, "/val/review?compare");
-    const dialog = studio.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30000 });
-    await expect(dialog).toContainText("Linked title", { timeout: 30000 });
+    await navigateStudio(page, "/val/review");
+    await expect(studio.getByRole("heading", { name: "Review" })).toBeVisible({
+      timeout: 30000,
+    });
+    // The difference itself, on the page: no dialog to open first.
+    await expect(studio.getByRole("dialog")).toHaveCount(0);
+    await expect(studio.locator("[data-field-id]").first()).toContainText(
+      "Linked title",
+      { timeout: 30000 },
+    );
 
-    await page.keyboard.press("Escape");
-    await expect(dialog).toHaveCount(0);
-    await expect
-      .poll(() => new URL(page.url()).searchParams.has("compare"))
-      .toBe(false);
-    expect(new URL(page.url()).pathname).toBe("/val/review");
+    // Reverting is not done here. The way to where it is done is.
+    await studio.getByRole("button", { name: "Changes and revert" }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/val/changes");
+    await expect(studio.getByRole("heading", { name: "Changes" })).toBeVisible({
+      timeout: 30000,
+    });
   });
 
   test("the gallery's Compare link lands on that file's change", async ({
@@ -60,11 +67,10 @@ test.describe("linking into the compare dialog", () => {
         timeout: 10000,
       })
       .toBe(`${MODULE}?p="/public/test/subdir/red-8x8_bfbd0.png"`);
-    const dialog = studio.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30000 });
-    // On the row for that file's alt, not merely somewhere in the dialog.
-    const row = dialog.locator(`[data-compare-row*="red-8x8_bfbd0.png"]`);
-    await expect(row.first()).toBeVisible({ timeout: 30000 });
-    await expect(row.first()).toContainText("A small red square");
+    // On the change the link named, marked, with what was typed in it.
+    const row = studio.locator('[data-linked="true"]');
+    await expect(row).toBeVisible({ timeout: 30000 });
+    await expect(row).toContainText("red-8x8_bfbd0.png");
+    await expect(row).toContainText("A small red square");
   });
 });
