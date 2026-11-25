@@ -594,3 +594,67 @@ describe("a page of a router", () => {
     });
   });
 });
+
+describe("a value that does not fit its schema", () => {
+  /** A list item written as text, not as a paragraph: still a change. */
+  test("a rich text list it cannot read is walked by its shape", () => {
+    const list = (text: string) => [
+      { tag: "ul", children: [{ tag: "li", children: [text] }] },
+    ];
+    const fields = diffSource({
+      moduleFilePath: PAGE,
+      schema,
+      before: { ...site, body: list("One") },
+      after: { ...site, body: list("Two") },
+    });
+    // Somewhere under the body, the words that changed.
+    const texts: unknown[] = [];
+    JSON.stringify(fields, (_, value: unknown) => {
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        "kind" in value &&
+        value.kind === "text"
+      ) {
+        texts.push(value);
+      }
+      return value;
+    });
+    expect(texts).toContainEqual({ kind: "text", before: "One", after: "Two" });
+  });
+});
+
+describe("recordEntryChanges pairs renames", () => {
+  /**
+   * "/b" moved to "/d" untouched, "/c" is a new copy of it with one edit, and
+   * "/a" was deleted. Taken in key order, "/c" would claim "/b" first.
+   */
+  test("the most alike first, not in the order the keys come", () => {
+    const page = (title: string, intro: string) => ({
+      title,
+      intro,
+      body: "Shared body",
+      footer: "Shared footer",
+      cta: "Contact us",
+    });
+    const before = {
+      "/a": page("Alpha", "Welcome"),
+      "/b": page("Beta", "Welcome"),
+    };
+    const after = {
+      "/c": { ...page("Beta", "Welcome"), cta: "Buy now" },
+      "/d": page("Beta", "Welcome"),
+    };
+    expect(
+      recordEntryChanges(before, after).map((entry) => [
+        entry.key,
+        entry.change,
+        entry.renamedFrom,
+      ]),
+    ).toEqual([
+      ["/c", "added", undefined],
+      ["/d", "renamed", "/b"],
+      ["/a", "removed", undefined],
+    ]);
+  });
+});

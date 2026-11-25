@@ -105,24 +105,27 @@ export function recordEntryChanges(
   const was = isObject(before) ? before : {};
   const now = isObject(after) ? after : {};
   const gone = Object.keys(was).filter((key) => !hasOwn(now, key));
-  const renamedFrom = new Map<string, string>();
-  for (const key of Object.keys(now)) {
-    if (hasOwn(was, key)) continue;
-    // A key that is new, holding what a key that is gone held: a rename. The
-    // most alike first, so two entries swapped and edited pair as themselves.
-    let best: { from: string; score: number } | null = null;
+  const fresh = Object.keys(now).filter((key) => !hasOwn(was, key));
+  // A key that is new, holding what a key that is gone held: a rename. The
+  // most alike pairs first, across all of them, so two entries swapped and
+  // edited pair as themselves, whatever order their keys come in.
+  const candidates: { key: string; from: string; score: number }[] = [];
+  for (const key of fresh) {
     for (const from of gone) {
-      if ([...renamedFrom.values()].includes(from)) continue;
       const score = sameJson(was[from], now[key])
         ? 1
         : similarity(was[from], now[key], undefined);
-      if (score >= RENAMED && (best === null || score > best.score)) {
-        best = { from, score };
-      }
+      if (score >= RENAMED) candidates.push({ key, from, score });
     }
-    if (best !== null) renamedFrom.set(key, best.from);
   }
-  const renamedAway = new Set(renamedFrom.values());
+  candidates.sort((a, b) => b.score - a.score);
+  const renamedFrom = new Map<string, string>();
+  const renamedAway = new Set<string>();
+  for (const { key, from } of candidates) {
+    if (renamedFrom.has(key) || renamedAway.has(from)) continue;
+    renamedFrom.set(key, from);
+    renamedAway.add(from);
+  }
   const entries: RecordEntryChange[] = [];
   for (const key of Object.keys(now)) {
     const from = renamedFrom.get(key);
@@ -706,13 +709,15 @@ function blocksOf(value: unknown): Block[] | null {
   if (value === null) return [];
   if (!Array.isArray(value)) return null;
   const out: Block[] = [];
-  const list = (node: Record<string, unknown>): void => {
+  // False when an item is not shaped as one: something the blocks would leave
+  // out, so the value is walked by its shape instead.
+  const list = (node: Record<string, unknown>): boolean => {
     for (const item of childrenOf(node)) {
-      if (!isObject(item)) continue;
+      if (!isObject(item)) return false;
       for (const inner of childrenOf(item)) {
-        if (!isObject(inner)) continue;
+        if (!isObject(inner)) return false;
         if (inner.tag === "ul" || inner.tag === "ol") {
-          list(inner);
+          if (!list(inner)) return false;
         } else {
           out.push({
             tag: "li",
@@ -722,11 +727,12 @@ function blocksOf(value: unknown): Block[] | null {
         }
       }
     }
+    return true;
   };
   for (const node of value) {
     if (!isObject(node) || typeof node.tag !== "string") return null;
     if (node.tag === "ul" || node.tag === "ol") {
-      list(node);
+      if (!list(node)) return null;
     } else {
       out.push({
         tag: BLOCK_TAGS[node.tag] ?? "p",
