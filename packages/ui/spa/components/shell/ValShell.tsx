@@ -187,7 +187,7 @@ import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
-import { SiteErrors } from "./SiteErrors";
+import { LogsInPreviewsPlace, useLogsTarget } from "./Logs";
 import {
   ComponentsContent,
   ComponentsStage,
@@ -509,14 +509,16 @@ const ValShellBody = memo(function ValShellBody({
           <PlanStatusBar status={planStatusValue} placement={placement} />
         );
   /**
-   * The hosted site's errors, for a project on Hosted only: Val Build sees a
-   * site's errors because it serves the site, so on any other plan the panel
-   * could only ever say there is nothing to see.
+   * Whether Val Build serves the site, which is what lets it see the site's
+   * requests: Settings › Logs is offered on Hosted only, since on any other
+   * plan it could only ever say there is nothing to see. In dev too: a
+   * developer working locally on a hosted project is the person most likely
+   * to want to know what the live site is doing.
    */
-  const renderSiteErrors =
-    studioAccess.access?.limits?.plan === "hosted"
-      ? () => <SiteErrors />
-      : undefined;
+  const hosted = studioAccess.access?.limits?.plan === "hosted";
+  /** Settings › Logs' Open logs: the whole page in the preview's place. */
+  const [logsOpen, setLogsOpen] = useState(false);
+  const openLogs = useCallback(() => setLogsOpen(true), []);
   const remoteFilesStatusNotice =
     remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
       <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
@@ -1844,11 +1846,21 @@ const ValShellBody = memo(function ValShellBody({
           moduleFilePath={settingsModule}
           explainMissingModule={updates === null}
           valBuild={valBuild}
+          hosted={hosted}
+          onOpenLogs={openLogs}
         />
       </>
     ),
-    [settingsModule, updates, valBuild],
+    [settingsModule, updates, valBuild, hosted, openLogs],
   );
+  const logsTarget = useLogsTarget(valBuild, hosted);
+  const logsPage =
+    logsOpen && logsTarget !== null ? (
+      <LogsInPreviewsPlace
+        target={logsTarget}
+        onClose={() => setLogsOpen(false)}
+      />
+    ) : undefined;
   const proposals = useMemo(
     () =>
       proposalsBar && inProposal
@@ -2100,6 +2112,7 @@ const ValShellBody = memo(function ValShellBody({
               }
               renderHistory={renderHistory}
               history={historyParts}
+              logsPage={logsPage}
               data={data}
               theme={resolvedTheme}
               themeStyle={themeStyle}
@@ -2169,7 +2182,6 @@ const ValShellBody = memo(function ValShellBody({
               notice={editorNotice}
               floatingNotices={floatingNotices}
               renderPlanStatus={planStatus}
-              renderSiteErrors={renderSiteErrors}
               statusNotice={remoteFilesStatusNotice}
               publishSlot={
                 demo !== null ? <DemoPublishButton /> : <PublishButton />

@@ -39,6 +39,12 @@ import {
 } from "../SettingsPanel";
 import { AppWindow, Sparkles } from "lucide-react";
 import {
+  LOGS_TAB_ICON,
+  LogsElement,
+  LogsInPreviewsPlace,
+  type LogsTarget,
+} from "../Logs";
+import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_RADIUS_LENGTHS,
   THEME_RADIUS_STEPS,
@@ -218,6 +224,11 @@ export default meta;
 
 type HarnessProps = {
   openPanel: ShellPanel | null;
+  /**
+   * A site Val Build hosts: Settings opens on its Logs tab, and `open` shows
+   * the whole page in the preview's place, as Open logs does.
+   */
+  logs?: "settings" | "open";
   selectionId: string | null;
   empty: boolean;
   /**
@@ -317,7 +328,20 @@ function deploymentsFor(
  * would, because the theme is content and the draft is what the Studio reads.
  * `Shell/SettingsPanel`'s `AppearanceThemed` story shows that half.
  */
-function MockSettingsSections() {
+/** Settings › Logs, as `ValSettingsSections` adds it for a hosted site. */
+const STORY_LOGS: LogsTarget = {
+  project: "acme/marketing-site",
+  adminHref: "https://admin.val.build/~/acme/marketing-site/logs",
+  webComponentsUrl: "https://content.val.build/wc/v1",
+  studioMode: "http",
+};
+
+function MockSettingsSections({
+  onOpenLogs,
+}: {
+  /** Present for a hosted site: Settings has a Logs tab, opened first. */
+  onOpenLogs?: () => void;
+}) {
   const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
     context:
@@ -335,6 +359,7 @@ function MockSettingsSections() {
   const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
   return (
     <SettingsTabs
+      initial={onOpenLogs !== undefined ? "logs" : undefined}
       tabs={[
         {
           id: "assistant",
@@ -374,6 +399,23 @@ function MockSettingsSections() {
             </>
           ),
         },
+        ...(onOpenLogs !== undefined
+          ? [
+              {
+                id: "logs",
+                label: "Logs",
+                icon: LOGS_TAB_ICON,
+                content: (
+                  <LogsElement
+                    className="block mx-4 pb-6"
+                    layout="summary"
+                    onOpen={onOpenLogs}
+                    {...STORY_LOGS}
+                  />
+                ),
+              },
+            ]
+          : []),
       ]}
     />
   );
@@ -381,6 +423,7 @@ function MockSettingsSections() {
 
 function ShellHarness({
   openPanel,
+  logs,
   selectionId,
   empty,
   noPendingChanges,
@@ -423,6 +466,7 @@ function ShellHarness({
    * dev-server setting.
    */
   const [autoSave, setAutoSave] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(logs === "open");
   // Select's two modes, so its menu can be seen: see `SelectButton`.
   const [selectMode, setSelectMode] = useState<CanvasSelectMode>("select");
   const full = empty ? emptyShellData : mockShellData;
@@ -467,7 +511,19 @@ function ShellHarness({
   };
   return (
     <Shell
-      renderSettings={() => <MockSettingsSections />}
+      renderSettings={() => (
+        <MockSettingsSections
+          onOpenLogs={logs !== undefined ? () => setLogsOpen(true) : undefined}
+        />
+      )}
+      logsPage={
+        logsOpen ? (
+          <LogsInPreviewsPlace
+            target={STORY_LOGS}
+            onClose={() => setLogsOpen(false)}
+          />
+        ) : undefined
+      }
       versions={mockVersions}
       // The Pages panel's External pages button is only there when the app can
       // render the dialog, so the story has to supply it for the button to
@@ -749,6 +805,30 @@ export const NotificationsOpen: Story = {
     ...Default.args,
     openPanel: "notifications",
     selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * Settings, at the foot of the rail, on a site Val Build hosts: its Logs tab
+ * is a glance at whether the site is failing now, and Open logs. The element
+ * is Val Build's (`<val-logs>`); without it, its link to Val Build.
+ */
+export const SettingsLogs: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "settings",
+    selectionId: mockSelectionIds.home,
+    logs: "settings",
+  },
+};
+
+/** After Open logs: the whole page in the preview's place, Settings beside it. */
+export const LogsOpen: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "settings",
+    selectionId: mockSelectionIds.home,
+    logs: "open",
   },
 };
 

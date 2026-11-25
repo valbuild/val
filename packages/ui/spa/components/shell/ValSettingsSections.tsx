@@ -45,6 +45,12 @@ import {
   ThemeSettingsFields,
 } from "./SettingsPanel";
 import { AppWindow, KeyRound, Languages, Sparkles } from "lucide-react";
+import {
+  LOGS_TAB_ICON,
+  LogsElement,
+  useLogsTarget,
+  type LogsTarget,
+} from "./Logs";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -61,6 +67,8 @@ export function ValSettingsSections({
   moduleFilePath,
   explainMissingModule = true,
   valBuild,
+  hosted = false,
+  onOpenLogs,
 }: {
   moduleFilePath?: ModuleFilePath;
   /**
@@ -75,16 +83,53 @@ export function ValSettingsSections({
    * it (see `ValShell`'s `renderSettings`).
    */
   explainMissingModule?: boolean;
+  /**
+   * Whether Val Build serves the site (the Hosted plan): only then does it
+   * see the site's requests, so only then is there a Logs tab.
+   */
+  hosted?: boolean;
+  /** Logs' Open logs: the whole page, in the preview's place. */
+  onOpenLogs?: () => void;
 }) {
+  const logs = useLogsTarget(valBuild, hosted);
+  const logsTabs = logs === null ? [] : [logsTab(logs, onOpenLogs)];
   if (!moduleFilePath) {
     return (
       <WithoutSettingsModule
         valBuild={valBuild}
         explainMissingModule={explainMissingModule}
+        extraTabs={logsTabs}
       />
     );
   }
-  return <Sections moduleFilePath={moduleFilePath} valBuild={valBuild} />;
+  return (
+    <Sections
+      moduleFilePath={moduleFilePath}
+      valBuild={valBuild}
+      extraTabs={logsTabs}
+    />
+  );
+}
+
+/**
+ * The hosted site's logs: a glance at whether it is failing now, and Open
+ * logs for the whole page. Last, because it is the one tab that is not
+ * something to set.
+ */
+function logsTab(target: LogsTarget, onOpen?: () => void): SettingsTab {
+  return {
+    id: "logs",
+    label: "Logs",
+    icon: LOGS_TAB_ICON,
+    content: (
+      <LogsElement
+        className="block mx-4 pb-6"
+        layout="summary"
+        onOpen={onOpen}
+        {...target}
+      />
+    ),
+  };
 }
 
 /**
@@ -95,19 +140,25 @@ export function ValSettingsSections({
 function WithoutSettingsModule({
   valBuild,
   explainMissingModule,
+  extraTabs,
 }: {
   valBuild: ValBuildAccess;
   explainMissingModule: boolean;
+  extraTabs: SettingsTab[];
 }) {
   const envVars = useEnvVarsTarget(valBuild);
   const notice = explainMissingModule ? <NoSettingsModule /> : null;
-  if (envVars === null) {
+  const tabs = [
+    ...(envVars === null ? [] : [variablesTab(envVars)]),
+    ...extraTabs,
+  ];
+  if (tabs.length === 0) {
     return notice;
   }
   return (
     <>
       {notice}
-      <SettingsTabs tabs={[variablesTab(envVars)]} />
+      <SettingsTabs tabs={tabs} />
     </>
   );
 }
@@ -129,9 +180,11 @@ function variablesTab(envVars: EnvVarsTarget): SettingsTab {
 function Sections({
   moduleFilePath,
   valBuild,
+  extraTabs,
 }: {
   moduleFilePath: ModuleFilePath;
   valBuild: ValBuildAccess;
+  extraTabs: SettingsTab[];
 }) {
   const settings = useShallowSourceAtPath(moduleFilePath, "settings");
   const schema = useSchemaAtPath(moduleFilePath);
@@ -369,6 +422,7 @@ function Sections({
          * could be set from here.
          */
         ...(envVars === null ? [] : [variablesTab(envVars)]),
+        ...extraTabs,
       ]}
     />
   );

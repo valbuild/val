@@ -11,8 +11,10 @@ and warnings of sites it hosts — uncaught exceptions, `console.error` and
 responses — grouped, for 7 days, with which ones the build that is live now
 brought. Three ways to read them:
 
-- **In the Studio**, under Deployments in the account panel, for a project on
-  Hosted.
+- **In the Studio**, under Settings › Logs (the cog at the foot of the rail),
+  for a project on Hosted: whether the site is failing now, its worst errors
+  and its latest requests. Open logs shows every request and what it printed,
+  live, where the preview is.
 - **`val errors`** prints them for the project in `val.config`, newest first.
   `--verbose` adds stacks, `--json` gives Val Build's answer as is, and
   `--limit` caps how many. It uses your `val login`, or `VAL_API_KEY`.
