@@ -212,6 +212,14 @@ export type PageWorkspaceProps = {
   codeMode?: boolean;
   /** Close Content's sheet, handing the room back to the pane beside it. */
   onFoldContent?: () => void;
+  /**
+   * Content has to be on screen: a pick on the page opened a field in it.
+   * Switched off from the top bar or folded to a strip, it comes back, as a
+   * field opened anywhere else brings it back -- otherwise a click on the
+   * page opened a field nobody can see. The layout is the shell's, so it is
+   * the shell that brings it back.
+   */
+  onRevealContent?: () => void;
 };
 
 /** Stable, so a page that has reported nothing does not re-merge every render. */
@@ -322,6 +330,7 @@ export function PageWorkspace({
   onUseContent,
   codeMode = false,
   onFoldContent,
+  onRevealContent,
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
@@ -627,6 +636,9 @@ export function PageWorkspace({
       if (!isPicking) return;
       onViewChange("fields");
       if (isPhone) onPaneChange("editor");
+      // The column the field opened in, wherever the layout had put it --
+      // in this same render, so the field is on screen to be focused.
+      onRevealContent?.();
       // Pointing at something is asking to edit it, and a filter hiding it
       // would answer with an empty column. See `pickToReveal`.
       if (path !== null && changedFieldsOnly) setPickToReveal(path);
@@ -639,7 +651,14 @@ export function PageWorkspace({
         }));
       }
     },
-    [isPicking, onViewChange, isPhone, onPaneChange, changedFieldsOnly],
+    [
+      isPicking,
+      onViewChange,
+      isPhone,
+      onPaneChange,
+      onRevealContent,
+      changedFieldsOnly,
+    ],
   );
 
   /**
