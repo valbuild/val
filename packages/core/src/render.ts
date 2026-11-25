@@ -212,9 +212,11 @@ export type ComponentPropsOf<C> = C extends (props: infer P) => unknown
  * unchanged is still a click away from its field, and one it transforms is
  * not. Without it the value itself is the props.
  *
- * `example` is content to preview the component with that is not on the site:
- * a fixture, and a good place for deliberately unrepresentative values (very
- * long titles, empty lists) that make layout problems easy to spot.
+ * `examples` is content to preview the component with that is not on the
+ * site, by name, as stories are: fixtures, and a good place for deliberately
+ * unrepresentative values (very long titles, empty lists) that make layout
+ * problems easy to spot. The Studio lists them by their names made readable
+ * (`longTitle` is "Long title"; see `prettyExampleName`).
  */
 export type ComponentRender<Src> = {
   as: "component";
@@ -225,7 +227,14 @@ export type ComponentRender<Src> = {
    * does. Call it through {@link componentPropsOf}.
    */
   props?: (value: never) => unknown;
-  example?: Src;
+  examples?: Record<string, Src>;
+  /**
+   * What the Studio calls the component (its Components view, and what it
+   * tells the assistant). Without one the Studio names it after the
+   * object's literal field (`type: s.literal("hero")` is "Hero"), or where
+   * it is used.
+   */
+  name?: string;
 };
 
 /**
@@ -233,7 +242,8 @@ export type ComponentRender<Src> = {
  * function. See {@link ComponentRender} for each.
  */
 export type ComponentOptions<Src> = {
-  example?: Src;
+  examples?: Record<string, Src>;
+  name?: string;
 };
 
 /** {@link ComponentOptions} for a component whose props ARE the read value. */
@@ -278,11 +288,16 @@ export type ComponentArgs<Src, Read, C> = [Read] extends [ComponentPropsOf<C>]
 
 /**
  * What a {@link ComponentRender} serializes to. The component is a closure and
- * cannot travel; `example` says whether there is one to preview with.
+ * cannot travel; `examples` travels as the names of the examples - their
+ * content stays with the schema, in the host app, which renders them - and
+ * `name`, being plain data, travels as it is.
  */
 export type SerializedComponentRender = {
   as: "component";
-  example?: true;
+  /** The names of the render's `examples`, in the order they were written. */
+  examples?: string[];
+  /** The render's `name`: plain data, unlike the rest of it. */
+  name?: string;
 };
 
 /**
@@ -294,11 +309,21 @@ export type SerializedComponentRender = {
  * - `refresh`: Studio to preview. The content changed; render it again.
  * - `size`: preview to Studio, with `{ height }`. What the component rendered
  *   is this tall, so the Studio can size the frame to fit it.
- * - `picking`: Studio to preview, with `{ enabled }`. Whether a click on
- *   content picks the field it came from, rather than doing what a click on
- *   the site does.
+ * - `picking`: Studio to preview, with `{ enabled, editing? }`. Whether a
+ *   click on content picks the field it came from, rather than doing what a
+ *   click on the site does - and, with `editing`, whether the Studio may
+ *   answer the pick by asking to type in it (Select & edit).
  * - `pick`: preview to Studio, with `{ paths }`. The editor clicked content
  *   with these source paths behind it (from its `data-val-path`).
+ * - `theme`: Studio to preview, with `{ selection }`. The project's
+ *   selection colour, which a pick's outline and a text being typed in are
+ *   drawn in, as the canvas is told it.
+ *
+ * Typing in a text where the preview shows it (Select & edit) is the
+ * canvas's own conversation, in its own messages (`editInline`,
+ * `inlineEditStarted`, `inlineEdit`, ... in `@valbuild/shared`'s
+ * `valCanvasProtocol.ts`): the preview's bridge answers them as the canvas
+ * bridge does.
  */
 export const VAL_PREVIEW_MESSAGES: {
   ready: "val-preview-ready";
@@ -306,12 +331,14 @@ export const VAL_PREVIEW_MESSAGES: {
   size: "val-preview-size";
   picking: "val-preview-picking";
   pick: "val-preview-pick";
+  theme: "val-preview-theme";
 } = {
   ready: "val-preview-ready",
   refresh: "val-preview-refresh",
   size: "val-preview-size",
   picking: "val-preview-picking",
   pick: "val-preview-pick",
+  theme: "val-preview-theme",
 };
 
 /**
@@ -418,4 +445,26 @@ export function componentOfValue(
     ComponentOfValue,
   )?.value;
   return isComponentRender(render) ? render : null;
+}
+
+/**
+ * EXPERIMENTAL: an example's name as a person reads it, the way a story's is:
+ * `longTitle`, `long-title` and `long_title` are "Long title", and a name
+ * that is already words is left as it was written.
+ */
+export function prettyExampleName(name: string): string {
+  if (/\s/.test(name)) return name;
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[_-]+|\s+/)
+    .filter((word) => word.length > 0);
+  if (words.length === 0) return name;
+  const sentence = words
+    .map((word, index) =>
+      // An acronym keeps its capitals: `ctaURL` is "Cta URL"
+      /^[A-Z0-9]{2,}$/.test(word) || index === 0 ? word : word.toLowerCase(),
+    )
+    .join(" ");
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }

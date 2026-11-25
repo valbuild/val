@@ -412,7 +412,14 @@ export const heroFields = s.object({
 export const hero = heroFields.component(
   () => import("../components/HeroSection"),
   {
-    example: { type: "hero", title: "A very long title, to test the layout" },
+    // Named, as stories are: the Studio lists them as "Long title" and "Empty"
+    examples: {
+      longTitle: {
+        type: "hero",
+        title: "A very long title, to test the layout",
+      },
+      empty: { type: "hero", title: "" },
+    },
   },
 );
 ```
@@ -475,9 +482,9 @@ result) arrives without it.
 ### A preview route
 
 A linked object can also be rendered on its own, by your app, at
-`/val-preview?p=<source path>` - with `&example=1`, from its `example`. Val
-Studio does not load it yet: it is there for a component view that is still
-to come. To have it, add the route outside the layout that holds
+`/val-preview?p=<source path>` - with `&example=<name>`, from one of its
+`examples`. Val Studio's Components view (`/val/components`) renders every
+component through it. To have it, add the route outside the layout that holds
 `ValProvider`:
 
 ```tsx
@@ -503,7 +510,7 @@ export const Route = createFileRoute("/val-preview")({
       <Unstable_ValComponentPreview
         valModules={valModules}
         source={Route.useLoaderData()}
-        example={Route.useSearch().example === "1"}
+        example={Route.useSearch().example}
       />
     </ValPreviewBridge>
   ),
@@ -599,14 +606,59 @@ is read from the host's own header when there is one (`x-vercel-ip-country`,
 
 ## Images
 
-`ValImage` is a plain `<img>` that keeps the edit tags where the Studio can see
-them, and carries the source's own `width`/`height` and its `hotspot` as
-`object-position`:
+`ValImage` is an `<img>` that keeps the edit tags where the Studio can see
+them, carries the source's own `width`/`height` and its `hotspot` as
+`object-position`, and takes the props `next/image` takes:
 
 ```tsx
 import { ValImage } from "@valbuild/tanstack";
 
-<ValImage src={page.hero.image} style={{ maxWidth: "20rem" }} />;
+<ValImage
+  src={page.hero.image}
+  sizes="(min-width: 1024px) 50vw, 100vw"
+  priority
+  placeholder="blur"
+/>;
+```
+
+| Prop                         | What it does                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `sizes`                      | How wide the image is shown. The browser then picks from every width the host serves   |
+| `width` / `height`           | The rendered size. Defaults to the image's own; one alone keeps the aspect ratio       |
+| `quality`                    | 1–100, snapped to 25, 50, 75, 80, 90 or 100. Default 80                                |
+| `fill`                       | Fill the (positioned) parent instead of having a size of its own                       |
+| `priority` / `preload`       | Load eagerly, and preload from `<head>`. `priority` also sets `fetchPriority="high"`   |
+| `loading`                    | `lazy` (the default) or `eager`                                                        |
+| `placeholder`, `blurDataURL` | `"blur"`, `"empty"` or a `data:image/…` URL, shown until the image has loaded          |
+| `loader`                     | `({ src, width, quality }) => url`, for an image CDN of your own. Used for every image |
+| `unoptimized`                | No `srcset`: the image as it was uploaded. The default for SVG                         |
+| `overrideSrc`                | The `src` attribute to write instead, `srcset` kept                                    |
+| `disableHotspot`             | Do not apply the hotspot as `object-position`                                          |
+
+**What is resized.** A published remote image — `s.image().remote()`, or every
+image with `files: { remote: true }` — is resized by the host that serves it:
+Val's platform (on Cloudflare) for a hosted project, and `remote.val.build`
+for everyone else. `ValImage` asks for `?w=<width>` in a `srcset`, the host
+answers with the image scaled down (never up) in AVIF or WebP when the browser
+takes them, and keeps the copy. Without `sizes` or a `width`, the `srcset` is
+1x and 2x the image's own width, so pass `sizes` for an image CSS shows smaller
+than it is.
+
+A local image (in `public/`) is served as it is: TanStack Start has no image
+optimizer, so give a `loader` if you have one. A draft — an image not yet
+published — is served as it is too, since its bytes are not at the host yet.
+
+`getValImageProps` gives the attributes `ValImage` writes, for a `<picture>`
+or anything else that needs them, as `next/image`'s `getImageProps` does:
+
+```tsx
+const { props: wide } = getValImageProps({ src: page.wide, sizes: "100vw" });
+const { props: tall } = getValImageProps({ src: page.tall, sizes: "100vw" });
+
+<picture>
+  <source media="(min-width: 1000px)" srcSet={wide.srcSet} sizes={wide.sizes} />
+  <img {...tall} />
+</picture>;
 ```
 
 Uploads land in `public/val` by default, which Vite serves at `/val/...`. That
@@ -630,7 +682,7 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 | `initValRsc` (`@valbuild/next/rsc`)                            | `initValContent` (`@valbuild/tanstack/server`)                  |
 | `draftMode()` from `next/headers`                              | `valDraftMode()` (a cookie this package owns)                   |
 | `valNextAppRouter`                                             | `valApiHandler` — a `Request` in, a `Response` out              |
-| `ValImage` wraps `next/image`                                  | `ValImage` is an `<img>`                                        |
+| `ValImage` wraps `next/image`                                  | `ValImage` is an `<img>` with `next/image`'s props              |
 | `fetchVal` in a Server Component                               | hooks in components; `createServerFn` for loaders               |
 | `ValProvider draft={await fetchValDraft()}` in the root layout | `fetchValDraft` in a `createServerFn` the layout's loader calls |
 | no content analytics yet                                       | `ValProvider analytics`                                         |

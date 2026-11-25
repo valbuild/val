@@ -212,6 +212,16 @@ import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import { galleriesOf } from "./source/galleries";
 import {
+  isResizableImageUrl,
+  RESIZE_DEFAULT_QUALITY,
+  RESIZE_DEVICE_WIDTH,
+  RESIZE_QUALITIES,
+  RESIZE_WIDTHS,
+  resizedImageUrl,
+  resizeQuality,
+  resizeWidth,
+} from "./source/resizedImage";
+import {
   fillFromGallery,
   GALLERY_DEFAULT_GROUPS,
   galleryEntryOf,
@@ -371,6 +381,7 @@ export {
   componentPropsOf,
   setComponentOfValue,
   componentOfValue,
+  prettyExampleName,
   VAL_PREVIEW_MESSAGES,
 } from "./render";
 export type {
@@ -507,6 +518,15 @@ const Internal = {
     GALLERY_DEFAULT_GROUPS,
     isHlsVideo,
     HLS_MIME_TYPE,
+    // `?w=` / `?q=` on a remote ref: see `source/resizedImage.ts`.
+    isResizableImageUrl,
+    resizedImageUrl,
+    resizeWidth,
+    resizeQuality,
+    RESIZE_WIDTHS,
+    RESIZE_DEVICE_WIDTH,
+    RESIZE_QUALITIES,
+    RESIZE_DEFAULT_QUALITY,
   },
   getSchema,
   getValPath,

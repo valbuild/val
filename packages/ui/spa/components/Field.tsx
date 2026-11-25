@@ -1,4 +1,5 @@
 import { Json, SerializedSchema, SourcePath } from "@valbuild/core";
+import { ShowInComponentsButton } from "./componentsView/openInComponents";
 import { Label } from "./Label";
 import { fromCamelToTitleCase } from "../utils/prettifyText";
 import classNames from "classnames";
@@ -273,6 +274,13 @@ export function Field({
               })}
             >
               {!hasOverrides && !compact && <ContentViewsBadge path={path} />}
+              {!hasOverrides && schema !== undefined && (
+                <ShowInComponentsButton
+                  path={path}
+                  schema={schema}
+                  compact={compact}
+                />
+              )}
               {!hasOverrides && canMentionField && (
                 <button
                   type="button"

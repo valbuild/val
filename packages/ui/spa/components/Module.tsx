@@ -4,6 +4,7 @@ import {
   ModuleFilePath,
   SourcePath,
 } from "@valbuild/core";
+import { ShowInComponentsButton } from "./componentsView/openInComponents";
 import { useGetNavPath, useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -180,6 +181,7 @@ export function Module({
   const tools = !isMediaGallery && (
     <div className="shrink-0 flex gap-2 items-center">
       {headingTools}
+      <ShowInComponentsButton path={path} schema={schema} />
       {hasPendingPatches && (
         <FieldPatchAuthors
           patchesByAuthorIds={patchesByAuthorIds}
