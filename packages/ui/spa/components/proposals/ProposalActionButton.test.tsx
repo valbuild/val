@@ -216,13 +216,12 @@ describe("ProposalActionButton, with Save that updates the preview", () => {
     onSaveAndBuild: jest.fn(),
   });
 
-  test("Save stays the main half once everything is saved, disabled with nothing to do", () => {
-    render(
-      <ProposalActionButton location={location({ unsaved: 0 })} {...wired()} />,
-    );
-    const save = screen.getByRole("button", { name: /^Save/ });
-    expect(save.hasAttribute("disabled")).toBe(true);
-    expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
+  test("once everything is saved and the preview is up to date, Save has become Publish", () => {
+    const h = wired();
+    render(<ProposalActionButton location={location({ unsaved: 0 })} {...h} />);
+    expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    expect(h.onPublish).toHaveBeenCalledTimes(1);
   });
 
   test("with a build due and nothing to save, Save builds", () => {

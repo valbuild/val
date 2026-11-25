@@ -465,10 +465,18 @@ function DependenciesButton({
 export function ProposalPublishButton({
   location,
   onPublish,
+  blockedBy,
   className,
 }: {
   location: InProposal;
+  /** Opens the publish dialog, which asks before anything is published. */
   onPublish: () => void;
+  /**
+   * Validation errors Publish would be refused for. The button is "Fix N"
+   * and goes to them, as the site's Publish is: a disabled Publish with the
+   * reason only on hover was the alternative.
+   */
+  blockedBy?: { errors: number; onShow: () => void };
   className?: string;
 }) {
   if (location.proposal.status === "merged") {
@@ -484,6 +492,29 @@ export function ProposalPublishButton({
       >
         <Check size={14} className="shrink-0" />
         <span className="truncate">Published</span>
+      </button>
+    );
+  }
+  if (
+    blockedBy !== undefined &&
+    blockedBy.errors > 0 &&
+    location.publishBlockedBy === null
+  ) {
+    return (
+      <button
+        type="button"
+        onClick={blockedBy.onShow}
+        title={`${blockedBy.errors} validation ${blockedBy.errors === 1 ? "error" : "errors"} to fix before publishing. Press to see ${blockedBy.errors === 1 ? "it" : "them"}.`}
+        className={cn(
+          "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
+          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover",
+          className,
+        )}
+      >
+        <AlertTriangle size={14} className="shrink-0" />
+        <span className="truncate">
+          {`Fix ${blockedBy.errors > 9 ? "9+" : blockedBy.errors}`}
+        </span>
       </button>
     );
   }
@@ -640,14 +671,16 @@ export function ProposalActionButton({
       ? onSaveAndBuild
       : null;
   /*
-   * Save that updates the preview is the main half for good: it is disabled
-   * when there is nothing to save or update, and Commit and Publish are in
-   * its menu. Without it, the main half is whichever step comes next.
+   * The main half is whichever step comes next. With Save that updates the
+   * preview, that is Save while there is anything to save or update, and
+   * Publish once there is not -- a disabled Save with nothing to do hid the
+   * one step left behind the caret.
    */
-  const action: ProposalNextAction =
-    saveAndBuild !== null
-      ? "save"
-      : nextProposalAction(location, onBuild !== undefined, false);
+  const action: ProposalNextAction = nextProposalAction(
+    location,
+    onBuild !== undefined,
+    saveAndBuild !== null,
+  );
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed";
   const errors =
@@ -681,13 +714,14 @@ export function ProposalActionButton({
             failed: code.state === "failed",
           };
 
+  // Validation errors refuse Publish where a save does not stop them first:
+  // in code mode, and where Save updates the preview.
+  const publishErrors =
+    errors !== null && (codeMode || saveAndBuild !== null) ? errors : null;
   const mainDisabled =
     action === "save"
       ? saving ||
-        (saveAndBuild !== null &&
-          location.unsaved === 0 &&
-          !buildIsDue(code) &&
-          !saveFailed)
+        (saveAndBuild !== null && previewUpdateOf(code).state === "updating")
       : action === "build"
         ? build === null ||
           build.busy ||
@@ -702,7 +736,9 @@ export function ProposalActionButton({
         ? build?.failed
           ? "error"
           : "outline"
-        : "primary";
+        : publishErrors !== null && location.publishBlockedBy === null
+          ? "error"
+          : "primary";
   const caretTone: Tone = mainDisabled ? "muted" : mainTone;
 
   const choose = (act: () => void) => () => {
@@ -711,8 +747,8 @@ export function ProposalActionButton({
   };
   const publishRefusedBy =
     location.publishBlockedBy ??
-    (errors !== null && (codeMode || saveAndBuild !== null)
-      ? `Fix the ${errors.errors === 1 ? "validation error" : `${errors.errors} validation errors`} first: only valid content is published.`
+    (publishErrors !== null
+      ? `Fix the ${publishErrors.errors === 1 ? "validation error" : `${publishErrors.errors} validation errors`} first: only valid content is published.`
       : blocked !== null
         ? "Fix the validation errors first: publishing saves the changes."
         : null);
@@ -745,6 +781,7 @@ export function ProposalActionButton({
           <ProposalPublishButton
             location={location}
             onPublish={onPublish}
+            blockedBy={publishErrors ?? undefined}
             className="rounded-r-none"
           />
         )}

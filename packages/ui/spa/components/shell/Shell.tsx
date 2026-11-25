@@ -1726,14 +1726,24 @@ const ShellFrame = memo(function ShellFrame({
   // `TopBarProposals.onSaveAndBuild`.
   const phoneSaveAndBuild =
     proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
-  // Save that updates the preview stays the main action for good, as it is
-  // in `ProposalActionButton`: Commit and Publish are behind the caret.
+  // The same rule as `ProposalActionButton`: Save while there is anything
+  // to save or update, and Publish once there is not.
   const phoneAction =
     proposals !== undefined && phoneProposal !== null
-      ? phoneSaveAndBuild !== undefined
-        ? "save"
-        : nextProposalAction(phoneProposal, proposals.onBuild !== undefined)
+      ? nextProposalAction(
+          phoneProposal,
+          proposals.onBuild !== undefined,
+          phoneSaveAndBuild !== undefined,
+        )
       : null;
+  // Errors refuse Publish where a save does not stop them first: see
+  // `ProposalActionButton`.
+  const phonePublishErrors =
+    proposals?.saveBlockedBy !== undefined &&
+    proposals.saveBlockedBy.errors > 0 &&
+    (proposals.codeMode?.on === true || phoneSaveAndBuild !== undefined)
+      ? proposals.saveBlockedBy
+      : undefined;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
       phoneAction === "save" && phoneSaveAndBuild !== undefined ? (
@@ -1765,6 +1775,7 @@ const ShellFrame = memo(function ShellFrame({
         <ProposalPublishButton
           location={phoneProposal}
           onPublish={proposals.onPublish}
+          blockedBy={phonePublishErrors}
           className="h-8"
         />
       )

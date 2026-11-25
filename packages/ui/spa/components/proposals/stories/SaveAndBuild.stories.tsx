@@ -273,3 +273,24 @@ export const InTheStudioMenuOpen = shell({
   codeMode: {},
   menuOpen: true,
 });
+
+/**
+ * Everything saved and the preview up to date: the main half is Publish, and
+ * pressing it opens the publish dialog, which asks before anything is
+ * published.
+ */
+export const InTheStudioAllSaved = shell({
+  location: inProposal({ unsaved: 0 }),
+  selectionId: mockSelectionIds.home,
+  saveBuilds: true,
+  codeMode: {},
+});
+
+/** The same, with the publish dialog open. */
+export const InTheStudioAllSavedPublishing = shell({
+  location: inProposal({ unsaved: 0 }),
+  selectionId: mockSelectionIds.home,
+  saveBuilds: true,
+  codeMode: {},
+  dialog: "publish",
+});
