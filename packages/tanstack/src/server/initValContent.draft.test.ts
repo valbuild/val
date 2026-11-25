@@ -106,7 +106,7 @@ test("a visitor reads nothing and gets no draft", async () => {
   const { runtime } = runtimeOf();
   const before = headWork().seqReads;
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => false,
     getCookies: cookies(undefined),
   });
@@ -118,7 +118,7 @@ test("in preview, the draft holds the modules it changes, with their versions, a
   const { runtime, edit } = runtimeOf();
   await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("session"),
   });
@@ -132,7 +132,7 @@ test("a second read, with nothing moved, reads no chain and makes nothing", asyn
   const { runtime, edit } = runtimeOf();
   await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("session"),
   });
@@ -147,7 +147,7 @@ test("a session the server refuses is published content, not an error", async ()
   const { runtime, edit } = runtimeOf({ authenticated: false });
   await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("expired"),
   });
@@ -158,7 +158,7 @@ test("a runtime that fails is published content, not a page that fails", async (
   const error = jest.spyOn(console, "error").mockImplementation(() => {});
   try {
     const fetchValDraft = initFetchValDraft({
-      runtime: Promise.reject(new Error("boom")),
+      runtime: () => Promise.reject(new Error("boom")),
       isEnabled: async () => true,
       getCookies: cookies("session"),
     });
@@ -175,7 +175,7 @@ describe("a module of `.jsonValues()` entries", () => {
       { op: "replace", path: ["edited-entry", "title"], value: "DRAFT" },
     ]);
     const fetchValDraft = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => true,
       getCookies: cookies("session"),
     });
@@ -201,7 +201,7 @@ describe("a module of `.jsonValues()` entries", () => {
       { op: "replace", path: ["unreadable", "title"], value: "DRAFT" },
     ]);
     const fetchValDraft = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => true,
       getCookies: cookies("session"),
     });
@@ -219,7 +219,7 @@ describe("at a proposal's address", () => {
     const { runtime, edit } = runtimeOf();
     await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
     const reviewer = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => false,
       getCookies: cookies(undefined),
       snapshot,
@@ -232,7 +232,7 @@ describe("at a proposal's address", () => {
       atProposal: true,
     });
     const editor = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => true,
       getCookies: cookies("session"),
       snapshot,
@@ -250,7 +250,7 @@ describe("at a proposal's address", () => {
     const { runtime } = runtimeOf();
     const before = headWork().seqReads;
     const fetchValDraft = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => false,
       getCookies: cookies(undefined),
       snapshot,
@@ -266,7 +266,7 @@ describe("at a proposal's address", () => {
   test("a draft that cannot be read still leaves the proposal on the page", async () => {
     const { runtime } = runtimeOf({ authenticated: false });
     const fetchValDraft = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => true,
       getCookies: cookies("expired"),
       snapshot,
@@ -289,7 +289,7 @@ describe("on a site serving a content version", () => {
   test("a visitor gets the content version, and a draft that is not a proposal's", async () => {
     const { runtime } = runtimeOf();
     const fetchValDraft = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => false,
       getCookies: cookies(undefined),
       snapshot,

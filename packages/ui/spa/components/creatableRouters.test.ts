@@ -1,5 +1,8 @@
 import { ModuleFilePath, SerializedSchema } from "@valbuild/core";
-import { collectCreatableRouters } from "./creatableRouters";
+import {
+  collectCreatableRouters,
+  keepCreatableRouters,
+} from "./creatableRouters";
 
 const router = (
   routerId: string,
@@ -81,5 +84,56 @@ describe("collectCreatableRouters", () => {
     const { pageRouters, externalRouter } = collectCreatableRouters({}, {});
     expect(pageRouters).toStrictEqual([]);
     expect(externalRouter).toBeNull();
+  });
+});
+
+/**
+ * The routers a reader is handed are the same object while they say the
+ * same, and never an answer made from schemas that have since changed.
+ */
+describe("keepCreatableRouters", () => {
+  const BLOGS = "/app/blogs/[blog]/page.val.ts" as ModuleFilePath;
+  const paths = [BLOGS];
+
+  test("hands back the routers before while a router's source says the same", () => {
+    const schemas = { [BLOGS]: router("next-app-router") };
+    const first = keepCreatableRouters(null, schemas, paths, [
+      { "/blogs/a": { title: "A" } },
+    ]);
+    // A page typed in: its router's source is a new object with the same keys.
+    const second = keepCreatableRouters(first, schemas, paths, [
+      { "/blogs/a": { title: "A, edited" } },
+    ]);
+    expect(second.routers).toBe(first.routers);
+    // A page added: the keys moved, and so do the routers.
+    const third = keepCreatableRouters(second, schemas, paths, [
+      { "/blogs/a": { title: "A, edited" }, "/blogs/b": { title: "B" } },
+    ]);
+    expect(third.routers).not.toBe(first.routers);
+    expect(third.routers.pageRouters[0]?.existingKeys).toEqual([
+      "/blogs/a",
+      "/blogs/b",
+    ]);
+  });
+
+  test("collects again when the schemas changed and no source did", () => {
+    // Code that describes the key: every source is the object it was.
+    const source = { "/blogs/a": { title: "A" } };
+    const before = keepCreatableRouters(
+      null,
+      { [BLOGS]: router("next-app-router") },
+      paths,
+      [source],
+    );
+    expect(before.routers.pageRouters[0]?.keyDescription).toBeUndefined();
+    const after = keepCreatableRouters(
+      before,
+      { [BLOGS]: router("next-app-router", "The URL of this post.") },
+      paths,
+      [source],
+    );
+    expect(after.routers.pageRouters[0]?.keyDescription).toBe(
+      "The URL of this post.",
+    );
   });
 });

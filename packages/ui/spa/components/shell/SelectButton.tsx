@@ -25,6 +25,8 @@ export type SelectFor = "content" | "assistant";
  *   given a `mode`, it has two: **Select**, which opens the field in the
  *   column, and **Select & edit**, which puts the caret in a text where the
  *   page shows it. The button says which, and a menu beside it changes it.
+ *   In either, a list rendered with `ValComponentEditor` shows the controls
+ *   to arrange it on the page while this is on.
  * - **The Assistant's** picks what the next message is about: a field, or in
  *   code mode any element. Once, then off. Outlined dashed, and in code mode
  *   in the proposal's colour, with a small `</>` on the button.

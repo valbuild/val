@@ -102,6 +102,92 @@ export const DEFAULT_CANVAS_SELECTION = "#079455";
 export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
 
 /**
+ * An edit to a list of components, asked for on the page itself.
+ *
+ * `ValComponentEditor` renders a list of objects with the components their
+ * schemas link them to, and in the canvas it lets the editor arrange that
+ * list where it is shown: drag a section, add one between two others, take
+ * one away. The page cannot make the edit - it has no patch store, and the
+ * studio is the one writer - so it says what was asked for and the studio
+ * writes the patch, which comes back as a `sourceUpdate` like any other edit.
+ *
+ * `list` is the path of the array. Indices are positions in it as the page
+ * last rendered it:
+ *
+ * - `move`: the item at `from` ends up at `to`, as a JSON patch `move` does.
+ * - `remove`: the item at `index` is deleted.
+ * - `insert`: a new item goes in at `index`, pushing what was there down.
+ *   The page does not say WHICH: the studio has the schema, so it asks the
+ *   editor when there is more than one kind to choose from.
+ */
+export type ValCanvasComponentEdit =
+  | { op: "move"; list: SourcePath; from: number; to: number }
+  | { op: "remove"; list: SourcePath; index: number }
+  | { op: "insert"; list: SourcePath; index: number };
+
+/**
+ * On the layer that holds the controls `ValComponentEditor` draws over a
+ * list: the handle, the arrows, the add and remove buttons.
+ *
+ * They are Val's own, drawn in the page, so a click on one is never a click
+ * on the page's content - though it may well sit inside an element that has a
+ * `data-val-path`, a list inside a component being the case. Whatever asks
+ * "what content is under this click" asks {@link isOnValCanvasControls} first.
+ */
+export const VAL_CANVAS_CONTROLS_ATTRIBUTE = "data-val-component-controls";
+
+/**
+ * On the canvas page's `<html>` while Content's Select is on (its
+ * `setPicking`): what the controls over a list of components are shown by.
+ *
+ * An attribute the bridge sets, rather than the message itself, because the
+ * bridge is there from the first render and a list is not: one on a page
+ * navigated to later never heard the message, and an attribute is still
+ * there to be read.
+ */
+export const VAL_CANVAS_EDITING_ATTRIBUTE = "data-val-canvas-editing";
+
+/**
+ * On the element around each item `ValComponentEditor` renders. The canvas
+ * bridge leaves it out of its own outlines: the controls draw one for it.
+ */
+export const VAL_COMPONENT_ATTRIBUTE = "data-val-component";
+
+/**
+ * On the page's root element while a section is being dragged. The canvas
+ * bridge draws no outlines around editable content then: the drag has its own
+ * markers for where the section can go, and the rest is only in the way.
+ */
+export const VAL_COMPONENT_DRAGGING_ATTRIBUTE = "data-val-component-dragging";
+
+/**
+ * The Studio's selection colour, as a CSS custom property the canvas bridge
+ * sets on the page's root. The controls over a list are drawn with it, so
+ * they are the colour of everything else the canvas outlines, whenever they
+ * were rendered.
+ */
+export const VAL_CANVAS_SELECTION_PROPERTY = "--val-canvas-selection";
+
+/** Whether an element is one of the controls drawn over a list of components. */
+export function isOnValCanvasControls(element: Element): boolean {
+  return element.closest(`[${VAL_CANVAS_CONTROLS_ATTRIBUTE}]`) !== null;
+}
+
+/** Narrow an unknown value to a {@link ValCanvasComponentEdit}. */
+export function isValCanvasComponentEdit(
+  value: unknown,
+): value is ValCanvasComponentEdit {
+  if (typeof value !== "object" || value === null) return false;
+  const edit = value as Record<string, unknown>;
+  if (typeof edit.list !== "string" || edit.list === "") return false;
+  const isIndex = (index: unknown) =>
+    typeof index === "number" && Number.isInteger(index) && index >= 0;
+  if (edit.op === "move") return isIndex(edit.from) && isIndex(edit.to);
+  if (edit.op === "remove" || edit.op === "insert") return isIndex(edit.index);
+  return false;
+}
+
+/**
  * The requests a page can be asked, each answered with a message of its own
  * (`readPage` with `pageRead`, and so on), and the names a bridge lists in
  * `ready`'s `capabilities`. A capability is named after its request, so the
@@ -453,6 +539,17 @@ export type ValCanvasPageMessage =
       val: typeof VAL_CANVAS_MESSAGE;
       type: "codeChanged";
       modules: ModuleFilePath[];
+    }
+  | {
+      /**
+       * The editor arranged a list of components on the page
+       * ({@link ValCanvasComponentEdit}). A studio that predates it ignores
+       * it, as it ignores any type it does not know, and the page then simply
+       * does not change.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "componentEdit";
+      edit: ValCanvasComponentEdit;
     }
   | {
       /**
@@ -875,6 +972,8 @@ export function isValCanvasPageMessage(
     (message.type === "codeChanged" &&
       Array.isArray((data as { modules?: unknown }).modules) &&
       isModulePathList((data as { modules?: unknown }).modules)) ||
+    (message.type === "componentEdit" &&
+      isValCanvasComponentEdit((data as { edit?: unknown }).edit)) ||
     (message.type === "inlineEditStarted" &&
       (typeof (data as { requestId?: unknown }).requestId === "string" ||
         (data as { requestId?: unknown }).requestId === null) &&

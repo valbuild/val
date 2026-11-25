@@ -1,3 +1,4 @@
+import { LabeledField } from "../LabeledField";
 import {
   SourcePath,
   SerializedArraySchema,
@@ -20,8 +21,6 @@ import { BlockList } from "../../components/BlockList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewError } from "../PreviewError";
-import { Field } from "../../components/Field";
-import { AnyField } from "../../components/AnyField";
 import { InlineSortableItem } from "../../components/InlineSortableItem";
 import { LocaleFiltered } from "../LocaleFilterProvider";
 import { FieldNull } from "../../components/FieldNull";
@@ -178,22 +177,14 @@ export function ArrayFields({
             return (
               <LocaleFiltered path={itemPath}>
                 <InlineSortableItem id={id} disabled={readonly}>
-                  <Field
+                  <LabeledField
                     path={itemPath}
-                    type={schema.item.type}
+                    schema={schema.item}
                     readonly={readonly || schema.item.readonly}
                     compact={compact}
+                    inline={inline}
                     errorDisplay={errorDisplay}
-                  >
-                    <AnyField
-                      path={itemPath}
-                      schema={schema.item}
-                      readonly={readonly || schema.item.readonly}
-                      compact={compact}
-                      inline={inline}
-                      errorDisplay={errorDisplay}
-                    />
-                  </Field>
+                  />
                 </InlineSortableItem>
               </LocaleFiltered>
             );

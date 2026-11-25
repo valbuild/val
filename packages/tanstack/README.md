@@ -51,6 +51,7 @@ this package mounts at `/val`.
 - [Reading content](#reading-content)
 - [Routes](#routes)
 - [Preview and draft mode](#preview-and-draft-mode)
+- [Components (experimental)](#components-experimental)
 - [Images](#images)
 - [Coding agents (MCP)](#coding-agents-mcp)
 - [Differences from `@valbuild/next`](#differences-from-valbuildnext)
@@ -397,6 +398,119 @@ draft renders instead of 404ing. Visitors without the Val Enable cookie pay
 nothing for it. It needs React 19 and a `<Suspense>` boundary (see above). With
 `draft` given, the server already has that page's content, so its first render
 does not 404 either.
+
+## Components (experimental)
+
+An object schema can be linked to the component that renders it:
+
+```ts
+// src/routes/landing.val.ts
+export const heroFields = s.object({
+  type: s.literal("hero"),
+  title: s.string(),
+});
+export const hero = heroFields.component(
+  () => import("../components/HeroSection"),
+  {
+    example: { type: "hero", title: "A very long title, to test the layout" },
+  },
+);
+```
+
+The import is lazy: Val evaluates `.val.ts` files outside your app, where a
+component's CSS and framework code cannot be loaded, and never calls it there.
+On the site it means a page downloads the components it shows and no others.
+
+It is type checked against the component's own props. When the object's
+fields are the props, nothing else is needed. For a component that was not
+written for the schema - one from a design system, say - add a `props`
+function, which is then required and whose result is checked instead:
+
+```ts
+export const note = s
+  .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+  .component(() => import("../components/Callout"), {
+    props: (note) => ({
+      heading: note.title,
+      tone: note.urgent ? "warning" : "info",
+    }),
+  });
+```
+
+`props` is given the value as `useVal` returns it, so a string it passes on
+unchanged can still be clicked to edit, and one it transforms cannot.
+
+A component that types its props from its schema must read them from the
+FIELDS (`t.inferSchema<typeof heroFields>`), not from the linked schema: that
+one's type depends on the component's, and TypeScript will not resolve the
+circle.
+
+### Rendering: `ValComponentEditor`
+
+```tsx
+import { ValComponentEditor } from "@valbuild/tanstack";
+
+function Landing() {
+  const page = useValRoute(pageVal, {});
+  return <ValComponentEditor value={page.sections} />;
+}
+```
+
+Each object is rendered by the component its own schema links it to, so there
+is no `type` to component map to keep. It takes a list or a single object,
+and only ones that are linked: a list with a variant that has no component,
+or an object that never had one, is a type error.
+
+It is optional. The same content can be rendered by hand with a `map` and a
+`switch`, and a page can use it for one list and not for the rest of what it
+shows. A component can use it too, for a list of components of its own.
+
+In Val Studio, on the page itself, a list rendered this way can be arranged:
+drag a section to another place, add one between two others, remove one.
+
+Render the value where it was read. The component rides on the value, and a
+value passed through a serializing boundary (loader data, a server function's
+result) arrives without it.
+
+### A preview route
+
+A linked object can also be rendered on its own, by your app, at
+`/val-preview?p=<source path>` - with `&example=1`, from its `example`. Val
+Studio does not load it yet: it is there for a component view that is still
+to come. To have it, add the route outside the layout that holds
+`ValProvider`:
+
+```tsx
+// src/val/server.ts
+export const fetchValPreviewSource = (sourcePath: string) =>
+  unstable_fetchValPreviewSource({ valModules, fetchVal, sourcePath });
+
+// src/routes/val-preview.tsx
+const getPreviewSource = createServerFn()
+  .validator((sourcePath: string) => sourcePath)
+  .handler(({ data }) => fetchValPreviewSource(data));
+
+export const Route = createFileRoute("/val-preview")({
+  ssr: false,
+  validateSearch: (search: Record<string, unknown>) => ({
+    p: String(search.p ?? ""),
+    example: search.example === undefined ? undefined : String(search.example),
+  }),
+  loaderDeps: ({ search }) => ({ p: search.p }),
+  loader: ({ deps }) => getPreviewSource({ data: deps.p }),
+  component: () => (
+    <ValPreviewBridge>
+      <Unstable_ValComponentPreview
+        valModules={valModules}
+        source={Route.useLoaderData()}
+        example={Route.useSearch().example === "1"}
+      />
+    </ValPreviewBridge>
+  ),
+});
+```
+
+`examples/tanstack/src/routes/val-preview.tsx` is a working copy.
 
 ## Content analytics
 

@@ -29,6 +29,20 @@ type Cookies = {
 };
 type Headers = { get(name: string): string | null };
 
+/**
+ * The runtime a reader reads the draft through, asked for when a read first
+ * needs it (`createValRuntime`). A function rather than a promise, so that
+ * building the readers does not build the runtime: the runtime is the data
+ * layer, and a visitor -- draft mode off -- never needs it. A caller that
+ * already has one passes `() => runtime`; it is asked at most once a read.
+ *
+ * The frameworks' getter keeps the runtime once it is made (`settledOnce`),
+ * never the promise of it: the readers are made once per process, and a
+ * promise made in one request and awaited in another is what workerd fails a
+ * request for (see `SettledCache` in `@valbuild/shared/internal`).
+ */
+export type ReaderRuntime = () => Promise<ValRuntime>;
+
 /** One module {@link readDraftChanges} read: what a reader's `reads` record. */
 export type DraftModuleRead = {
   path: ModuleFilePath;
@@ -58,7 +72,7 @@ const PASS: ModuleRead & EntryRead = { status: "pass" };
  * that fails to render is an outage.
  */
 export async function readDraftChanges(opts: {
-  runtime: Promise<ValRuntime>;
+  runtime: ReaderRuntime;
   isEnabled: () => Promise<boolean>;
   getCookies: () => Promise<Cookies>;
 }): Promise<{
@@ -73,7 +87,7 @@ export async function readDraftChanges(opts: {
     // Possibly absent: a local `fs` server answers without one. The runtime
     // decides, as the API does.
     const session = (await opts.getCookies()).get(VAL_SESSION_COOKIE)?.value;
-    const runtime = await opts.runtime;
+    const runtime = await opts.runtime();
     if (!runtime.authorize(session)) {
       return null;
     }
@@ -140,7 +154,7 @@ type Loading<T> =
  * `modules: false` (the single-entry readers): every module passes.
  */
 export function serverDraftSource(opts: {
-  runtime: Promise<ValRuntime>;
+  runtime: ReaderRuntime;
   session: string | undefined;
   modules: boolean;
 }): ContentSource {
@@ -153,7 +167,7 @@ export function serverDraftSource(opts: {
    */
   let allowed: Promise<Pinned | null> | null = null;
   const runtime = (): Promise<Pinned | null> => {
-    allowed ??= opts.runtime.then(
+    allowed ??= opts.runtime().then(
       async (runtime) => {
         if (!runtime.authorize(opts.session)) return null;
         const synced = await runtime.ops.head.sync();
@@ -292,7 +306,7 @@ async function readEntry(
  * gets; without it (the single-entry readers) they stay quiet, as they were.
  */
 export async function draftForRequest(opts: {
-  runtime: Promise<ValRuntime>;
+  runtime: ReaderRuntime;
   isEnabled: () => Promise<boolean>;
   getCookies: () => Promise<Cookies>;
   /**

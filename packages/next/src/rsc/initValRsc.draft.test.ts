@@ -104,7 +104,7 @@ test("outside draft mode it reads nothing and gives no draft", async () => {
   const readCookies = jest.fn(cookies(undefined));
   const before = headWork().seqReads;
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => false,
     getCookies: readCookies,
   });
@@ -118,7 +118,7 @@ test("in draft mode, the draft holds the modules it changes, with their versions
   const { runtime, edit } = await runtimeOf({ authenticated: true });
   await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("session"),
   });
@@ -143,7 +143,7 @@ test("a second read, with nothing moved, reads no chain", async () => {
   const { runtime, edit } = await runtimeOf({ authenticated: true });
   await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("session"),
   });
@@ -158,7 +158,7 @@ test("a session the server refuses is the published page, not an error", async (
   const { runtime, edit } = await runtimeOf({ authenticated: false });
   await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("stale"),
   });
@@ -169,7 +169,7 @@ test("a runtime that fails is the published page, not a page that fails", async 
   const error = jest.spyOn(console, "error").mockImplementation(() => {});
   try {
     const fetchValDraft = initFetchValDraft({
-      runtime: Promise.reject(new Error("boom")),
+      runtime: () => Promise.reject(new Error("boom")),
       isEnabled: async () => true,
       getCookies: cookies("session"),
     });
@@ -185,7 +185,7 @@ test("outside a request (draftMode() throws) it is the published page", async ()
   const before = headWork().seqReads;
   try {
     const fetchValDraft = initFetchValDraft({
-      runtime,
+      runtime: () => runtime,
       isEnabled: async () => {
         throw new Error("`draftMode` was called outside a request scope.");
       },
@@ -204,7 +204,7 @@ test("a `.jsonValues()` module has the entries the draft edits, and markers for 
     { op: "replace", path: ["edited-entry", "title"], value: "DRAFT" },
   ]);
   const fetchValDraft = initFetchValDraft({
-    runtime,
+    runtime: () => runtime,
     isEnabled: async () => true,
     getCookies: cookies("session"),
   });

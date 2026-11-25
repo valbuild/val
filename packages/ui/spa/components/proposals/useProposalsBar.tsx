@@ -9,7 +9,10 @@ import {
 } from "react";
 import type { SourcePath } from "@valbuild/core";
 import type { TopBarProposals } from "../shell/TopBar";
-import { useSettledProjectSeq } from "../shell/canvas/useServedBuild";
+import {
+  SEQ_SETTLE_MS,
+  useSettledProjectSeq,
+} from "../shell/canvas/useServedBuild";
 import {
   useCurrentAuthorId,
   useCurrentProposal,
@@ -586,7 +589,9 @@ export function useProposalsBar({
    * "Quick preview") for everyone in it, not only for whoever made the
    * change. Once per burst of saves (`useSettledProjectSeq`).
    */
-  const seq = useSettledProjectSeq();
+  // Followed only in a proposal: outside one nothing is re-read, and `seq`
+  // moves with every field write, which would render the shell for each.
+  const seq = useSettledProjectSeq(SEQ_SETTLE_MS, inAProposal);
   const seqSeen = useRef(seq);
   useEffect(() => {
     if (seq === seqSeen.current) return;

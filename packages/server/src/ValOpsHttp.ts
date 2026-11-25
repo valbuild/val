@@ -1,5 +1,5 @@
+import { proposalJsonEntries } from "./proposalJsonEntries";
 import {
-  proposalJsonEntries,
   layeredSnapshot,
   proposalSnapshot,
   servingBuildOf,
@@ -82,6 +82,7 @@ import {
   type TypeScriptKit,
 } from "./patch/ts/loadTypeScriptKit";
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import { fetchFresh, isCrossRequestError } from "./crossRequest";
 import {
   contentServiceAnswered,
   contentServiceFailureText,
@@ -809,7 +810,7 @@ export class ValOpsHttp extends ValOps {
     const query =
       branch !== undefined ? `?${new URLSearchParams({ branch })}` : "";
     try {
-      const res = await fetch(
+      const res = await fetchFresh(
         `${this.contentUrl}/v1/${this.project}/chain/version${query}`,
         { headers: this.authHeaders },
       );
@@ -979,7 +980,7 @@ export class ValOpsHttp extends ValOps {
   private async mintPublishToken(): Promise<
     { token: string; expiresAt: number } | { error: string; status: number }
   > {
-    const res = await fetch(
+    const res = await fetchFresh(
       `${this.contentUrl}/v1/${this.project}/publish-token`,
       { method: "POST", headers: this.authHeaders },
     );
@@ -1351,7 +1352,7 @@ export class ValOpsHttp extends ValOps {
       writes?.write === "files" && init.body !== undefined
         ? await withStagedModuleSources(init.body)
         : init.body;
-    const res = await fetch(
+    const res = await fetchFresh(
       `${this.contentUrl}/v1/${this.project}/proposals${path}`,
       {
         method: init.method,
@@ -1418,14 +1419,17 @@ export class ValOpsHttp extends ValOps {
       });
     }
     const content = (path: string, init: RequestInit = {}) =>
-      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
-        ...init,
-        headers: {
-          ...this.authHeaders,
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
-          ...(init.body === undefined ? {} : { "Content-Type": json }),
+      fetchFresh(
+        `${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`,
+        {
+          ...init,
+          headers: {
+            ...this.authHeaders,
+            ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+            ...(init.body === undefined ? {} : { "Content-Type": json }),
+          },
         },
-      });
+      );
     const read = await content("/merge-inputs");
     if (!read.ok) {
       return {
@@ -1533,16 +1537,19 @@ export class ValOpsHttp extends ValOps {
   /** Content's proposals API for one proposal, as the person asking. */
   private proposalContent(name: string, profileId: string | null) {
     return (path: string, init: RequestInit = {}) =>
-      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
-        ...init,
-        headers: {
-          ...this.authHeaders,
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
-          ...(init.body === undefined
-            ? {}
-            : { "Content-Type": "application/json" }),
+      fetchFresh(
+        `${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`,
+        {
+          ...init,
+          headers: {
+            ...this.authHeaders,
+            ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+            ...(init.body === undefined
+              ? {}
+              : { "Content-Type": "application/json" }),
+          },
         },
-      });
+      );
   }
 
   /**
@@ -1712,14 +1719,17 @@ export class ValOpsHttp extends ValOps {
       });
     }
     const content = (path: string, init: RequestInit = {}) =>
-      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
-        ...init,
-        headers: {
-          ...this.authHeaders,
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
-          ...(init.body === undefined ? {} : { "Content-Type": json }),
+      fetchFresh(
+        `${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`,
+        {
+          ...init,
+          headers: {
+            ...this.authHeaders,
+            ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+            ...(init.body === undefined ? {} : { "Content-Type": json }),
+          },
         },
-      });
+      );
     const read = await content("/merge-trees");
     if (!read.ok) {
       return {
@@ -1828,7 +1838,7 @@ export class ValOpsHttp extends ValOps {
   }> {
     const json = "application/json";
     const send = async (token: string) =>
-      fetch(`${this.contentUrl}/v1${path}`, {
+      fetchFresh(`${this.contentUrl}/v1${path}`, {
         method: init.method,
         headers: {
           ...VAL_CLIENT_HEADERS,
@@ -1898,7 +1908,7 @@ export class ValOpsHttp extends ValOps {
     | { status: "error"; statusCode: 401 | 500; error: GenericErrorMessage }
   > {
     try {
-      const res = await fetch(
+      const res = await fetchFresh(
         `${this.contentUrl}/v1/${this.project}/presigned-auth-nonce`,
         {
           method: "POST",
@@ -2268,33 +2278,36 @@ export class ValOpsHttp extends ValOps {
       }
     | { status: "error"; error: GenericErrorMessage }
   > {
-    return fetch(`${this.contentUrl}/v1/${this.project}/websocket/nonces`, {
-      method: "POST",
-      body: JSON.stringify({
-        profileId,
-        /*
-         * Omitted when there is no repository, like every other request here.
-         * The content service knows this project's branch -- it is a column on
-         * the project -- and a nonce is scoped to the project and the person,
-         * not to a position in a chain.
-         */
-        ...(() => {
-          const { branch, commit, job } = this.position();
-          return {
-            ...(branch !== undefined ? { branch } : {}),
-            ...(commit !== undefined ? { commitSha: commit } : {}),
-            ...(job !== undefined ? { job } : {}),
-          };
-        })(),
-        // Which build is asking, beside what it says about itself.
-        ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
-        ...(relativeTo !== undefined ? { relativeTo } : {}),
-      }),
-      headers: {
-        ...this.authHeaders,
-        "Content-Type": "application/json",
+    return fetchFresh(
+      `${this.contentUrl}/v1/${this.project}/websocket/nonces`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          profileId,
+          /*
+           * Omitted when there is no repository, like every other request here.
+           * The content service knows this project's branch -- it is a column on
+           * the project -- and a nonce is scoped to the project and the person,
+           * not to a position in a chain.
+           */
+          ...(() => {
+            const { branch, commit, job } = this.position();
+            return {
+              ...(branch !== undefined ? { branch } : {}),
+              ...(commit !== undefined ? { commitSha: commit } : {}),
+              ...(job !== undefined ? { job } : {}),
+            };
+          })(),
+          // Which build is asking, beside what it says about itself.
+          ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
+          ...(relativeTo !== undefined ? { relativeTo } : {}),
+        }),
+        headers: {
+          ...this.authHeaders,
+          "Content-Type": "application/json",
+        },
       },
-    })
+    )
       .then(async (res) => {
         if (res.ok) {
           const json = NonceResponse.safeParse(await res.json());
@@ -2546,7 +2559,7 @@ export class ValOpsHttp extends ValOps {
     }
     const searchParams = new URLSearchParams(params);
     try {
-      const patchesRes = await fetch(
+      const patchesRes = await fetchFresh(
         `${this.contentUrl}/v1/${this.project}/applicable/patches${
           searchParams.size > 0 ? `?${searchParams.toString()}` : ""
         }`,
@@ -2717,6 +2730,25 @@ export class ValOpsHttp extends ValOps {
         ? OrderedPatchesMetadata
         : OrderedPatches;
     } catch (err) {
+      if (isCrossRequestError(err)) {
+        /*
+         * Not the network: workerd refused, at once, a promise or I/O object
+         * of another request, so nothing was asked of the content service.
+         * `fetchFresh` already tried once more. A server failure, then --
+         * never `networkError`, which `/stat` answers as a 503 saying the
+         * service could not be reached.
+         */
+        const details = err instanceof Error ? err.message : String(err);
+        Internal.log.error(`Could not get patches. ${details}`);
+        return {
+          patches: [],
+          error: {
+            message:
+              "Val's server could not load your changes, because of an error in Val itself. Trying again usually works.",
+            details,
+          },
+        };
+      }
       const failure = contentServiceUnreachable(
         contentServiceName(this.contentUrl),
         "load your changes",
@@ -2745,7 +2777,7 @@ export class ValOpsHttp extends ValOps {
     sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
     const baseSha = await this.getBaseSha();
-    return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
+    return fetchFresh(`${this.contentUrl}/v1/${this.project}/patches`, {
       method: "POST",
       headers: {
         ...this.authHeaders,
@@ -2869,7 +2901,7 @@ export class ValOpsHttp extends ValOps {
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const filePath: string = filePathOrRef;
 
-    return fetch(
+    return fetchFresh(
       `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files`,
       {
         method: "POST",
@@ -2995,7 +3027,7 @@ export class ValOpsHttp extends ValOps {
       "body_sha", // We use this for cache invalidation
       Internal.getSHA256Hash(textEncoder.encode(stringifiedFiles)),
     );
-    return fetch(`${this.contentUrl}/v1/${this.project}/files?${params}`, {
+    return fetchFresh(`${this.contentUrl}/v1/${this.project}/files?${params}`, {
       method: "PUT", // Yes, PUT is weird. Weirder to have a body in a GET request.
       headers: {
         ...this.authHeaders,
@@ -3205,7 +3237,7 @@ export class ValOpsHttp extends ValOps {
     params.set("file_path", filePath);
     params.set("remote", remote.toString());
     try {
-      const metadataRes = await fetch(
+      const metadataRes = await fetchFresh(
         `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files?${params}`,
         {
           headers: { ...this.authHeaders, "Content-Type": "application/json" },
@@ -3303,7 +3335,7 @@ export class ValOpsHttp extends ValOps {
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
-    return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
+    return fetchFresh(`${this.contentUrl}/v1/${this.project}/patches`, {
       method: "DELETE",
       headers: {
         ...this.authHeaders,
@@ -3418,7 +3450,7 @@ export class ValOpsHttp extends ValOps {
         proposalName !== undefined
           ? `${this.contentUrl}/v1/${this.project}/proposals/${proposalName}/save`
           : `${this.contentUrl}/v1/${this.project}/commit`;
-      const res = await fetch(commitUrl, {
+      const res = await fetchFresh(commitUrl, {
         method: "POST",
         headers: {
           ...this.authHeaders,
@@ -3566,7 +3598,7 @@ export class ValOpsHttp extends ValOps {
   ): Promise<result.Result<T, HistoryError>> {
     let res: Response;
     try {
-      res = await fetch(`${this.contentUrl}/v1/${this.project}${path}`, {
+      res = await fetchFresh(`${this.contentUrl}/v1/${this.project}${path}`, {
         headers: { ...this.authHeaders, "Content-Type": "application/json" },
       });
     } catch (err) {
@@ -3761,7 +3793,7 @@ export class ValOpsHttp extends ValOps {
     }
     let res: Response;
     try {
-      res = await fetch(
+      res = await fetchFresh(
         `${this.contentUrl}/v1/${this.project}/commits/${commitSha}/file?${params}`,
         { headers: { ...this.authHeaders } },
       );

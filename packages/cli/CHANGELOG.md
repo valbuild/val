@@ -1,5 +1,39 @@
 # @valbuild/cli
 
+## 0.154.4
+
+### Patch Changes
+
+- [#1092](https://github.com/valbuild/val/pull/1092) [`ff5475e`](https://github.com/valbuild/val/commit/ff5475e35978dbd8ddcfa6ae8dc15a4cbddc5a60) Thanks [@freekh](https://github.com/freekh)! - **`val <command> --help` shows help instead of running the command.** `val publish --help` used to start a publish, and `val validate --version` ran a validation: `--help` and `--version` only worked when nothing else was on the line. Now `--help` / `-h` anywhere prints help and runs nothing, and after a command it prints that command's help alone. `--version` / `-v` prints the CLI's version the same way, and `val help <command>` works too. `val -h` and `val -v` used to print the full help and exit with an error; they now do what they say. An unknown command now exits with an error code too, so a typo in a CI step fails it.
+- Updated dependencies [[`0d7071a`](https://github.com/valbuild/val/commit/0d7071ac44af3d392a9a02c035aa9beb79e245a6)]:
+  - @valbuild/shared@0.154.4
+  - @valbuild/server@0.154.4
+  - @valbuild/language-server@0.154.4
+
+## 0.154.3
+
+### Patch Changes
+
+- [#1089](https://github.com/valbuild/val/pull/1089) [`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51) Thanks [@freekh](https://github.com/freekh)! - **`val publish` no longer puts Val's Studio inside a hosted site's server code.** The build target Val's hosting sends says whether the platform serves the Studio's files itself (`buildAssets`), but `val publish` dropped that field while reading it, so every layer it built carried the whole Studio: about 80 MB of a hosted isolate's 128 MB, enough that the site was started again on nearly every request and took seconds to answer. Val's hosting now refuses such a layer, so publishing from the CLI failed with "carries Val's Studio inside its server code". With this release the layer is built without the Studio, the platform serves its files, and the site's isolate stays warm.
+
+  A field the hosting adds to the build target and the CLI does not read is now a compile error in Val itself, so this cannot happen silently again.
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/language-server@0.154.3
+  - @valbuild/server@0.154.3
+
+## 0.154.2
+
+### Patch Changes
+
+- Updated dependencies [[`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`180b6b7`](https://github.com/valbuild/val/commit/180b6b7513226009e7eb6a768282d70685ccf436)]:
+  - @valbuild/server@0.154.2
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/tanstack-build@0.154.2
+  - @valbuild/language-server@0.154.2
+
 ## 0.154.1
 
 ### Patch Changes

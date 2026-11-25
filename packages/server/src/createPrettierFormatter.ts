@@ -1,4 +1,5 @@
 import path from "path";
+import { keptOnce } from "@valbuild/shared/internal";
 
 /**
  * What Val calls to format a file it has just written.
@@ -53,6 +54,17 @@ export type PrettierLike = {
 };
 
 /**
+ * `prettier`, loaded when the first file is formatted: `() => import("prettier")`.
+ *
+ * What an app's `val.server.ts` should pass. That module is imported by every
+ * page (it holds the readers too), so a static `import prettier from
+ * "prettier"` there makes every cold start of the site evaluate prettier --
+ * for a formatter that only runs when an editor saves. The loader is called at
+ * most once.
+ */
+export type PrettierLoader = () => Promise<PrettierLike>;
+
+/**
  * Resolve a path Val handed us against the project.
  *
  * Val's writers pass a project-relative path (`/content/page.val.ts`), and
@@ -85,14 +97,19 @@ function resolveAgainstProject(projectRoot: string, filePath: string): string {
  * job in any repo that checks formatting in CI.
  *
  * ```ts
- * import prettier from "prettier";
  * import { createPrettierFormatter } from "@valbuild/next/server";
  *
  * initValServer(valModules, config, {
  *   draftMode,
- *   formatter: createPrettierFormatter(prettier, { projectRoot: process.cwd() }),
+ *   formatter: createPrettierFormatter(() => import("prettier"), {
+ *     projectRoot: process.cwd(),
+ *   }),
  * });
  * ```
+ *
+ * `prettier` itself is accepted too (`createPrettierFormatter(prettier, …)`),
+ * for a caller that has it loaded anyway, like the CLI; a server should pass
+ * the loader ({@link PrettierLoader}).
  *
  * `projectRoot` is what a project-relative path is resolved against, and is
  * therefore also where `.prettierignore` is looked for. Prettier's own config
@@ -110,15 +127,24 @@ function resolveAgainstProject(projectRoot: string, filePath: string): string {
  *   without a config has asked for.
  */
 export function createPrettierFormatter(
-  prettier: PrettierLike,
+  prettierOrLoader: PrettierLike | PrettierLoader,
   options: { projectRoot: string },
 ): ValFormatter {
+  // Kept once it is loaded -- prettier, never the promise of it: a server on
+  // a workerd isolate shares this closure between requests, and a promise
+  // made by a request that has ended fails every other request awaiting it.
+  // One that fails is loaded again by the next save.
+  const loadPrettier: () => Promise<PrettierLike> =
+    typeof prettierOrLoader === "function"
+      ? keptOnce(prettierOrLoader)
+      : () => Promise.resolve(prettierOrLoader);
   const projectRoot = path.resolve(options.projectRoot);
   // One array, built once: prettier reads and caches the ignore file itself, so
   // this is only here to avoid rebuilding the path per file.
   const ignorePath = [path.join(projectRoot, ".prettierignore")];
   return async (code: string, filePath: string): Promise<string> => {
     const absoluteFilePath = resolveAgainstProject(projectRoot, filePath);
+    const prettier = await loadPrettier();
     const { ignored } = await prettier.getFileInfo(absoluteFilePath, {
       ignorePath,
     });

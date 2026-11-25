@@ -468,6 +468,14 @@ export default c.define("/page.val.ts", s.object({ title: s.string() }), {
 `,
   ],
   ["content/faq.val.json", `{ "title": "FAQ", "body": "Body" }`],
+  [
+    // What `.component(() => import(...))` points at. Core knows no React, so a plain function will do.
+    "HeroSection.ts",
+    `export default function HeroSection(props: { title: string }) {
+  return props.title;
+}
+`,
+  ],
 ];
 
 const DOCUMENTED_FILES = [

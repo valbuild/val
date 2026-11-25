@@ -172,3 +172,69 @@ describe("the event that carries the last transition", () => {
     system.dispose();
   });
 });
+
+/**
+ * Waiting for it, for something that acts on the chain: "Check everything"
+ * names the patches this Studio shows, and named none when it was pressed in
+ * the moment after a load, before they had arrived.
+ */
+describe("whenChainSettled", () => {
+  it("answers at once when the chain is settled already", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+    await expect(system.patchStore.whenChainSettled()).resolves.toBe(true);
+    system.dispose();
+  });
+
+  it("answers once the pending change has loaded and is applied, and not before", async () => {
+    let release = () => undefined as void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const system = createSystem({
+      fetchPatches: async (patchIds) => {
+        await gate;
+        return {
+          patches: patchIds.map((patchId) =>
+            externalPatch(patchId, "/t.val.ts", [
+              { op: "replace", path: ["title"], value: "from the server" },
+            ]),
+          ),
+        };
+      },
+    });
+    system.host.receive([module()]);
+    // Asked before the first stat: nothing is known yet.
+    let answer: boolean | null = null;
+    const waiting = system.patchStore.whenChainSettled().then((settled) => {
+      answer = settled;
+    });
+    system.stat.receiveStat({ patches: ["p1" as PatchId], baseSha: "sha" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(answer).toBeNull();
+
+    release();
+    await waiting;
+    expect(answer).toBe(true);
+    // What the wait was for: the chain names the change by the time it ends.
+    expect(
+      system.patchStore.chainRecords().map((record) => record.patchId),
+    ).toEqual(["p1"]);
+    system.dispose();
+  });
+
+  it("answers false when it is given up on first", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
+    system.host.receive([module()]);
+    const giveUp = new AbortController();
+    const waiting = system.patchStore.whenChainSettled(giveUp.signal);
+    giveUp.abort();
+    await expect(waiting).resolves.toBe(false);
+    system.dispose();
+  });
+});

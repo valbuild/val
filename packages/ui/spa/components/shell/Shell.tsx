@@ -3,6 +3,7 @@ import {
   Fragment,
   ReactNode,
   SetStateAction,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -38,12 +39,24 @@ import {
   canvasShowsEditedContent,
 } from "./canvasPageScope";
 import {
-  GlobalSearch,
   SearchResult,
   collectSearchResults,
   useGlobalSearchShortcut,
 } from "./GlobalSearch";
-import { LeftRail } from "./LeftRail";
+import { sameFields, useKept } from "../../stores/react/useStoreValue";
+import {
+  LiveActivitySheet,
+  LiveChangesSheet,
+  LiveGlobalSearch,
+  LiveLeftRail,
+  LivePublishButton,
+  LiveStatusBar,
+  LiveStudioTour,
+  LiveTopBar,
+  LiveUtilityPanel,
+  ShellLiveProvider,
+  type ShellLive,
+} from "./ShellLive";
 import { MediaPanel } from "./MediaPanel";
 import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { ProjectSwitcher } from "./ProjectSwitcher";
@@ -54,20 +67,16 @@ import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
 import { NotificationsPanel } from "./NotificationsPanel";
-import { ActivitySheet } from "./ActivitySheet";
-import { ChangesSheet } from "./ChangesSheet";
 import { ProposalSheet } from "../proposals/ProposalSheet";
 import { PagesPanel } from "./PagesPanel";
 import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
-import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
+import { SaveState, StatusBarProps } from "./StatusBar";
 import {
   ProjectName,
-  PublishButton,
   PublishState,
   PublishPlaceholder,
-  TopBar,
   type TopBarProposals,
   type TopBarSketchpad,
 } from "./TopBar";
@@ -79,14 +88,13 @@ import {
   ProposalSaveButton,
   nextProposalAction,
 } from "../proposals/ProposalBar";
-import { UtilityPanel } from "./UtilityPanel";
 import {
   FloatingNotices,
   FoldedNoticeChip,
   type FloatingNoticeItem,
 } from "./FloatingNotices";
 import { availableDestinations } from "./shellDataMapping";
-import { StudioTour, TourActions, TourObserved } from "./StudioTour";
+import { TourActions, TourObserved } from "./StudioTour";
 import {
   readTourCompleted,
   studioTourSteps,
@@ -175,9 +183,6 @@ export type ShellSelection = {
   /** True when Val resolves this route and can therefore put it on a canvas. */
   isTracked?: boolean;
 };
-
-/** How many recent changes the search offers. See `recentSearchResults`. */
-const RECENT_SEARCH_LIMIT = 5;
 
 export type ShellProps = {
   data: ShellData;
@@ -696,7 +701,75 @@ export type ShellProps = {
  */
 const NO_FLOATING_NOTICES: FloatingNoticeItem[] = [];
 
+/** The props that move with a field write, and go to `ShellLive`. */
+type ShellLiveProps =
+  | "saveState"
+  | "onRetrySave"
+  | "pendingChanges"
+  | "reviewCount"
+  | "onDiscardAll"
+  | "discardAllDescription";
+
+/**
+ * The shell, as the app and the stories render it.
+ *
+ * Only a split: the props a field write moves go into `ShellLive`'s store,
+ * with `data.activity`, and everything else goes to {@link ShellFrame},
+ * which is a `memo`. So a write renders this function and the few components
+ * that show what it moved, and not the frame. See `ShellLive.tsx`.
+ */
 export function Shell({
+  saveState = "saved",
+  onRetrySave,
+  pendingChanges = 12,
+  reviewCount,
+  onDiscardAll,
+  discardAllDescription,
+  data,
+  ...frame
+}: ShellProps) {
+  const { activity, pendingChanges: _pendingChanges, ...rest } = data;
+  void _pendingChanges;
+  // The data without what moves per write: the same object while every part
+  // of it is the one it was, so the frame sees no new prop.
+  const frameData = useKept<ShellData>(rest, sameFields);
+  const live = useMemo<ShellLive>(
+    () => ({
+      saveState,
+      onRetrySave,
+      pendingChanges,
+      reviewCount,
+      onDiscardAll,
+      discardAllDescription,
+      activity,
+    }),
+    [
+      saveState,
+      onRetrySave,
+      pendingChanges,
+      reviewCount,
+      onDiscardAll,
+      discardAllDescription,
+      activity,
+    ],
+  );
+  return (
+    <ShellLiveProvider value={live}>
+      <ShellFrame {...frame} data={frameData} />
+    </ShellLiveProvider>
+  );
+}
+
+/**
+ * Everything of the shell that a field write does not move.
+ *
+ * A `memo`, and it has to stay one that holds: a prop here that is a new
+ * value for each write -- a count, a list rebuilt from the patches, a
+ * callback made in a component that renders per write -- renders the whole
+ * Studio for it. What a write moves is read where it is shown, from
+ * `ShellLive`.
+ */
+const ShellFrame = memo(function ShellFrame({
   data,
   initialPanel = null,
   initialSelectionId = null,
@@ -715,15 +788,11 @@ export function Shell({
   themeStyle,
   onThemeChange,
   mode,
-  saveState = "saved",
-  onRetrySave,
   autoSave = false,
   onAutoSaveChange,
   selectMode,
   onSelectModeChange,
   isDevMode = true,
-  pendingChanges = 12,
-  reviewCount,
   publishState = "idle",
   publishIndicator,
   isLoading = false,
@@ -795,8 +864,6 @@ export function Shell({
   onRenamePage,
   onUploadMedia,
   onCompare,
-  onDiscardAll,
-  discardAllDescription,
   portalContainer,
   getMediaFileUrl,
   searchContentResults,
@@ -804,7 +871,7 @@ export function Shell({
   searchContentLoad,
   onSearchQueryChange,
   onOpenSearchResult,
-}: ShellProps) {
+}: Omit<ShellProps, ShellLiveProps>) {
   const breakpoint = useShellBreakpoint();
   const breakpointRef = useRef(breakpoint);
   breakpointRef.current = breakpoint;
@@ -1079,34 +1146,6 @@ export function Shell({
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
-  /**
-   * The last few things that changed, as search rows.
-   *
-   * From the activity feed, which is the patch sets — already newest first and
-   * already grouped by the thing that changed. Five, because this is a "take me
-   * back" list rather than a history: past that it stops being a shortcut and
-   * starts being something to read.
-   *
-   * Changes only: the feed also carries publishes, and a search result is a
-   * thing to open. Filtered BEFORE the slice, so a busy publishing afternoon
-   * does not leave the recent list short.
-   */
-  const recentSearchResults = useMemo(
-    (): SearchResult[] =>
-      (data.activity ?? [])
-        .filter((entry) => entry.kind === "change")
-        .slice(0, RECENT_SEARCH_LIMIT)
-        .map((entry) => ({
-          id: entry.sourcePath,
-          kind: "recent",
-          label: entry.title,
-          detail: entry.author
-            ? `${entry.timestamp} · ${entry.author}`
-            : entry.timestamp,
-        })),
-    [data.activity],
-  );
-
   /** See `availableDestinations`. */
   const destinations = useMemo(
     () => availableDestinations(data, isLoading),
@@ -1155,14 +1194,13 @@ export function Shell({
     onTourClose?.();
   }, [onTourClose]);
   /** What a step that moves on by itself watches. See `TourObserved`. */
-  const tourObserved = useMemo<TourObserved>(
+  const tourObserved = useMemo<Omit<TourObserved, "reviewCount">>(
     () => ({
       selectedPath: selectedCanvasPath ?? null,
-      reviewCount: reviewCount ?? 0,
       openPanel,
       locale: locale ?? null,
     }),
-    [selectedCanvasPath, reviewCount, openPanel, locale],
+    [selectedCanvasPath, openPanel, locale],
   );
   /** "Do it for me": the same calls the visitor's own clicks make. */
   const tourActions = useMemo<TourActions>(
@@ -1699,8 +1737,7 @@ export function Shell({
       <PublishPlaceholder className="h-8" />
     ) : (
       (publishSlot ?? (
-        <PublishButton
-          pendingChanges={pendingChanges}
+        <LivePublishButton
           onPublish={onPublish ?? (() => undefined)}
           publishState={
             publishState === "idle" && validationErrorCount > 0
@@ -2170,12 +2207,11 @@ export function Shell({
         ))}
 
         {breakpoint === "desktop" && (
-          <LeftRail
+          <LiveLeftRail
             openPanel={openPanel}
             onSelect={togglePanel}
             destinations={destinations}
             user={data.user}
-            hasDraftChanges={pendingChanges > 0}
             accountError={accountError}
             logo={data.logo}
             isLoading={isLoading}
@@ -2184,7 +2220,7 @@ export function Shell({
 
         {/* Full screen on a phone is the pane without the bars around it. */}
         {!phoneFullScreen && (
-          <TopBar
+          <LiveTopBar
             breakpoint={breakpoint}
             projectName={data.projectName}
             projectHref={data.admin?.project}
@@ -2253,9 +2289,7 @@ export function Shell({
             accountDot={activityCount > 0}
             onPublish={onPublish ?? (() => undefined)}
             publishSlot={publishSlot}
-            pendingChanges={pendingChanges}
             onCompare={onCompare}
-            reviewCount={reviewCount ?? pendingChanges}
             publishState={
               publishState === "idle" && validationErrorCount > 0
                 ? "blocked"
@@ -2273,10 +2307,8 @@ export function Shell({
             attention={activityCount > 0}
           />
         ) : (
-          <StatusBar
+          <LiveStatusBar
             breakpoint={breakpoint}
-            saveState={saveState}
-            onRetrySave={onRetrySave}
             mode={mode}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
@@ -2486,9 +2518,8 @@ export function Shell({
         )}
 
         {openPanel === "utility" && (
-          <UtilityPanel
+          <LiveUtilityPanel
             breakpoint={breakpoint}
-            activity={data.activity}
             validationErrors={data.validationErrors}
             onSelectValidationError={
               onSelectValidationError ?? (() => undefined)
@@ -2502,14 +2533,10 @@ export function Shell({
             destinations={destinations}
             onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
             onCompare={onCompare}
-            reviewCount={reviewCount ?? pendingChanges}
             // The tour's permanent home, whatever the project's setting says —
             // but not until the destinations it is built from are the real ones.
             onStartTour={canStartTour ? startTour : undefined}
-            onDiscardAll={onDiscardAll}
-            discardAllDescription={discardAllDescription}
             portalContainer={portalContainer}
-            pendingChanges={pendingChanges}
             onSelectActivity={onSelectActivity ?? (() => undefined)}
             onClose={closePanel}
           />
@@ -2584,7 +2611,7 @@ export function Shell({
 
         {openPanel === "notifications" &&
           (breakpoint === "mobile" ? (
-            <ActivitySheet
+            <LiveActivitySheet
               breakpoint={breakpoint}
               notifications={
                 data.notifications === undefined ? undefined : notifications
@@ -2596,7 +2623,6 @@ export function Shell({
                 onSelectValidationError ?? (() => undefined)
               }
               onOpenValidate={onOpenValidate}
-              activity={data.activity}
               onSelectActivity={onSelectActivity ?? (() => undefined)}
               onOpenHistory={historyEnabled ? onOpenHistory : undefined}
               onClose={closePanel}
@@ -2620,14 +2646,10 @@ export function Shell({
         )}
 
         {openPanel === "changes" && (
-          <ChangesSheet
+          <LiveChangesSheet
             breakpoint={breakpoint}
             proposals={proposals}
             onCompare={onCompare}
-            reviewCount={reviewCount ?? pendingChanges}
-            pendingChanges={pendingChanges}
-            onDiscardAll={onDiscardAll}
-            discardAllDescription={discardAllDescription}
             portalContainer={portalContainer}
             onClose={closePanel}
           />
@@ -2641,7 +2663,7 @@ export function Shell({
         {!isTourOpen && renderDemoBanner?.(startTour)}
 
         {isTourOpen && (
-          <StudioTour
+          <LiveStudioTour
             steps={tourRun?.steps ?? tourSteps}
             onFinish={tourRun?.onFinish}
             onClose={closeTour}
@@ -2654,10 +2676,9 @@ export function Shell({
         )}
 
         {isSearchOpen && (
-          <GlobalSearch
+          <LiveGlobalSearch
             results={searchResults}
             contentResults={searchContentResults}
-            recentResults={recentSearchResults}
             isSearchingContent={isSearchingContent}
             contentLoad={searchContentLoad}
             onQueryChange={onSearchQueryChange}
@@ -2671,7 +2692,7 @@ export function Shell({
       </div>
     </ShellPanelProvider>
   );
-}
+});
 
 /**
  * One page row as a selection, or null when the row cannot be opened.

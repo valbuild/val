@@ -9,6 +9,8 @@ export * from "./valClientHeader";
 export * from "./schema/compatibility";
 export * from "./newestCommitSha";
 export * from "./chainHead";
+// Caches on the serving path keep values, never promises: see the file.
+export * from "./settled";
 // What a module's content and a project answer ARE: see
 // `docs/plans/one-content-model.md`, "A version, per module".
 export * from "./content/version";

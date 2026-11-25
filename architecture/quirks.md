@@ -96,6 +96,33 @@ user's file. Studio media edits are per-property for the same reason.
 
 ## React in the Studio
 
+**A hook that reads a version number renders its caller for every field
+write, whatever it then does with it.** The pattern is
+`useSyncExternalStore(subscribe, () => store.chainVersion())` with the answer
+derived in a `useMemo` on that number. The memo makes the ANSWER stable; it
+cannot stop the render, because the snapshot is the number and the number
+moved. Called in a leaf that is nothing. Called in `ValShellBody`, which
+builds the props of the whole Studio, it was every component on screen, and a
+dozen such hooks plus an object-literal context value made one write nine
+renders of about 1,500 components (`docs/plans/studio-write-lag.md`). So the
+derivation goes IN the snapshot, kept while it says the same: `useStoreValue`
+(`stores/react/useStoreValue.ts`). And what a write does move is read where it
+is shown, not in the shell. The symptom is typing that freezes a quarter
+second after each pause; `e2e/measure/studioWriteRenders.measure.ts` names
+which component woke and which hook of it moved.
+
+**The patch chain is announced BEFORE the patch is applied to source.**
+`PatchStore.createPatch` bumps the chain (`patch:chain`) and only then emits
+`patch:create`, which is what makes `SourceStore` apply it. So a listener on
+`patch:chain` that reads SOURCE in the event -- which is where
+`useSyncExternalStore` reads its snapshot -- sees the source from before the
+write, decides nothing moved, and is never asked again. A hook that derived
+from the chain's version in a render did not have this problem, because the
+render came after both. Reading source for a chain event means also hearing
+`source:change` (`useChangesToReview`'s `useChainAndSources`), or looking again
+once the write has finished (`useRetainedCanvasPaths`), or reading late
+(`useLateStoreValue`).
+
 **A `var()` inside a custom property is substituted where the property is
 DECLARED, not where it is used.** This is CSS, not React, and it is the trap
 that shipped a half-themed Studio. `index.css` says
@@ -1611,6 +1638,25 @@ layouts passed `draft` (and fails on Next without it).
 
 ## TanStack Start
 
+**`examples/tanstack`'s production server answering every page with
+`TypeError: ZodEnum is not a constructor` (a 500) is rolldown's chunk merging,
+not zod.** The readers and `initValServer` load Val's server with a dynamic
+`import()` (it is tens of megabytes a visitor's page never needs; see
+`servingPath.test.ts`), so the modules of `@valbuild/shared/internal` are
+needed both at startup and by those lazy chunks. This repository bundles
+Val's SOURCE, where that entry is dozens of modules, and rolldown's
+`mergeCommonChunks` moved some of them -- `publish/protocol.ts`, which calls
+`z.enum` at its top level -- into a lazy chunk that the startup chunk then
+imports in a cycle: the lazy chunk ran first, before zod in the other one.
+The server came in eagerly as well, undoing the laziness. The example turns
+`build.rolldownOptions.experimental.chunkOptimization` off for that reason.
+An app that installs Val from npm is not affected: each entry is one
+prebuilt file, which no bundler can split across chunks, and its default
+build was measured working and lazy (`scenarios/measure/coldStart.ts`).
+`vite dev` does not chunk at all, so the e2e suite cannot see this; run the
+built server (`node -e` importing `dist/server/server.js` and calling its
+`fetch`) to.
+
 **`AbortError: This operation was aborted … status: 500, unhandled: true` on
 the dev server's console is a browser leaving, not a failure, and it is not
 Val's.** TanStack Start's handler (`createStartHandler` in
@@ -1757,6 +1803,28 @@ row being typed in was gone. `examples/tanstack/vite.config.ts` lists them in
 back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
 see it. An app that installs Val from npm is not affected:
 `@valbuild/tanstack` is pre-bundled there, with what it imports lazily.
+
+**"This promise was created by a request that has since ended, so it can
+never settle" is a promise Val KEPT between requests.** On Val's hosting a
+site runs in a workerd isolate, which serves many requests from one module
+scope, and a promise there belongs to the request that made it. The readers
+(`initValContent`), the runtime, its head and the bundle's entry imports all
+live as long as the isolate, so a cache that kept a PENDING promise -- the
+runtime, the head's chain fetch, an entry's `import()` -- handed it to the
+next request, and when the request that made it had ended (the visitor left a
+slow page) that request failed at once. Nothing in Node shows it: there a
+promise is everybody's. So a cache on the serving path keeps what a load
+settled to, and lets concurrent first callers each load: `SettledCache` and
+`settledOnce` in `@valbuild/shared/internal`. A load under way is shared only
+within one `scope` -- a read env, which is one request's `fetchVal` or one
+component's renders -- never by the process.
+`initValContent.crossRequest.test.ts` plays the isolate's rule at the edges
+(the request context, the entry imports, the patch store) against the real
+readers, and `crossRequestRoutes.test.ts` against the API (`/stat`). Such a
+refusal comes back in a millisecond or two with nothing sent, so it is not
+the network: `fetchFresh` makes a refused read once more, and
+`isCrossRequestError` keeps it from being reported as `networkError` -- which
+`/stat` answers as a 503 saying the content service could not be reached.
 
 ## fs mode refuses requests that are not the Studio's own
 
