@@ -37,13 +37,8 @@ import {
   ThemeSettingsFields,
   ThemeSettingsValue,
 } from "../SettingsPanel";
+import { LogsInPreviewsPlace, type LogsTarget } from "../Logs";
 import { AppWindow, Sparkles } from "lucide-react";
-import {
-  LOGS_TAB_ICON,
-  LogsElement,
-  LogsInPreviewsPlace,
-  type LogsTarget,
-} from "../Logs";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_RADIUS_LENGTHS,
@@ -225,10 +220,11 @@ export default meta;
 type HarnessProps = {
   openPanel: ShellPanel | null;
   /**
-   * A site Val Build hosts: Settings opens on its Logs tab, and `open` shows
-   * the whole page in the preview's place, as Open logs does.
+   * A site Val Build hosts: the account panel has Logs, and `open` shows the
+   * page as Logs opens it -- in the preview's place, or over the Studio on a
+   * phone. `<val-logs>` is Val Build's; without it, its link there.
    */
-  logs?: "settings" | "open";
+  logs?: "account" | "open";
   selectionId: string | null;
   empty: boolean;
   /**
@@ -328,7 +324,7 @@ function deploymentsFor(
  * would, because the theme is content and the draft is what the Studio reads.
  * `Shell/SettingsPanel`'s `AppearanceThemed` story shows that half.
  */
-/** Settings › Logs, as `ValSettingsSections` adds it for a hosted site. */
+/** A site Val Build hosts, for the account panel's Logs. */
 const STORY_LOGS: LogsTarget = {
   project: "acme/marketing-site",
   adminHref: "https://admin.val.build/~/acme/marketing-site/logs",
@@ -336,12 +332,7 @@ const STORY_LOGS: LogsTarget = {
   studioMode: "http",
 };
 
-function MockSettingsSections({
-  onOpenLogs,
-}: {
-  /** Present for a hosted site: Settings has a Logs tab, opened first. */
-  onOpenLogs?: () => void;
-}) {
+function MockSettingsSections() {
   const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
     context:
@@ -359,7 +350,6 @@ function MockSettingsSections({
   const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
   return (
     <SettingsTabs
-      initial={onOpenLogs !== undefined ? "logs" : undefined}
       tabs={[
         {
           id: "assistant",
@@ -399,23 +389,6 @@ function MockSettingsSections({
             </>
           ),
         },
-        ...(onOpenLogs !== undefined
-          ? [
-              {
-                id: "logs",
-                label: "Logs",
-                icon: LOGS_TAB_ICON,
-                content: (
-                  <LogsElement
-                    className="block mx-4 pb-6"
-                    layout="summary"
-                    onOpen={onOpenLogs}
-                    {...STORY_LOGS}
-                  />
-                ),
-              },
-            ]
-          : []),
       ]}
     />
   );
@@ -511,11 +484,8 @@ function ShellHarness({
   };
   return (
     <Shell
-      renderSettings={() => (
-        <MockSettingsSections
-          onOpenLogs={logs !== undefined ? () => setLogsOpen(true) : undefined}
-        />
-      )}
+      renderSettings={() => <MockSettingsSections />}
+      onOpenLogs={logs !== undefined ? () => setLogsOpen(true) : undefined}
       logsPage={
         logsOpen ? (
           <LogsInPreviewsPlace
@@ -809,25 +779,25 @@ export const NotificationsOpen: Story = {
 };
 
 /**
- * Settings, at the foot of the rail, on a site Val Build hosts: its Logs tab
- * is a glance at whether the site is failing now, and Open logs. The element
- * is Val Build's (`<val-logs>`); without it, its link to Val Build.
+ * The account panel of a project on Hosted: Logs, under the project's links,
+ * opens the site's requests and errors.
  */
-export const SettingsLogs: Story = {
+export const AccountLogs: Story = {
   args: {
     ...Default.args,
-    openPanel: "settings",
+    openPanel: "account",
     selectionId: mockSelectionIds.home,
-    logs: "settings",
+    mode: "http",
+    logs: "account",
   },
 };
 
-/** After Open logs: the whole page in the preview's place, Settings beside it. */
+/** After Logs: the page in the preview's place; on a phone, over the Studio. */
 export const LogsOpen: Story = {
   args: {
     ...Default.args,
-    openPanel: "settings",
     selectionId: mockSelectionIds.home,
+    mode: "http",
     logs: "open",
   },
 };

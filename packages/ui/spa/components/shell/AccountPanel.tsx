@@ -2,11 +2,13 @@ import { ReactNode } from "react";
 import {
   Bell,
   ArrowUpCircle,
+  ChevronRight,
   Compass,
   ExternalLink,
   LogOut,
   LucideIcon,
   Moon,
+  ScrollText,
   Settings2,
   ShieldAlert,
   Sun,
@@ -61,6 +63,12 @@ export type AccountPanelProps = {
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
+  /**
+   * Opens the hosted site's logs: its requests, what they printed, and its
+   * errors. Absent for a project Val Build does not host, which has none.
+   * See `LogsInPreviewsPlace`.
+   */
+  onOpenLogs?: () => void;
   /**
    * Ends the session. Absent where there is not one.
    *
@@ -126,6 +134,7 @@ export function AccountPanel({
   onAutoSaveChange,
   branch,
   deployments,
+  onOpenLogs,
   onSignOut,
   onStartTour,
   members,
@@ -227,6 +236,24 @@ export function AccountPanel({
                   label="Manage members"
                   description="Who can edit this project's content."
                 />
+              )}
+              {onOpenLogs && (
+                <button
+                  type="button"
+                  onClick={onOpenLogs}
+                  // As wide as the links above it, whose `-mx-2` an anchor
+                  // stretches into and a button does not.
+                  className="flex w-[calc(100%+1rem)] items-start gap-2 -mx-2 px-2 py-1.5 rounded-md text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+                >
+                  <ScrollText size={13} className="mt-0.5 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs text-fg-primary">Logs</span>
+                    <span className="block text-[0.6875rem] text-fg-secondary-alt">
+                      What the site is doing: its requests and errors, live.
+                    </span>
+                  </span>
+                  <ChevronRight size={12} className="mt-0.5 shrink-0" />
+                </button>
               )}
             </div>
           </>

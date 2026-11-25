@@ -9,12 +9,10 @@ import type { ValBuildAccess } from "./useValBuildAccess";
  * `<val-logs>`, a hosted site's requests and what they printed, with live
  * tail, and its errors grouped (valbuild/home, `web-components/src/logs`).
  *
- * Two places, one element:
- *
- * - Settings › Logs, at the foot of the rail: the summary. Whether the site is
- *   failing now, its worst errors, the last few requests, and Open logs.
- * - Open logs: the whole page, in the preview's place (`LogsInPreviewsPlace`),
- *   as History is. The editor stays where it was.
+ * Opened from Logs in the account panel (the avatar at the foot of the rail),
+ * as a page in the preview's place (`LogsInPreviewsPlace`), as History is:
+ * the editor stays where it was. On a phone, which has no preview column, it
+ * covers the Studio.
  *
  * Offered only to a project on Hosted: Val Build sees a site's requests
  * because it serves the site, so on any other plan there is nothing to show.
@@ -63,7 +61,7 @@ export function LogsElement({
 }: LogsTarget & {
   className?: string;
   layout: "summary" | "page";
-  /** The summary's Open logs (`val-open-logs`). */
+  /** `layout="summary"`'s Open logs (`val-open-logs`). */
   onOpen?: () => void;
   /** For tests: the real one adds a `<script>` to the page. */
   loadScript?: (src: string) => Promise<void>;
@@ -100,13 +98,10 @@ export function LogsElement({
   );
 }
 
-/** Settings' Logs tab, as `SettingsTabs` takes one. */
-export const LOGS_TAB_ICON = ScrollText;
-
 /**
  * The whole Logs page where the preview is, with the way back above it, as
- * History is shown. Not a destination of the rail: it is opened from
- * Settings, and closing it puts the preview back.
+ * History is shown. Not a destination of the rail: it is opened from the
+ * account panel, and closing it puts the preview back.
  */
 export function LogsInPreviewsPlace({
   target,
@@ -126,7 +121,7 @@ export function LogsInPreviewsPlace({
           className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
         >
           <X size={14} aria-hidden />
-          Back to the preview
+          Close logs
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float">

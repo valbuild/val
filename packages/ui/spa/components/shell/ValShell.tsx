@@ -510,13 +510,13 @@ const ValShellBody = memo(function ValShellBody({
         );
   /**
    * Whether Val Build serves the site, which is what lets it see the site's
-   * requests: Settings › Logs is offered on Hosted only, since on any other
-   * plan it could only ever say there is nothing to see. In dev too: a
-   * developer working locally on a hosted project is the person most likely
-   * to want to know what the live site is doing.
+   * requests: Logs, in the account panel, is offered on Hosted only, since on
+   * any other plan it could only ever say there is nothing to see. In dev
+   * too: a developer working locally on a hosted project is the person most
+   * likely to want to know what the live site is doing.
    */
   const hosted = studioAccess.access?.limits?.plan === "hosted";
-  /** Settings › Logs' Open logs: the whole page in the preview's place. */
+  /** The account panel's Logs: the whole page in the preview's place. */
   const [logsOpen, setLogsOpen] = useState(false);
   const openLogs = useCallback(() => setLogsOpen(true), []);
   const remoteFilesStatusNotice =
@@ -1846,12 +1846,10 @@ const ValShellBody = memo(function ValShellBody({
           moduleFilePath={settingsModule}
           explainMissingModule={updates === null}
           valBuild={valBuild}
-          hosted={hosted}
-          onOpenLogs={openLogs}
         />
       </>
     ),
-    [settingsModule, updates, valBuild, hosted, openLogs],
+    [settingsModule, updates, valBuild],
   );
   const logsTarget = useLogsTarget(valBuild, hosted);
   const logsPage =
@@ -2113,6 +2111,7 @@ const ValShellBody = memo(function ValShellBody({
               renderHistory={renderHistory}
               history={historyParts}
               logsPage={logsPage}
+              onOpenLogs={logsTarget !== null ? openLogs : undefined}
               data={data}
               theme={resolvedTheme}
               themeStyle={themeStyle}

@@ -7,6 +7,7 @@ import {
   type LogsTarget,
 } from "./Logs";
 import type { ValBuildAccess } from "./useValBuildAccess";
+import { AccountPanel } from "./AccountPanel";
 
 /**
  * `<val-logs>`, the hosted site's requests. jsdom never defines the element,
@@ -80,7 +81,7 @@ test("the page in the preview's place has a way back to the preview", () => {
   expect(container.querySelector("val-logs")?.getAttribute("layout")).toBe(
     "page",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Back to the preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close logs" }));
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
@@ -116,5 +117,36 @@ describe("useLogsTarget", () => {
       <Probe valBuild={{ connected: false, studioMode: "http" }} hosted />,
     );
     expect(screen.getByText("none")).toBeTruthy();
+  });
+});
+
+describe("Logs in the account panel", () => {
+  const panel = (onOpenLogs?: () => void) =>
+    render(
+      <AccountPanel
+        breakpoint="desktop"
+        theme="light"
+        onThemeChange={() => undefined}
+        autoSave={false}
+        admin={{
+          project: "https://admin.val.build/~/acme/marketing-site",
+          members: "https://admin.val.build/~/acme/marketing-site/members",
+          ai: "https://admin.val.build/manage-ai/acme/marketing-site",
+        }}
+        onOpenLogs={onOpenLogs}
+        onClose={() => undefined}
+      />,
+    );
+
+  test("opens the logs, for a site Val Build hosts", () => {
+    const onOpenLogs = jest.fn();
+    panel(onOpenLogs);
+    fireEvent.click(screen.getByRole("button", { name: /^Logs/ }));
+    expect(onOpenLogs).toHaveBeenCalledTimes(1);
+  });
+
+  test("is not there for one it does not", () => {
+    panel(undefined);
+    expect(screen.queryByRole("button", { name: /^Logs/ })).toBeNull();
   });
 });

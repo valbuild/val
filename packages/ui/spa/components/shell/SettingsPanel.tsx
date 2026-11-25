@@ -132,15 +132,8 @@ export type SettingsTab = {
  * is not worth a URL parameter, and reopening the panel on the first one is the
  * behaviour every other panel in the shell has.
  */
-export function SettingsTabs({
-  tabs,
-  initial,
-}: {
-  tabs: SettingsTab[];
-  /** The tab to open on, by id: the first when absent or not among them. */
-  initial?: string;
-}) {
-  const [active, setActive] = useState(initial ?? tabs[0]?.id);
+export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
+  const [active, setActive] = useState(tabs[0]?.id);
   const current = tabs.find((tab) => tab.id === active) ?? tabs[0];
   if (!current) {
     return null;

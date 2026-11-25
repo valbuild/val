@@ -576,11 +576,16 @@ export type ShellProps = {
     past: ReactNode;
   };
   /**
-   * The hosted site's logs, opened from Settings › Logs: shown where the
-   * preview is, as History's past is, until closed. Desktop and tablet only;
-   * on a phone Settings › Logs links to Val Build instead.
+   * The hosted site's logs, opened from the account panel: shown where the
+   * preview is, as History's past is, until closed. A phone has no preview
+   * column, so there it covers the Studio instead.
    */
   logsPage?: ReactNode;
+  /**
+   * The account panel's Logs, for a site Val Build hosts: the app opens
+   * `logsPage`. The panel closes first, so the page is not under it.
+   */
+  onOpenLogs?: () => void;
   onPublish?: () => void;
   /**
    * The real publish control, when there is one. See `TopBarProps` — the app
@@ -875,6 +880,7 @@ const ShellFrame = memo(function ShellFrame({
   previewStatus,
   history,
   logsPage,
+  onOpenLogs,
   onPublish,
   publishSlot,
   onPreview,
@@ -2550,6 +2556,14 @@ const ShellFrame = memo(function ShellFrame({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
+            onOpenLogs={
+              onOpenLogs
+                ? () => {
+                    closePanel();
+                    onOpenLogs();
+                  }
+                : undefined
+            }
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}
@@ -2587,6 +2601,14 @@ const ShellFrame = memo(function ShellFrame({
             // beside the one behind the menu button.
             navSwitcher={breakpoint === "mobile" ? undefined : navSwitcher}
           />
+        )}
+
+        {breakpoint === "mobile" && logsPage !== undefined && (
+          // No preview column on a phone to put it in: the whole screen,
+          // with the page's own way back.
+          <div className="fixed inset-0 z-overlay bg-bg-primary p-2">
+            {logsPage}
+          </div>
         )}
 
         {openPanel === "utility" && (
