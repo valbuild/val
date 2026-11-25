@@ -1999,3 +1999,77 @@ test("the site's server neither turns a proposal's code mode, commits it, nor ta
     restore();
   }
 });
+
+/**
+ * `home` -- `Api["/branches/checks"]["GET"]` (`content/src/handlers/branches.ts`),
+ * copied from there. The branch is a query parameter, encoded: branch names
+ * have slashes, and a path segment would cut the name in two.
+ */
+test("a branch's CI is `/branches/checks?branch=`, answered unread", async () => {
+  const HOME_CHECKS = {
+    branch: "val/p/0123456789abcdef0123",
+    sha: "m1",
+    state: "success",
+    checks: [
+      {
+        name: "Deploy to Production",
+        source: "deployment",
+        status: "completed",
+        conclusion: "success",
+        url: "https://host/logs/7",
+        summary: "Live",
+      },
+    ],
+    missingPermissions: ["checks", "statuses"],
+    missingPermissionsMessage:
+      "Some of acme/site's checks cannot be read: Val's GitHub App has not been allowed Checks: read and Commit statuses: read on it.",
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_CHECKS);
+  try {
+    const answer = await ops.branchesApi(
+      "/checks",
+      "val/p/0123456789abcdef0123",
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_CHECKS);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/branches/checks?branch=val%2Fp%2F0123456789abcdef0123`,
+    );
+    expect(sent[0]?.headers["x-val-profile-id"]).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("the branches are `/branches`", async () => {
+  // `home` -- `Api["/branches"]["GET"]["res"]`.
+  const HOME_BRANCHES = {
+    repository: {
+      owner: "acme",
+      repo: "site",
+      url: "https://github.com/acme/site",
+    },
+    siteBranch: "main",
+    total: 1,
+    branches: [
+      {
+        name: "main",
+        sha: "m1",
+        message: "Publish",
+        committedAt: "2026-11-01T00:00:00Z",
+        author: "ada",
+        proposal: null,
+        isSiteBranch: true,
+      },
+    ],
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_BRANCHES);
+  try {
+    const answer = await ops.branchesApi("", undefined, PROFILE);
+    expect(JSON.parse(answer.body)).toEqual(HOME_BRANCHES);
+    expect(sent[0]?.url).toBe(`${CONTENT_URL}/v1/${PROJECT}/branches`);
+  } finally {
+    restore();
+  }
+});

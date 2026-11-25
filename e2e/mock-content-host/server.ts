@@ -410,6 +410,13 @@ type State = {
    */
   proposalsEnabled: boolean;
   /**
+   * The project's GitHub repository, as `home`'s `GET /branches` and
+   * `GET /branches/checks` read it (valbuild/home `handlers/branches.ts`):
+   * `null` for a project with none, which both answer 409 `no-repository`.
+   * Set by `POST /__test__/github`.
+   */
+  github: MockGitHub | null;
+  /**
    * Uploaded bytes, keyed by patch id and then by file path.
    *
    * Kept apart from the patch records because the client uploads a patch's files
@@ -532,6 +539,7 @@ function emptyState(): State {
     patches: new Map(),
     proposals: new Map(),
     proposalsEnabled: false,
+    github: null,
     patchFiles: new Map(),
     commits: [],
     deployments: [],
@@ -3993,6 +4001,138 @@ async function proposalMerge(
   json(res, 200, { request: status, job: null });
 }
 
+/** A branch's CI, as `home`'s `GET /branches/checks` answers it. */
+type MockBranchCheck = {
+  name: string;
+  source: "check-run" | "status" | "deployment";
+  status: "queued" | "in_progress" | "completed";
+  conclusion: string | null;
+  url: string | null;
+  summary: string | null;
+};
+type MockGitHub = {
+  owner: string;
+  repo: string;
+  branches: Array<{
+    name: string;
+    sha: string;
+    message: string | null;
+    committedAt: string | null;
+    author: string | null;
+  }>;
+  /** By branch name; a branch with none here has no CI. */
+  checks: Record<string, MockBranchCheck[]>;
+  /** Sources the App may not read yet. */
+  missingPermissions: Array<"checks" | "statuses" | "deployments">;
+};
+
+/** `home`'s `overallState` (`content/src/val/github/projectBranches.ts`). */
+function mockCiState(
+  checks: MockBranchCheck[],
+): "success" | "failure" | "pending" | "none" {
+  if (checks.length === 0) return "none";
+  const failed = [
+    "failure",
+    "error",
+    "cancelled",
+    "timed_out",
+    "action_required",
+    "startup_failure",
+  ];
+  if (
+    checks.some((c) => c.conclusion !== null && failed.includes(c.conclusion))
+  )
+    return "failure";
+  if (checks.some((c) => c.status !== "completed")) return "pending";
+  return "success";
+}
+
+/**
+ * `/v1/{project}/branches` and `/branches/checks?branch=`: what `home`
+ * answers (`handlers/branches.ts`), from `state.github`.
+ */
+function branchesRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rest: string,
+  url: URL,
+): void {
+  if (req.method !== "GET") {
+    json(res, 404, { message: "Not found" });
+    return;
+  }
+  const github = state.github;
+  if (github === null) {
+    json(res, 409, {
+      message:
+        "This project has no GitHub repository, so it has no branches to list: Val keeps its content and code itself. A repository can be connected on the project's page in Val Build.",
+      details: { code: "no-repository" },
+    });
+    return;
+  }
+  const fullName = `${github.owner}/${github.repo}`;
+  if (rest === "/branches") {
+    const sorted = [...github.branches].sort((a, b) =>
+      (b.committedAt ?? "").localeCompare(a.committedAt ?? ""),
+    );
+    json(res, 200, {
+      repository: {
+        owner: github.owner,
+        repo: github.repo,
+        url: `https://github.com/${fullName}`,
+      },
+      siteBranch: PROJECT_BRANCH,
+      total: sorted.length,
+      branches: sorted.slice(0, 100).map((branch) => {
+        const name = branch.name.startsWith("val/p/")
+          ? branch.name.slice("val/p/".length)
+          : null;
+        return {
+          ...branch,
+          proposal: name !== null && state.proposals.has(name) ? name : null,
+          isSiteBranch: branch.name === PROJECT_BRANCH,
+        };
+      }),
+    });
+    return;
+  }
+  const branch = url.searchParams.get("branch");
+  if (branch === null || branch.trim() === "") {
+    json(res, 400, { message: "Name the branch: ?branch=<name>" });
+    return;
+  }
+  const found = github.branches.find((b) => b.name === branch);
+  if (!found) {
+    json(res, 404, {
+      message: `${fullName} has no branch called ${branch}.`,
+      details: { code: "branch-not-found" },
+    });
+    return;
+  }
+  const checks = github.checks[branch] ?? [];
+  const names = {
+    checks: "Checks: read",
+    statuses: "Commit statuses: read",
+    deployments: "Deployments: read",
+  };
+  json(res, 200, {
+    branch,
+    sha: found.sha,
+    state: mockCiState(checks),
+    checks,
+    missingPermissions: github.missingPermissions,
+    ...(github.missingPermissions.length > 0
+      ? {
+          missingPermissionsMessage: `Some of ${fullName}'s checks cannot be read: Val's GitHub App has not been allowed ${github.missingPermissions
+            .map((p) => names[p])
+            .join(
+              " and ",
+            )} on it. One of the GitHub organization's owners approves that under the organization's Settings → GitHub Apps → Val.`,
+        }
+      : {}),
+  });
+}
+
 /** `/v1/{project}/proposals[/...]`: the routes `ValOpsHttp` reaches. */
 async function proposalsRoute(
   req: IncomingMessage,
@@ -4394,6 +4534,13 @@ const controlPlane: Handler = async (req, res, url) => {
   }
   if (action === "quick-previews" && req.method === "GET") {
     json(res, 200, { made: state.quickPreviewsMade });
+    return;
+  }
+  if (action === "github" && req.method === "POST") {
+    // The project's GitHub repository, for `/branches`: `null` for none.
+    const body = await readJsonBody<{ github?: MockGitHub | null }>(req);
+    state.github = body?.github ?? null;
+    json(res, 200, { ok: true });
     return;
   }
   if (action === "proposals-enabled" && req.method === "POST") {
@@ -4935,6 +5082,10 @@ async function handle(
   }
   if (rest === "/proposals" || rest.startsWith("/proposals/")) {
     await proposalsRoute(req, res, rest);
+    return;
+  }
+  if (rest === "/branches" || rest === "/branches/checks") {
+    branchesRoute(req, res, rest, url);
     return;
   }
   switch (route) {

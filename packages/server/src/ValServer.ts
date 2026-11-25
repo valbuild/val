@@ -2392,6 +2392,40 @@ export const ValServer = (
         );
       },
     },
+    /**
+     * The project's GitHub branches and a branch's CI, through content. See
+     * `ValOpsHttp.branchesApi`; only `""` and `"/checks"` are forwarded.
+     */
+    "/branches-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const path = req.path ?? "";
+        if (path !== "" && path !== "/checks") {
+          return {
+            status: 403,
+            json: { message: `'GET ${path}' is not part of the branches API.` },
+          };
+        }
+        const answer = await serverOps.branchesApi(
+          path,
+          req.query.branch,
+          profileOf(auth),
+        );
+        try {
+          return { status: answer.status, json: JSON.parse(answer.body) };
+        } catch {
+          return {
+            status: answer.status,
+            json: {
+              message: `The branches API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+            },
+          };
+        }
+      },
+    },
     "/proposal-site-sources": {
       GET: async (req) => {
         const auth = getAuth(req.cookies);

@@ -239,6 +239,7 @@ import {
   runBranchTool,
 } from "../proposals/branchTools";
 import { fetchCommitPage } from "../history/commitPage";
+import { createBranchesClient } from "../proposals/branchesClient";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
 import { allSchemaAnswer } from "./allSchemaAnswer";
@@ -2967,6 +2968,7 @@ export function useAI(
             client: codeClients.proposals,
             commits: (branch, limit) =>
               fetchCommitPage(valClientRef.current, branch, limit, undefined),
+            github: createBranchesClient(valClientRef.current),
             nameOf: (id) => profilesRef.current[id]?.fullName ?? null,
             buildReport: () =>
               proposalBuildControl(proposalBuildRef.current).report(),

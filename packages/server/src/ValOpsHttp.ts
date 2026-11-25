@@ -1377,6 +1377,39 @@ export class ValOpsHttp extends ValOps {
   }
 
   /**
+   * The project's GitHub branches, or a branch's CI: content's
+   * `GET /branches` and `GET /branches/checks?branch=` (valbuild/home
+   * `handlers/branches.ts`), forwarded with the project's key and the person
+   * asking, and answered unread. Only these two paths, and only GET.
+   */
+  override async branchesApi(
+    path: "" | "/checks",
+    branch: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const query =
+      path === "/checks" && branch !== undefined
+        ? `?${new URLSearchParams({ branch }).toString()}`
+        : "";
+    const res = await fetchFresh(
+      `${this.contentUrl}/v1/${this.project}/branches${path}${query}`,
+      {
+        method: "GET",
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+        },
+      },
+    );
+    return {
+      status: res.status,
+      body: await res.text(),
+      contentType: res.headers.get("Content-Type") ?? json,
+    };
+  }
+
+  /**
    * Update from the site, for a proposal that changes only content
    * (valbuild/home `docs/hosted-publishing.md`, step 8.2, slice 1a): content
    * hands over the three versions of every module the proposal saved, this

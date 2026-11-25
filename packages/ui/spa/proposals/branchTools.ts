@@ -1,6 +1,12 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { CommitPage } from "../history/commitPage";
 import type { BuildReport, CodeTypecheckStatus } from "./proposalCode";
+import type {
+  BranchesClient,
+  BranchesRefusal,
+  GitHubBranchChecks,
+  GitHubBranches,
+} from "./branchesClient";
 import {
   ProposalsApiError,
   isSiteCode,
@@ -24,7 +30,9 @@ import {
  * Every answer is read through the function the Studio's own screens read it
  * through: the proposals client the proposal list and the Publish dialog use,
  * `/history/commits` as History reads it (`fetchCommitPage`), and the build
- * and typecheck state the code tools report.
+ * and typecheck state the code tools report. A connected project's GitHub
+ * branches and CI come from content (`branchesClient.ts`, valbuild/home
+ * `handlers/branches.ts`); a project with no repository lists Val's own.
  */
 
 export const GET_BRANCH_CONTEXT_TOOL: AITool = {
@@ -56,15 +64,15 @@ export const LIST_PROPOSALS_TOOL: AITool = {
 export const LIST_BRANCHES_TOOL: AITool = {
   name: "list_branches",
   description:
-    "The branches Val works with: the site's, and each proposal's, with each branch's last commit (sha, message, when, by whom) and the proposal attached to it. " +
-    "Branches made directly in the repository, outside Val, are not listed.",
+    "The project's branches, most recently committed first, with each branch's last commit (sha, message, when, by whom), the proposal attached to it, and which one the site publishes from. " +
+    "In a project connected to GitHub that is every branch of the repository, made in Val or not; otherwise the site's branch and the proposals' branches.",
   parameters: {
     type: "object",
     properties: {
       include_closed: {
         type: "boolean",
         description:
-          "Also list the branches of proposals that were published or closed (default false).",
+          "In a project with no repository: also list the branches of proposals that were published or closed (default false).",
       },
     },
     required: [],
@@ -76,10 +84,16 @@ export const CHECK_BUILD_TOOL: AITool = {
   description:
     "Whether a proposal can be published: each of its checks (build, typecheck, lockfile, up to date with the site) with what clears a failing one, " +
     "its last build and typecheck, and -- for the proposal this Studio is in -- the build and typecheck running in this tab. " +
-    "Defaults to the proposal this Studio is in.",
+    "In a project connected to GitHub it also gives the CI of the proposal's branch (check runs, commit statuses, deployments), with links to why one failed; " +
+    "with `branch`, the CI of any branch. Defaults to the proposal this Studio is in, or on the site to the site's branch.",
   parameters: {
     type: "object",
     properties: {
+      branch: {
+        type: "string",
+        description:
+          "A branch to read the CI of, by its name as list_branches gives it, instead of a proposal.",
+      },
       proposal: {
         type: "string",
         description:
@@ -106,9 +120,10 @@ export function isBranchTool(name: string): boolean {
 export const BRANCH_TOOLS_PROMPT_SECTION = `
 
 ## Branches and proposals
-get_branch_context says which branch this Studio is on, which branch the site publishes to, and which proposal the work is in. list_proposals lists the proposals, earlier ones too; list_branches lists Val's branches with their last commit; check_build says whether a proposal's build and checks pass, and what clears one that fails.
+get_branch_context says which branch this Studio is on, which branch the site publishes to, and which proposal the work is in. list_proposals lists the proposals, earlier ones too; list_branches lists the branches with their last commit; check_build says whether a proposal's build and checks pass, what clears one that fails, and what CI says about a branch.
 - Changes to code always go into a proposal, and reach the site's branch when the proposal is published. You cannot push to a branch directly, and nothing you do pushes to the site's branch. If the person asks you to push straight to a branch, say that Val does not do that, and offer to make the change in a proposal instead.
-- When a check fails, tell the person what failed in their words and what clears it, as check_build says. Offer to do it when a tool of yours can (build_proposal, typecheck), and otherwise name the button.`;
+- When a check fails, tell the person what failed in their words and what clears it, as check_build says. Offer to do it when a tool of yours can (build_proposal, typecheck), and otherwise name the button. For a CI check, give its link: that is where they see why.
+- When check_build says some CI cannot be read for want of a permission, say so once, with what it says to approve and who approves it; do not treat the checks it could read as all there is.`;
 
 /** What one of a branch's commits is, for the model. */
 export type BranchCommit = {
@@ -134,6 +149,11 @@ export type BranchToolDeps = {
   buildReport?: () => BuildReport;
   /** Its background typecheck, as `typecheck_status` reports it. */
   typecheckStatus?: () => Promise<CodeTypecheckStatus>;
+  /**
+   * The project's GitHub branches and CI, through content. Absent: only
+   * Val's own branches are known.
+   */
+  github?: BranchesClient;
 };
 
 export type BranchToolAnswer = { result: unknown; isError: boolean };
@@ -217,6 +237,17 @@ export async function runBranchTool(
         deps,
       );
     case CHECK_BUILD_TOOL.name:
+      if ("branch" in input && typeof input.branch === "string") {
+        return checkBranch(input.branch, deps);
+      }
+      if (
+        !("proposal" in input && typeof input.proposal === "string") &&
+        deps.proposal === null &&
+        deps.siteBranch !== null &&
+        deps.github !== undefined
+      ) {
+        return checkBranch(deps.siteBranch, deps);
+      }
       return checkBuild(
         "proposal" in input && typeof input.proposal === "string"
           ? input.proposal
@@ -358,7 +389,91 @@ async function lastCommitOf(
   };
 }
 
+/**
+ * A refusal from content's branches API, as the model is told it: content's
+ * words are already the person's. Only a failure retrying can help with
+ * offers a retry.
+ */
+function branchesRefusalAnswer(refused: BranchesRefusal): BranchToolAnswer {
+  return refusal(refused.message, {
+    code: refused.code,
+    ...(refused.code === "github-unreachable" || refused.code === "unreachable"
+      ? { retry: true }
+      : {}),
+  });
+}
+
+/** A project with no repository, or a Val Build that cannot say: Val's own branches. */
+function meansNoGitHub(refused: BranchesRefusal): boolean {
+  return refused.code === "no-repository" || refused.code === "not-supported";
+}
+
 async function listBranches(
+  includeClosed: boolean,
+  deps: BranchToolDeps,
+): Promise<BranchToolAnswer> {
+  if (deps.github !== undefined) {
+    const fromGitHub = await deps.github.list();
+    if (fromGitHub.status === "ok") {
+      return listGitHubBranches(fromGitHub.value, deps);
+    }
+    if (!meansNoGitHub(fromGitHub.refusal)) {
+      return branchesRefusalAnswer(fromGitHub.refusal);
+    }
+  }
+  return listValBranches(includeClosed, deps);
+}
+
+async function listGitHubBranches(
+  github: GitHubBranches,
+  deps: BranchToolDeps,
+): Promise<BranchToolAnswer> {
+  // Titles for the proposals' branches; the list stands without them.
+  const read = await readProposals(deps);
+  const proposals = new Map(
+    ("error" in read ? [] : read.proposals).map((p) => [p.name, p]),
+  );
+  const here = deps.proposal?.branch ?? github.siteBranch;
+  return {
+    result: {
+      success: true,
+      repository: github.repository.url,
+      site_branch: github.siteBranch,
+      branches: github.branches.map((branch) => {
+        const proposal =
+          branch.proposal === null ? undefined : proposals.get(branch.proposal);
+        return {
+          name: branch.name,
+          last_commit: {
+            sha: branch.sha,
+            message: branch.message,
+            at: branch.committedAt,
+            by: branch.author,
+          },
+          ...(branch.isSiteBranch ? { site: true } : {}),
+          proposal:
+            branch.proposal === null
+              ? null
+              : {
+                  name: branch.proposal,
+                  ...(proposal !== undefined
+                    ? { title: titleOf(proposal), status: proposal.status }
+                    : {}),
+                },
+          ...(branch.name === here ? { this_studio: true } : {}),
+        };
+      }),
+      ...(github.total > github.branches.length
+        ? {
+            more: `The repository has ${github.total} branches; these are the ${github.branches.length} committed to most recently.`,
+          }
+        : {}),
+    },
+    isError: false,
+  };
+}
+
+async function listValBranches(
   includeClosed: boolean,
   deps: BranchToolDeps,
 ): Promise<BranchToolAnswer> {
@@ -412,7 +527,7 @@ async function listBranches(
         : {}),
       ...(noProposals ? { proposals: "Proposals are not turned on." } : {}),
       not_listed:
-        "Branches made directly in the repository, outside Val, are not listed: Val reads only the site's branch and its proposals' branches.",
+        "This project has no GitHub repository Val can read, so these are Val's own branches: the site's and its proposals'.",
     },
     isError: false,
   };
@@ -446,7 +561,7 @@ async function resolveProposal(
     if (deps.proposal !== null) return { name: deps.proposal.name };
     return {
       answer: refusal(
-        "This Studio is on the site, not in a proposal, and Val cannot read the site's own build or CI checks: the host that deploys the site shows them. Name a proposal (list_proposals) to check its build.",
+        "This Studio is on the site, not in a proposal, and this project has no GitHub repository Val can read CI from: the host that deploys the site shows its builds. Name a proposal (list_proposals) to check its build.",
       ),
     };
   }
@@ -554,6 +669,18 @@ async function checkBuild(
       // Beside the point when content answered; the rest still stands.
     }
   }
+  // The CI of its branch, in a connected project. A project with no
+  // repository has none, and says nothing.
+  if (deps.github !== undefined) {
+    const ci = await deps.github.checks(proposal.branch);
+    if (ci.status === "ok") result.ci = ciAnswer(ci.value);
+    else if (
+      !meansNoGitHub(ci.refusal) &&
+      ci.refusal.code !== "branch-not-found"
+    ) {
+      result.ci_error = branchesRefusalAnswer(ci.refusal).result;
+    }
+  }
   try {
     const checks = await deps.client.mergeChecks(name);
     result.can_publish = checks.canMerge;
@@ -571,4 +698,78 @@ async function checkBuild(
     result.checks_error = failed;
   }
   return { result, isError: false };
+}
+
+/** CI as the model reads it: the whole, each check, and where to see why. */
+function ciAnswer(ci: GitHubBranchChecks): Record<string, unknown> {
+  const failed = ci.checks.filter(
+    (check) =>
+      check.conclusion !== null &&
+      [
+        "failure",
+        "error",
+        "cancelled",
+        "timed_out",
+        "action_required",
+        "startup_failure",
+      ].includes(check.conclusion),
+  );
+  return {
+    sha: ci.sha,
+    state: ci.state,
+    checks: ci.checks,
+    ...(failed.length > 0
+      ? {
+          next: "Each failing check's url is where the person sees why. Once the code is fixed on this branch, CI runs again by itself.",
+        }
+      : {}),
+    ...(ci.state === "none" && ci.missingPermissions.length === 0
+      ? { note: "Nothing has reported on this branch's last commit." }
+      : {}),
+    ...(ci.missingPermissions.length > 0
+      ? {
+          missing_permissions: ci.missingPermissions,
+          missing_permissions_message: ci.missingPermissionsMessage ?? null,
+        }
+      : {}),
+  };
+}
+
+/** `check_build` with `branch`, or on the site: the branch's CI. */
+async function checkBranch(
+  branch: string,
+  deps: BranchToolDeps,
+): Promise<BranchToolAnswer> {
+  if (deps.github === undefined) {
+    return refusal(
+      "This Studio cannot read a branch's CI: Val's server does not reach the project's repository.",
+    );
+  }
+  const ci = await deps.github.checks(branch);
+  if (ci.status === "refused") {
+    if (ci.refusal.code === "no-repository") {
+      return refusal(
+        `${ci.refusal.message} Name a proposal (list_proposals) to check its build instead.`,
+        { code: ci.refusal.code },
+      );
+    }
+    return branchesRefusalAnswer(ci.refusal);
+  }
+  const proposalName = branch.startsWith("val/p/")
+    ? branch.slice("val/p/".length)
+    : null;
+  return {
+    result: {
+      success: true,
+      branch,
+      ...(branch === deps.siteBranch ? { site: true } : {}),
+      ci: ciAnswer(ci.value),
+      ...(proposalName !== null
+        ? {
+            note: `This is a proposal's branch: check_build with proposal "${proposalName}" also says whether it can be published.`,
+          }
+        : {}),
+    },
+    isError: false,
+  };
 }

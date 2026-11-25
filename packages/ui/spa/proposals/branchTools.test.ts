@@ -7,6 +7,7 @@ import {
   type BranchToolDeps,
 } from "./branchTools";
 import { createProposalsClient, type ProposalJson } from "./proposalsClient";
+import { createBranchesClient } from "./branchesClient";
 
 const OPEN = "0123456789abcdef0123";
 const MERGED = "aaaaaaaaaaaaaaaaaaaa";
@@ -37,10 +38,20 @@ function network(routes: Record<string, Answer>) {
   const answer = async (url: string): Promise<Response> => {
     const path = url.replace(/^\/api\/val/, "");
     asked.push(path);
-    const found = routes[path] ?? {
-      status: 500,
-      body: { message: `no route ${path}` },
-    };
+    // A project with no repository, unless a test says otherwise: home's
+    // answer for one (`handlers/branches.ts`).
+    const found =
+      routes[path] ??
+      (path.startsWith("/branches-api")
+        ? {
+            status: 409,
+            body: {
+              message:
+                "This project has no GitHub repository, so it has no branches to list.",
+              details: { code: "no-repository" },
+            },
+          }
+        : { status: 500, body: { message: `no route ${path}` } });
     return new Response(JSON.stringify(found.body), {
       status: found.status,
       headers: { "Content-Type": "application/json" },
@@ -70,6 +81,7 @@ function depsOf(
       client: proposals,
       commits: (branch, limit) =>
         fetchCommitPage(valClient, branch, limit, undefined),
+      github: createBranchesClient(valClient),
       nameOf: (id) => (id === "ada" ? "Ada Lovelace" : null),
       ...over,
     },
@@ -272,11 +284,11 @@ describe("the assistant's branch tools", () => {
     });
   });
 
-  test("on the site, check_build says where the site's checks are instead", async () => {
+  test("on the site of a project with no repository, check_build points at the proposals", async () => {
     const answer = await runBranchTool("check_build", {}, depsOf({}).deps);
     expect(answer.isError).toBe(true);
     expect(JSON.stringify(answer.result)).toContain(
-      "the host that deploys the site shows them",
+      "Name a proposal (list_proposals) to check its build instead",
     );
   });
 
@@ -299,6 +311,204 @@ describe("the assistant's branch tools", () => {
     expect(down.result).toMatchObject({
       error: expect.stringContaining("could not be reached"),
       retry: true,
+    });
+  });
+
+  describe("in a project connected to GitHub", () => {
+    // valbuild/home `Api["/branches"]["GET"]["res"]`
+    const githubBranches = {
+      status: 200,
+      body: {
+        repository: {
+          owner: "acme",
+          repo: "site",
+          url: "https://github.com/acme/site",
+        },
+        siteBranch: "main",
+        total: 3,
+        branches: [
+          {
+            name: "feature/hero",
+            sha: "f1",
+            message: "New hero",
+            committedAt: "2026-11-03T00:00:00Z",
+            author: "kari",
+            proposal: null,
+            isSiteBranch: false,
+          },
+          {
+            name: `val/p/${OPEN}`,
+            sha: "p1",
+            message: "Spring",
+            committedAt: "2026-11-02T00:00:00Z",
+            author: "ada",
+            proposal: OPEN,
+            isSiteBranch: false,
+          },
+          {
+            name: "main",
+            sha: "m1",
+            message: "Publish",
+            committedAt: "2026-11-01T00:00:00Z",
+            author: "ada",
+            proposal: null,
+            isSiteBranch: true,
+          },
+        ],
+      },
+    };
+    // valbuild/home `Api["/branches/checks"]["GET"]["res"]`
+    const failingCi = {
+      status: 200,
+      body: {
+        branch: "feature/hero",
+        sha: "f1",
+        state: "failure",
+        checks: [
+          {
+            name: "build",
+            source: "check-run",
+            status: "completed",
+            conclusion: "failure",
+            url: "https://github.com/acme/site/runs/1",
+            summary: "Type error in Hero.tsx",
+          },
+        ],
+        missingPermissions: ["statuses"],
+        missingPermissionsMessage:
+          "Some of acme/site's checks cannot be read: Val's GitHub App has not been allowed Commit statuses: read on it.",
+      },
+    };
+
+    test("lists every branch of the repository, those made outside Val too", async () => {
+      const { deps, asked } = depsOf({
+        "/branches-api": githubBranches,
+        "/proposals-api": listed,
+      });
+      const answer = await runBranchTool("list_branches", {}, deps);
+      expect(answer.isError).toBe(false);
+      expect(answer.result).toMatchObject({
+        site_branch: "main",
+        branches: [
+          { name: "feature/hero", proposal: null, last_commit: { sha: "f1" } },
+          {
+            name: `val/p/${OPEN}`,
+            proposal: { name: OPEN, title: "Proposal 0123", status: "open" },
+          },
+          { name: "main", site: true, this_studio: true },
+        ],
+      });
+      // Read from GitHub, not from Val's history
+      expect(asked.some((path) => path.startsWith("/history"))).toBe(false);
+    });
+
+    test("a project with no repository lists Val's own branches instead", async () => {
+      const { deps } = depsOf({
+        "/branches-api": {
+          status: 409,
+          body: {
+            message: "This project has no GitHub repository.",
+            details: { code: "no-repository" },
+          },
+        },
+        "/proposals-api": listed,
+        "/history/commits?branch=main&limit=1": commitsOf("abc", "Publish"),
+        [`/history/commits?branch=val%2Fp%2F${OPEN}&limit=1`]: commitsOf(
+          "def",
+          "Save",
+        ),
+      });
+      const answer = await runBranchTool("list_branches", {}, deps);
+      expect(answer.result).toMatchObject({
+        branches: [{ name: "main" }, { name: `val/p/${OPEN}` }],
+        not_listed: expect.stringContaining("no GitHub repository"),
+      });
+    });
+
+    test("an App the repository no longer has is the owners' to fix, and not retried", async () => {
+      const { deps } = depsOf({
+        "/branches-api": {
+          status: 409,
+          body: {
+            message:
+              "Val's GitHub App can no longer see acme/site. One of the GitHub organization's owners can install it again on the repository.",
+            details: {
+              code: "github-not-installed",
+              reason: "Bad credentials",
+            },
+          },
+        },
+      });
+      const answer = await runBranchTool("list_branches", {}, deps);
+      expect(answer.isError).toBe(true);
+      expect(answer.result).toMatchObject({
+        error: expect.stringContaining("install it again"),
+        code: "github-not-installed",
+      });
+      expect(answer.result).not.toHaveProperty("retry");
+    });
+
+    test("a branch's CI: where to see why, and what cannot be read yet", async () => {
+      const { deps, asked } = depsOf({
+        "/branches-api/checks?branch=feature%2Fhero": failingCi,
+      });
+      const answer = await runBranchTool(
+        "check_build",
+        { branch: "feature/hero" },
+        deps,
+      );
+      expect(asked).toContain("/branches-api/checks?branch=feature%2Fhero");
+      expect(answer.result).toMatchObject({
+        branch: "feature/hero",
+        ci: {
+          state: "failure",
+          checks: [{ url: "https://github.com/acme/site/runs/1" }],
+          next: expect.stringContaining("url is where the person sees why"),
+          missing_permissions: ["statuses"],
+          missing_permissions_message: expect.stringContaining(
+            "Commit statuses: read",
+          ),
+        },
+      });
+    });
+
+    test("on the site, check_build reads the site's branch's CI", async () => {
+      const { deps } = depsOf({
+        "/branches-api/checks?branch=main": {
+          status: 200,
+          body: {
+            ...failingCi.body,
+            branch: "main",
+            state: "success",
+            checks: [],
+            missingPermissions: [],
+          },
+        },
+      });
+      const answer = await runBranchTool("check_build", {}, deps);
+      expect(answer.result).toMatchObject({ branch: "main", site: true });
+    });
+
+    test("a proposal's check carries its branch's CI", async () => {
+      const { deps } = depsOf(
+        {
+          [`/proposals-api/${OPEN}`]: {
+            status: 200,
+            body: { proposal: proposal(OPEN) },
+          },
+          [`/proposals-api/${OPEN}/merge-checks`]: {
+            status: 200,
+            body: { canMerge: true, checks: [] },
+          },
+          [`/branches-api/checks?branch=val%2Fp%2F${OPEN}`]: failingCi,
+        },
+        { proposal: { name: OPEN, branch: `val/p/${OPEN}` } },
+      );
+      const answer = await runBranchTool("check_build", {}, deps);
+      expect(answer.result).toMatchObject({
+        can_publish: true,
+        ci: { state: "failure" },
+      });
     });
   });
 });

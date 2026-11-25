@@ -1408,6 +1408,24 @@ export const Api = {
     },
   },
   /**
+   * A connected project's GitHub branches (`path` absent), or a branch's CI
+   * (`path: "/checks"` with `branch`), reached through this deployment as
+   * `/proposals-api` is: the session is checked here and content reads
+   * GitHub with the project's installation (valbuild/home
+   * `handlers/branches.ts`). Read-only. Content's status and body come back
+   * unread; the Studio's assistant reads them (`branchTools.ts`).
+   */
+  "/branches-api": {
+    GET: {
+      req: {
+        path: z.string().optional(),
+        query: { branch: onlyOneStringQueryParam.optional() },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
+  /**
    * The project's sketchpads: list them, or make one. See `Sketchpad`.
    * Making one answers with its id, which is what an assistant keeps to
    * read and change it later.

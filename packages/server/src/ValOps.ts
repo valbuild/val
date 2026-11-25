@@ -3381,6 +3381,26 @@ export abstract class ValOps {
   }
 
   /**
+   * The content service's read of the project's GitHub branches, or of one
+   * branch's CI (`path` `"/checks"`). Refused here as {@link proposalsApi}
+   * is: there is no content service, so no repository to read.
+   */
+  async branchesApi(
+    _path: "" | "/checks",
+    _branch: string | undefined,
+    _profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    return {
+      status: 501,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "This Val server has no content service, so it reads no repository's branches.",
+      }),
+    };
+  }
+
+  /**
    * Whether a commit here produces `.val.ts` TEXT as well as data.
    *
    * True everywhere there is somewhere to put it: a working tree in `fs` mode,
