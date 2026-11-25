@@ -147,7 +147,9 @@ function useComponentsView(): ComponentsViewData {
  * - **The board**: all of them side by side, each as it first appears in the
  *   content, at one screen width.
  * - **One component**: stepped through use by use (← and →), or all its uses
- *   side by side; its example; and a line to ask the assistant to change it.
+ *   side by side, and its examples after its uses.
+ * - **Pages**: each page with the components it uses, stacked as its content
+ *   has them.
  *
  * It is laid out like a page is: this is where the preview would be, and
  * Content (the fields of the use on screen: {@link ComponentsContent}) and
@@ -552,7 +554,7 @@ function NoPreviewRoute() {
   );
 }
 
-/** One component: an instance at a time or all of them, with its fields and the assistant. */
+/** One component: a use, or an example, at a time, or all of them side by side. */
 function ComponentDetail({
   component,
   components,
