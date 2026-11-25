@@ -25,7 +25,8 @@ const getPreviewSource = createServerFn()
  * Studio's canvas.
  *
  * - `p` the source path to render
- * - `example=1` render the render's `example` instead of the content at `p`
+ * - `example=<name>` render the render's example of that name (from
+ *   `.component(load, { examples })`) instead of the content at `p`
  *
  * `ssr: false`: the edit tags that make a click open a field are switched on
  * by `ValPreviewBridge` in the browser, and a server render would be the one
@@ -54,7 +55,7 @@ function ValPreviewPage() {
       <Unstable_ValComponentPreview
         valModules={valModules}
         source={source}
-        example={example === "1"}
+        example={example}
       />
     </ValPreviewBridge>
   );

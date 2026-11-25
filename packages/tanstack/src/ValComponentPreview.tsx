@@ -34,8 +34,8 @@ export function Unstable_ValComponentPreview({
   valModules: ValModules;
   /** What `unstable_fetchValPreviewSource` returned for the source path. */
   source: ValPreviewSource;
-  /** Render the render's `example` instead of the content. */
-  example?: boolean;
+  /** The name of one of the render's `examples`, to render instead of the content. */
+  example?: string;
   /** Props to render with instead, written as source. */
   props?: unknown;
 }) {

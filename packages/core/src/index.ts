@@ -371,6 +371,7 @@ export {
   componentPropsOf,
   setComponentOfValue,
   componentOfValue,
+  prettyExampleName,
   VAL_PREVIEW_MESSAGES,
 } from "./render";
 export type {

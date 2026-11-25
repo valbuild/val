@@ -30,18 +30,33 @@ export const heroFields = s.object({
 export const heroSection = heroFields
   .describe("A headline, a tagline and a few points")
   .component(() => import("../components/sections/HeroSection"), {
-    // Content that is not on the site, to stress the layout with
-    example: {
-      type: "hero",
-      title:
-        "A deliberately very long headline that should still wrap and not overflow",
-      tagline:
-        "A tagline that is also longer than anything an editor would realistically write.",
-      bullets: [
-        "A short one",
-        "A considerably longer bullet point that runs onto a second line",
-        "And one more, to check the spacing of a list",
-      ],
+    // Content that is not on the site, to stress the layout with. The
+    // Studio lists them by name, made readable: "Long headline", "No bullets"
+    examples: {
+      longHeadline: {
+        type: "hero",
+        title:
+          "A deliberately very long headline that should still wrap and not overflow",
+        tagline:
+          "A tagline that is also longer than anything an editor would realistically write.",
+        bullets: [
+          "A short one",
+          "A considerably longer bullet point that runs onto a second line",
+          "And one more, to check the spacing of a list",
+        ],
+      },
+      noBullets: {
+        type: "hero",
+        title: "Just a headline",
+        tagline: "And a tagline, with nothing listed under it.",
+        bullets: [],
+      },
+      shortAndSweet: {
+        type: "hero",
+        title: "Hi",
+        tagline: "",
+        bullets: ["One"],
+      },
     },
   });
 
@@ -52,7 +67,17 @@ export const quoteFields = s.object({
 });
 export const quoteSection = quoteFields
   .describe("Something someone said, and who said it")
-  .component(() => import("../components/sections/QuoteSection"));
+  .component(() => import("../components/sections/QuoteSection"), {
+    examples: {
+      longQuote: {
+        type: "quote",
+        quote:
+          "We had a CMS, a design system and a page builder, and every one of them disagreed with the others about what a section was. Now the schema says it, once.",
+        attribution: "Someone who has seen things",
+      },
+      noAttribution: { type: "quote", quote: "Unattributed.", attribution: "" },
+    },
+  });
 
 /*
  * A component that was not written for Val. `Callout` has props of its own
@@ -69,6 +94,8 @@ export const noteSection = s
   })
   .describe("A boxed note, with a design-system component behind it")
   .component(() => import("../components/Callout"), {
+    // What the Studio's Components view calls it, rather than "Note"
+    name: "Callout",
     props: (note) => ({
       heading: note.title,
       body: note.text,

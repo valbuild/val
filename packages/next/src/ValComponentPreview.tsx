@@ -19,9 +19,10 @@ export type ValComponentPreviewOptions = {
    */
   sourcePath: string;
   /**
-   * Render the `example` of the render instead of the content at `sourcePath`.
+   * The name of one of the render's `examples`, to render instead of the
+   * content at `sourcePath`.
    */
-  example?: boolean;
+  example?: string;
   /**
    * Props to render with, overriding both the content and the example. For
    * trying out values without changing any content.
@@ -57,7 +58,7 @@ export type ValComponentPreviewOptions = {
  *   return unstable_renderValComponent({
  *     valModules,
  *     sourcePath: p,
- *     example: example === "1",
+ *     example,
  *     fetchVal,
  *   });
  * }

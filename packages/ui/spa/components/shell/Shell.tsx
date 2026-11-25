@@ -132,7 +132,11 @@ import {
 import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
 import { placePanes } from "./workspace/placePanes";
 import { PaneStrip, SideTabs } from "./workspace/WorkspaceChrome";
-import { PaneSwitches, type PaneSwitch } from "./workspace/PaneSwitches";
+import {
+  PaneSwitches,
+  type PaneSwitch,
+  type PreviewSource,
+} from "./workspace/PaneSwitches";
 import type { JsonValuesLoadStatus } from "../useJsonValuesLoad";
 import {
   ShellBreakpoint,
@@ -462,6 +466,31 @@ export type ShellProps = {
    * working — you can publish from the compare view, which is the point of it.
    */
   editorOverride?: ReactNode;
+  /**
+   * Something in the preview's place, for as long as it is given: the
+   * Components view's components, which are previews of their own, so the
+   * site's page has nothing to add beside them. Content and the Assistant
+   * still come from the top bar as they do beside a page; Preview is on and
+   * cannot be switched off (the stage IS that pane), and Sketch is off, since
+   * a sketch is about a page and there is none.
+   *
+   * On a phone, where the panes are one at a time, it is the Content pane.
+   */
+  stage?: ReactNode;
+  /**
+   * What the Preview pane shows, and the way to change it: the Preview
+   * switch's menu offers Page and Components. See `PreviewSource`.
+   */
+  previewSource?: {
+    current: PreviewSource;
+    onChange: (source: PreviewSource) => void;
+  };
+  /**
+   * EXPERIMENTAL: the Components view (`VAL_COMPONENTS_ROUTE`), in the rail,
+   * for a project that links components to its content. Absent otherwise:
+   * an icon that opens an empty view reads as something broken.
+   */
+  components?: { active: boolean; onOpen: () => void };
   /**
    * The Sketch pane, while a sketchpad is open: one of the workspace's panes,
    * laid out beside Content and the preview by `workspaceLayout`. On a phone,
@@ -822,6 +851,9 @@ const ShellFrame = memo(function ShellFrame({
   renderSettings,
   renderExternalPages,
   editorOverride,
+  stage,
+  previewSource,
+  components,
   sketchPane,
   canvasPinned = false,
   revealPreview = 0,
@@ -1637,44 +1669,47 @@ const ShellFrame = memo(function ShellFrame({
    * navigation and its real pending-changes gate, not a second rendering of it
    * that would drift.
    */
-  const editorBody = editorOverride ? (
-    editorOverride
-  ) : selection === null ? (
-    <EmptyEditorState
-      destinations={destinations}
+  const editorBody =
+    breakpoint === "mobile" && stage !== undefined ? (
+      stage
+    ) : editorOverride ? (
+      editorOverride
+    ) : selection === null ? (
+      <EmptyEditorState
+        destinations={destinations}
+        /*
+         * One of the two places the tour is offered, so it follows the project's
+         * setting: with `studio.tour` off nobody is prompted anywhere, and the
+         * tour is reached from Quick actions by whoever wants it.
+         */
+        onStartTour={tourEnabled && canStartTour ? startTour : undefined}
+        tourPrompt={showTourPrompt}
+      />
+    ) : (
       /*
-       * One of the two places the tour is offered, so it follows the project's
-       * setting: with `studio.tour` off nobody is prompted anywhere, and the
-       * tour is reached from Quick actions by whoever wants it.
+       * Held until the server's pending changes have landed — see
+       * `PendingChangesGate`. Around the fields only: the compare and errors
+       * views above are their own thing, and neither offers a field to type
+       * the wrong value into.
        */
-      onStartTour={tourEnabled && canStartTour ? startTour : undefined}
-      tourPrompt={showTourPrompt}
-    />
-  ) : (
-    /*
-     * Held until the server's pending changes have landed — see
-     * `PendingChangesGate`. Around the fields only: the compare and errors
-     * views above are their own thing, and neither offers a field to type
-     * the wrong value into.
-     */
-    <PendingChangesGate
-      ready={pendingChangesLoaded}
-      progress={pendingChangesProgress ?? noProgress}
-      fetchError={pendingChangesError}
-    >
-      {renderEditor ? (
-        renderEditor(selection)
-      ) : (
-        <PageEditor
-          title={selection.title}
-          urlPath={selection.urlPath}
-          sourcePath={selection.sourcePath}
-          isDevMode={isDevMode}
-          hasDraft={selection.hasDraft}
-        />
-      )}
-    </PendingChangesGate>
-  );
+      <PendingChangesGate
+        ready={pendingChangesLoaded}
+        progress={pendingChangesProgress ?? noProgress}
+        fetchError={pendingChangesError}
+      >
+        {renderEditor ? (
+          renderEditor(selection)
+        ) : (
+          <PageEditor
+            title={selection.title}
+            urlPath={selection.urlPath}
+            sourcePath={selection.sourcePath}
+            isDevMode={isDevMode}
+            hasDraft={selection.hasDraft}
+          />
+        )}
+      </PendingChangesGate>
+    );
   /**
    * The ONE action the phone's bottom bar has room for.
    *
@@ -1778,6 +1813,16 @@ const ShellFrame = memo(function ShellFrame({
    * edit opens it again -- a field opened is a field to be seen.
    */
   const [contentOpen, setContentOpen] = useState(true);
+  /**
+   * Whether the stage is shown, while there is one: the Preview switch
+   * shows and hides it as it does the page. Shown again each time the
+   * stage is chosen.
+   */
+  const [stageOpen, setStageOpen] = useState(true);
+  const hasStage = stage !== undefined;
+  useEffect(() => {
+    if (hasStage) setStageOpen(true);
+  }, [hasStage]);
   useEffect(() => {
     setContentOpen(true);
   }, [selectionId]);
@@ -1785,8 +1830,12 @@ const ShellFrame = memo(function ShellFrame({
     () => ({
       content: contentOpen,
       // History takes the preview's place: the column is there either way.
-      preview: (isCanvasOpen && canCanvas) || history !== undefined,
-      sketch: sketchOpen,
+      preview:
+        stage !== undefined
+          ? stageOpen
+          : (isCanvasOpen && canCanvas) || history !== undefined,
+      // A sketch is about a page, and the stage shows none
+      sketch: sketchOpen && stage === undefined,
       chat: aiEnabled && chatOpen,
     }),
     [
@@ -1797,6 +1846,8 @@ const ShellFrame = memo(function ShellFrame({
       sketchOpen,
       aiEnabled,
       chatOpen,
+      stage,
+      stageOpen,
     ],
   );
   /** The widths the columns were dragged to: see `ColumnDivider`. */
@@ -1835,8 +1886,8 @@ const ShellFrame = memo(function ShellFrame({
    */
   const switchedOn = {
     content: contentOpen,
-    preview: isCanvasOpen && canCanvas,
-    sketch: sketchpad?.open === true,
+    preview: stage !== undefined ? stageOpen : isCanvasOpen && canCanvas,
+    sketch: stage === undefined && sketchpad?.open === true,
     chat: aiEnabled && chatOpen,
   };
   const openCount = Object.values(switchedOn).filter(Boolean).length;
@@ -1854,10 +1905,14 @@ const ShellFrame = memo(function ShellFrame({
     {
       pane: "preview",
       open: switchedOn.preview,
-      onToggle: togglePreview,
-      unavailable: !canCanvas
-        ? "There is no page to show for this"
-        : lastOpen("preview"),
+      onToggle:
+        stage !== undefined
+          ? () => setStageOpen((open) => !open)
+          : togglePreview,
+      unavailable:
+        stage === undefined && !canCanvas
+          ? "There is no page to show for this"
+          : lastOpen("preview"),
     },
   ];
   if (sketchpad !== undefined) {
@@ -1866,7 +1921,10 @@ const ShellFrame = memo(function ShellFrame({
       open: sketchpad.open,
       onToggle: sketchpad.onToggle,
       changed: sketchpad.changed,
-      unavailable: lastOpen("sketch"),
+      unavailable:
+        stage !== undefined
+          ? "A sketch is about a page, and this view shows none"
+          : lastOpen("sketch"),
     });
   }
   if (aiEnabled) {
@@ -1929,6 +1987,7 @@ const ShellFrame = memo(function ShellFrame({
         onPreview={onPreview ?? (() => undefined)}
         previewHref={previewHref}
         switches={switches}
+        previewSource={previewSource}
       />
     );
   useEffect(() => {
@@ -2041,7 +2100,11 @@ const ShellFrame = memo(function ShellFrame({
             skipTransition={skipTransition}
             previewStatus={previewStatus}
             replacePreview={
-              breakpoint !== "mobile" && history !== undefined ? (
+              breakpoint !== "mobile" && stage !== undefined && stageOpen ? (
+                <div className="h-full min-h-0" data-val-pane="components">
+                  {stage}
+                </div>
+              ) : breakpoint !== "mobile" && history !== undefined ? (
                 <HistoryInPreviewsPlace label={history.label}>
                   {history.past}
                 </HistoryInPreviewsPlace>
@@ -2215,6 +2278,7 @@ const ShellFrame = memo(function ShellFrame({
             accountError={accountError}
             logo={data.logo}
             isLoading={isLoading}
+            components={components}
           />
         )}
 

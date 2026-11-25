@@ -28,22 +28,24 @@ export const heroSection = heroFields.component(
   {
     // Deliberately not representative of any real page: long values and a
     // long list are what make layout problems obvious.
-    example: {
-      type: "hero",
-      title:
-        "A deliberately very long headline that should still wrap and not overflow",
-      tagline:
-        "A tagline that is also longer than anything an editor would realistically write, so that the layout gets stress tested.",
-      bullets: [
-        "A short one",
-        "A considerably longer bullet point that runs onto a second line",
-        "Another",
-        "And another",
-        "And one more, to check the spacing of a long list",
-      ],
-      cta: {
-        label: "A call to action with a long label",
-        href: "https://val.build",
+    examples: {
+      longValues: {
+        type: "hero",
+        title:
+          "A deliberately very long headline that should still wrap and not overflow",
+        tagline:
+          "A tagline that is also longer than anything an editor would realistically write, so that the layout gets stress tested.",
+        bullets: [
+          "A short one",
+          "A considerably longer bullet point that runs onto a second line",
+          "Another",
+          "And another",
+          "And one more, to check the spacing of a long list",
+        ],
+        cta: {
+          label: "A call to action with a long label",
+          href: "https://val.build",
+        },
       },
     },
   },

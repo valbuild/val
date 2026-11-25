@@ -672,7 +672,7 @@ function ListControls({
             // else. Never off the top of the window: a section that starts
             // above it keeps its controls in reach, inside its corner.
             top: Math.max(rect.top - TOOLBAR_HEIGHT, 8),
-            left: Math.max(rect.left + rect.width, TOOLBAR_HEIGHT * 5),
+            left: Math.max(rect.left + rect.width, TOOLBAR_HEIGHT * 6),
             transform: "translateX(-100%)",
             display: "flex",
             alignItems: "center",
@@ -715,6 +715,21 @@ function ListControls({
           </ToolbarButton>
           <ToolbarButton title="Edit the content" onClick={() => open(hover)}>
             <Icon name="pencil" />
+          </ToolbarButton>
+          <ToolbarButton
+            title="Open in Components"
+            onClick={() => {
+              const itemPath = Internal.createValPathOfItem(path, hover);
+              if (itemPath !== undefined) {
+                send({
+                  val: VAL_CANVAS_MESSAGE,
+                  type: "openComponent",
+                  path: itemPath,
+                });
+              }
+            }}
+          >
+            <Icon name="blocks" />
           </ToolbarButton>
           {confirming === hover ? (
             <ToolbarButton
@@ -901,7 +916,8 @@ type IconName =
   | "right"
   | "pencil"
   | "trash"
-  | "plus";
+  | "plus"
+  | "blocks";
 
 /**
  * A function, and not a table of elements: a table is built when this file
@@ -940,6 +956,13 @@ function iconPaths(name: IconName): ReactNode {
       );
     case "plus":
       return <path d="M5 12h14M12 5v14" />;
+    case "blocks":
+      return (
+        <>
+          <rect width="7" height="7" x="14" y="3" rx="1" />
+          <path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3" />
+        </>
+      );
   }
 }
 
