@@ -136,7 +136,7 @@ export function ValCanvasBridge({
   const pickingRef = React.useRef(false);
   pickingRef.current = picking;
   // Said on the document too, for the controls `ValComponentEditor` draws:
-  // they are shown only while Edit is on.
+  // they are shown only while Select is on.
   React.useEffect(() => {
     const root = document.documentElement;
     root.toggleAttribute(VAL_CANVAS_EDITING_ATTRIBUTE, picking);

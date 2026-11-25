@@ -566,7 +566,7 @@ function SelectButton({
     <button
       type="button"
       aria-pressed={active}
-      aria-label={label ? undefined : tool === "content" ? "Edit" : "Select"}
+      aria-label={label ? undefined : "Select"}
       title={title}
       onClick={(event) => {
         event.stopPropagation();
@@ -589,7 +589,7 @@ function SelectButton({
       )}
     >
       <MousePointerSquareDashed size={14} />
-      {label && (tool === "content" ? "Edit" : "Select")}
+      {label && "Select"}
       {tool === "chat" && state.codeMode && (
         <CodeXml size={11} aria-label="code mode" />
       )}

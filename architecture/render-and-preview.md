@@ -186,7 +186,7 @@ arranged where it is shown: drag an item (by its grip or its outline), add
 one before or after another, remove one. The controls are
 `ValComponentEditorChrome.tsx`, and exist only when the document is the
 canvas frame, the list has a path (which it has in draft mode), AND the
-Studio's Edit is on - which the canvas bridge says on `<html>`
+Studio's Select is on - which the canvas bridge says on `<html>`
 (`data-val-canvas-editing`), so a list rendered after the Studio said it
 still knows. Their colour is the Studio's, from a CSS variable the bridge
 sets (`--val-canvas-selection`), for the same reason.

@@ -241,7 +241,7 @@ export type ValCanvasComponentEdit =
 export const VAL_CANVAS_CONTROLS_ATTRIBUTE = "data-val-component-controls";
 
 /**
- * On the canvas page's `<html>` while the Studio's Edit is on (its
+ * On the canvas page's `<html>` while Content's Select is on (its
  * `setPicking`): what the controls over a list of components are shown by.
  *
  * An attribute the bridge sets, rather than the message itself, because the
