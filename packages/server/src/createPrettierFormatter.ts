@@ -1,4 +1,5 @@
 import path from "path";
+import { keptOnce } from "@valbuild/shared/internal";
 
 /**
  * What Val calls to format a file it has just written.
@@ -129,19 +130,14 @@ export function createPrettierFormatter(
   prettierOrLoader: PrettierLike | PrettierLoader,
   options: { projectRoot: string },
 ): ValFormatter {
-  let loaded: Promise<PrettierLike> | null = null;
-  const loadPrettier = (): Promise<PrettierLike> => {
-    if (typeof prettierOrLoader !== "function") {
-      return Promise.resolve(prettierOrLoader);
-    }
-    // Forgotten when it fails, so the next save tries again rather than
-    // failing on the same rejected promise for the life of the process.
-    loaded ??= prettierOrLoader().catch((err: unknown) => {
-      loaded = null;
-      throw err;
-    });
-    return loaded;
-  };
+  // Kept once it is loaded -- prettier, never the promise of it: a server on
+  // a workerd isolate shares this closure between requests, and a promise
+  // made by a request that has ended fails every other request awaiting it.
+  // One that fails is loaded again by the next save.
+  const loadPrettier: () => Promise<PrettierLike> =
+    typeof prettierOrLoader === "function"
+      ? keptOnce(prettierOrLoader)
+      : () => Promise.resolve(prettierOrLoader);
   const projectRoot = path.resolve(options.projectRoot);
   // One array, built once: prettier reads and caches the ignore file itself, so
   // this is only here to avoid rebuilding the path per file.

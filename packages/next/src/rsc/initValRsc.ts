@@ -26,6 +26,7 @@ import {
 import { cookies, draftMode, headers } from "next/headers";
 import {
   readerSchemaVersion,
+  keptOnce,
   type ContentSource,
 } from "@valbuild/shared/internal";
 import {
@@ -33,7 +34,6 @@ import {
   draftForRequest,
   readDraftChanges,
   type ReaderRuntime,
-  type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
@@ -52,7 +52,8 @@ SET_RSC(true);
  * What the readers read: this process's runtime for the app's `val.modules`
  * (`createValRuntime`), the same one the API route's server is built on.
  * Its head is the draft, read with the request's session. Asked for by the
- * first draft read, never by a visitor's.
+ * first draft read, never by a visitor's. A getter, which keeps the runtime
+ * and not the promise of it: see `ReaderRuntime` in `@valbuild/server`.
  */
 export type { ReaderRuntime };
 
@@ -273,10 +274,12 @@ export function initValRsc(
   // One runtime per process for these modules: the API route's server is
   // built on the same one, so a save through it moves what these read. Built
   // by the first draft read and not before: building it evaluates the data
-  // layer (TypeScript, the Studio's assets), which a visitor never needs.
-  let started: Promise<ValRuntime> | null = null;
-  const runtime: ReaderRuntime = () => (started ??= startRuntime());
-  const startRuntime = () =>
+  // layer (TypeScript, the Studio's assets), which a visitor never needs. Kept
+  // once it is made -- the runtime, never the promise of it: these readers
+  // outlive the request that made them, and on workerd a promise made in a
+  // request that has ended fails every request that awaits it. Built once
+  // (`keptOnce`), and one that fails is made again by the next read.
+  const runtime: ReaderRuntime = keptOnce(() =>
     createValRuntime(
       valModules,
       "/api/val",
@@ -289,7 +292,8 @@ export function initValRsc(
         ...config,
       },
       config,
-    );
+    ),
+  );
   const deps: ReaderDeps = {
     runtime,
     isEnabled: async () => (await rscNextConfig.draftMode()).isEnabled,

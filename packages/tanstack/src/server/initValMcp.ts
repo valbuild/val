@@ -1,6 +1,7 @@
 import type { ValConfig, ValModules } from "@valbuild/core";
 import type { ValMcp, ValToolImpl, ValOAuthConfig } from "@valbuild/mcp";
 import { valMcpMetadataOf } from "@valbuild/mcp/metadata";
+import { keptOnce } from "@valbuild/shared/internal";
 import { VERSION } from "../version";
 
 /**
@@ -43,22 +44,18 @@ export function initValMcp(
   if (!tanstackVersion) {
     throw new Error("Could not get @valbuild/tanstack package version");
   }
-  let mcp: Promise<ValMcp> | null = null;
-  const loadMcp = (): Promise<ValMcp> => {
-    // Forgotten when it fails, so the next request tries again.
-    mcp ??= import("@valbuild/mcp")
-      .then(({ initValMcp: initValMcpCore }) =>
+  // Loaded by the first MCP request, and kept once it is -- the tools, never
+  // the promise of them: on workerd a promise made by a request that has ended
+  // fails every other request awaiting it. One that fails is loaded again.
+  const loadMcp = keptOnce(
+    (): Promise<ValMcp> =>
+      import("@valbuild/mcp").then(({ initValMcp: initValMcpCore }) =>
         initValMcpCore(valModules, config, {
           ...opts,
           versions: { next: tanstackVersion },
         }),
-      )
-      .catch((err: unknown) => {
-        mcp = null;
-        throw err;
-      });
-    return mcp;
-  };
+      ),
+  );
   return {
     valMcpMetadata: valMcpMetadataOf(opts?.oauth),
     async valMcpTools() {

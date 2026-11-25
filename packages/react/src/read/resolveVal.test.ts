@@ -199,13 +199,17 @@ describe("resolveVal on a whole .jsonValues() record", () => {
       [PATH]: ready({ a: { _type: "json" }, b: { _type: "json" } }, "overlay"),
     });
     const saved = snapshotSource({ [PATH]: { a: { title: "Saved A" } } });
-    const first = resolveVal(module, env([draft, saved]));
+    // One env, as one request's reads or one component's renders are: they
+    // share an import under way. Another env would import again (see
+    // `bundledEntries`).
+    const read = env([draft, saved]);
+    const first = resolveVal(module, read);
     expect(first.status).toBe("pending");
     // The snapshot had a; only b is imported.
     expect(imports.a).not.toHaveBeenCalled();
     expect(imports.b).toHaveBeenCalledTimes(1);
     const { value, reads } = await awaitResolved((settled) =>
-      resolveVal(module, env([draft, saved]), { settled }),
+      resolveVal(module, read, { settled }),
     );
     expect(value).toEqual({
       a: { title: "Saved A" },
@@ -227,8 +231,11 @@ describe("resolveVal on a whole .jsonValues() record", () => {
         ),
       },
     );
+    // One env for the read, as every reader builds it: a failed import is
+    // the env's, and a new env would try it again.
+    const read = env([]);
     const { value } = await awaitResolved((settled) =>
-      resolveVal(module, env([]), { settled }),
+      resolveVal(module, read, { settled }),
     );
     expect(value.a).toEqual({ title: "Note A" });
     expect(value.b).toEqual(expect.objectContaining({ _type: "json" }));
@@ -289,9 +296,11 @@ describe("resolveValEntry", () => {
         ),
       },
     );
+    // One env for the read, as every reader builds it.
+    const read = env([]);
     await expect(
       awaitResolved((settled) =>
-        resolveValEntry(module, "a", env([]), { settled }),
+        resolveValEntry(module, "a", read, { settled }),
       ),
     ).rejects.toThrow("the entry's file is gone");
   });

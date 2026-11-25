@@ -10,6 +10,7 @@ import {
   serverCanStartLazily,
   type ValApiOptions,
 } from "@valbuild/server/internal";
+import { keptOnce } from "@valbuild/shared/internal";
 import { VERSION } from "../version";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
 
@@ -198,7 +199,6 @@ const initValApiHandler = (
     ...(http !== undefined ? http : {}),
     ...(valContentUrl !== undefined ? { valContentUrl } : {}),
   };
-  let router: Promise<(req: Request) => Promise<Response>> | null = null;
   const loadRouter = async (): Promise<(req: Request) => Promise<Response>> => {
     const { createValApiRouter, createValServer } =
       await import("@valbuild/server");
@@ -276,19 +276,18 @@ const initValApiHandler = (
    * says which build is live, so nothing depends on when this one is built --
    * and a deployed site's cold start does not pay for it.
    */
+  // Loaded once and kept -- the router, not the promise of it (`keptOnce`):
+  // a deployed site runs in an isolate whose requests share this closure, and
+  // there a promise made by a request that has ended fails every other request
+  // awaiting it. One that fails is loaded again by the next request.
+  const router = keptOnce(loadRouter);
   if (!serverCanStartLazily(options)) {
-    router = loadRouter();
-    // Reported by the first request, not as an unhandled rejection at start.
-    router.catch(() => {});
+    // fs and memory mode: started with the app. Reported by the first
+    // request, not as an unhandled rejection at start.
+    router().catch(() => {});
   }
   return async (req: Request): Promise<Response> => {
-    // Forgotten when it fails, so the next request tries again rather than
-    // failing on the same rejected promise for the life of the process.
-    router ??= loadRouter().catch((err: unknown) => {
-      router = null;
-      throw err;
-    });
-    return (await router)(req);
+    return (await router())(req);
   };
 };
 

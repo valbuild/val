@@ -35,6 +35,11 @@ type Headers = { get(name: string): string | null };
  * building the readers does not build the runtime: the runtime is the data
  * layer, and a visitor -- draft mode off -- never needs it. A caller that
  * already has one passes `() => runtime`; it is asked at most once a read.
+ *
+ * The frameworks' getter keeps the runtime once it is made (`settledOnce`),
+ * never the promise of it: the readers are made once per process, and a
+ * promise made in one request and awaited in another is what workerd fails a
+ * request for (see `SettledCache` in `@valbuild/shared/internal`).
  */
 export type ReaderRuntime = () => Promise<ValRuntime>;
 

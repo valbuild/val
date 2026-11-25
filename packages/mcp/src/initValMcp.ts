@@ -140,9 +140,19 @@ export function initValMcp(
       ),
     };
   })();
-  setupPromise.catch(() => {
-    // handled per request
-  });
+  // Kept once it is made, and read rather than awaited from then on: the
+  // promise is the request's that first loaded this module, and on workerd a
+  // request awaiting a promise of one that has ended is failed. See
+  // `SettledCache` in `@valbuild/shared/internal`.
+  let setupMade: Awaited<typeof setupPromise> | null = null;
+  setupPromise.then(
+    (setup) => {
+      setupMade = setup;
+    },
+    () => {
+      // handled per request
+    },
+  );
 
   const oauth = opts?.oauth;
   const scopesSupported = VAL_SCOPES_SUPPORTED;
@@ -151,13 +161,13 @@ export function initValMcp(
     valMcpMetadata: valMcpMetadataOf(oauth),
 
     async valMcpTools() {
-      return (await setupPromise).tools;
+      return (setupMade ?? (await setupPromise)).tools;
     },
 
     async valMcpAuthorize(request) {
       let setup: Awaited<typeof setupPromise>;
       try {
-        setup = await setupPromise;
+        setup = setupMade ?? (await setupPromise);
       } catch (error) {
         return {
           status: "refused",

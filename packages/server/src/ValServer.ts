@@ -111,6 +111,7 @@ import {
   warnAnalyticsUnauthorizedOnce,
 } from "./analyticsForward";
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import { fetchFresh } from "./crossRequest";
 import { moduleFilePathOfRoute } from "./routePath";
 import { isLastingAnswer } from "./head";
 
@@ -433,7 +434,7 @@ export const ValServer = (
     if (!options.apiKey) {
       return null;
     }
-    return fetch(url, {
+    return fetchFresh(url, {
       method: "POST",
       headers: getAuthHeaders(options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
     })
@@ -3583,7 +3584,7 @@ export const ValServer = (
         const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/profiles`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "GET",
               headers,
             });
@@ -3688,7 +3689,7 @@ export const ValServer = (
         const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/initialize`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "POST",
               headers,
               body: JSON.stringify({}),
@@ -3870,7 +3871,7 @@ export const ValServer = (
             }
             const qs = params.toString();
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions${qs ? `?${qs}` : ""}`;
-            const upstreamRes = await fetch(upstreamUrl, { headers });
+            const upstreamRes = await fetchFresh(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
               return {
@@ -3958,7 +3959,7 @@ export const ValServer = (
         const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "PATCH",
               headers,
               body: JSON.stringify({ name: req.body.name }),
@@ -4074,7 +4075,7 @@ export const ValServer = (
             const upstreamUrl =
               `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages` +
               (qs ? `?${qs}` : "");
-            const upstreamRes = await fetch(upstreamUrl, { headers });
+            const upstreamRes = await fetchFresh(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
               return {
@@ -4176,7 +4177,7 @@ export const ValServer = (
         const execFetch = async () => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/patches/${encodeURIComponent(req.body.patchId)}/files/from-session-file`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "POST",
               headers,
               body: JSON.stringify({
@@ -4280,7 +4281,7 @@ export const ValServer = (
                 const downloadUrl = `${options.valContentUrl}/v1/${options.project}/ai/images?key=${encodeURIComponent(sessionKey)}`;
                 let binaryRes: Response;
                 try {
-                  binaryRes = await fetch(downloadUrl, { headers });
+                  binaryRes = await fetchFresh(downloadUrl, { headers });
                 } catch (err) {
                   return {
                     status: 500 as const,
@@ -4397,7 +4398,7 @@ export const ValServer = (
         const execFetch = async () => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/images`;
-            const upstreamRes = await fetch(upstreamUrl, {
+            const upstreamRes = await fetchFresh(upstreamUrl, {
               method: "PATCH",
               headers,
               body: JSON.stringify({
