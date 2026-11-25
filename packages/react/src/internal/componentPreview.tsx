@@ -58,7 +58,8 @@ export type ValComponentPreviewResolution =
  * its own source: a section added in the Studio is in the former and not the
  * latter, and only the content says which variant of a union a section is.
  *
- * With `example`, the props are the render's `example`; with `props`, those.
+ * With `example`, the props are the render's example of that name
+ * (`.component(load, { examples })`); with `props`, those.
  * Neither is content, so neither carries edit tags: a click in the preview must
  * not lead to a field the value is not in.
  */
@@ -72,7 +73,8 @@ export async function resolveValComponentPreview({
   valModule: ValModule<SelectorSource>;
   sourcePath: string;
   moduleValue: unknown;
-  example?: boolean;
+  /** The name of one of the render's `examples`, to render instead of the content. */
+  example?: string;
   props?: unknown;
 }): Promise<ValComponentPreviewResolution> {
   const [moduleFilePath, modulePath] =
@@ -110,10 +112,18 @@ export async function resolveValComponentPreview({
     };
   }
 
-  if (props !== undefined || example) {
-    const source = props !== undefined ? props : render.example;
+  if (props !== undefined || example !== undefined) {
+    const source =
+      props !== undefined
+        ? props
+        : example !== undefined
+          ? render.examples?.[example]
+          : undefined;
     if (source === undefined) {
-      return { status: "error", message: `${sourcePath} has no example.` };
+      return {
+        status: "error",
+        message: `${sourcePath} has no example called '${example}'.`,
+      };
     }
     value = stegaEncode(source, {
       disabled: true,

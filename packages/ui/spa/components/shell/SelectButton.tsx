@@ -21,7 +21,9 @@ export type SelectFor = "content" | "assistant";
  * pane's header nearest it:
  *
  * - **Content's** picks a field and opens it. It stays on until it is
- *   turned off, and the fields it can take are outlined solid. Where it is
+ *   turned off, and the fields it can take are outlined solid. While it is
+ *   on, a list rendered with `ValComponentEditor` shows the controls to
+ *   arrange it on the page. Where it is
  *   given a `mode`, it has two: **Select**, which opens the field in the
  *   column, and **Select & edit**, which puts the caret in a text where the
  *   page shows it. The button says which, and a menu beside it changes it.

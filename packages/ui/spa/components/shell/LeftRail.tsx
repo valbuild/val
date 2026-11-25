@@ -1,4 +1,11 @@
-import { Braces, CircleUser, FileText, Image, Settings } from "lucide-react";
+import {
+  Blocks,
+  Braces,
+  CircleUser,
+  FileText,
+  Image,
+  Settings,
+} from "lucide-react";
 import { cn } from "../designSystem/cn";
 import {
   Tooltip,
@@ -126,6 +133,12 @@ export type LeftRailProps = {
   logo?: ShellLogo;
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
+  /**
+   * EXPERIMENTAL: the Components view, last in the top strip. A page rather
+   * than a panel, like History: what it shows is a link (which component,
+   * which use of it, which screen), so it is a route.
+   */
+  components?: { active: boolean; onOpen: () => void };
 };
 
 /**
@@ -143,6 +156,7 @@ export function LeftRail({
   accountError,
   logo,
   isLoading,
+  components,
 }: LeftRailProps) {
   const items = visibleRailItems(destinations);
   const topItems = items.filter((item) => item.panel !== FOOT_PANEL);
@@ -180,6 +194,32 @@ export function LeftRail({
           </TooltipContent>
         </Tooltip>
       ))}
+      {components && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Components"
+              aria-current={components.active ? "page" : undefined}
+              onClick={components.onOpen}
+              className={cn(
+                "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
+                components.active
+                  ? "bg-bg-float-raised text-fg-primary"
+                  : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+              )}
+            >
+              <Blocks size={17} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <RailTooltip
+              label="Components"
+              description="Every component, and every place it is used"
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
       {/*
        * The foot of the rail: the account, or a faceless one where there is no
        * account.

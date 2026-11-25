@@ -85,7 +85,7 @@ export const heroFields = s.object({
 });
 export const hero = heroFields.component(
   () => import("../components/HeroSection"),
-  { example: { type: "hero", title: "A very long title" } },
+  { examples: { longTitle: { type: "hero", title: "A very long title" } } },
 );
 ```
 
@@ -96,8 +96,15 @@ preview route (`val-preview`), which renders it alone, in an iframe.
 It was `.render({ as: "component", component })`, and is its own method
 because it stopped being a render: a render is layout in the editor and
 applies only while the field is open, and this decides what a visitor gets.
-The wire form did not move - the marker is still the serialized `render`,
-`{ as: "component", example?: true }` - so the Studio's side is unchanged.
+The wire form is the serialized `render`, `{ as: "component", examples?,
+name? }`, where `examples` is the NAMES of the examples - their content is
+read by the host app, which renders them, like the component itself.
+
+**Examples are named, as stories are** (`examples: { longTitle: {...} }`),
+so a component can have as many as it needs to show its edge cases, and the
+Studio lists them by their names made readable - `longTitle` is "Long
+title" (`prettyExampleName` in `render.ts`). The preview route takes one by
+name (`&example=longTitle`).
 
 It holds CLOSURES (the import thunk, and `props`), so it is plumbed like a
 preview: only the marker travels, and the host app, which has the schema
@@ -248,9 +255,137 @@ tags the elements with `data-val-path`.
 used to carry a Preview / Content / Split switch with the component in an
 iframe beside the fields, sized by `maxWidth`, `aspectRatio` and
 `defaultView` on `.component(...)`. All of that was removed: the canvas
-already shows the component on the page, and components will get a UI of
-their own for being looked at. The preview route, the bridge and `example`
-stay for that UI, and nothing in the Studio calls them today.
+already shows the component on the page, and components have a view of
+their own for being looked at, below.
+
+### The Components view (`/val/components`)
+
+Where the preview route is used. A component is looked at across the
+project, not inside one page, so it is a page of the Studio's own - a route
+like History, linked from the rail when the project links any component
+(`hasLinkedComponents`).
+
+It is laid out the way a page is, so nothing about it has to be learned:
+
+- **The components are in the preview's place** (`ComponentsStage`, the
+  shell's `stage`, rendered through the same `replacePreview` History uses).
+  Preview is on and cannot be switched off - the stage is that pane - and
+  Sketch is off, since a sketch is about a page and there is none. On a
+  phone, where the panes are one at a time, the stage is the Content pane.
+- **Content is the Content pane** (`ComponentsContent`, the shell's
+  `editorOverride`), switched from the top bar as beside a page: on the
+  board, the list of components; with one open, the fields of the use on
+  screen (`AnyField` at its path, under a heading that names the component
+  and the use), so an edit is made beside where its effect is seen. A click
+  on content in the frame scrolls to its field there.
+- **The Assistant is the Assistant pane**, from the top bar. The stage has a
+  line to start from - a request of one's own, or one of a few common
+  ones - sent through `askAssistant` with what the assistant needs to find
+  the component (`componentAssistantPrompt`): where the schemas link it (the
+  module, and the schema path with `*` for an item of a list, which is
+  where its `.component(() => import(...))` names the file), every use, and
+  the one on screen. The conversation goes on in the pane, so code mode,
+  approvals and the rest are what they are everywhere else.
+
+The two halves share one state, in the address (`componentsUrlState.ts`,
+read with `useSyncExternalStore`), so opening a component in either is
+opening it in both.
+
+On the stage, the board shows every component as it is first used, at one
+screen width (phone, tablet, desktop); one component is stepped through use
+by use (the arrows, `←` / `→`, `[` / `]` between components, and a list of
+every use named by its preview or its first written string, and the page it
+is on), or every use side by side - its examples beside them, dashed and
+named, as a story book would show them.
+
+**Pages** is the other list (`mode=pages`): the pages that use components
+(`componentPages` - a page router's entries by route, any other module as
+one), and one page's uses stacked in content order, a use inside another
+(the cards of a columns section) nested under it, one above the other. The
+walk is in document order, so an ancestor comes before what is inside it and
+a stack nests them. Content shows the page's outline and the fields of the
+use picked there or on the stage.
+
+**Select** is Content's Select from beside a page's preview: the same
+`SelectButton`, and the same STATE - the shell hands the stage its mode and
+its one `useCanvasInlineEdit` (`ComponentsCode` in `componentsCode.ts`), so
+switching the mode in either place switches it in both. Select opens the
+picked field in Content. **Select & edit types in the component's
+preview**, exactly as on the page: the frame relays the canvas's own
+messages (`editInline`, `inlineEditStarted`, `inlineEdit`, ...), the preview
+route's bridge (`ValPreviewBridgeCore`) answers them with the same
+`startInlineEditFirst` the canvas bridges use (`inlineEditOnPage.ts` in
+`@valbuild/shared`, one copy for the three), and holds the keys typed while
+the Studio is asked, as the canvas bridge does - which it does only when
+the `picking` message says `editing`, so plain Select never swallows
+typing. A frame does not refresh its content while a text in it is being
+typed in, and does once it ends. What it does not do yet that the canvas
+does: start the edit IN the click (the canvas is told its texts ahead,
+`textFields`), and show a richtext's formatting controls beside the text.
+
+The previews outline in the project's selection colour: the frame sends
+it (`VAL_PREVIEW_MESSAGES.theme`) as the canvas sends its page `theme`.
+
+**Ways in.** The Preview switch's menu offers what the pane shows - Page or
+Components (`PreviewSource` in `PaneSwitches.tsx`) - and in Components the
+switch hides and shows the stage as it does the page; Sketch stays in the
+bar, disabled. From a page in the canvas, the controls over a component
+(`ValComponentEditorChrome`) have **Open in Components** (`openComponent`,
+a canvas page message); from the fields, a linked object - or a union whose
+variant is one - has a discreet **Show in Components** icon in its header
+and in the heading of an opened item (`ShowInComponentsButton`, read off
+the schema in hand so a field pays nothing for it). Both land on that
+component at that use (`componentUseAt`).
+
+**Code mode** reaches the previews as it reaches the canvas: a component is
+the site's code, and the preview route is in the same app bundle a quick
+preview replaces. The shell hands the stage its quick preview and build
+(`ComponentsCodeContext`), every preview opens with `?val_quick=` and loads
+again when another build is served. With no canvas page to store the files,
+the Studio stores them itself (`storeQuickPreviewHere`: same origin, same
+worker), and counts the stage as a live page for when one is made.
+`e2e/proposal/codeModePreview.spec.ts` drives it.
+
+**Lazy.** A preview is a document of the site's, so a board or a page of a
+hundred uses must not load a hundred at once: those frames are made only
+when they come near the visible part of the stage (an `IntersectionObserver`
+in `ComponentFrame`), and kept once made.
+
+**It looks like the preview it stands in for**: its controls in the row
+where the preview's address bar is, and what it shows on the canvas's dotted
+ground (`StageLayout`).
+
+**Search** is the Studio's own (`system.search`: the same engine and index
+as everywhere else), narrowed to the content of components:
+`componentSearchHits` gives each hit to the deepest use it is inside - a
+card's title in a columns section is the card's - once per use, and picking
+one opens that use.
+
+What the view shows is in the query (`componentsUrlState.ts`: `component`,
+`use`, `example`, `layout`, `screen`), so "the third hero, on a phone" is a
+link; `ROUTE_OWNED_PARAMS` drops them when navigating anywhere else.
+
+**Which component a value is** is read off the serialized schemas and the
+sources (`collectComponents`): the marker says an object is linked, the
+source says how many items a list has and which variant of a union each
+one is. A component's identity is a hash of its serialized object schema,
+because the component itself is a closure the Studio never sees - so the
+same `hero` reused in two modules is one component with the uses of both,
+and a link to it stops resolving when its fields change. Its name is
+`.component(load, { name })` when given (plain data, so it serializes);
+else its literal field (`type: s.literal("hero")` is "Hero"); else the field
+it is used in, made singular (`cards` is "Card"). Uses are found only in
+sources that are loaded, so a `.jsonValues()` entry the Studio has not
+fetched has none yet.
+
+**A component nothing uses cannot be previewed**, example or not: the route
+finds the component through the value at a path, and there is no path. It
+is listed, with where it is linked, and says so.
+
+**It frames the served site, not a quick preview.** In local development
+the dev server's own reload makes a code change show up; a code-mode quick
+preview (`?val_quick=`) is not passed to these frames yet, and Reload
+(`reloadKey`) loads them again after a build.
 
 `component` is a lazy `import()` and never the component. Val evaluates
 `.val.ts` files outside of the app — `val validate` and the language server in
