@@ -26,8 +26,14 @@ import { usePickingDefault } from "./usePickingDefault";
 import { useFieldShownInColumn } from "./useFieldShownInColumn";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
-import { CanvasFields } from "./CanvasFields";
+import {
+  CanvasFields,
+  type FocusRequest,
+  type PickedHow,
+} from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
+import { collapseShownPaths } from "./shownPaths";
+import { useSchemas } from "../../ValFieldProvider";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
 import type { CanvasSelectMode } from "../../../hooks/selectModePreference";
@@ -85,7 +91,7 @@ export type PageWorkspaceProps = {
        * filter has to know whether it is hiding it. `null` where a pick has no
        * source path behind it — the demo page's fields are not Val's.
        */
-      onPicked: (path: SourcePath | null) => void;
+      onPicked: (path: SourcePath | null, how?: PickedHow) => void;
       /** Esc on the page while picking fields: Content's Select turns off. */
       onPickingStopped: () => void;
     },
@@ -380,6 +386,11 @@ export function PageWorkspace({
    * the view, so the check has to wait for the column rather than happen here.
    */
   const [pickToReveal, setPickToReveal] = useState<SourcePath | null>(null);
+  /*
+   * The field picked on the page last, for the fields column to put the
+   * cursor in. Numbered, so picking the same field again focuses it again.
+   */
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const clearPickToReveal = useCallback(() => setPickToReveal(null), []);
 
   /**
@@ -612,13 +623,21 @@ export function PageWorkspace({
    * state that reads as the canvas being broken.
    */
   const onPicked = useCallback(
-    (path: SourcePath | null) => {
+    (path: SourcePath | null, how?: PickedHow) => {
       if (!isPicking) return;
       onViewChange("fields");
       if (isPhone) onPaneChange("editor");
       // Pointing at something is asking to edit it, and a filter hiding it
       // would answer with an empty column. See `pickToReveal`.
       if (path !== null && changedFieldsOnly) setPickToReveal(path);
+      // Pointing at a field is asking to type in it, on a phone as well.
+      if (path !== null) {
+        setFocusRequest((previous) => ({
+          path,
+          id: (previous?.id ?? 0) + 1,
+          added: how?.added === true,
+        }));
+      }
     },
     [isPicking, onViewChange, isPhone, onPaneChange, changedFieldsOnly],
   );
@@ -658,9 +677,18 @@ export function PageWorkspace({
       // The reload BUTTON's counter, which nothing else bumps — see the hook.
       resetKey: `${canvasRoute ?? ""}\n${reloadKey}`,
     });
+  // A component's own fields are in its row: listed once, not twice.
+  const schemas = useSchemas();
+  const listedPaths = useMemo(
+    () =>
+      schemas.status === "success"
+        ? collapseShownPaths(reportedPaths, schemas.data)
+        : reportedPaths,
+    [reportedPaths, schemas],
+  );
   const fieldCount = page
     ? Object.keys(page.fields).length
-    : reportedPaths.length;
+    : listedPaths.length;
   const viewToggle = (
     <ViewToggle
       view={view}
@@ -833,13 +861,14 @@ export function PageWorkspace({
           attachedFieldIds={attachedFieldIds}
           isDevMode={isDevMode}
         />
-      ) : reportedPaths.length > 0 ? (
+      ) : listedPaths.length > 0 ? (
         <CanvasFields
-          paths={reportedPaths}
+          paths={listedPaths}
           offPagePaths={offPagePaths}
           changedOnly={changedFieldsOnly}
           onChangedOnlyChange={setChangedFieldsOnly}
           pickToReveal={pickToReveal}
+          focusRequest={focusRequest}
           onPickRevealed={clearPickToReveal}
           selectedPath={fieldShownInColumn}
           onSelect={onSelectCanvasPath}

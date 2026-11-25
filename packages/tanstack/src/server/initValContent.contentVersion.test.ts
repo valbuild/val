@@ -32,16 +32,16 @@ const proposal: ValProposal = {
 };
 
 describe("what the readers render over the bundle", () => {
-  test("a content version's Source, for what it holds", () => {
-    expect(snapshotForReaders({ contentVersion: version })).toEqual({
+  test("a content version's Source, for what it holds", async () => {
+    expect(await snapshotForReaders({ contentVersion: version })).toEqual({
       [PAGE]: { title: "Published since the build" },
     });
   });
 
-  test("at a proposal's address, the proposal's saves over the version", () => {
+  test("at a proposal's address, the proposal's saves over the version", async () => {
     const FOOTER = "/app/footer.val.ts" as ModuleFilePath;
     expect(
-      snapshotForReaders({
+      await snapshotForReaders({
         proposal,
         contentVersion: {
           ...version,
@@ -54,9 +54,9 @@ describe("what the readers render over the bundle", () => {
     });
   });
 
-  test("nothing, when the platform hands over neither", () => {
-    expect(snapshotForReaders({})).toBeUndefined();
-    expect(snapshotForReaders(undefined)).toBeUndefined();
+  test("nothing, when the platform hands over neither", async () => {
+    expect(await snapshotForReaders({})).toBeUndefined();
+    expect(await snapshotForReaders(undefined)).toBeUndefined();
   });
 });
 

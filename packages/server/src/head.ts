@@ -18,6 +18,8 @@ import {
   moduleKey,
   parseModuleKey,
   resolveEntry,
+  SettledCache,
+  settledOnce,
   tiered,
   type EntryState,
   type EntryVersion,
@@ -235,19 +237,41 @@ export class ValHead {
   private readonly memory: MemoryTier;
   private readonly store: ModuleTier;
   private readonly facts = new WeakMap<StoredModule, ModuleFacts>();
+  /*
+   * What the head keeps between reads is what they SETTLED to, never a
+   * promise one of them is still waiting on: a head lives as long as the
+   * process, and on workerd a promise belongs to the request that made it --
+   * one that ends while its read is pending leaves a promise every later
+   * request fails on. See `SettledCache` in `@valbuild/shared/internal`.
+   * So two requests that find the chain moved at the same moment each fetch
+   * it: they used to join one fetch.
+   */
   private chain: HeadChain | null = null;
-  private fetching: {
-    seq: number;
-    epoch: string;
-    promise: Promise<HeadResult<HeadChain>>;
-  } | null = null;
-  private serialized: Promise<
-    Record<ModuleFilePath, SerializedSchema | undefined>
-  > | null = null;
-  private wholeTree: {
-    chain: HeadChain;
-    promise: Promise<HeadResult<HeadTree>>;
-  } | null = null;
+  private readonly serialized = settledOnce(() =>
+    this.ops.getSchemas().then((schemas) => {
+      const serialized: Record<ModuleFilePath, SerializedSchema | undefined> =
+        {};
+      for (const [path, schema] of Object.entries(schemas)) {
+        try {
+          serialized[path as ModuleFilePath] = schema["executeSerialize"]();
+        } catch {
+          // Reported elsewhere; read as "no schema", as the engine does.
+          serialized[path as ModuleFilePath] = undefined;
+        }
+      }
+      return serialized;
+    }),
+  );
+  /** {@link tree}, for the newest chain it was made at. */
+  private readonly wholeTree = new SettledCache<
+    HeadChain,
+    HeadResult<HeadTree>
+  >({ keep: (made) => "ok" in made, max: 1 });
+  /** {@link changed}, made once per chain: it looks at every record's markers. */
+  private readonly changedIn = new SettledCache<
+    HeadChain,
+    readonly ModuleFilePath[]
+  >({ max: 1 });
 
   constructor(
     private readonly ops: ValOps,
@@ -275,8 +299,8 @@ export class ValHead {
 
   /**
    * The chain, re-read only when `seq` moved (or the base did: a publish
-   * adopted). A read that finds a fetch already under way at the `seq` it
-   * saw joins it: that fetch reads at that `seq` or later.
+   * adopted). A read that finds it moved fetches it, even while another
+   * read's fetch is under way: see {@link chain}.
    *
    * Asks "has the chain moved?" once per call -- in http mode one request to
    * the content service. A caller that reads several modules for ONE answer
@@ -300,28 +324,7 @@ export class ValHead {
     ) {
       return { ok: held };
     }
-    const fetching = this.fetching;
-    if (
-      position !== null &&
-      fetching !== null &&
-      fetching.seq === position.seq &&
-      fetching.epoch === position.epoch
-    ) {
-      return fetching.promise;
-    }
-    const promise = this.fetchChain(position, base);
-    if (position !== null) {
-      const started = { ...position, promise };
-      this.fetching = started;
-      // Cleared however it ends. `finally` would hand on a rejection to a
-      // promise nobody holds: an unhandled rejection, which ends a Node
-      // process. The caller is handed `promise` itself, and sees it.
-      const done = () => {
-        if (this.fetching === started) this.fetching = null;
-      };
-      promise.then(done, done);
-    }
-    return promise;
+    return this.fetchChain(position, base);
   }
 
   /** The chain a read is answered at: the one given, or the newest. */
@@ -390,20 +393,7 @@ export class ValHead {
   serializedSchemas(): Promise<
     Record<ModuleFilePath, SerializedSchema | undefined>
   > {
-    this.serialized ??= this.ops.getSchemas().then((schemas) => {
-      const serialized: Record<ModuleFilePath, SerializedSchema | undefined> =
-        {};
-      for (const [path, schema] of Object.entries(schemas)) {
-        try {
-          serialized[path as ModuleFilePath] = schema["executeSerialize"]();
-        } catch {
-          // Reported elsewhere; read as "no schema", as the engine does.
-          serialized[path as ModuleFilePath] = undefined;
-        }
-      }
-      return serialized;
-    });
-    return this.serialized;
+    return this.serialized();
   }
 
   // #region modules
@@ -810,19 +800,9 @@ export class ValHead {
     const synced = await this.at(at);
     if ("error" in synced) return synced;
     const chain = synced.ok;
-    let made = this.changedIn;
-    if (made?.chain !== chain) {
-      made = { chain, paths: this.changedOf(chain) };
-      this.changedIn = made;
-    }
-    return { ok: [...(await made.paths)] };
+    const paths = await this.changedIn.get(chain, () => this.changedOf(chain));
+    return { ok: [...paths] };
   }
-
-  /** {@link changed}, made once per chain: it looks at every record's markers. */
-  private changedIn: {
-    chain: HeadChain;
-    paths: Promise<readonly ModuleFilePath[]>;
-  } | null = null;
 
   private async changedOf(chain: HeadChain): Promise<ModuleFilePath[]> {
     const changed = new Set<ModuleFilePath>(chain.byModule.keys());
@@ -845,10 +825,7 @@ export class ValHead {
     const synced = await this.sync();
     if ("error" in synced) return synced;
     const chain = synced.ok;
-    if (this.wholeTree?.chain !== chain) {
-      this.wholeTree = { chain, promise: this.makeTree(chain) };
-    }
-    return this.wholeTree.promise;
+    return this.wholeTree.get(chain, () => this.makeTree(chain));
   }
 
   private async makeTree(chain: HeadChain): Promise<HeadResult<HeadTree>> {

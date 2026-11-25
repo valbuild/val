@@ -34,6 +34,7 @@ import { useUploadLocalMedia } from "./useUploadLocalMedia";
 import { isStudioUploadFix } from "../../utils/uploadLocalMedia";
 import { Spinner } from "../designSystem/spinner";
 import { DEMO_FULL_CHECK_OFF, useValDemo } from "../../demo/ValDemoContext";
+import { PENDING_CHANGES_DEADLINE_MS } from "../shell/PendingChangesGate";
 
 /**
  * `/val/validate`, connected: the Studio's own errors, "Check everything"
@@ -144,6 +145,33 @@ export function ValidateRoute() {
     }
     const order = (Object.keys(schemaData) as ModuleFilePath[]).sort();
     validateSession.start(order);
+    /*
+     * Not before this Studio's unpublished changes have loaded. They arrive a
+     * moment after the page does, and the patches named below are the ones
+     * loaded THEN: pressed before that, this named none, the server checked
+     * the published content, and the page said it had checked everything.
+     * Not forever either: past the deadline the fields give up at, it says
+     * so, with Try again.
+     */
+    if (val !== null) {
+      const giveUp = new AbortController();
+      const timer = setTimeout(
+        () => giveUp.abort(),
+        PENDING_CHANGES_DEADLINE_MS,
+      );
+      const loaded = await val.system.patchStore.whenChainSettled(
+        giveUp.signal,
+      );
+      clearTimeout(timer);
+      if (!loaded) {
+        validateSession.fail(
+          "Nothing was checked: this Studio's unpublished changes have not finished loading, and a check without them would not be of what you see.",
+          undefined,
+          "try-again",
+        );
+        return;
+      }
+    }
     const patchIds = shownPatchIds();
     for (const moduleFilePath of order) {
       if (validateSession.shouldStop) {
@@ -169,7 +197,7 @@ export function ValidateRoute() {
       }
     }
     validateSession.finish(Date.now());
-  }, [checkModule, schemaData, shownPatchIds]);
+  }, [checkModule, schemaData, shownPatchIds, val]);
 
   /**
    * **Try again** on a host: the modules it holds files of are checked again,

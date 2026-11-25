@@ -44,9 +44,26 @@ export {
 
 // TanStack specific
 export { ValProvider } from "./ValProvider";
+// EXPERIMENTAL: component previews (`s.object(...).component(...)`)
+export { ValPreviewBridge } from "./ValPreviewBridge";
+// EXPERIMENTAL: content rendered by the components its schema links it to
+// (`s.object(...).component(...)`), arranged on the page in the Studio
+export {
+  ValComponentEditor,
+  type ValComponentEditorProps,
+} from "@valbuild/react/internal";
+export { Unstable_ValComponentPreview } from "./ValComponentPreview";
+export type { ValPreviewSource } from "./server/fetchValPreviewSource";
 export type { ValDraft } from "./ValDraft";
 export type { ValAnalytics } from "./ValAnalytics";
-export { ValImage, type ValImageProps } from "./ValImage";
+export {
+  ValImage,
+  getValImageProps,
+  type ValImageProps,
+  type ValImageLoader,
+  type ValImageLoaderProps,
+  type ValImageElementProps,
+} from "./ValImage";
 export { ValVideo, type ValVideoProps } from "./ValVideo";
 export { ValApp } from "./ValApp";
 /** What `<ValApp demo={{ tours, audiences }}>` takes. See `ValDemoOptions`. */

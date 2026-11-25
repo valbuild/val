@@ -117,6 +117,21 @@ export {
 } from "./val";
 export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
+  ValEncodedString,
+  Image,
+  File,
+  Video,
+  StegaOfRichTextSource,
+  RichText,
+  StegaOfSource,
+  ReadOf,
+} from "./read";
+export type {
+  ValComponent,
+  ValComponentSource,
+  IsValComponentSource,
+} from "./source/component";
+export type {
   ValidationError,
   ValidationErrors,
 } from "./schema/validation/ValidationError";
@@ -145,7 +160,14 @@ import {
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
-import { ModulePath, SourcePath, getValPath, isVal, setValPath } from "./val";
+import {
+  ModulePath,
+  SourcePath,
+  getValPath,
+  isVal,
+  setValPath,
+  valPathOf,
+} from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
@@ -189,6 +211,16 @@ import {
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import { galleriesOf } from "./source/galleries";
+import {
+  isResizableImageUrl,
+  RESIZE_DEFAULT_QUALITY,
+  RESIZE_DEVICE_WIDTH,
+  RESIZE_QUALITIES,
+  RESIZE_WIDTHS,
+  resizedImageUrl,
+  resizeQuality,
+  resizeWidth,
+} from "./source/resizedImage";
 import {
   fillFromGallery,
   GALLERY_DEFAULT_GROUPS,
@@ -337,6 +369,20 @@ export {
   type SliderRender,
   type NumberRender,
   isInlineRender,
+  type ComponentRender,
+  type SerializedComponentRender,
+  type ValComponentType,
+  type ValComponentImport,
+  type ComponentPropsOf,
+  type ComponentOptions,
+  type ComponentArgs,
+  getComponentRender,
+  loadComponent,
+  componentPropsOf,
+  setComponentOfValue,
+  componentOfValue,
+  prettyExampleName,
+  VAL_PREVIEW_MESSAGES,
 } from "./render";
 export type {
   ValRouter,
@@ -472,10 +518,20 @@ const Internal = {
     GALLERY_DEFAULT_GROUPS,
     isHlsVideo,
     HLS_MIME_TYPE,
+    // `?w=` / `?q=` on a remote ref: see `source/resizedImage.ts`.
+    isResizableImageUrl,
+    resizedImageUrl,
+    resizeWidth,
+    resizeQuality,
+    RESIZE_WIDTHS,
+    RESIZE_DEVICE_WIDTH,
+    RESIZE_QUALITIES,
+    RESIZE_DEFAULT_QUALITY,
   },
   getSchema,
   getValPath,
   setValPath,
+  valPathOf,
   getSource,
   isValModule,
   resolvePath,

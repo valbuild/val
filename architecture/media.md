@@ -337,6 +337,31 @@ service releases a patch's files a day after its commit's deployment succeeded.
 > broken tile still returns **200** with a `src` that looks right. Only decoding
 > it — `naturalWidth > 0` — can tell. Any test here asserts on that.
 
+## Resized remote images: `?w=` and `?q=`
+
+A PUBLISHED remote ref to a JPEG, PNG, WebP or AVIF can be asked for at
+another width and quality, and both hosts a ref can name answer it: the
+platform loader for `https://<site>/_val/file/…` (Cloudflare Images) and the
+content service for `https://remote.val.build/file/…` (sharp), both in
+valbuild/home. Each scales DOWN only, answers in AVIF or WebP when `Accept`
+names them (`Vary: Accept`), keeps the copy under `resized/` in the file's
+bucket, and serves the original when it cannot resize.
+
+The widths and qualities are LADDERS, `RESIZE_WIDTHS` and `RESIZE_QUALITIES`
+in `core/src/source/resizedImage.ts`, and they are a contract with those two
+hosts: every distinct `w`/`q` is a transformation somebody pays for and a copy
+somebody stores, so the hosts snap anything else onto the ladder, and the
+readers only ever ask for rungs. Change them in all three places or not at all.
+
+`Internal.media.resizedImageUrl` is the one place a reader builds such a URL,
+and it answers null for anything that is not a published remote ref -- a local
+file (TanStack Start has nothing to resize it with) or a draft, whose bytes are
+in the patch store and at neither host. `ValImage` in `@valbuild/tanstack` is
+the reader: `next/image`'s `srcset` rules over that ladder, with the widths
+past the image's own left out bar the first, since a host never scales up and
+each would be one more copy of the same pixels. `@valbuild/next`'s `ValImage`
+still goes through `next/image`'s own optimizer.
+
 ## Why `/files` has no auth, and `/history/files` does
 
 These two look like the same endpoint and are not, so they are documented

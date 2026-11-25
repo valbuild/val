@@ -1,8 +1,9 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
 import { useValSystem } from "../../../stores/react/SystemContext";
-import { useChainVersion, useNoOpSourcePaths } from "../../ValProvider";
+import { noOpSourcePathsOf } from "../../ValProvider";
+import { useLateStoreValue } from "../../../stores/react/useStoreValue";
 import { changedFieldsAmong, indexFields } from "./changedFields";
 import { cn } from "../../designSystem/cn";
 import { prettifyFilename } from "../../../utils/prettifyFilename";
@@ -11,11 +12,42 @@ import { FieldLoading } from "../../FieldLoading";
 import { FieldNotFound } from "../../FieldNotFound";
 import { FieldSchemaError } from "../../FieldSchemaError";
 import { useSchemaAtPath } from "../../ValFieldProvider";
+import { isAncestorPath } from "./shownPaths";
+import { isSourcePath } from "../../../utils/sourcePath";
 
 /** How far below the top of the column a field scrolled to should land. */
 const SCROLL_MARGIN_PX = 8;
 /** How long the column keeps re-aligning as its rows fill in. */
 const SETTLE_MS = 1200;
+
+/**
+ * How long a row's field may be missing before it says so. A move, an add or
+ * a remove changes what the paths the page reported point at, and the page
+ * reports the new ones a moment later: until then, a row is as likely to be
+ * between two states as broken.
+ */
+const MISSING_GRACE_MS = 1500;
+
+/** What can take the cursor in a field: the first one is focused. */
+const FOCUSABLE_INPUT =
+  "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), [contenteditable=true], select:not([disabled])";
+
+/**
+ * A field picked on the page, to put the cursor in. `id` changes on every
+ * pick, so the same field picked twice is focused twice. `added` is an item
+ * that was just added on the page: its first control is focused, and a
+ * union's kind - the first thing to decide about it - is opened.
+ */
+export type FocusRequest = { path: SourcePath; id: number; added: boolean };
+
+/** What else came with a pick. */
+export type PickedHow = { added?: boolean };
+
+/**
+ * How long an added item may take to show up in the column: it is written,
+ * the page re-renders with it, and only then reports it.
+ */
+const ADDED_WAIT_MS = 5000;
 
 /**
  * The fields the page reported, as fields rather than as a list of paths.
@@ -42,6 +74,7 @@ export function CanvasFields({
   onChangedOnlyChange,
   pickToReveal,
   onPickRevealed,
+  focusRequest,
   selectedPath,
   onSelect,
 }: {
@@ -62,12 +95,36 @@ export function CanvasFields({
    */
   pickToReveal?: SourcePath | null;
   onPickRevealed?: () => void;
+  /**
+   * A field picked on the page: its input is focused once its row has
+   * rendered - inside the component's row, for a field of a component.
+   */
+  focusRequest?: FocusRequest | null;
   /** The field the editor is on, highlighted here to match. */
   selectedPath?: SourcePath | null;
   onSelect?: (path: SourcePath) => void;
 }) {
   const [query, setQuery] = useState("");
   const changedPaths = useChangedPaths(paths);
+  /*
+   * The row the selection is in: its own, or - for a field inside a
+   * component, which is listed as the component - the component's. The
+   * nearest one, so a card in a section is the card's row when it has one.
+   */
+  const selectedRow = useMemo(() => {
+    if (!selectedPath) return null;
+    if (paths.includes(selectedPath)) return selectedPath;
+    let nearest: SourcePath | null = null;
+    for (const path of paths) {
+      if (
+        isAncestorPath(path, selectedPath) &&
+        (nearest === null || path.length > nearest.length)
+      ) {
+        nearest = path;
+      }
+    }
+    return nearest;
+  }, [selectedPath, paths]);
 
   /*
    * Only a pick, never the answer changing under a selection: reverting the
@@ -106,10 +163,10 @@ export function CanvasFields({
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const list = listRef.current;
-    if (!selectedPath || !list) return;
+    if (!selectedRow || !list) return;
     const align = () => {
       const row = list.querySelector(
-        `[data-canvas-field="${CSS.escape(selectedPath)}"]`,
+        `[data-canvas-field="${CSS.escape(selectedRow)}"]`,
       );
       if (!(row instanceof HTMLElement)) return;
       const listBox = list.getBoundingClientRect();
@@ -141,7 +198,91 @@ export function CanvasFields({
      * scroller — so without this the one case where the scroll matters most is
      * the one it never happens in.
      */
-  }, [selectedPath, paths]);
+  }, [selectedRow, paths]);
+
+  /*
+   * A pick on the page puts the cursor in the field it picked, on a desktop
+   * and on a phone alike: pointing at something is asking to change it.
+   *
+   * Once the row has rendered it, which can be a moment: a row asks for its
+   * own schema, and on a phone the column was only just brought into view.
+   * So it is retried as the column changes, for as long as the scroll above
+   * settles, and given up on after that rather than taking the cursor from
+   * wherever the editor has put it since. Without scrolling: the effect above
+   * does that, and a focus that scrolls too lands somewhere else.
+   */
+  const focusPath = focusRequest?.path ?? null;
+  const focusId = focusRequest?.id ?? null;
+  const focusAdded = focusRequest?.added === true;
+  useEffect(() => {
+    const list = listRef.current;
+    if (focusPath === null || !list) return;
+    const row = () => {
+      const exact = list.querySelector(
+        `[data-canvas-field="${CSS.escape(focusPath)}"]`,
+      );
+      if (exact) return exact;
+      // A field inside a component is in the component's row
+      let nearest: Element | null = null;
+      let nearestLength = -1;
+      for (const candidate of Array.from(
+        list.querySelectorAll("[data-canvas-field]"),
+      )) {
+        const rowPath = candidate.getAttribute("data-canvas-field");
+        if (
+          rowPath !== null &&
+          isSourcePath(rowPath) &&
+          isAncestorPath(rowPath, focusPath) &&
+          rowPath.length > nearestLength
+        ) {
+          nearest = candidate;
+          nearestLength = rowPath.length;
+        }
+      }
+      return nearest;
+    };
+    const focus = (): boolean => {
+      const found = row();
+      if (!found) return false;
+      // The field itself and nothing near it: a row that does not show it
+      // (it is in a list in there, to be opened) has no input of its own to
+      // offer, and focusing another would select that one instead.
+      const field =
+        found.getAttribute("data-canvas-field") === focusPath
+          ? found
+          : found.querySelector(
+              `[data-val-studio-path="${CSS.escape(focusPath)}"]`,
+            );
+      if (!field) return false;
+      // An added item: its first control, which for a section of several
+      // kinds is the kind - and that is opened, as the first thing to decide.
+      const input = field.querySelector<HTMLElement>(
+        focusAdded ? `[role=combobox], ${FOCUSABLE_INPUT}` : FOCUSABLE_INPUT,
+      );
+      if (!input) return false;
+      input.focus({ preventScroll: true });
+      if (focusAdded && input.getAttribute("role") === "combobox") {
+        openSelect(input);
+      }
+      // A field deep in a component's row may be below the row's top, which
+      // is what the column scrolled to
+      if (field !== found) field.scrollIntoView({ block: "nearest" });
+      return true;
+    };
+    if (focus()) return;
+    const observer = new MutationObserver(() => {
+      if (focus()) observer.disconnect();
+    });
+    observer.observe(list, { childList: true, subtree: true });
+    const stop = setTimeout(
+      () => observer.disconnect(),
+      focusAdded ? ADDED_WAIT_MS : SETTLE_MS,
+    );
+    return () => {
+      clearTimeout(stop);
+      observer.disconnect();
+    };
+  }, [focusPath, focusId, focusAdded]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
@@ -238,7 +379,7 @@ export function CanvasFields({
                   <CanvasFieldRow
                     key={path}
                     path={path}
-                    selected={selectedPath === path}
+                    selected={selectedRow === path}
                     changed={changedPaths.has(path)}
                     offPage={offPagePaths?.has(path) ?? false}
                     onSelect={onSelect}
@@ -260,8 +401,13 @@ export function CanvasFields({
  * hooks cannot be called in a loop over it. That also means each field resolves
  * and re-renders independently, which is what keeps one slow module from
  * holding up the rest of the column.
+ *
+ * A `memo`, so the column rendering -- a dot appearing on one row, a filter
+ * typed -- is not every field on the page rendering. Its props are a path,
+ * three booleans and the column's own `onSelect`: keep them to values that
+ * are the same while they say the same.
  */
-function CanvasFieldRow({
+const CanvasFieldRow = memo(function CanvasFieldRow({
   path,
   selected,
   changed,
@@ -281,13 +427,19 @@ function CanvasFieldRow({
   onSelect?: (path: SourcePath) => void;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
+  const missingIsSettled = useLasted(
+    schemaAtPath.status === "error" || schemaAtPath.status === "not-found",
+    MISSING_GRACE_MS,
+  );
   return (
     <div
       // Read by the scroll-into-view effect above, which finds the row by path
       // rather than by holding a ref per row: the list is dynamic, and a map of
       // refs to a changing set of paths is a leak waiting to be written.
       data-canvas-field={path}
-      onFocusCapture={() => onSelect?.(path)}
+      onFocusCapture={(event) =>
+        onSelect?.(focusedFieldPath(event.target, path))
+      }
       className={cn(
         "rounded-lg border px-2.5 py-2",
         // The accent border says which row the page selected — until a control
@@ -333,24 +485,24 @@ function CanvasFieldRow({
           </span>
         )}
       </div>
-      {schemaAtPath.status === "error" ? (
+      {schemaAtPath.status === "success" ? (
+        // `compact`, because this column is a third of the workspace at most:
+        // the field has to be the editor, not the editor's full layout.
+        <AnyField path={path} schema={schemaAtPath.data} compact />
+      ) : schemaAtPath.status === "loading" || !missingIsSettled ? (
+        <FieldLoading path={path} type="module" />
+      ) : schemaAtPath.status === "error" ? (
         <FieldSchemaError
           path={path}
           error={schemaAtPath.error}
           type="module"
         />
-      ) : schemaAtPath.status === "loading" ? (
-        <FieldLoading path={path} type="module" />
-      ) : schemaAtPath.status === "not-found" ? (
-        <FieldNotFound path={path} type="module" />
       ) : (
-        // `compact`, because this column is a third of the workspace at most:
-        // the field has to be the editor, not the editor's full layout.
-        <AnyField path={path} schema={schemaAtPath.data} compact />
+        <FieldNotFound path={path} type="module" />
       )}
     </div>
   );
-}
+});
 
 /**
  * The paths among `paths` whose value differs from what is published.
@@ -359,57 +511,48 @@ function CanvasFieldRow({
  * patch could have changed; the source store then compares each of those with
  * its published value, which is what drops an edit that was typed back to the
  * original and sorts out which items of a list actually moved. The same
- * comparison the review screen makes, through the same hook.
+ * comparison the review screen makes (`noOpSourcePathsOf`).
  *
- * Re-read when the chain moves, which is every edit, save and publish. Kept
- * reference-stable while the answer is the same, so a keystroke in a field that
- * was already changed does not re-filter the column.
+ * Asked again when the chain or a source moves, which is every edit, save and
+ * publish -- AFTER it, in a task of its own, so the match never holds up the
+ * write that moved the chain (`useLateStoreValue`). And this column renders
+ * only when the answer moved: it used to render for every write, and its
+ * rows are every field on the page, so a keystroke in a field that was
+ * already changed rendered all of them to draw the same dots.
  */
 function useChangedPaths(
   paths: readonly SourcePath[],
 ): ReadonlySet<SourcePath> {
-  const candidates = useTouchedPaths(paths);
-  const candidateList = useMemo(() => Array.from(candidates), [candidates]);
-  const unchanged = useNoOpSourcePaths(candidateList);
-  const previous = useRef<ReadonlySet<SourcePath>>(new Set());
-  return useMemo(() => {
-    const next = new Set<SourcePath>();
-    for (const path of candidateList) {
-      if (!unchanged.has(path)) next.add(path);
-    }
-    if (sameSet(previous.current, next)) return previous.current;
-    previous.current = next;
-    return next;
-  }, [candidateList, unchanged]);
+  const val = useValSystem();
+  const fields = useMemo(() => indexFields(paths), [paths]);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offSources = val.system.sourceStore.events.on(
+        "source:change",
+        onChange,
+      );
+      return () => {
+        offChain();
+        offSources();
+      };
+    },
+    [val],
+  );
+  const read = useCallback((): ReadonlySet<SourcePath> => {
+    if (val === null) return NO_CHANGED_PATHS;
+    const store = val.system.patchStore;
+    const candidates = Array.from(
+      changedFieldsAmong(fields, store.allRecords(), store.publishedPatchIds()),
+    );
+    const unchanged = noOpSourcePathsOf(val.system, candidates);
+    return new Set(candidates.filter((path) => !unchanged.has(path)));
+  }, [val, fields]);
+  return useLateStoreValue(subscribe, read, sameSet);
 }
 
-/** The first pass of {@link useChangedPaths}: what a patch could have changed. */
-function useTouchedPaths(
-  paths: readonly SourcePath[],
-): ReadonlySet<SourcePath> {
-  const val = useValSystem();
-  /*
-   * Deferred, so the match never holds up the keystroke that moved the chain:
-   * the field being typed in renders first, and the dots and the filter catch
-   * up in a render React is free to interrupt.
-   */
-  const chainVersion = useDeferredValue(useChainVersion());
-  const fields = useMemo(() => indexFields(paths), [paths]);
-  const previous = useRef<ReadonlySet<SourcePath>>(new Set());
-  return useMemo(() => {
-    void chainVersion;
-    if (val === null) return previous.current;
-    const store = val.system.patchStore;
-    const next = changedFieldsAmong(
-      fields,
-      store.allRecords(),
-      store.publishedPatchIds(),
-    );
-    if (sameSet(previous.current, next)) return previous.current;
-    previous.current = next;
-    return next;
-  }, [val, chainVersion, fields]);
-}
+const NO_CHANGED_PATHS: ReadonlySet<SourcePath> = new Set();
 
 function sameSet<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
   if (a.size !== b.size) return false;
@@ -475,6 +618,53 @@ function ChangedOnlyToggle({
  * already know from being on it, and repeating it on every row pushes the part
  * that differs off the end.
  */
+/**
+ * Opens a select by its trigger, the way a keyboard does: its own handler
+ * opens it on ArrowDown, so nothing about the select's state is reached into.
+ */
+function openSelect(trigger: HTMLElement) {
+  trigger.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+  );
+}
+
+/**
+ * Whether `condition` has been true for `ms` without a break - `true` at
+ * once when it is false, since there is nothing to wait out then. For a
+ * state that is only worth showing if it stays.
+ */
+function useLasted(condition: boolean, ms: number): boolean {
+  const [lasted, setLasted] = useState(false);
+  useEffect(() => {
+    if (!condition) {
+      setLasted(false);
+      return;
+    }
+    const timeout = setTimeout(() => setLasted(true), ms);
+    return () => clearTimeout(timeout);
+  }, [condition, ms]);
+  return !condition || lasted;
+}
+
+/**
+ * The field a focus inside a row is in: the row's own path, or - in a
+ * component's row, which holds the component's fields - the field nearest
+ * the focused element, so the page outlines the field being typed in rather
+ * than the whole component.
+ */
+function focusedFieldPath(
+  target: EventTarget,
+  rowPath: SourcePath,
+): SourcePath {
+  if (!(target instanceof Element)) return rowPath;
+  const field = target
+    .closest("[data-val-studio-path]")
+    ?.getAttribute("data-val-studio-path");
+  return field && isSourcePath(field) && isAncestorPath(rowPath, field)
+    ? field
+    : rowPath;
+}
+
 export function fieldLabel(path: SourcePath): string {
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!modulePath) return path;

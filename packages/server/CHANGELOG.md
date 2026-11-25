@@ -1,5 +1,62 @@
 # @valbuild/server
 
+## 0.154.4
+
+### Patch Changes
+
+- [#1088](https://github.com/valbuild/val/pull/1088) [`0d7071a`](https://github.com/valbuild/val/commit/0d7071ac44af3d392a9a02c035aa9beb79e245a6) Thanks [@freekh](https://github.com/freekh)! - **A visitor leaving a slow page no longer breaks the next request on Cloudflare-style hosting.** On a host that runs the site in a workerd isolate (Val's hosting, Cloudflare Workers), a request could fail at once with "This promise was created by a request that has since ended, so it can never settle." Val's readers are made once per process, and several things they read were cached as a promise that the first request to ask made: the readers' runtime, the draft's chain of edits, a `.jsonValues()` entry's import, the API's and MCP's server. When that first request ended before its read finished -- the visitor closed the tab -- every other request waiting on the same read failed with it, or showed an editor the published page instead of the draft.
+
+  The same thing made the Studio's `/stat` say the content service could not be reached (a 503) when nothing had been asked of it at all.
+
+  What is cached between requests is now the value a read settled to, never a read still under way, and a read that failed is tried again by the next request rather than kept. A read of the content service that workerd refuses as another request's is made again, and if it is refused again `/stat` answers it as Val's own failure rather than as an unreachable service. Nothing changes in how you call `initValContent`, `initValRsc`, `initValServer` or `initValMcp`.
+
+- Updated dependencies [[`0d7071a`](https://github.com/valbuild/val/commit/0d7071ac44af3d392a9a02c035aa9beb79e245a6)]:
+  - @valbuild/shared@0.154.4
+  - @valbuild/ui@0.154.2
+
+## 0.154.3
+
+### Patch Changes
+
+- Updated dependencies [[`8142322`](https://github.com/valbuild/val/commit/81423223265b22c045e1283051a0575da06dab51)]:
+  - @valbuild/shared@0.154.3
+  - @valbuild/ui@0.154.2
+
+## 0.154.2
+
+### Patch Changes
+
+- [#1087](https://github.com/valbuild/val/pull/1087) [`9e085bc`](https://github.com/valbuild/val/commit/9e085bc2b2104ce2644b4a14948288c799a2ce82) Thanks [@freekh](https://github.com/freekh)! - **A published page no longer loads the Studio, TypeScript, sucrase or prettier.** A site's first request in a fresh server process (on Val's hosting, every request a cold isolate answers) used to evaluate all of Val's server: the Studio's embedded assets (about 22 MB), TypeScript (9 MB), sucrase and the MCP tools. A page only needs that when someone edits it. These now load when they are first used, by the Val API, a draft read, a save or an MCP call, and a visitor's page never loads them.
+
+  We measured this in a fresh Node process, with the TanStack example app built the way a deployed app is built and running as a deployed site does (`http` mode). The first request for a public page used to load 38.8 MB of modules, take about 1.06 s and leave 170 MB of heap in use. It now loads 5.3 MB, takes about 0.23 s and leaves 38 MB of heap. An isolate counts more than Node does, so treat these heap figures as a lower bound.
+
+  What changed for an app:
+
+  - `initValContent` (and `initValRsc` in `@valbuild/next`) no longer start Val's server when they are created. They start it on the first draft read.
+  - With TanStack Start, `initValServer` loads the server on its first request in `http` mode, which is what a deployed site runs in. In local development (`fs` mode) and memory mode it still starts with the app. Those modes need the newest build in a process to exist before the previous build answers a request.
+  - `initValMcp` from `@valbuild/tanstack/server` loads the MCP tools on the first MCP request. Its `valMcpMetadata` comes from the new `@valbuild/mcp/metadata` entry, which is small.
+  - `createPrettierFormatter` now also accepts a loader. **Update your `val.server.ts`** so prettier is loaded by the first save rather than by every page:
+
+    ```ts
+    // before
+    import prettier from "prettier";
+    formatter: createPrettierFormatter(prettier, { projectRoot: process.cwd() }),
+
+    // after
+    formatter: createPrettierFormatter(() => import("prettier"), {
+      projectRoot: process.cwd(),
+    }),
+    ```
+
+    Passing `prettier` itself still works.
+
+  - If your app serves MCP from a TanStack Start route, import the MCP SDK inside the handler (`await import("@modelcontextprotocol/server")`), not at the top of the file. TanStack Start's route tree imports every server route's module on every cold start.
+
+- Updated dependencies [[`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff), [`a52c184`](https://github.com/valbuild/val/commit/a52c184687849ba9c2c2a4929871b60502a6ee55), [`6c26409`](https://github.com/valbuild/val/commit/6c2640966779e20931672dc78ff6e3c0d19e4183), [`d90b9e2`](https://github.com/valbuild/val/commit/d90b9e2f856d4023821698cd22b4fbbab046c2ff)]:
+  - @valbuild/core@0.154.2
+  - @valbuild/shared@0.154.2
+  - @valbuild/ui@0.154.2
+
 ## 0.154.1
 
 ### Patch Changes

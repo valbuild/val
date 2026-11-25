@@ -1,8 +1,9 @@
 import { Internal, type Json, type ModuleFilePath } from "@valbuild/core";
-import type {
-  ContentSource,
-  EntryRead,
-  ModuleRead,
+import {
+  SettledCache,
+  type ContentSource,
+  type EntryRead,
+  type ModuleRead,
 } from "@valbuild/shared/internal";
 import { bundledJsonEntryImport } from "./jsonValues";
 import type { ValExternalStore } from "./overlayStore";
@@ -155,67 +156,116 @@ export function overlaySource(
   };
 }
 
-/** Where one bundled entry's import is. */
-type BundledEntry =
-  | { status: "loading"; ready: Promise<void> }
-  | { status: "loaded"; content: unknown }
-  | { status: "failed"; error: unknown; at: number };
-
 /**
- * Every bundled entry's import, started once and kept, by the MODULE OBJECT
+ * Every bundled entry's import, kept once it has LOADED, by the MODULE OBJECT
  * it belongs to -- the build it came from -- so a new build (or a hot reload)
  * is a new key rather than an old answer. Replaces the frameworks'
  * `jsonEntryPromiseCache`, which was keyed by path and kept a previous
  * build's entries for good.
  *
  * Kept for the process, as the imports themselves are: the module object
- * keeps them alive, and with it the entries the page has read. A failed
- * import is kept for {@link RETRY_FAILED_ENTRY_AFTER_MS}, then tried again.
+ * keeps them alive, and with it the entries the page has read.
+ *
+ * What is NOT kept for the process is an import still under way, or one
+ * that failed: both belong to the read env that started it (a server
+ * request's `fetchVal`, a component's renders), the `scope` below. On a
+ * server this map outlives every request, and on workerd a promise one
+ * request started fails every other request that awaits it once the first
+ * has ended -- and so does the import itself, when the visitor who started
+ * it has gone, which is a failure of THAT request and must not be the next
+ * visitor's. See `SettledCache` in `@valbuild/shared/internal`.
  */
-const bundledEntries = new WeakMap<object, Map<string, BundledEntry>>();
+const bundledEntries = new WeakMap<
+  object,
+  SettledCache<string, { content: unknown }>
+>();
+
+/** The imports that failed, by scope, then module, then key. */
+const failedEntries = new WeakMap<
+  object,
+  WeakMap<object, Map<string, { error: unknown; at: number }>>
+>();
 
 /** How long a failed entry import answers "failed" before it is tried again. */
 export const RETRY_FAILED_ENTRY_AFTER_MS = 5_000;
 
-function bundledEntry(module: object, key: string): EntryRead {
+function failuresOf(
+  scope: object,
+  module: object,
+): Map<string, { error: unknown; at: number }> {
+  let byModule = failedEntries.get(scope);
+  if (byModule === undefined) {
+    byModule = new WeakMap();
+    failedEntries.set(scope, byModule);
+  }
+  let failures = byModule.get(module);
+  if (failures === undefined) {
+    failures = new Map();
+    byModule.set(module, failures);
+  }
+  return failures;
+}
+
+function bundledEntry(module: object, key: string, scope: object): EntryRead {
   let entries = bundledEntries.get(module);
   if (entries === undefined) {
-    entries = new Map();
+    entries = new SettledCache();
     bundledEntries.set(module, entries);
   }
-  let entry = entries.get(key);
-  if (entry === undefined) {
-    const thunk = bundledJsonEntryImport(module, key);
-    if (thunk === undefined) {
-      return { status: "gone", from: "bundle" };
-    }
-    const kept = entries;
-    const ready = thunk().then(
-      (imported) => {
-        kept.set(key, { status: "loaded", content: imported.default });
-      },
-      (error: unknown) => {
-        kept.set(key, { status: "failed", error, at: Date.now() });
-      },
-    );
-    entry = { status: "loading", ready };
-    entries.set(key, entry);
+  const kept = entries.peek(key);
+  if (kept !== undefined) {
+    return { status: "ready", content: kept.value.content, from: "bundle" };
   }
-  if (entry.status === "loading") {
-    return { status: "pending", ready: entry.ready };
-  }
-  if (entry.status === "failed") {
+  const failures = failuresOf(scope, module);
+  const failed = failures.get(key);
+  if (failed !== undefined) {
     // A chunk that failed to load (a deploy, a dropped connection) is
     // imported again by a read after a while, rather than failing every
     // read until the page is reloaded -- and not by every read before
     // that, each of which would suspend a component again.
-    if (Date.now() - entry.at >= RETRY_FAILED_ENTRY_AFTER_MS) {
-      entries.delete(key);
-      return bundledEntry(module, key);
+    if (Date.now() - failed.at < RETRY_FAILED_ENTRY_AFTER_MS) {
+      return { status: "failed", error: failed.error };
     }
-    return { status: "failed", error: entry.error };
+    failures.delete(key);
   }
-  return { status: "ready", content: entry.content, from: "bundle" };
+  const thunk = bundledJsonEntryImport(module, key);
+  if (thunk === undefined) {
+    return { status: "gone", from: "bundle" };
+  }
+  // The same promise for every read in this scope while it is under way,
+  // which `React.use` needs; once loaded, the next read finds it kept.
+  const loading = entries.get(
+    key,
+    () =>
+      thunk().then(
+        (imported) => ({ content: imported.default }),
+        (error: unknown) => {
+          failures.set(key, { error, at: Date.now() });
+          throw error;
+        },
+      ),
+    scope,
+  );
+  return { status: "pending", ready: waitFor(loading) };
+}
+
+/**
+ * A source's wait for `promise`: settled when it is, and the SAME wait for
+ * the same promise, which `React.use` needs (one made afresh per read is
+ * never seen to settle).
+ */
+const waits = new WeakMap<Promise<unknown>, Promise<void>>();
+
+function waitFor(promise: Promise<unknown>): Promise<void> {
+  let wait = waits.get(promise);
+  if (wait === undefined) {
+    wait = promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    waits.set(promise, wait);
+  }
+  return wait;
 }
 
 /**
@@ -230,8 +280,15 @@ function bundledEntry(module: object, key: string): EntryRead {
  */
 export function bundleSource(
   modules: ReadonlyMap<ModuleFilePath, unknown>,
+  /**
+   * Which reads may share an import still under way (see
+   * {@link bundledEntries}): the read env, which lives as long as one
+   * request's read or one component's render. Without it, the reads of this
+   * source.
+   */
+  scope?: object,
 ): ContentSource {
-  return {
+  const source: ContentSource = {
     name: "bundle",
     module() {
       return PASS;
@@ -241,7 +298,8 @@ export function bundleSource(
       if (typeof module !== "object" || module === null) {
         return PASS;
       }
-      return bundledEntry(module, key);
+      return bundledEntry(module, key, scope ?? source);
     },
   };
+  return source;
 }

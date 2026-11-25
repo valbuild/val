@@ -20,6 +20,7 @@ export * from "../internal/codeChangedEvent";
 export * from "../internal/elementPicker";
 export * from "../internal/inlineEditing";
 export * from "../internal/inlineEditKeys";
+export * from "../internal/inlineEditOnPage";
 export * from "../internal/emptyTextFields";
 export * from "../internal/pageInspection";
 export * from "../internal/pageScreenshot";

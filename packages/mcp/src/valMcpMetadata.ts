@@ -1,4 +1,5 @@
 import type { ValOAuthConfig } from "./valAccessToken";
+import { VAL_SCOPE_READ, VAL_SCOPE_WRITE } from "./tools/types";
 
 /**
  * The one document an MCP client needs before it can authorize: RFC 9728
@@ -81,6 +82,23 @@ export function createValMcpMetadata(
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     },
   };
+}
+
+/** The scopes an MCP endpoint of Val's supports: read, and write. */
+export const VAL_SCOPES_SUPPORTED = [VAL_SCOPE_READ, VAL_SCOPE_WRITE];
+
+/**
+ * The metadata handlers `initValMcp` serves as `valMcpMetadata`: `null`
+ * without an `oauth` config, since a project that has not been told where to
+ * authorize must not publish a document claiming it knows.
+ *
+ * One function, so a framework binding that builds `ValMcp` lazily (to keep
+ * the tools out of a site's cold start) answers this the same way.
+ */
+export function valMcpMetadataOf(
+  oauth: ValOAuthConfig | undefined,
+): ValMcpMetadataHandlers | null {
+  return oauth ? createValMcpMetadata(oauth, VAL_SCOPES_SUPPORTED) : null;
 }
 
 /**

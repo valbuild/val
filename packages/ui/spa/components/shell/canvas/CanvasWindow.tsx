@@ -19,6 +19,15 @@ import { PREVIEW_VIEW_CONTROL_ATTRIBUTE } from "./placeInlineToolbar";
  * to this, so a floor the fit cannot reach shows up as a page that overflows a
  * window which claims to be showing the whole width of it.
  */
+
+/**
+ * The canvas's dotted ground: what makes it read as a surface a page is
+ * placed on rather than as a page with margins. The Components view's stage
+ * is laid on it too, as the preview it stands in for.
+ */
+export const CANVAS_GROUND =
+  "bg-bg-canvas [background-image:radial-gradient(var(--border-float)_1px,transparent_1px)] [background-size:24px_24px]";
+
 export const MIN_SCALE = 0.1;
 export const MAX_SCALE = 2;
 /** How much one press of + or - changes the zoom. */
@@ -498,11 +507,11 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
            * gutter always means the number the fit is computed from does not
            * depend on the fit's own result.
            */
-          "relative overflow-x-auto overflow-y-scroll overscroll-contain bg-bg-canvas scrollbar-slim",
+          "relative overflow-x-auto overflow-y-scroll overscroll-contain scrollbar-slim",
           // The dotted ground is what makes it read as a surface the page is
           // placed on rather than as a page with margins. Kept from the canvas
           // it replaces: the model changed, the look did not need to.
-          "[background-image:radial-gradient(var(--border-float)_1px,transparent_1px)] [background-size:24px_24px]",
+          CANVAS_GROUND,
           className,
         )}
       >

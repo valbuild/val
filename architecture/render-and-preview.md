@@ -76,6 +76,324 @@ value that breaks a RULE is a validation error like any other, with a "Round
 to" next to it. Both offer a value from `Internal.number.nearestAllowedNumber`,
 the validator's own arithmetic, so the button never leads back to the error.
 
+## A component is linked to an object (EXPERIMENTAL)
+
+```ts
+export const heroFields = s.object({
+  type: s.literal("hero"),
+  title: s.string(),
+});
+export const hero = heroFields.component(
+  () => import("../components/HeroSection"),
+  { examples: { longTitle: { type: "hero", title: "A very long title" } } },
+);
+```
+
+The component that renders an object on the site. Two things use it: the
+site, which renders the object with it (`ValComponentEditor`), and the app's
+preview route (`val-preview`), which renders it alone, in an iframe.
+
+It was `.render({ as: "component", component })`, and is its own method
+because it stopped being a render: a render is layout in the editor and
+applies only while the field is open, and this decides what a visitor gets.
+The wire form is the serialized `render`, `{ as: "component", examples?,
+name? }`, where `examples` is the NAMES of the examples - their content is
+read by the host app, which renders them, like the component itself.
+
+**Examples are named, as stories are** (`examples: { longTitle: {...} }`),
+so a component can have as many as it needs to show its edge cases, and the
+Studio lists them by their names made readable - `longTitle` is "Long
+title" (`prettyExampleName` in `render.ts`). The preview route takes one by
+name (`&example=longTitle`).
+
+It holds CLOSURES (the import thunk, and `props`), so it is plumbed like a
+preview: only the marker travels, and the host app, which has the schema
+instance, finds the component (`getComponentRender` in `core/src/render.ts`).
+A discriminated union answers for the variant its value takes, so a list of
+sections needs nothing on the list itself.
+
+### The link is type checked, on the line that makes it
+
+`.component(load, options)` infers the component's type from the `import()`
+and reads its props off it structurally (`ComponentPropsOf`), with no React in
+core. What follows the thunk is `ComponentArgs`: when what a READER gives back
+for the object is assignable to those props, options are optional; when it is
+not, options with a `props` function are required, and the function's result
+is checked instead. That is what lets any component be linked, not only one
+written for the schema.
+
+"What a reader gives back" is why the read types (`StegaOfSource`, `Image`,
+`ValEncodedString` and the rest) are defined in core, in `read.ts`:
+`.component()` lives in core and has to be able to say them. An image has a
+`url` only on the read side, so checking against the Source would refuse a
+component that renders one. `@valbuild/react/stega` re-exports them all.
+
+One trap, which the example above is shaped to avoid: a component that types
+its props from the schema it is linked FROM (`t.inferSchema<typeof hero>`)
+makes the schema's type depend on the component's and the component's on the
+schema's, and TypeScript reports `'hero' implicitly has type 'any'`. Declare
+the fields first and link them in a second `const`, or let the component own
+its props.
+
+`props` is called through `componentPropsOf`, in one place for the site and
+for the Studio's preview, so the preview cannot show a component the site
+renders differently. It holds the one assertion this needs: a render found by
+path has lost its relation to the schema `.component()` checked it against.
+
+### How the site finds the component: it rides on the value
+
+`<ValComponentEditor value={page.sections} />` takes no map from a `type` to
+a component. Each object says what renders it, because the reader attached
+it: `stegaEncode` sets the object's `ComponentRender` on a symbol
+(`setComponentOfValue` / `componentOfValue` in `core/src/render.ts`). The same
+mechanism as a view's handle, and for the same reason - the app cannot get
+from a value back to its schema, and the reader is the one place with both.
+
+- **From the schema INSTANCE.** The walk is over the serialized schema, which
+  has the marker and not the closure, so an object with the marker looks its
+  component up from the root of what is being walked, by its own path
+  (`componentRenderAt`). For a `.jsonValues()` entry read by key the root is
+  the entry, which is why `getJsonEntryStegaRoot` hands over the item schema.
+- **In production too.** Unlike an object's path, which is set only in draft
+  mode: this is how the site renders.
+- **Lazy.** Attaching a thunk loads nothing. A page downloads the components
+  it shows, each the first time it is shown, through one `React.lazy` per
+  thunk, kept (`lazyComponentOf`) - a new one per render is a new component
+  type per render.
+- **It does not survive serialization.** A value passed from a server
+  component to a client one, or through loader data, arrives without it, and
+  `ValComponentEditor` renders nothing for it and says so once.
+
+### `ValComponentEditor` only takes what is linked
+
+`.component()` returns a schema whose SOURCE type carries an optional slot
+(`ValComponentSource`, the same shape as the slot on `ValViewSource`), and
+`StegaOfSource` turns that into a required one on the read side: `ValComponent`.
+The editor's `value` is `ValComponent | readonly ValComponent[] | null`. So a
+list with one variant that was not linked, or an object that never was, fails
+to compile where it is rendered - there is no runtime "no component for this
+type" on a page that type checks. The slot is optional on the source so the
+content in the `.val.ts` stays a plain literal.
+
+It is not a page: it renders what it is handed and nothing around it. A page
+can use it for one list and write the rest by hand, and a component can use
+it for a list of components of its own, which is all nesting is.
+
+### Arranging a list on the page
+
+In the Studio's canvas a list rendered by `ValComponentEditor` can be
+arranged where it is shown: drag an item (by its grip or its outline), add
+one before or after another, remove one. The controls are
+`ValComponentEditorChrome.tsx`, and exist only when the document is the
+canvas frame, the list has a path (which it has in draft mode), AND the
+Studio's Select is on - which the canvas bridge says on `<html>`
+(`data-val-canvas-editing`), so a list rendered after the Studio said it
+still knows. Their colour is the Studio's, from a CSS variable the bridge
+sets (`--val-canvas-selection`), for the same reason.
+
+- **The page asks, the Studio writes.** The page has no patch store. It posts
+  a `componentEdit` (`ValCanvasComponentEdit` in `valCanvasProtocol.ts`) and
+  `useCanvasComponentEdits` writes the patch - the list field's own `move` /
+  `remove` / `add` - which comes back as a `sourceUpdate` like any edit.
+- **An addition does not say what, and asks nothing.** The Studio has the
+  schema, so it writes an empty item at once - a union's first variant - and
+  opens it as a pick on the page would, in On this page, with its first
+  control focused. For a union that is the kind, which is opened: the first
+  thing to decide, and decided where every other value of the item is.
+- **An item is its place.** The element around each component is marked
+  (`data-val-component`) with no value, and an edit names indices. An item
+  the page could not render still has its element, so the count is right.
+- **A list answers for its own items only.** The pointer's NEAREST component
+  decides, so a list inside a component of another list has its own controls.
+- **The controls are not the page's content.** They may sit inside an element
+  with a `data-val-path`, and the bridge's pick handler asks
+  `isOnValCanvasControls` first.
+- **No `react-dom`.** The layer is the list's last child, `position: fixed`
+  and measured rather than assumed to be at the window's corner
+  (`relativeTo`), instead of a portal: the file is reached from
+  `val.config.ts` through the framework package's entry. For the same reason
+  nothing in it may run at import time - a table of JSX elements there broke
+  `val validate`, which evaluates the config with no React.
+
+### Where the thunk must NOT be followed
+
+Val modules are evaluated outside the app, and the thunk is never called
+there. A bundler follows it anyway. `bundleValModules` in
+`@valbuild/tanstack-build` therefore leaves a dynamic import from a `.val.ts`
+external when it names app code (`isAppCodeImport`): bundled, the component
+and everything it imports would be in the module the Studio evaluates, and
+every Val module would depend on its components' files.
+
+### The preview beside the fields
+
+The app renders it on a route of its own that the Studio loads in a frame,
+`/val-preview?p=<source path>` (hard-coded in `ComponentPreview.tsx` for
+now). Finding the component and its props is shared,
+`resolveValComponentPreview` in `@valbuild/react/internal`, and each binding
+renders it its own way:
+
+- **Next**: `unstable_renderValComponent` in a Server Component, which reads
+  with the app's `fetchVal`; a refresh is `router.refresh()`.
+- **TanStack**: the loader reads the module through a server function
+  (`unstable_fetchValPreviewSource` from `@valbuild/tanstack/server`), and
+  `Unstable_ValComponentPreview` finds and renders the component in the
+  browser; a refresh is `router.invalidate()`. The route is `ssr: false` and
+  outside `_site`: under the site's `ValProvider` the frame would be taken for
+  the Studio's canvas (any frame inside the Studio is, see
+  `isValCanvasFrame`), and the edit tags are only switched on in the browser.
+
+Both wrap it in `ValPreviewBridge` (the shared `ValPreviewBridgeCore`, in its
+own `"use client"` file so a Server Component can import the resolver).
+
+The preview route wraps its output in `ValPreviewBridge`, which reports the
+component's height whenever it changes, and turns a click on content into a
+`pick` message (`VAL_PREVIEW_MESSAGES` in `render.ts`): it loads through
+`/api/val/enable`, so it renders draft content with stega and `autoTagJSX`
+tags the elements with `data-val-path`.
+
+**In the Studio's field panel a linked object is an ordinary object.** It
+used to carry a Preview / Content / Split switch with the component in an
+iframe beside the fields, sized by `maxWidth`, `aspectRatio` and
+`defaultView` on `.component(...)`. All of that was removed: the canvas
+already shows the component on the page, and components have a view of
+their own for being looked at, below.
+
+### The Components view (`/val/components`)
+
+Where the preview route is used. A component is looked at across the
+project, not inside one page, so it is a page of the Studio's own - a route
+like History, linked from the rail when the project links any component
+(`hasLinkedComponents`).
+
+It is laid out the way a page is, so nothing about it has to be learned:
+
+- **The components are in the preview's place** (`ComponentsStage`, the
+  shell's `stage`, rendered through the same `replacePreview` History uses).
+  Preview is on and cannot be switched off - the stage is that pane - and
+  Sketch is off, since a sketch is about a page and there is none. On a
+  phone, where the panes are one at a time, the stage is the Content pane.
+- **Content is the Content pane** (`ComponentsContent`, the shell's
+  `editorOverride`), switched from the top bar as beside a page: on the
+  board, the list of components; with one open, the fields of the use on
+  screen (`AnyField` at its path, under a heading that names the component
+  and the use), so an edit is made beside where its effect is seen. A click
+  on content in the frame scrolls to its field there.
+- **The Assistant is the Assistant pane**, from the top bar. The stage has a
+  line to start from - a request of one's own, or one of a few common
+  ones - sent through `askAssistant` with what the assistant needs to find
+  the component (`componentAssistantPrompt`): where the schemas link it (the
+  module, and the schema path with `*` for an item of a list, which is
+  where its `.component(() => import(...))` names the file), every use, and
+  the one on screen. The conversation goes on in the pane, so code mode,
+  approvals and the rest are what they are everywhere else.
+
+The two halves share one state, in the address (`componentsUrlState.ts`,
+read with `useSyncExternalStore`), so opening a component in either is
+opening it in both.
+
+On the stage, the board shows every component as it is first used, at one
+screen width (phone, tablet, desktop); one component is stepped through use
+by use (the arrows, `←` / `→`, `[` / `]` between components, and a list of
+every use named by its preview or its first written string, and the page it
+is on), or every use side by side - its examples beside them, dashed and
+named, as a story book would show them.
+
+**Pages** is the other list (`mode=pages`): the pages that use components
+(`componentPages` - a page router's entries by route, any other module as
+one), and one page's uses stacked in content order, a use inside another
+(the cards of a columns section) nested under it, one above the other. The
+walk is in document order, so an ancestor comes before what is inside it and
+a stack nests them. Content shows the page's outline and the fields of the
+use picked there or on the stage.
+
+**Select** is Content's Select from beside a page's preview: the same
+`SelectButton`, and the same STATE - the shell hands the stage its mode and
+its one `useCanvasInlineEdit` (`ComponentsCode` in `componentsCode.ts`), so
+switching the mode in either place switches it in both. Select opens the
+picked field in Content. **Select & edit types in the component's
+preview**, exactly as on the page: the frame relays the canvas's own
+messages (`editInline`, `inlineEditStarted`, `inlineEdit`, ...), the preview
+route's bridge (`ValPreviewBridgeCore`) answers them with the same
+`startInlineEditFirst` the canvas bridges use (`inlineEditOnPage.ts` in
+`@valbuild/shared`, one copy for the three), and holds the keys typed while
+the Studio is asked, as the canvas bridge does - which it does only when
+the `picking` message says `editing`, so plain Select never swallows
+typing. A frame does not refresh its content while a text in it is being
+typed in, and does once it ends. What it does not do yet that the canvas
+does: start the edit IN the click (the canvas is told its texts ahead,
+`textFields`), and show a richtext's formatting controls beside the text.
+
+The previews outline in the project's selection colour: the frame sends
+it (`VAL_PREVIEW_MESSAGES.theme`) as the canvas sends its page `theme`.
+
+**Ways in.** The Preview switch's menu offers what the pane shows - Page or
+Components (`PreviewSource` in `PaneSwitches.tsx`) - and in Components the
+switch hides and shows the stage as it does the page; Sketch stays in the
+bar, disabled. From a page in the canvas, the controls over a component
+(`ValComponentEditorChrome`) have **Open in Components** (`openComponent`,
+a canvas page message); from the fields, a linked object - or a union whose
+variant is one - has a discreet **Show in Components** icon in its header
+and in the heading of an opened item (`ShowInComponentsButton`, read off
+the schema in hand so a field pays nothing for it). Both land on that
+component at that use (`componentUseAt`).
+
+**Code mode** reaches the previews as it reaches the canvas: a component is
+the site's code, and the preview route is in the same app bundle a quick
+preview replaces. The shell hands the stage its quick preview and build
+(`ComponentsCodeContext`), every preview opens with `?val_quick=` and loads
+again when another build is served. With no canvas page to store the files,
+the Studio stores them itself (`storeQuickPreviewHere`: same origin, same
+worker), and counts the stage as a live page for when one is made.
+`e2e/proposal/codeModePreview.spec.ts` drives it.
+
+**Lazy.** A preview is a document of the site's, so a board or a page of a
+hundred uses must not load a hundred at once: those frames are made only
+when they come near the visible part of the stage (an `IntersectionObserver`
+in `ComponentFrame`), and kept once made.
+
+**It looks like the preview it stands in for**: its controls in the row
+where the preview's address bar is, and what it shows on the canvas's dotted
+ground (`StageLayout`).
+
+**Search** is the Studio's own (`system.search`: the same engine and index
+as everywhere else), narrowed to the content of components:
+`componentSearchHits` gives each hit to the deepest use it is inside - a
+card's title in a columns section is the card's - once per use, and picking
+one opens that use.
+
+What the view shows is in the query (`componentsUrlState.ts`: `component`,
+`use`, `example`, `layout`, `screen`), so "the third hero, on a phone" is a
+link; `ROUTE_OWNED_PARAMS` drops them when navigating anywhere else.
+
+**Which component a value is** is read off the serialized schemas and the
+sources (`collectComponents`): the marker says an object is linked, the
+source says how many items a list has and which variant of a union each
+one is. A component's identity is a hash of its serialized object schema,
+because the component itself is a closure the Studio never sees - so the
+same `hero` reused in two modules is one component with the uses of both,
+and a link to it stops resolving when its fields change. Its name is
+`.component(load, { name })` when given (plain data, so it serializes);
+else its literal field (`type: s.literal("hero")` is "Hero"); else the field
+it is used in, made singular (`cards` is "Card"). Uses are found only in
+sources that are loaded, so a `.jsonValues()` entry the Studio has not
+fetched has none yet.
+
+**A component nothing uses cannot be previewed**, example or not: the route
+finds the component through the value at a path, and there is no path. It
+is listed, with where it is linked, and says so.
+
+**It frames the served site, not a quick preview.** In local development
+the dev server's own reload makes a code change show up; a code-mode quick
+preview (`?val_quick=`) is not passed to these frames yet, and Reload
+(`reloadKey`) loads them again after a build.
+
+`component` is a lazy `import()` and never the component. Val evaluates
+`.val.ts` files outside of the app — `val validate` and the language server in
+`node:vm`, the Studio in a rolldown Worker — and a component pulls in CSS,
+images, `next/*` and `server-only`, none of which those can load. A thunk is
+never called there, so the component's file is never loaded, and
+`no-illegal-imports` (which checks only static imports) has nothing to say.
+
 ## Where they meet: a list row, and the render wins
 
 A list row is the one place both have a claim, because a row is where a value

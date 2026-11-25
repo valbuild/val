@@ -274,4 +274,122 @@ describe("uploading a remote gallery's entry from the editor", () => {
       { image: { path: ref, alt: "B" } },
     ]);
   });
+
+  test("uploads every image of the gallery, as its title says, keeping their order", async () => {
+    // A second local image, which the page shows in its rich text.
+    const MARK = "/public/val/images/mark_fghij.png";
+    fs.writeFileSync(path.join(valRoot, MARK.slice(1)), PNG);
+    fs.writeFileSync(
+      path.join(valRoot, "content/images.val.ts"),
+      `import { c, s } from "../val.config";
+
+export default c.define(
+  "/content/images.val.ts",
+  s.imagedir("/public/val/images").remote(),
+  {
+    "${LOGO}": { width: 8, height: 8, mimeType: "image/png", alt: "Logo" },
+    "${MARK}": { width: 8, height: 8, mimeType: "image/png", alt: "Mark" },
+  },
+);
+`,
+    );
+    fs.writeFileSync(
+      path.join(valRoot, "content/page.val.ts"),
+      `import { c, s } from "../val.config";
+import imagesVal from "./images.val";
+
+export default c.define(
+  "/content/page.val.ts",
+  s.object({
+    hero: s.image(imagesVal),
+    body: s.richtext({ img: s.image(imagesVal) }),
+  }),
+  {
+    hero: { path: "${LOGO}", alt: "Kept" },
+    body: [{ tag: "p", children: [{ tag: "img", src: { path: "${MARK}" } }] }],
+  },
+);
+`,
+    );
+
+    session = await startLspSession({ valRoot, env });
+    const edits: ApplyWorkspaceEditParams[] = [];
+    const messages: string[] = [];
+    session.client.onRequest(
+      "workspace/applyEdit",
+      (params: ApplyWorkspaceEditParams) => {
+        edits.push(params);
+        return { applied: true };
+      },
+    );
+    session.client.onRequest(
+      "window/showMessageRequest",
+      (params: { message: string }) => {
+        messages.push(params.message);
+        return null;
+      },
+    );
+
+    const galleryFile = path.join(valRoot, "content/images.val.ts");
+    const pageFile = path.join(valRoot, "content/page.val.ts");
+    const galleryUri = `file://${galleryFile}`;
+    const pageUri = `file://${pageFile}`;
+    const galleryText = fs.readFileSync(galleryFile, "utf-8");
+    session.openDocument(galleryUri, galleryText);
+
+    // Offered on the SECOND entry: the whole gallery goes up all the same.
+    const sourcePath = Internal.createValPathOfItem(
+      "/content/images.val.ts" as SourcePath,
+      MARK,
+    );
+    if (!sourcePath) throw new Error("no source path");
+    const args: RemoteFixCommandArgs = {
+      uri: galleryUri,
+      moduleFilePath: Internal.splitModuleFilePathAndModulePath(sourcePath)[0],
+      sourcePath,
+      fix: "images:upload-remote",
+      message: "Expected a remote image, but got a local path.",
+      value: MARK,
+    };
+    await session.client.sendRequest("workspace/executeCommand", {
+      command: VAL_UPLOAD_REMOTE_COMMAND,
+      arguments: [args],
+    });
+
+    expect(messages).toEqual([]);
+    expect(uploads).toHaveLength(2);
+    // One edit, so one undo takes it all back.
+    expect(edits).toHaveLength(1);
+    const changes = edits[0].edit.changes ?? {};
+    expect(changes[galleryUri]).toHaveLength(1);
+    expect(changes[pageUri]).toHaveLength(1);
+
+    const galleryAfter = TextDocument.applyEdits(
+      TextDocument.create(galleryUri, "typescript", 1, galleryText),
+      changes[galleryUri],
+    );
+    expect(galleryAfter).not.toContain(`"${LOGO}"`);
+    expect(galleryAfter).not.toContain(`"${MARK}"`);
+    const refs = [
+      ...galleryAfter.matchAll(/"(https:\/\/remote\.val\.build[^"]+)"/g),
+    ].map((m) => m[1]);
+    // In the order the gallery listed them.
+    expect(refs).toHaveLength(2);
+    expect(refs[0]).toMatch(/logo_abcde\.png$/);
+    expect(refs[1]).toMatch(/mark_fghij\.png$/);
+
+    const pageAfter = TextDocument.applyEdits(
+      TextDocument.create(
+        pageUri,
+        "typescript",
+        1,
+        fs.readFileSync(pageFile, "utf-8"),
+      ),
+      changes[pageUri],
+    );
+    expect(pageAfter).toContain(`hero: { path: "${refs[0]}", alt: "Kept" }`);
+    expect(pageAfter).toContain(`"${refs[1]}"`);
+    expect(pageAfter).not.toContain(`"${LOGO}"`);
+    expect(pageAfter).not.toContain(`"${MARK}"`);
+  });
 });

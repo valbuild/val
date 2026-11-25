@@ -30,6 +30,7 @@ import {
   type PickModifier,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
+  type ValCanvasComponentEdit,
   type ValCanvasPageMessage,
   ValCanvasStudioMessage,
   withValCanvasParam,
@@ -300,6 +301,17 @@ export type CanvasFrameProps = {
    * when the page's code catches up. See `CanvasCodeChangedNotice`.
    */
   onCodeChanged?: (modules: ModuleFilePath[]) => void;
+  /**
+   * The editor arranged a list of components on the page itself
+   * (`ValComponentEditor`): moved one, removed one, asked to add one. The
+   * page can only ask - see `useCanvasComponentEdits`, which writes it.
+   */
+  onComponentEdit?: (edit: ValCanvasComponentEdit) => void;
+  /**
+   * EXPERIMENTAL: the editor asked, from the controls over a component on
+   * the page, to see it in the Components view.
+   */
+  onOpenComponent?: (path: SourcePath) => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
   onRefreshingChange?: (isRefreshing: boolean) => void;
   /** Where the page is, as it moves: its path and scroll (`location`). */
@@ -477,6 +489,8 @@ export function CanvasFrame({
   enableKey = 0,
   onStatusChange,
   onCodeChanged,
+  onComponentEdit,
+  onOpenComponent,
   onLocation,
   scrollTo = null,
   onPageReader,
@@ -905,6 +919,10 @@ export function CanvasFrame({
         }
         interactions.current.delete(message.requestId);
         interacting.answer(interactOutcomeOf(message.outcome));
+      } else if (message.type === "componentEdit") {
+        onComponentEdit?.(message.edit);
+      } else if (message.type === "openComponent") {
+        onOpenComponent?.(message.path);
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -936,6 +954,8 @@ export function CanvasFrame({
     onLocation,
     onDocument,
     onCodeChanged,
+    onComponentEdit,
+    onOpenComponent,
   ]);
 
   /** `readPage` requests the page has not answered yet, by id. */
@@ -1948,7 +1968,7 @@ export function CanvasFrame({
 }
 
 /** The page, through `/api/val/enable`: sets the cookie, then lands on the page. */
-function enableUrlOf(frameSrc: string): string {
+export function enableUrlOf(frameSrc: string): string {
   const redirectTo = new URL(frameSrc, window.origin).toString();
   return `/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
 }

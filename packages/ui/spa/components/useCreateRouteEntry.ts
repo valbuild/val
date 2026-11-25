@@ -1,11 +1,18 @@
-import { useCallback, useMemo } from "react";
-import { Internal, ModulePath } from "@valbuild/core";
+import { useCallback, useMemo, useRef } from "react";
+import { Internal, ModuleFilePath, ModulePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useAddModuleFilePatch } from "./ValProvider";
-import { useSchemas, useAllSources } from "./ValFieldProvider";
+import { useSchemas } from "./ValFieldProvider";
 import { useValSystem } from "../stores/react/SystemContext";
+import { useStoreValue } from "../stores/react/useStoreValue";
 
-import { CreatableRouter, collectCreatableRouters } from "./creatableRouters";
+import {
+  CreatableRouter,
+  type CreatableRouters,
+  type KeptCreatableRouters,
+  collectCreatableRouters,
+  keepCreatableRouters,
+} from "./creatableRouters";
 import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export type { CreatableRouter };
@@ -22,16 +29,62 @@ export function useCreatableRouters(): {
   pageRouters: CreatableRouter[];
   externalRouter: CreatableRouter | null;
 } {
+  const val = useValSystem();
   const schemas = useSchemas();
-  const allSources = useAllSources();
-
-  return useMemo(() => {
-    if (!("data" in schemas) || schemas.data === undefined) {
-      return { pageRouters: [], externalRouter: null };
-    }
-    return collectCreatableRouters(schemas.data, allSources);
-  }, [schemas, allSources]);
+  const schemaData =
+    "data" in schemas && schemas.data !== undefined ? schemas.data : null;
+  // The modules whose source the answer is made of: the routers it lists.
+  const routerPaths = useMemo(() => {
+    if (schemaData === null) return NO_ROUTERS;
+    const { pageRouters, externalRouter } = collectCreatableRouters(
+      schemaData,
+      NO_SOURCES,
+    );
+    return pageRouters
+      .concat(externalRouter === null ? [] : [externalRouter])
+      .map((router) => router.moduleFilePath);
+  }, [schemaData]);
+  /*
+   * The routers' own sources, not every module's, and the answer before
+   * while it says the same: a router's keys move when a page is added,
+   * renamed or removed. `useAllSources` moves on every field write anywhere,
+   * and so does the source of the router a page being typed in belongs to --
+   * and this is read by the shell and by every route field, which rendered
+   * for each write to be handed the same routers.
+   */
+  const kept = useRef<KeptCreatableRouters | null>(null);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.events.on("source:change", onChange);
+    },
+    [val],
+  );
+  const version = useCallback(
+    () => (val === null ? -1 : val.system.sourceStore.sourcesVersion()),
+    [val],
+  );
+  const read = useCallback((): CreatableRouters => {
+    if (val === null || schemaData === null) return NO_CREATABLE_ROUTERS;
+    kept.current = keepCreatableRouters(
+      kept.current,
+      schemaData,
+      routerPaths,
+      routerPaths.map((moduleFilePath) =>
+        val.system.sourceStore.moduleSource(moduleFilePath),
+      ),
+    );
+    return kept.current.routers;
+  }, [val, schemaData, routerPaths]);
+  return useStoreValue(subscribe, read, { version });
 }
+
+const NO_CREATABLE_ROUTERS: CreatableRouters = {
+  pageRouters: [],
+  externalRouter: null,
+};
+const NO_ROUTERS: ModuleFilePath[] = [];
+const NO_SOURCES: Record<ModuleFilePath, unknown> = {};
 
 /**
  * Creates an entry in a router module and returns its key.

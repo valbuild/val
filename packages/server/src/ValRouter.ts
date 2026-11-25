@@ -4,7 +4,6 @@ import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks } from "./ValServer";
 import { initHandlerOptions } from "./valServerConfig";
 import { nodePlatform } from "./nodePlatform";
-import { valRuntime, type ValRuntime } from "./valRuntime";
 import { createValRequestHandler } from "./ValRouterCore";
 import { parseAllowedHosts, setRequestGuard } from "./requestGuard";
 
@@ -309,33 +308,9 @@ export async function createValServer(
   return server;
 }
 
-/**
- * The runtime the draft readers read through (`initValContent`,
- * `initValRsc`): the same one `createValServer` builds its server on, for the
- * same `valModules` and options (`valRuntime`), so a save through the API
- * moves what the readers read. The readers read its head directly, with the
- * request's session (`ValRuntime.authorize`): no private server, and no
- * request to it.
- */
-export async function createValRuntime(
-  valModules: ValModules,
-  route: string,
-  opts: ValApiOptions,
-  config: ValConfig,
-): Promise<ValRuntime> {
-  const valServerConfig = await initHandlerOptions(route, opts, config);
-  return valRuntime(valModules, {
-    ...(opts.versions?.framework && opts.versions.next
-      ? {
-          framework: {
-            name: opts.versions.framework,
-            version: opts.versions.next,
-          },
-        }
-      : {}),
-    ...valServerConfig,
-  });
-}
+// Defined beside the readers' lazy entry (`internal/index.ts`), re-exported
+// here for the code that already imports it from the router.
+export { createValRuntime } from "./createValRuntime";
 
 // TODO: remove
 /**

@@ -1,5 +1,5 @@
 import React from "react";
-import { Internal, type ModuleFilePath, type SourcePath } from "@valbuild/core";
+import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
   BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
@@ -8,6 +8,11 @@ import {
   holdKeys,
   installPageLog,
   interactWithPage,
+  isOnValCanvasControls,
+  VAL_CANVAS_EDITING_ATTRIBUTE,
+  VAL_CANVAS_SELECTION_PROPERTY,
+  VAL_COMPONENT_ATTRIBUTE,
+  VAL_COMPONENT_DRAGGING_ATTRIBUTE,
   isValCanvasStudioMessage,
   markEmptyTextFields,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
@@ -16,8 +21,9 @@ import {
   screenshotPage,
   restoreScroll,
   startElementPicking,
-  startInlineEditing,
   storeQuickPreview,
+  startInlineEditFirst as startFirst,
+  findElementByValPath as findByPath,
   watchPageLocation,
   VAL_CANVAS_MESSAGE,
   isCodeChangedDetail,
@@ -129,6 +135,13 @@ export function ValCanvasBridge({
   // installed once and would otherwise close over the first value forever.
   const pickingRef = React.useRef(false);
   pickingRef.current = picking;
+  // Said on the document too, for the controls `ValComponentEditor` draws:
+  // they are shown only while Select is on.
+  React.useEffect(() => {
+    const root = document.documentElement;
+    root.toggleAttribute(VAL_CANVAS_EDITING_ATTRIBUTE, picking);
+    return () => root.removeAttribute(VAL_CANVAS_EDITING_ATTRIBUTE);
+  }, [picking]);
   /**
    * Picking ANY element (`pickElements`), as the studio last said. `null`
    * until it says.
@@ -773,6 +786,9 @@ export function ValCanvasBridge({
     const onClick = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      // Val's own controls on a list of components, not the page's content:
+      // the click is theirs, wherever in the page they are drawn.
+      if (isOnValCanvasControls(target)) return;
       // A click in the field being typed in places the caret, and that is
       // all it does: it is neither a pick nor a click on the link or button
       // the text happens to be in. (The caret is the mousedown's, so
@@ -1031,9 +1047,16 @@ export function ValCanvasBridge({
       // close the selector early.
       dangerouslySetInnerHTML={{
         __html: [
+          `:root { ${VAL_CANVAS_SELECTION_PROPERTY}: ${selectionColors.selection}; }`,
+          // Not around a component's item: its controls outline it, and two
+          // boxes on one element is one too many. The conditions are in
+          // `:where()`, which counts for nothing: this rule must stay as
+          // weak as `[data-val-path]` alone, or it beats the outline of the
+          // field the Studio is on (`highlightRule`, below) and that field
+          // looks like every other one while Select is on.
           picking
-            ? `[data-val-path] { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
-[data-val-path]:hover { outline: 2px solid ${selectionColors.selection}; }`
+            ? `:where(:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}])) [data-val-path]:where(:not([${VAL_COMPONENT_ATTRIBUTE}])) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
+:where(:root:not([${VAL_COMPONENT_DRAGGING_ATTRIBUTE}])) [data-val-path]:where(:not([${VAL_COMPONENT_ATTRIBUTE}])):hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
           // The one rule here that moves the page, and only while Select is
           // on: an emptied text's line of room, without which it cannot be
@@ -1172,89 +1195,6 @@ function isScrollable(el: Element): boolean {
 }
 
 const NO_PATHS: ReadonlySet<string> = new Set();
-
-/**
- * Start editing the first of `candidates` an element on the page shows and
- * nothing else: the picked element when it carries the candidate's path,
- * else the first element that does. `null` when none can be.
- *
- * What `editInline` does, and what a click does by itself when the Studio has
- * said ahead of it what the element's texts hold (`textFields`): one way to
- * start, whichever asked.
- */
-function startFirst(
-  candidates: readonly InlineEditCandidate[],
-  pick: { element: Element; x: number; y: number } | null,
-  options: {
-    color: string;
-    reply: (answer: ValCanvasPageMessage) => void;
-  },
-): { editing: InlineEditing; path: SourcePath } | null {
-  const { reply } = options;
-  for (const candidate of candidates) {
-    const picked =
-      pick !== null &&
-      pick.element.isConnected &&
-      pathOn(pick.element, candidate.path) !== null
-        ? pick.element
-        : null;
-    const element = picked ?? findByPath(candidate.path);
-    if (element === null) continue;
-    const path = pathOn(element, candidate.path);
-    if (path === null) continue;
-    const editing = startInlineEditing(element, candidate, {
-      // Where the click was, when it was on this element.
-      at: picked !== null && pick !== null ? { x: pick.x, y: pick.y } : null,
-      color: options.color,
-      onChange: (value) =>
-        reply({
-          val: VAL_CANVAS_MESSAGE,
-          type: "inlineEdit",
-          path,
-          value,
-        }),
-      onEnd: () =>
-        reply({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path }),
-      onSelection: (selection, rect, caret) =>
-        reply({
-          val: VAL_CANVAS_MESSAGE,
-          type: "inlineEditSelection",
-          path,
-          selection,
-          rect,
-          caret,
-        }),
-    });
-    if (editing !== null) return { editing, path };
-  }
-  return null;
-}
-
-function findByPath(path: string): Element | null {
-  const elements = document.querySelectorAll("[data-val-path]");
-  for (const el of Array.from(elements)) {
-    if (pathOn(el, path) !== null) return el;
-  }
-  return null;
-}
-
-/**
- * `path` as `element` carries it, or null when it does not.
- *
- * Compared as strings: the split returns branded `SourcePath`s and what came
- * back over `postMessage` is a plain string, which is the same value. What is
- * returned is the element's own, so it is a `SourcePath` without anyone
- * having to say so.
- */
-function pathOn(element: Element, path: string): SourcePath | null {
-  const attribute = element.getAttribute("data-val-path");
-  if (!attribute) return null;
-  return (
-    Internal.splitJoinedSourcePaths(attribute).find(
-      (candidate) => candidate === path,
-    ) ?? null
-  );
-}
 
 /** What `screenshotPage` answers: the picture, or why it could not be taken. */
 async function screenshotReply(

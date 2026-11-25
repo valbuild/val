@@ -290,7 +290,7 @@ test("a draft request asks whether the chain moved once, whatever it reads", asy
   await edit(HOME, [{ op: "replace", path: ["title"], value: "One" }]);
   await edit(NOTES, [{ op: "replace", path: ["a", "title"], value: "A1" }]);
   const source = serverDraftSource({
-    runtime: Promise.resolve({ ops, authorize: () => true }),
+    runtime: () => Promise.resolve({ ops, authorize: () => true }),
     session: undefined,
     modules: true,
   });

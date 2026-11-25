@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import { COMPONENTS_URL_PARAMS } from "./componentsView/componentsUrlState";
 import {
   applyHistoryParams,
   NO_HISTORY,
@@ -76,6 +77,19 @@ export const VAL_CHANGES_ROUTE = "/val/changes";
  * reached by typing the address.
  */
 export const VAL_ADEPT_ROUTE = "/val/adept";
+/**
+ * EXPERIMENTAL: every component the project links to its content
+ * (`s.object(...).component(...)`), and every place each one is used. See
+ * `ComponentsView`. What it shows is in the query (`componentsUrlState.ts`),
+ * so a component, a use of it and a screen width can be sent as a link.
+ */
+export const VAL_COMPONENTS_ROUTE = "/val/components";
+
+function isComponentsPath(pathname: string): boolean {
+  return (
+    pathname === VAL_COMPONENTS_ROUTE || pathname === VAL_COMPONENTS_ROUTE + "/"
+  );
+}
 
 /**
  * The Studio's start: nothing selected, and the "Pick something to edit"
@@ -91,7 +105,8 @@ type ValStandaloneRoute =
   | typeof VAL_ERRORS_ROUTE
   | typeof VAL_HISTORY_ROUTE
   | typeof VAL_REVIEW_ROUTE
-  | typeof VAL_CHANGES_ROUTE;
+  | typeof VAL_CHANGES_ROUTE
+  | typeof VAL_COMPONENTS_ROUTE;
 
 type NavigateParams = {
   scrollToPath?: SourcePath | ModuleFilePath;
@@ -144,6 +159,7 @@ type ValRouterContextValue = {
   isReviewView: boolean;
   isChangesView: boolean;
   isAdeptView: boolean;
+  isComponentsView: boolean;
   errorFields: SourcePath[];
   /**
    * The history view's state, parsed from the query.
@@ -215,7 +231,13 @@ function reviewCompareOf(
  * `compare` is the review page's open compare dialog: carried, it would reopen
  * the dialog on whatever review visit came next.
  */
-const ROUTE_OWNED_PARAMS = ["p", "error-field", "field", REVIEW_COMPARE_PARAM];
+const ROUTE_OWNED_PARAMS = [
+  "p",
+  "error-field",
+  "field",
+  REVIEW_COMPARE_PARAM,
+  ...COMPONENTS_URL_PARAMS,
+];
 
 const STUDIO_PATH_ATTR = "data-val-studio-path";
 
@@ -318,6 +340,7 @@ export function ValRouter({
   const [isReviewView, setIsReviewView] = useState(false);
   const [isChangesView, setIsChangesView] = useState(false);
   const [isAdeptView, setIsAdeptView] = useState(false);
+  const [isComponentsView, setIsComponentsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   // Read `?session=` synchronously on the first render: consumers capture this
   // value once on mount (see initialSessionIdRef in AIChatSurface), so populating
@@ -353,6 +376,7 @@ export function ValRouter({
         location.pathname === VAL_ADEPT_ROUTE ||
           location.pathname === VAL_ADEPT_ROUTE + "/",
       );
+      setIsComponentsView(isComponentsPath(location.pathname));
       setSessionParamState(new URLSearchParams(location.search).get("session"));
       setHistoryState(parseHistoryParams(location.search));
       setReviewCompareState(
@@ -410,7 +434,8 @@ export function ValRouter({
       }
       if (
         location.pathname === VAL_ADEPT_ROUTE ||
-        location.pathname === VAL_ADEPT_ROUTE + "/"
+        location.pathname === VAL_ADEPT_ROUTE + "/" ||
+        isComponentsPath(location.pathname)
       ) {
         setIsCompareView(false);
         setIsErrorsView(false);
@@ -525,9 +550,16 @@ export function ValRouter({
       const isReview = path === VAL_REVIEW_ROUTE;
       const isChanges = path === VAL_CHANGES_ROUTE;
       const isHome = path === VAL_HOME_ROUTE;
+      const isComponents = path === VAL_COMPONENTS_ROUTE;
       /** A whole view, so there is no module path to append. */
       const isStandalone =
-        isCompare || isErrors || isHistory || isReview || isChanges || isHome;
+        isCompare ||
+        isErrors ||
+        isHistory ||
+        isReview ||
+        isChanges ||
+        isHome ||
+        isComponents;
       const errorFieldsQuery =
         isErrors && params?.errorFields && params.errorFields.length > 0
           ? "?" +
@@ -547,7 +579,9 @@ export function ValRouter({
                 ? VAL_CHANGES_ROUTE
                 : isHome
                   ? VAL_HOME_ROUTE
-                  : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+                  : isComponents
+                    ? VAL_COMPONENTS_ROUTE
+                    : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       /**
        * Carry the studio's own state across the navigation.
        *
@@ -621,8 +655,15 @@ export function ValRouter({
       const isReview = path === VAL_REVIEW_ROUTE;
       const isChanges = path === VAL_CHANGES_ROUTE;
       const isHome = path === VAL_HOME_ROUTE;
+      const isComponents = path === VAL_COMPONENTS_ROUTE;
       const isStandalone =
-        isCompare || isErrors || isHistory || isReview || isChanges || isHome;
+        isCompare ||
+        isErrors ||
+        isHistory ||
+        isReview ||
+        isChanges ||
+        isHome ||
+        isComponents;
       const finalTo = hrefOf(path, params);
       const focused =
         !isStandalone && params?.scrollToPath !== path
@@ -634,6 +675,7 @@ export function ValRouter({
       setIsReviewView(isReview);
       setIsChangesView(isChanges);
       setIsAdeptView(false);
+      setIsComponentsView(isComponents);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
       setReviewCompareState(reviewCompareOf(isReview, params));
       setSourcePath(isStandalone ? ("" as SourcePath) : (path as SourcePath));
@@ -748,6 +790,7 @@ export function ValRouter({
         isReviewView,
         isChangesView,
         isAdeptView,
+        isComponentsView,
         errorFields,
         history,
         setHistory,
@@ -775,6 +818,7 @@ export function useNavigation() {
     isReviewView,
     isChangesView,
     isAdeptView,
+    isComponentsView,
     errorFields,
   } = useContext(ValRouterContext);
   return {
@@ -789,6 +833,7 @@ export function useNavigation() {
     isReviewView,
     isChangesView,
     isAdeptView,
+    isComponentsView,
     errorFields,
   };
 }

@@ -41,10 +41,20 @@ Run from `scenarios/`.
 | `evaluateValModules.ts` | Bundling a project's `val.modules` from its source and reading every module: what evaluating code after a write costs | `node --import tsx measure/evaluateValModules.ts <project root>`          |
 | `isolateProbe.ts`       | A draft read in a Cloudflare Worker, stepped up until the isolate is killed; joins the runs with `wrangler tail`      | See "The deployed isolate probe" below                                    |
 | `scale.ts`              | The Studio's surfaces (phase 10) with 1k, 10k and 100k entries and files: time per surface, heap after each           | `pnpm exec tsx measure/scale.ts all` (`VAL_SCALE=1000,10000` to narrow)   |
+| `coldStart.ts`          | A built site's first request in a fresh process: time, and every module it loaded (and through what), by package      | `pnpm exec tsx measure/coldStart.ts <dist/server/server.js> / 5`          |
 
 An assistant turn in code mode is measured in the Studio itself, not by a
 script here: the trace, the request counts CI asserts and the baseline are in
 [`assistantTurn.md`](assistantTurn.md).
+
+`coldStart.ts` measures a BUILT site, so build one first, and build it the
+way a deployed app is built: `examples/tanstack/vite.measure.config.ts` leaves
+Val's packages external, so the server loads their published `dist/` (run the
+root `pnpm run build` first, and `pnpm preconstruct dev` after you are done).
+The normal example build bundles the linked packages from source, where the
+Studio's server entry is a dev shim rather than the ~22 MB of embedded assets
+a published one carries, so it under-reports. What CI checks is the module
+list, in `packages/tanstack/src/server/servingPath.test.ts`.
 
 `scaleWork.ts` is phase 10's: the project at size (a `.jsonValues()` router
 of N posts, image, file and video libraries of N entries, local or remote

@@ -18,7 +18,8 @@ import { initVal, type ValModules } from "@valbuild/core";
  * Asserted at the seam rather than through a rendered draft: what has to hold
  * is that the options REACH `createValRuntime`. A test that drove the fetchers
  * would need a request context, a session cookie and draft mode on, and would
- * still be asserting this.
+ * still be asserting this. The runtime is built by the first draft read, so
+ * each test asks for it the way that read does ({@link started}).
  */
 
 // `mock`-prefixed so jest allows the factory below to close over it: the
@@ -45,7 +46,7 @@ jest.mock("@valbuild/server/internal", () => ({
   ) => mockCreateValRuntime(valModules, route, options, ...rest),
 }));
 
-import { initValContent } from "./initValContent";
+import { initValContent, runtimeOfReaders } from "./initValContent";
 
 const { s, c, config } = initVal();
 
@@ -70,6 +71,14 @@ const HTTP = {
   gitBranch: "main",
 };
 
+/** The readers, with their runtime asked for, as a first draft read asks. */
+const started = (readers: ReturnType<typeof initValContent>) => {
+  const runtime = runtimeOfReaders(readers.fetchValStega);
+  if (runtime === null) throw new Error("the readers have no runtime");
+  void runtime();
+  return readers;
+};
+
 const optionsPassed = (): Record<string, unknown> => {
   const call = mockCreateValRuntime.mock.calls.at(-1);
   if (!call) throw new Error("createValRuntime was never called");
@@ -79,8 +88,23 @@ const optionsPassed = (): Record<string, unknown> => {
 describe("initValContent and the host's own source", () => {
   beforeEach(() => mockCreateValRuntime.mockClear());
 
-  test("sourceFiles reaches the reader's server", () => {
+  test("building the readers builds no runtime: a visitor's read never needs one", () => {
+    // The runtime is the data layer, and building it evaluates TypeScript and
+    // the Studio's assets: on Val's hosting, seconds of every cold start.
     initValContent(config, valModules, { sourceFiles: SOURCE });
+    expect(mockCreateValRuntime).not.toHaveBeenCalled();
+  });
+
+  test("the runtime is built once, however often it is asked for", () => {
+    const readers = initValContent(config, valModules, {});
+    const runtime = runtimeOfReaders(readers.fetchValStega);
+    void runtime?.();
+    void runtime?.();
+    expect(mockCreateValRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  test("sourceFiles reaches the reader's server", () => {
+    started(initValContent(config, valModules, { sourceFiles: SOURCE }));
     expect(optionsPassed().sourceFiles).toEqual(SOURCE);
   });
 
@@ -88,7 +112,9 @@ describe("initValContent and the host's own source", () => {
     // Two stores are two sets of pending edits: the API writes a patch into
     // one and the draft render reads the other and shows none of it.
     const patchStore = {} as never;
-    initValContent(config, valModules, { sourceFiles: SOURCE, patchStore });
+    started(
+      initValContent(config, valModules, { sourceFiles: SOURCE, patchStore }),
+    );
     expect(optionsPassed().patchStore).toBe(patchStore);
   });
 
@@ -97,17 +123,19 @@ describe("initValContent and the host's own source", () => {
     // its own caller 401, and falls back to PUBLISHED content -- a draft
     // render showing the live site, which is the hardest kind of wrong to
     // notice.
-    initValContent(config, valModules, {
-      sourceFiles: SOURCE,
-      unsafelyAllowUnauthenticated: true,
-    });
+    started(
+      initValContent(config, valModules, {
+        sourceFiles: SOURCE,
+        unsafelyAllowUnauthenticated: true,
+      }),
+    );
     expect(optionsPassed().unsafelyAllowUnauthenticated).toBe(true);
   });
 
   test("a host that passes none of them is left exactly as it was", () => {
     // Absent, not `undefined`: `sourceFiles` is what SELECTS memory mode, so a
     // key present and undefined would be a different thing from no key.
-    initValContent(config, valModules, {});
+    started(initValContent(config, valModules, {}));
     expect("sourceFiles" in optionsPassed()).toBe(false);
     expect("patchStore" in optionsPassed()).toBe(false);
     expect("unsafelyAllowUnauthenticated" in optionsPassed()).toBe(false);
@@ -118,7 +146,7 @@ describe("initValContent in http mode", () => {
   beforeEach(() => mockCreateValRuntime.mockClear());
 
   test("the http config reaches the reader's server", () => {
-    initValContent(config, valModules, { http: HTTP });
+    started(initValContent(config, valModules, { http: HTTP }));
     expect(optionsPassed()).toMatchObject(HTTP);
   });
 
@@ -132,20 +160,22 @@ describe("initValContent in http mode", () => {
      * -- so the commit writes over content that is neither the draft nor what
      * the site is serving, with nothing failing anywhere.
      */
-    initValContent(config, valModules, { http: HTTP });
+    started(initValContent(config, valModules, { http: HTTP }));
     expect(optionsPassed().gitCommit).toEqual(HTTP.gitCommit);
     expect(optionsPassed().gitBranch).toEqual(HTTP.gitBranch);
   });
 
   test("a content url reaches it too, for a stand-in host", () => {
-    initValContent(config, valModules, {
-      http: { ...HTTP, valContentUrl: "http://localhost:4123" },
-    });
+    started(
+      initValContent(config, valModules, {
+        http: { ...HTTP, valContentUrl: "http://localhost:4123" },
+      }),
+    );
     expect(optionsPassed().valContentUrl).toBe("http://localhost:4123");
   });
 
   test("a host that passes none of it is left exactly as it was", () => {
-    initValContent(config, valModules, {});
+    started(initValContent(config, valModules, {}));
     expect("apiKey" in optionsPassed()).toBe(false);
     expect("gitCommit" in optionsPassed()).toBe(false);
   });

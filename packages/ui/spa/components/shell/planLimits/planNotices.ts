@@ -242,6 +242,23 @@ function trialOverNotice(
   };
 }
 
+/**
+ * Whether a notice that says how many changes are waiting can be showing:
+ * {@link trialPublishesNotice}, which is made for a publish Val Build has
+ * refused (its 403) AND for one `/access` says it would refuse, before anyone
+ * has pressed Publish.
+ *
+ * The shell counts the changes only while this is true. The count moves with
+ * every field write and the shell renders everything, so it is not read for
+ * a notice that is not there (`docs/plans/studio-write-lag.md`).
+ */
+export function noticeCountsChanges(
+  access: StudioAccess | null,
+  refusal: PlanRefusal | null,
+): boolean {
+  return refusal !== null || access?.limits?.refused.publish !== undefined;
+}
+
 function trialPublishesNotice(
   source: Source,
   access: StudioAccess | null,

@@ -229,3 +229,52 @@ test("a change of three edits is one quick preview, shown without the page going
   expect(watched.blankWas).toEqual([]);
   expect(watched.blank).toBe(0);
 });
+
+test("the Components view's previews follow the quick preview, with no canvas to store it", async ({
+  page,
+}) => {
+  await openCodeMode(page);
+  const studio = page.locator("#val-shadow-root");
+  // The components are in the preview's place: no canvas page from here on
+  await studio.getByRole("button", { name: "Components" }).click();
+  await studio.getByTestId("component-card-Card").click();
+  const frame = studio.locator('iframe[title^="Card:"]');
+  await expect(frame).toHaveCount(1, { timeout: 60_000 });
+  await expect(studio.locator('[data-val-tour="canvas"] iframe')).toHaveCount(
+    0,
+  );
+
+  await mock.aiScript({
+    steps: [
+      {
+        type: "tool",
+        name: "write_files",
+        arguments: {
+          files: {
+            "src/components/sections/Card.tsx": `export default function Card() { return <p>new</p>; }\n`,
+          },
+          message: "Change the card",
+        },
+      },
+    ],
+    response: "Done.",
+  });
+  await send(page, "Change the card");
+  const [call] = await toolCalls(1);
+  expect(call.isError, JSON.stringify(call.result)).toBe(false);
+
+  // Made with no canvas page live: the Components view's previews are pages
+  await expect
+    .poll(async () => (await mock.quickPreviewsMade()).length, {
+      timeout: 30_000,
+      message: "no quick preview was made from the Components view",
+    })
+    .toBe(1);
+  // Stored by the Studio itself, and the preview opened as it
+  await expect
+    .poll(async () => (await frame.getAttribute("src")) ?? "", {
+      timeout: 30_000,
+      message: "the component's preview never opened as the quick preview",
+    })
+    .toContain("val_quick");
+});
