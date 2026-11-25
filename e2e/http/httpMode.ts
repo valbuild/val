@@ -375,6 +375,16 @@ export type MockAiState = {
     bytes: number;
   }[];
   queuedScripts: number;
+  /**
+   * The turn running in each chat: one at a time, as the service runs them.
+   * `waitingOn` is the tool call it is blocked on; `onPerson` when that call
+   * has no timeout, so only the Studio answering it ends the turn.
+   */
+  runningTurns: {
+    sessionId: string;
+    promptId: string;
+    waitingOn: { name: string; onPerson: boolean } | null;
+  }[];
 };
 
 async function control<T>(
