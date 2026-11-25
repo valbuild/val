@@ -4,6 +4,9 @@
 "@valbuild/ui": patch
 ---
 
+pr: 1081
+commit: 14548b907c16e66ee0e0131ae505aae4b336c74e
+
 Experimental: a Components view in Val Studio
 
 When a project links components to its content with `s.object(...).component(() => import(...))`, the Studio's rail gets a **Components** button. It opens `/val/components`, where you can:
@@ -17,7 +20,6 @@ When a project links components to its content with `s.object(...).component(() 
 - see the assistant's code changes in the previews as soon as code mode's quick preview has them;
 - open one and step through every place the content uses it (← and →), or see all of them side by side next to its examples;
 - edit the fields of the use on screen in the Content pane beside it, or click content in the preview to jump to its field;
-- ask the assistant to change the component: it is told which component it is, where it is linked and every place it is used.
 
 What is on screen is in the address, so a component, a use of it and a screen width can be shared as a link.
 
