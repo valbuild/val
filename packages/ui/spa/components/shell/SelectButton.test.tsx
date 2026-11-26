@@ -139,16 +139,28 @@ describe("Content's Select and its two modes", () => {
 describe("the mode a person used last", () => {
   afterEach(() => localStorage.clear());
 
-  test("is Select until they choose otherwise", () => {
-    expect(readSelectModePreference()).toBe("select");
+  test("is Select & edit until they choose otherwise", () => {
+    expect(readSelectModePreference()).toBe("edit");
   });
 
-  test("is kept, and anything else in its place is read as Select", () => {
-    writeSelectModePreference("edit");
-    expect(readSelectModePreference()).toBe("edit");
+  test("is kept, and anything else in its place is read as Select & edit", () => {
     writeSelectModePreference("select");
     expect(readSelectModePreference()).toBe("select");
+    writeSelectModePreference("edit");
+    expect(readSelectModePreference()).toBe("edit");
     localStorage.setItem("val:canvas:select-mode", "something else");
-    expect(readSelectModePreference()).toBe("select");
+    expect(readSelectModePreference()).toBe("edit");
+  });
+
+  test("only a choice away from the default is stored", () => {
+    writeSelectModePreference("select");
+    expect(localStorage.getItem("val:canvas:select-mode")).toBe("select");
+    writeSelectModePreference("edit");
+    expect(localStorage.getItem("val:canvas:select-mode")).toBeNull();
+  });
+
+  test("a browser that chose Select & edit while it was the one stored still has it", () => {
+    localStorage.setItem("val:canvas:select-mode", "edit");
+    expect(readSelectModePreference()).toBe("edit");
   });
 });
