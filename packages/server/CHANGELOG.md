@@ -1,5 +1,19 @@
 # @valbuild/server
 
+## 0.156.1
+
+### Patch Changes
+
+- [#1082](https://github.com/valbuild/val/pull/1082) [`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c) Thanks [@freekh](https://github.com/freekh)! - Discarding many changes is now one request, and a discard that only partly succeeds no longer leaves discarded changes on screen.
+
+  When some of the changes could not be discarded, for example because one was part of a publish that was running, the Studio said nothing had been discarded and kept showing changes that were already gone. It now drops the ones that were discarded, keeps the rest, and says how many went through, with **Try again** (or **Cancel publish**) for the ones that are left. **Cancel publish** is offered again when a running publish holds a change: that refusal never reached the Studio before.
+
+  `DELETE /api/val/patches` now takes its ids in the body (`{ "ids": [...] }`), and still accepts the `id` query parameters older Studio tabs send. When it answers 500 because some changes were refused, it now also says which ones it deleted (`deleted`) and the version it moved to (`headVersion`).
+
+- Updated dependencies [[`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c), [`604d91a`](https://github.com/valbuild/val/commit/604d91a54fbf19e319c39867217caad8bb2f7e8d), [`99b798c`](https://github.com/valbuild/val/commit/99b798ce785c11543891b58b3d53a66339953882)]:
+  - @valbuild/ui@0.156.1
+  - @valbuild/shared@0.156.1
+
 ## 0.156.0
 
 ### Patch Changes

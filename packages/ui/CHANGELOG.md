@@ -1,5 +1,24 @@
 # @valbuild/ui
 
+## 0.156.1
+
+### Patch Changes
+
+- [#1082](https://github.com/valbuild/val/pull/1082) [`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c) Thanks [@freekh](https://github.com/freekh)! - Discarding many changes is now one request, and a discard that only partly succeeds no longer leaves discarded changes on screen.
+
+  When some of the changes could not be discarded, for example because one was part of a publish that was running, the Studio said nothing had been discarded and kept showing changes that were already gone. It now drops the ones that were discarded, keeps the rest, and says how many went through, with **Try again** (or **Cancel publish**) for the ones that are left. **Cancel publish** is offered again when a running publish holds a change: that refusal never reached the Studio before.
+
+  `DELETE /api/val/patches` now takes its ids in the body (`{ "ids": [...] }`), and still accepts the `id` query parameters older Studio tabs send. When it answers 500 because some changes were refused, it now also says which ones it deleted (`deleted`) and the version it moved to (`headVersion`).
+
+- [#1111](https://github.com/valbuild/val/pull/1111) [`604d91a`](https://github.com/valbuild/val/commit/604d91a54fbf19e319c39867217caad8bb2f7e8d) Thanks [@freekh](https://github.com/freekh)! - Code mode's checks are easier to live with:
+
+  - The checks above the assistant's composer take a line, not the screen: when they still find problems, the bar says so in one line with Fix it, and what they found is folded under "What they found" (the assistant says it in the chat too). The checks can be hidden, passing or failing, and come back when they find something new. On a phone, what they found used to fill the screen with no way to put it away.
+  - The page check no longer reports a change as missing when the page in the preview cannot show it yet. It used to wait 20 seconds for the change's quick preview and then read the page anyway, which was still the last build, and it read it also when the quick preview could not be made. Now it waits as long as a quick preview takes, and when the change is not on the page it says the page was not checked, and why, instead of sending the assistant back to fix what it already fixed.
+
+- [#1109](https://github.com/valbuild/val/pull/1109) [`99b798c`](https://github.com/valbuild/val/commit/99b798ce785c11543891b58b3d53a66339953882) Thanks [@freekh](https://github.com/freekh)! - In a proposal, the main button says Publish once everything is saved
+
+  When a proposal had nothing left to save and its preview was up to date, the main button stayed a greyed-out Save, and Publish was only in the menu beside it. It now says Publish, on a phone as well as above one, and pressing it opens the publish dialog, which shows what will be published and asks before anything reaches the site. If validation errors would stop the publish, the button says "Fix N" and takes you to them.
+
 ## 0.156.0
 
 ### Minor Changes
