@@ -447,6 +447,28 @@ function mockOf(target: HttpTarget) {
       });
     },
 
+    /**
+     * Make Val Build build this project's proposals (`POST /build` with
+     * `{ inputs }`), each taking `delayMs`: off by default, so a Build is made
+     * in the tab. Nothing is bundled; the proposal is answered built.
+     */
+    async serverBuilds(options: { delayMs?: number } = {}): Promise<void> {
+      await control(target, "server-builds", {
+        method: "POST",
+        body: { enabled: true, delayMs: options.delayMs ?? 0 },
+      });
+    },
+
+    /** Every build Val Build was asked for and finished. */
+    async serverBuildsMade(): Promise<{ proposal: string; inputs: string }[]> {
+      return (
+        await control<{ made: { proposal: string; inputs: string }[] }>(
+          target,
+          "server-builds",
+        )
+      ).made;
+    },
+
     /** Every quick preview Val Build was asked for and made. */
     async quickPreviewsMade(): Promise<{ proposal: string; inputs: string }[]> {
       return (
