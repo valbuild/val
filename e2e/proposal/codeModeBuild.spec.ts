@@ -105,7 +105,10 @@ test("Build after a coding session builds the proposal without reloading the Stu
   await page.waitForTimeout(8_000);
 
   expect(await reloads()).toEqual([]);
-  await expect(build).toHaveAttribute("title", "Everything is saved.");
+  // Built, with nothing left to save: the one step left is the main button.
+  await expect(
+    studio.getByRole("button", { name: /^Publish/ }).first(),
+  ).toHaveAttribute("title", "Publishes the proposal to the site");
 });
 
 /** The `@valbuild/core` this Studio runs: what a build's registry has to be of. */
