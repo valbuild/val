@@ -66,6 +66,38 @@ function host(files: Files): ValModulesHost {
     readFile: (p) => (inProject(p) ? byAbs.get(p) : ts.sys.readFile(p)),
     directoryExists: (p) =>
       inProject(p) ? dirs.has(p) : (ts.sys.directoryExists?.(p) ?? false),
+    /*
+     * A real project's `tsconfig.json` names its inputs by glob (`include`),
+     * and parsing it asks for them: with no listing, every project but one
+     * whose config names its files outright failed to load ("No inputs were
+     * found"). The project's own files under `dir`, by extension, less what
+     * the config excludes by name (`node_modules`, `dist`, ...). Which files
+     * are inputs does not decide anything here: only the compiler options
+     * are read from the config.
+     */
+    readDirectory: (dir, extensions, excludes, includes, depth) => {
+      if (!inProject(dir)) {
+        return ts.sys.readDirectory(dir, extensions, excludes, includes, depth);
+      }
+      const excluded = new Set(
+        (excludes ?? []).map((pattern) =>
+          pattern.replace(/^\.?\/|\/\*\*.*$/g, ""),
+        ),
+      );
+      return [...byAbs.keys()].filter((file) => {
+        if (file !== dir && !file.startsWith(dir + path.sep)) return false;
+        if (
+          extensions !== undefined &&
+          !extensions.some((extension) => file.endsWith(extension))
+        ) {
+          return false;
+        }
+        return !path
+          .relative(dir, file)
+          .split(path.sep)
+          .some((part) => excluded.has(part));
+      });
+    },
   };
 }
 

@@ -80,3 +80,14 @@ export {
   type HeadTree,
   type ModuleAnswer,
 } from "../head";
+/*
+ * Content written back into a project's files, for connecting a project Val
+ * Build hosts to a repository (valbuild/home,
+ * docs/plans/connect-with-history.md, phase 6a).
+ */
+export {
+  foldContent,
+  type FoldResult,
+  type FoldRefusal,
+} from "../proposalMerge/foldContent";
+export type { Files as ProjectFiles } from "../proposalMerge/project";
