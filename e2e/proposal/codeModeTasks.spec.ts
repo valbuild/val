@@ -135,7 +135,10 @@ test("make the hero dark, then Build: built, and the Studio is not reloaded", as
   await page.waitForTimeout(8_000);
 
   expect(await reloads()).toEqual([]);
-  await expect(build).toHaveAttribute("title", "Everything is saved.");
+  // Built, with nothing left to save: the one step left is the main button.
+  await expect(
+    studio.getByRole("button", { name: /^Publish/ }).first(),
+  ).toHaveAttribute("title", "Publishes the proposal to the site");
 });
 
 test("add a section: a new component, the route rendering it, a quick preview, and Build", async ({
