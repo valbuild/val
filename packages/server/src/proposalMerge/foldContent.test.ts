@@ -159,6 +159,102 @@ describe("foldContent", () => {
     );
   });
 
+  test("a .jsonValues() record whose content did not change is not rewritten at all", async () => {
+    const posts = jsonValuesPage(
+      "posts.val.ts",
+      "s.object({ title: s.string() })",
+      { first: { title: "First" } },
+    );
+    // Code a re-print could change: an escape in a string literal.
+    const text = posts.text.replace(
+      `import { s, c } from "./val.config";`,
+      `import { s, c } from "./val.config";\nconst escaped = "\\\\u0061";\nvoid escaped;`,
+    );
+    const files = project({
+      [posts.file]: text,
+      ...posts.files,
+      [PAGE]: seedFile(),
+    });
+    const folded = await foldContent({
+      files,
+      content: {
+        [posts.moduleFilePath]: { first: { title: "First" } },
+        [PAGE_ID]: { ...(SEED as Record<string, JSONValue>), title: "New" },
+      },
+    });
+    expect(folded.status).toBe("folded");
+    if (folded.status !== "folded") return;
+    expect(folded.changed).toEqual([PAGE]);
+    expect(folded.files[posts.file]).toBe(text);
+  });
+
+  test("a .jsonValues() entry whose fields are in another order is written in that order", async () => {
+    const posts = jsonValuesPage(
+      "posts.val.ts",
+      "s.object({ title: s.string(), body: s.string() })",
+      { first: { title: "First", body: "Hello" } },
+    );
+    const files = project({ [posts.file]: posts.text, ...posts.files });
+    const recorded: JSONValue = { first: { body: "Hello", title: "First" } };
+    const folded = await foldContent({
+      files,
+      content: { [posts.moduleFilePath]: recorded },
+    });
+    expect(folded.status).toBe("folded");
+    if (folded.status !== "folded") return;
+    expect(
+      JSON.stringify(await readBack(folded.files, posts.moduleFilePath)),
+    ).toBe(JSON.stringify(recorded));
+  });
+
+  test("a .jsonValues() record's entries in another order are refused, saying so", async () => {
+    const posts = jsonValuesPage(
+      "posts.val.ts",
+      "s.object({ title: s.string() })",
+      { first: { title: "First" }, second: { title: "Second" } },
+    );
+    const files = project({ [posts.file]: posts.text, ...posts.files });
+    const folded = await foldContent({
+      files,
+      content: {
+        [posts.moduleFilePath]: {
+          second: { title: "Second" },
+          first: { title: "First" },
+        },
+      },
+    });
+    expect(folded).toEqual({
+      status: "refused",
+      refusals: [
+        {
+          module: posts.moduleFilePath,
+          reason: expect.stringContaining("in another order"),
+        },
+      ],
+    });
+  });
+
+  test("an empty .jsonValues() record gets its first entry as a file of its own", async () => {
+    const posts = jsonValuesPage(
+      "posts.val.ts",
+      "s.object({ title: s.string() })",
+      {},
+    );
+    const files = project({ [posts.file]: posts.text, ...posts.files });
+    const recorded: JSONValue = { first: { title: "First" } };
+    const folded = await foldContent({
+      files,
+      content: { [posts.moduleFilePath]: recorded },
+    });
+    expect(folded.status).toBe("folded");
+    if (folded.status !== "folded") return;
+    expect(await readBack(folded.files, posts.moduleFilePath)).toEqual(
+      recorded,
+    );
+    expect(folded.files["posts/first.val.json"]).toBeDefined();
+    expect(folded.files[posts.file]).toContain("c.json(");
+  });
+
   test("a module left out of the content is not touched", async () => {
     const other = valFile("other.val.ts", "s.string()", "unchanged");
     const files = project({ [PAGE]: seedFile(), "other.val.ts": other });

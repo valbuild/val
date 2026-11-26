@@ -1,7 +1,13 @@
 import type { ModuleFilePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { writeContent, writeEntries } from "./merge";
-import { loadProject, projectOf, type Files, type Project } from "./project";
+import {
+  loadProject,
+  projectOf,
+  type Files,
+  type Project,
+  type ProjectModule,
+} from "./project";
 
 /**
  * Content written back into a project's files: each module's content as it is
@@ -67,8 +73,15 @@ export async function foldContent(input: {
   }
   if (refusals.length > 0) return { status: "refused", refusals };
 
-  // First, the smallest patch for every module.
-  const targeted = write(project, ids, content, "targeted");
+  // First, the smallest patch for every module whose content changed. One
+  // that did not is not written at all: even a write of nothing re-prints a
+  // `.jsonValues()` module's `.val.ts`, which can change its code.
+  const changedIds = ids.filter(
+    (id) =>
+      JSON.stringify(project.modules[id]?.source) !==
+      JSON.stringify(content[id]),
+  );
+  const targeted = write(project, changedIds, content, "targeted");
   if (targeted.status === "refused") return targeted;
   let written = targeted.files;
   let wrong = await readsBackWrong(written, ids, content);
@@ -93,7 +106,9 @@ export async function foldContent(input: {
         status: "refused",
         refusals: wrong.modules.map((id) => ({
           module: id,
-          reason: `Its content was written into ${id.slice(1)}, but the file reads back as something else. Its code computes its content rather than holding it, so it cannot be written back.`,
+          reason: isJsonValues(project.modules[id])
+            ? `Its entries were written into their .val.json files, but ${id.slice(1)} lists them in another order than the one recorded. Reordering a .jsonValues() record's entries is not written yet.`
+            : `Its content was written into ${id.slice(1)}, but the file reads back as something else. Its code computes its content rather than holding it, so it cannot be written back.`,
         })),
       };
     }
@@ -134,26 +149,35 @@ function write(
     const text = files[file];
     if (module === undefined || text == null) continue;
     try {
-      if (module.entries !== null) {
-        if (how === "whole") {
-          refusals.push({
-            module: id,
-            reason: `Its entries were written into their .val.json files, but they read back as something else.`,
-          });
-          continue;
-        }
-        Object.assign(
-          files,
-          writeEntries(
-            file,
-            text,
+      if (isJsonValues(module)) {
+        if (content[id] === null) {
+          // A nullable record recorded as null: the content argument is
+          // null, and its entries' files go.
+          files[file] = writeContent(file, text, module.source, null);
+          for (const entry of Object.values(module.entries ?? {})) {
+            files[entry] = null;
+          }
+        } else {
+          Object.assign(
             files,
-            module.entries,
-            module.source,
-            content[id],
-            [],
-          ),
-        );
+            writeEntries(
+              file,
+              text,
+              // `whole`: every entry's file written anew, in the recorded
+              // order of its fields -- the smallest patch keeps a file whose
+              // content is the same in another order.
+              how === "whole" ? {} : files,
+              // An empty record has no entries yet: the first is added as a
+              // `c.json(...)` line and a file of its own, as a save adds it.
+              module.entries ?? {},
+              // `whole` runs on what `targeted` wrote, which already names
+              // the recorded entries.
+              how === "whole" ? content[id] : module.source,
+              content[id],
+              [],
+            ),
+          );
+        }
       } else {
         files[file] = writeContent(
           file,
@@ -216,4 +240,18 @@ function refusedWhole(
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A `.jsonValues()` record, by its schema: its content lives in `.val.json`
+ * entries, also while it has none yet (and so no entry files to tell it by).
+ */
+function isJsonValues(module: ProjectModule | undefined): boolean {
+  const schema = module?.schema;
+  return (
+    schema !== undefined &&
+    schema.type === "record" &&
+    "jsonValues" in schema &&
+    schema.jsonValues === true
+  );
 }
