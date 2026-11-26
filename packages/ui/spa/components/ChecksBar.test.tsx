@@ -267,3 +267,36 @@ describe("a page the change is not on yet", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 });
+
+/**
+ * The assistant's own messages say what the checks found, so the bar does
+ * not say it again at length: a line and Fix it, with the findings folded
+ * away for whoever wants them.
+ */
+test("what the checks found is folded away, under a line and Fix it", () => {
+  render(
+    <ChecksBarView
+      {...IDLE}
+      followUp={{
+        status: "stopped",
+        reason: "budget",
+        attempts: 2,
+        findings: [
+          {
+            key: "page_check",
+            failing: true,
+            value: {
+              summary: "The buttons have no red border.",
+              findings: [{ message: "a is 1.33px transparent", where: "a" }],
+            },
+          },
+        ],
+      }}
+    />,
+  );
+  const finding = screen.getByText("a is 1.33px transparent (a)");
+  const folded = finding.closest("details");
+  expect(folded).not.toBeNull();
+  expect(folded?.open).toBe(false);
+  expect(screen.getByRole("button", { name: "Fix it" })).toBeTruthy();
+});

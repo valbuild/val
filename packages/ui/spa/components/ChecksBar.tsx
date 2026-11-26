@@ -141,7 +141,7 @@ export function ChecksBarView({
         />
       )}
       {followUp.status === "stopped" && (
-        <div className="flex flex-col gap-2 rounded-md border border-border-warning-primary bg-bg-warning-secondary px-3 py-2 text-xs touch:text-sm">
+        <div className="flex flex-col gap-1 rounded-md border border-border-warning-primary bg-bg-warning-secondary px-3 py-2 text-xs touch:text-sm">
           <div className="flex items-start gap-2">
             <AlertTriangle
               className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-warning-primary"
@@ -150,19 +150,25 @@ export function ChecksBarView({
             <span className="min-w-0 flex-1 text-fg-primary">
               {stoppedTitle(followUp)}
             </span>
-          </div>
-          <ul className="flex flex-col gap-1 pl-5 text-fg-secondary">
-            {followUp.findings.flatMap(describeFinding).map((line, i) => (
-              <li key={i} className="list-disc break-words">
-                {line}
-              </li>
-            ))}
-          </ul>
-          <div>
             <Button size="xs" onClick={onFixIt}>
               Fix it
             </Button>
           </div>
+          {/*
+           * Folded: the assistant's own messages say what the checks found,
+           * so the bar says it once, in a line, and keeps the list for
+           * whoever wants it.
+           */}
+          <details className="pl-5 text-fg-secondary">
+            <summary className="cursor-pointer">What they found</summary>
+            <ul className="mt-1 flex flex-col gap-1 pl-4">
+              {followUp.findings.flatMap(describeFinding).map((line, i) => (
+                <li key={i} className="list-disc break-words">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </details>
         </div>
       )}
     </div>
