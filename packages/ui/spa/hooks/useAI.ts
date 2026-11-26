@@ -4292,7 +4292,36 @@ export function useAI(
     [sendWsMessage, refuseHeldPageRequests],
   );
 
+  /**
+   * Leave the chat on screen while its own turn runs: stop the turn, and stop
+   * listening to it.
+   *
+   * Without this the turn went on with nothing on screen to show it -- the
+   * next chat's transcript replaced it -- while this hook still answered its
+   * tools. A question or a request for code mode it asked after that was
+   * drawn nowhere, and since those wait on the person with no timeout, the
+   * content service held the chat for that turn for good: every message
+   * written in it afterwards was refused as `session_busy`
+   * (`e2e/proposal/chatTurnContinued.spec.ts`).
+   *
+   * Stopped rather than left running, because a turn nobody can see can
+   * still change content. Its prompt is no longer this chat's, so whatever
+   * the server still sends for it -- `ai_cancelled` included -- is not drawn
+   * into the chat opened next.
+   */
+  const leaveRunningTurn = useCallback(() => {
+    const id = inFlightPromptIdRef.current;
+    if (id === null) return;
+    sendWsMessage({ type: "ai_cancel", id });
+    turnTimer.end(id);
+    ownedPromptIdsRef.current.delete(id);
+    inFlightPromptIdRef.current = null;
+    if (activeIdRef.current === id) activeIdRef.current = null;
+    setIsStreaming(false);
+  }, [sendWsMessage, turnTimer]);
+
   const newSession = useCallback(() => {
+    leaveRunningTurn();
     rejectPendingQuestions("User started a new session.");
     sessionIdRef.current = null;
     setCurrentSessionId(null);
@@ -4302,7 +4331,7 @@ export function useAI(
     setTurnBy(null);
     chatRef.current?.clearMessages();
     onSessionClearedRef.current?.();
-  }, [chatRef, rejectPendingQuestions, lockModel]);
+  }, [chatRef, rejectPendingQuestions, lockModel, leaveRunningTurn]);
 
   const getSessions = useCallback(
     async (opts?: {
@@ -4333,6 +4362,16 @@ export function useAI(
 
   const loadSession = useCallback(
     async (sessionId: string): Promise<void> => {
+      // The chat on screen, picked again while its own turn runs: it is
+      // open already. Reading it again would replace the running turn with
+      // the transcript the server has so far, which does not have it.
+      if (
+        sessionId === sessionIdRef.current &&
+        inFlightPromptIdRef.current !== null
+      ) {
+        return;
+      }
+      leaveRunningTurn();
       rejectPendingQuestions("User switched to a different session.");
       // Not the chat it is leaving's model: the effect above holds this one
       // to the model it continues on. The same chat opened again keeps its
@@ -4365,6 +4404,7 @@ export function useAI(
       rejectPendingQuestions,
       takeServerMessages,
       lockModel,
+      leaveRunningTurn,
     ],
   );
 

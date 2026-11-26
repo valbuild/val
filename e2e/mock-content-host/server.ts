@@ -70,6 +70,13 @@
  * is not, and a real model would make the assertions non-deterministic without
  * covering a single line more. See `#region ai`.
  *
+ * The model is scripted, but the service's rules for a turn are not: one turn
+ * at a time in a chat (a second prompt is refused with `session_busy`), and a
+ * turn ends only when it is answered, stopped with `ai_cancel`, or its socket
+ * closes. A Studio that loses track of its own turn is stuck against the
+ * service, so it has to be stuck here too (`RunningTurn`,
+ * `e2e/proposal/chatTurnContinued.spec.ts`).
+ *
  * ## What it deliberately does not do
  *
  * No git. A commit records the source text it was handed in an overlay that
@@ -410,6 +417,12 @@ type State = {
    */
   proposalsEnabled: boolean;
   /**
+   * Code mode on the site (valbuild/home `docs/proposals.md`, "Code mode on
+   * the site"): which proposal `</>` on the site opens, and the address the
+   * platform serves it at. `null` is a project that has it off.
+   */
+  siteCode: { proposal: string; address: string } | null;
+  /**
    * Uploaded bytes, keyed by patch id and then by file path.
    *
    * Kept apart from the patch records because the client uploads a patch's files
@@ -532,6 +545,7 @@ function emptyState(): State {
     patches: new Map(),
     proposals: new Map(),
     proposalsEnabled: false,
+    siteCode: null,
     patchFiles: new Map(),
     commits: [],
     deployments: [],
@@ -2426,6 +2440,49 @@ function substituteImageKeys(args: unknown, imageKeys: string[]): unknown {
 
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 
+/**
+ * Why a turn stopped before its script ran out, as its controller's reason:
+ * the person pressed Stop (`ai_cancel`), the socket that asked closed, a
+ * prompt sent again under the same id took the chat over, or the test reset
+ * the mock.
+ */
+type TurnStop = "cancelled" | "disconnected" | "superseded" | "reset";
+
+/**
+ * A turn being played, in the chat it holds.
+ *
+ * The real service runs one question at a time in a chat (valbuild/home
+ * `content/src/ai/sessionAccess.ts`, `claimTurn`): a second prompt into a
+ * chat whose turn is still running is refused with `session_busy`, and the
+ * claim is given back only when that turn ends -- answered, stopped with
+ * `ai_cancel`, or stopped because the socket that asked closed
+ * (`cancelAIRequestsForConnection`). Without those rules here a Studio that
+ * lost track of its own turn looked fine against the mock -- a second prompt
+ * simply ran beside the first -- while against the service the chat could
+ * not be written in again.
+ */
+type RunningTurn = {
+  promptId: string;
+  socket: WebSocket;
+  controller: AbortController;
+  /**
+   * The tool call the turn is blocked on, and whether it waits on the person
+   * (a call with no timeout: a question, or a request for code mode), which
+   * nothing but the Studio answering it will end.
+   */
+  waitingOn: { name: string; onPerson: boolean } | null;
+};
+
+/** By chat: the turn running in it. One at a time, as `claimTurn` says. */
+const runningTurns = new Map<string, RunningTurn>();
+
+/** Stop the turns `socket` asked for: it closed, so nobody is left to answer. */
+function stopTurnsOf(socket: WebSocket, reason: TurnStop): void {
+  for (const turn of runningTurns.values()) {
+    if (turn.socket === socket) turn.controller.abort(reason);
+  }
+}
+
 /** Play one scripted turn over the assistant socket. */
 async function playAiTurn(
   socket: WebSocket,
@@ -2455,6 +2512,59 @@ async function playAiTurn(
     text: promptTextOf(prompt.message),
     imageKeys,
   });
+  const send = (message: unknown): void => {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify(message));
+    }
+  };
+  // One question at a time in a chat: see `RunningTurn`. Refused before a
+  // script is taken, so the script is there for the prompt that does run.
+  const holder = runningTurns.get(sessionId);
+  if (holder !== undefined && holder.promptId !== messageId) {
+    send({
+      type: "ai_error",
+      id: messageId,
+      code: "session_busy",
+      message:
+        "Someone else is asking in this chat. Send yours when the answer is done.",
+    });
+    return;
+  }
+  // The same prompt sent again takes the chat over from the first.
+  holder?.controller.abort("superseded" satisfies TurnStop);
+  const turn: RunningTurn = {
+    promptId: messageId,
+    socket,
+    controller: new AbortController(),
+    waitingOn: null,
+  };
+  runningTurns.set(sessionId, turn);
+  try {
+    await playClaimedTurn(prompt, turn, messageId, sessionId, imageKeys, send);
+  } finally {
+    if (runningTurns.get(sessionId) === turn) runningTurns.delete(sessionId);
+  }
+}
+
+/** The turn itself, once it holds its chat. */
+async function playClaimedTurn(
+  prompt: {
+    message?: unknown;
+    reportUsage?: boolean;
+    reportTimings?: boolean;
+  },
+  turn: RunningTurn,
+  messageId: string,
+  sessionId: string,
+  imageKeys: string[],
+  send: (message: unknown) => void,
+): Promise<void> {
+  const { signal } = turn.controller;
+  /** Settles when the turn is stopped: raced against every wait below. */
+  const stopped = new Promise<"stopped">((resolve) => {
+    if (signal.aborted) resolve("stopped");
+    signal.addEventListener("abort", () => resolve("stopped"), { once: true });
+  });
   let session = state.aiSessions.get(sessionId);
   if (session) {
     session.updatedAt = nowIso();
@@ -2472,23 +2582,25 @@ async function playAiTurn(
     role: "user",
     content: promptTextOf(prompt.message),
   });
-  const send = (message: unknown): void => {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify(message));
-    }
-  };
   const script = state.aiScripts.shift() ?? {
     steps: [],
     response: "No script was queued for this turn.",
   };
   let timedSteps = 0;
+  /** What the turn has written so far: kept if it is stopped. */
+  let written = "";
   for (const step of script.steps) {
+    if (signal.aborted) break;
     if (step.type === "text") {
+      written += step.text;
       send({ type: "ai_streaming", id: messageId, chunk: step.text });
       continue;
     }
     if (step.type === "pause") {
-      await new Promise((resolve) => setTimeout(resolve, step.ms));
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, step.ms)),
+        stopped,
+      ]);
       continue;
     }
     if (step.type === "usage") {
@@ -2531,7 +2643,13 @@ async function playAiTurn(
       name: step.name,
       arguments: args,
     });
-    const answer = await answered;
+    turn.waitingOn = { name: step.name, onPerson: step.timeoutMs === null };
+    const answer = await Promise.race([answered, stopped]);
+    turn.waitingOn = null;
+    if (answer === "stopped") {
+      pendingToolResults.delete(toolCallId);
+      break;
+    }
     /*
      * The service's own timings (valbuild/home, `ai_step_timing`), only when
      * the prompt asked: a reply that made this call, then the round of tools.
@@ -2580,6 +2698,23 @@ async function playAiTurn(
    * `ai_response` renders as an empty assistant message, which is not what an
    * editor would ever see.
    */
+  if (signal.aborted) {
+    // Saved as far as it got, as the service saves a stopped turn.
+    if (written !== "") {
+      session.messages.push({ role: "assistant", content: written });
+    }
+    // Only Stop is answered: a closed socket has nobody to tell, and a turn
+    // taken over is the next prompt's to answer.
+    if ((signal.reason as TurnStop) === "cancelled") {
+      send({
+        type: "ai_cancelled",
+        id: messageId,
+        sessionId,
+        partialResponse: written,
+      });
+    }
+    return;
+  }
   const response = script.response ?? "Done.";
   session.messages.push({ role: "assistant", content: response });
   send({ type: "ai_streaming", id: messageId, chunk: response });
@@ -3075,6 +3210,11 @@ type MockProposal = {
    * on, and before each code write, is Val's server's.
    */
   codeMode: { on: boolean; changedBy: string | null; changedAt: string | null };
+  /**
+   * Where the platform serves it, once a test has said (`site-code`): what
+   * a Studio goes to when it opens the proposal.
+   */
+  address?: string;
   /** What `GET /proposals/:name` lists in `events`: code mode and commits. */
   events: MockProposalEvent[];
   /**
@@ -3230,7 +3370,7 @@ function proposalJson(proposal: MockProposal, read = false) {
     status: proposal.status,
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,
-    address: null,
+    address: proposal.address ?? null,
     changes: patchesOn(proposal.branch).filter((patch) => !patch.applied)
       .length,
     kind: "editor",
@@ -4011,9 +4151,9 @@ async function proposalsRoute(
         proposals: [...state.proposals.values()].map((p) => proposalJson(p)),
         siteUrl: null,
         // valbuild/home `docs/proposals.md`, "Code mode on the site". Off
-        // here: this mock opens editor proposals only, and the specs drive
-        // `</>`'s menu of them.
-        siteCodeMode: false,
+        // unless a spec turns it on (`site-code`): most drive `</>`'s menu
+        // of editor proposals.
+        siteCodeMode: state.siteCode !== null,
       });
       return;
     }
@@ -4031,11 +4171,41 @@ async function proposalsRoute(
         return;
       }
       if (body.kind === "site-code") {
-        // As home answers a project that turned it off.
-        json(res, 403, {
-          message: "Code mode on the site is turned off for this project.",
-          details: { code: "site-code-mode-off" },
-        });
+        const siteCode = state.siteCode;
+        const proposal =
+          siteCode === null
+            ? undefined
+            : state.proposals.get(siteCode.proposal);
+        if (siteCode === null || proposal === undefined) {
+          // As home answers a project that turned it off.
+          json(res, 403, {
+            message: "Code mode on the site is turned off for this project.",
+            details: { code: "site-code-mode-off" },
+          });
+          return;
+        }
+        if (owner === null) {
+          json(res, 403, {
+            message:
+              "Proposals are changed by people: this credential names nobody",
+          });
+          return;
+        }
+        // The site-code proposal, got rather than made (the spec seeded
+        // it), in code mode, at its address: as home answers once the
+        // site's pending changes are in it.
+        if (!proposal.codeMode.on) {
+          const at = nowIso();
+          proposal.codeMode = { on: true, changedBy: owner, changedAt: at };
+          proposal.events.push({
+            kind: "code-mode",
+            actorId: owner,
+            at,
+            data: { on: true },
+          });
+        }
+        proposal.address = siteCode.address;
+        json(res, 200, { proposal: proposalJson(proposal), movedPatchIds: [] });
         return;
       }
       if (body.kind !== undefined && body.kind !== "editor") {
@@ -4355,6 +4525,11 @@ function siteContentVersion() {
 const controlPlane: Handler = async (req, res, url) => {
   const action = url.pathname.slice("/__test__/".length);
   if (action === "reset" && req.method === "POST") {
+    // The previous spec's turns: nothing of theirs may answer into this one.
+    for (const turn of runningTurns.values()) {
+      turn.controller.abort("reset" satisfies TurnStop);
+    }
+    runningTurns.clear();
     state = emptyState();
     countedDeployments = [];
     buildBases = new Map();
@@ -4394,6 +4569,24 @@ const controlPlane: Handler = async (req, res, url) => {
   }
   if (action === "quick-previews" && req.method === "GET") {
     json(res, 200, { made: state.quickPreviewsMade });
+    return;
+  }
+  if (action === "site-code" && req.method === "POST") {
+    // Code mode on the site: `</>` there opens `proposal`, served at
+    // `address`. A `proposal` of null turns it off again.
+    const body = await readJsonBody<{
+      proposal?: string | null;
+      address?: string;
+    }>(req);
+    if (
+      typeof body?.proposal === "string" &&
+      typeof body.address === "string"
+    ) {
+      state.siteCode = { proposal: body.proposal, address: body.address };
+    } else {
+      state.siteCode = null;
+    }
+    json(res, 200, { siteCode: state.siteCode });
     return;
   }
   if (action === "proposals-enabled" && req.method === "POST") {
@@ -4700,6 +4893,11 @@ const controlPlane: Handler = async (req, res, url) => {
         bytes: image.data.byteLength,
       })),
       queuedScripts: state.aiScripts.length,
+      runningTurns: [...runningTurns].map(([sessionId, turn]) => ({
+        sessionId,
+        promptId: turn.promptId,
+        waitingOn: turn.waitingOn,
+      })),
     });
     return;
   }
@@ -5050,6 +5248,8 @@ wss.on("connection", (socket) => {
  */
 const aiWss = new WebSocketServer({ noServer: true });
 aiWss.on("connection", (socket) => {
+  // A closed tab's turns stop, as `cancelAIRequestsForConnection` stops them.
+  socket.on("close", () => stopTurnsOf(socket, "disconnected"));
   socket.on("message", (raw) => {
     let parsed: unknown;
     try {
@@ -5059,10 +5259,20 @@ aiWss.on("connection", (socket) => {
     }
     const message = parsed as {
       type?: string;
+      id?: string;
       toolCallId?: string;
       result?: unknown;
       isError?: boolean;
     };
+    // Stop: only the socket that asked may stop its turn, as in the service.
+    if (message.type === "ai_cancel" && typeof message.id === "string") {
+      for (const turn of runningTurns.values()) {
+        if (turn.promptId === message.id && turn.socket === socket) {
+          turn.controller.abort("cancelled" satisfies TurnStop);
+        }
+      }
+      return;
+    }
     if (message.type === "ai_prompt") {
       void playAiTurn(
         socket,

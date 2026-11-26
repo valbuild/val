@@ -375,6 +375,16 @@ export type MockAiState = {
     bytes: number;
   }[];
   queuedScripts: number;
+  /**
+   * The turn running in each chat: one at a time, as the service runs them.
+   * `waitingOn` is the tool call it is blocked on; `onPerson` when that call
+   * has no timeout, so only the Studio answering it ends the turn.
+   */
+  runningTurns: {
+    sessionId: string;
+    promptId: string;
+    waitingOn: { name: string; onPerson: boolean } | null;
+  }[];
 };
 
 async function control<T>(
@@ -440,6 +450,19 @@ function mockOf(target: HttpTarget) {
      * the served build's browser half -- which is all a spec about WHEN one
      * is made, and how the canvas takes it, needs.
      */
+    /**
+     * Code mode on the site: `</>` there, and the assistant's card, open
+     * proposal `name` (seed it with {@link proposal} first) in code mode at
+     * `address`, as home does for a project that lets the site's code be
+     * changed.
+     */
+    async siteCode(name: string, address: string): Promise<void> {
+      await control(target, "site-code", {
+        method: "POST",
+        body: { proposal: name, address },
+      });
+    },
+
     async quickPreviews(options: { delayMs?: number } = {}): Promise<void> {
       await control(target, "quick-preview", {
         method: "POST",
