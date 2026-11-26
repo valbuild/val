@@ -28,6 +28,14 @@
  *    server's markup out before the app's scripts run, so hydration finds
  *    nothing to keep and React renders the page with the new code.
  *
+ *    An app that HYDRATES that emptied body has React report a hydration
+ *    failure (#418) as an uncaught error, on every quick preview, which the
+ *    page log -- and the page check reading it -- takes for the page's own.
+ *    So the client entry renders a quick preview's document with
+ *    `createRoot` instead (`hydrateValRoot` in
+ *    `@valbuild/tanstack/entry-client`, which the platform's shell uses):
+ *    nothing is hydrated, so nothing fails to.
+ *
  * What it cannot show, and the tab says so: anything on the server. Server
  * functions, API routes and loaders that run there are the last build's, as
  * is the page's first render and its `head`. A new dependency is not there
@@ -38,8 +46,8 @@
  * given them.
  */
 
-/** The parameter a quick preview's page is opened with. */
-export const QUICK_PREVIEW_PARAM = "val_quick";
+import { QUICK_PREVIEW_PARAM } from "./quickPreviewParam";
+export { QUICK_PREVIEW_PARAM, isQuickPreviewUrl } from "./quickPreviewParam";
 
 /** Where Val's API serves the worker: under `/api/val`. */
 export const QUICK_PREVIEW_SERVICE_WORKER_PATH = "/quick-preview-sw.js";
@@ -307,3 +315,4 @@ export function withQuickPreviewParam(url: string, id: string): string {
   parsed.searchParams.set(QUICK_PREVIEW_PARAM, id);
   return parsed.toString();
 }
+

@@ -8,8 +8,10 @@ import {
   installPageLog,
   pageLogOf,
   QUICK_PREVIEW_RENDER_SCRIPT,
+  withQuickPreviewParam,
   type PageLog,
 } from "@valbuild/shared/internal";
+import { hydrateValRoot } from "./hydrateValRoot";
 
 /**
  * A quick preview's page, and what its log says went wrong on it.
@@ -28,11 +30,18 @@ import {
  * hydration failure, an uncaught error (`reportError`), on every quick
  * preview. `read_page_log`, and so the page check, reads it as the page's.
  *
+ * So a quick preview's document is RENDERED, not hydrated: the client entry
+ * calls `hydrateValRoot` where TanStack Start's own calls `hydrateRoot`, and
+ * at a quick preview's address (`?val_quick=`) that is `createRoot`. Nothing
+ * is hydrated, so nothing fails to be, and nothing is filtered out of the
+ * log to get there. Everywhere else it IS `hydrateRoot`, so a real hydration
+ * bug is still heard (the last test).
+ *
  * Driven with the product's own pieces: the render script the quick preview's
  * worker adds to the document, the page log the canvas bridge installs before
- * React hydrates (`installPageLog`), and React hydrating the whole document as
- * TanStack Start does (`hydrateRoot(document, <StartClient />)`). React and
- * the DOM are the edge.
+ * React runs (`installPageLog`), and the client entry's `hydrateValRoot` on
+ * the whole document, as `src/client.tsx` and the platform's shell call it.
+ * React and the DOM are the edge.
  */
 
 /** A site's page: the hero the report was about. */
@@ -73,6 +82,15 @@ function runQuickPreviewRenderScript() {
   )();
 }
 
+/** This document at a quick preview's address, as the canvas opens it. */
+function atQuickPreview() {
+  window.history.replaceState(
+    null,
+    "",
+    withQuickPreviewParam(window.location.href, "e2e-preview"),
+  );
+}
+
 /** The errors the page log holds: what `read_page_log` hands the page check. */
 function loggedErrors(log: PageLog) {
   return log
@@ -84,6 +102,8 @@ describe("a quick preview's page log", () => {
   let root: Root | null = null;
 
   beforeEach(() => {
+    // Rendering inside `act`, as React asks a test environment to say.
+    Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
     // React's own dev warnings go to the console; the log is what is asserted.
     jest.spyOn(console, "error").mockImplementation(() => undefined);
   });
@@ -95,6 +115,7 @@ describe("a quick preview's page log", () => {
     jest.restoreAllMocks();
     document.head.innerHTML = "";
     document.body.innerHTML = "";
+    window.history.replaceState(null, "", "/");
   });
 
   test("a quick preview logs no error the page did not make", async () => {
@@ -102,14 +123,16 @@ describe("a quick preview's page log", () => {
     serverDocument(
       renderToString(<Page heading="Dette er så gøy" dark={false} />),
     );
-    // ...the bridge's log is listening before React hydrates...
+    // ...the canvas opened it as a quick preview, the bridge's log is
+    // listening before React runs...
+    atQuickPreview();
     const log = installPageLog(window);
     // ...and the quick preview's document takes the server's markup out.
     runQuickPreviewRenderScript();
 
     // The new code: a darker hero, the same text.
     await act(async () => {
-      root = hydrateRoot(document, <Page heading="Dette er så gøy" dark />);
+      root = hydrateValRoot(document, <Page heading="Dette er så gøy" dark />);
     });
 
     // The new code is what is on the page...
@@ -126,11 +149,12 @@ describe("a quick preview's page log", () => {
     serverDocument(
       renderToString(<Page heading="Dette er så gøy" dark={false} />),
     );
+    atQuickPreview();
     const log = installPageLog(window);
     runQuickPreviewRenderScript();
 
     await act(async () => {
-      root = hydrateRoot(
+      root = hydrateValRoot(
         document,
         <Page heading="Dette er så gøy" dark={false} />,
       );
@@ -151,7 +175,55 @@ describe("a quick preview's page log", () => {
     const log = installPageLog(window);
 
     await act(async () => {
-      root = hydrateRoot(document, <Page heading="Browser" dark={false} />);
+      root = hydrateValRoot(document, <Page heading="Browser" dark={false} />);
+    });
+
+    expect(loggedErrors(log)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/Hydration failed/)]),
+    );
+  });
+
+  /**
+   * Without the render script -- a worker from before it, or a page that
+   * outran it -- the server's markup is still in the body: it is the new
+   * code's all the same, with nothing of the old left behind.
+   */
+  test("a quick preview with the server's markup still in it is the new code's", async () => {
+    serverDocument(renderToString(<Page heading="Gammel" dark={false} />));
+    atQuickPreview();
+    const log = installPageLog(window);
+
+    await act(async () => {
+      root = hydrateValRoot(document, <Page heading="Ny" dark />);
+    });
+
+    expect(document.querySelectorAll("section")).toHaveLength(1);
+    expect(document.querySelector("section")?.className).toBe(
+      "bg-black text-white",
+    );
+    expect(document.querySelector("h1")?.textContent).toBe("Ny");
+    expect(document.body.querySelector("script")?.textContent).toBe(
+      "window.$_TSR = {}",
+    );
+    expect(loggedErrors(log)).toEqual([]);
+  });
+
+  /**
+   * Why: an entry that HYDRATES a quick preview -- TanStack Start's own,
+   * which every app had -- has React report the emptied body as a hydration
+   * failure, an uncaught error the page check reads as the page's (React
+   * #418 in a production build). What `hydrateValRoot` is there to avoid.
+   */
+  test("why: hydrating a quick preview's document logs a hydration failure", async () => {
+    serverDocument(
+      renderToString(<Page heading="Dette er så gøy" dark={false} />),
+    );
+    atQuickPreview();
+    const log = installPageLog(window);
+    runQuickPreviewRenderScript();
+
+    await act(async () => {
+      root = hydrateRoot(document, <Page heading="Dette er så gøy" dark />);
     });
 
     expect(loggedErrors(log)).toEqual(
