@@ -99,6 +99,17 @@ export interface CssResult {
    */
   modules: Record<string, Record<string, string>>;
   warnings: Array<string>;
+  /**
+   * Stylesheets a module imports that are not in the files, by the path they
+   * resolve to: `import "../styles.css"` with no `src/styles.css`.
+   *
+   * Not an error here, because one build has them on purpose: the Studio's,
+   * from the source Val stores, which holds no stylesheets
+   * (`withoutStylesheets` in the CLI) and ships the live site's stylesheet
+   * instead. It is how the caller tells that build's empty stylesheet -- the
+   * site's styles are missing -- from a site that has none.
+   */
+  missing: Array<string>;
 }
 
 /**
@@ -138,6 +149,7 @@ export async function collectCss(
   const contributing: Array<string> = [];
   const modules: Record<string, Record<string, string>> = {};
   const warnings: Array<string> = [];
+  const missing: Array<string> = [];
   // `@import`s inside the sheets. `seen` is the walk's own `visited`, so a
   // stylesheet reached both from a module and from another sheet is emitted
   // once, wherever it is reached first.
@@ -209,11 +221,10 @@ export async function collectCss(
         continue;
       }
       // A `?url` import of a stylesheet still contributes it; see withoutQuery.
-      const resolved = resolveInFiles(
-        resolve(dirname(path), withoutQuery(source)),
-        files,
-      );
+      const target = resolve(dirname(path), withoutQuery(source));
+      const resolved = resolveInFiles(target, files);
       if (resolved) await walk(resolved);
+      else if (isCss(target) && !missing.includes(target)) missing.push(target);
     }
   }
 
@@ -229,5 +240,6 @@ export async function collectCss(
     files: contributing,
     modules,
     warnings,
+    missing,
   };
 }

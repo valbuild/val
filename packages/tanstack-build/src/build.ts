@@ -424,6 +424,12 @@ export interface BuildOutput {
   /** Wall-clock milliseconds per phase; the number the whole design lives on. */
   timings: { server: number; client: number; tailwind: number; total: number };
   warnings: Array<string>;
+  /**
+   * Stylesheets the project's modules import that the build was not given
+   * (`missing` on the CSS pass), so `cssCode` lacks them. Optional because a
+   * caller can run against a builder older than it.
+   */
+  missingStylesheets?: Array<string>;
 }
 
 /**
@@ -1235,6 +1241,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
       total: performance.now() - started,
     },
     warnings: [...new Set(warnings)],
+    missingStylesheets: css.missing,
   };
 }
 

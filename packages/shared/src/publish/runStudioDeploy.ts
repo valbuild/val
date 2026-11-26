@@ -509,6 +509,16 @@ export async function runStudioDeploy(
         };
       }
     }
+    /*
+     * The site's stylesheets are imported and this build has none of them --
+     * the stored source holds no stylesheets, and there was no live one to
+     * ship instead. Published, the site would be unstyled, and a merge that
+     * reuses this build would put it live. Said, not shipped.
+     */
+    const missing = build.missingStylesheets ?? [];
+    if (build.cssCode === "" && missing.length > 0) {
+      return failed(missingStylesheetMessage(missing));
+    }
   } catch (error) {
     return stopped() ?? failed(messageOf(error));
   }
@@ -675,6 +685,20 @@ export function carriedInto(
   return carried.filter(
     ({ key }) =>
       key.startsWith(PUBLIC_PREFIX) && !produced.has(key) && !deleted.has(key),
+  );
+}
+
+/**
+ * Why a build with none of the site's stylesheets was not published, and what
+ * puts them back: a publish from the repository compiles them, and a restored
+ * build is one this build can take them from.
+ */
+export function missingStylesheetMessage(missing: ReadonlyArray<string>) {
+  const named = missing.map((path) => `'${path}'`).join(", ");
+  return (
+    `This build has none of the site's styles, so it was not published: the site imports ${named}, ` +
+    `which this build does not have, and the live site has no stylesheet to use instead. ` +
+    `Publish the site from its repository (val publish), or restore a build that has its styles from History, then try again.`
   );
 }
 
