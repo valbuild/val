@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import { openStudio, test } from "./studio";
+import { chooseSelectMode, contentSelectOn, openStudio, test } from "./studio";
 
 /**
  * The phone's workspace.
@@ -272,9 +272,10 @@ test.describe("the panes on a phone", () => {
     // with it still armed, which is the state a pick happens in.
     await goTo(page, "On this page");
     await goTo(page, "Preview");
-    await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
-    ).toBeVisible();
+    await expect(contentSelectOn(page)).toBeVisible();
+    // Plain Select, which opens every field in Content. What Select starts
+    // in types in a text where it is: the test below.
+    await chooseSelectMode(page, "select");
 
     const target = page
       .frameLocator('iframe[title^="Preview of"]')
@@ -300,6 +301,38 @@ test.describe("the panes on a phone", () => {
     // Scrolled to it, rather than listing it somewhere below the fold.
     const row = page.locator(`[data-canvas-field='${TEXT_FIELD}']`);
     await expect(row).toBeInViewport();
+  });
+
+  /**
+   * In the mode Select starts in, a pick of a text is typed in where it is.
+   *
+   * So on a phone it stays on the page: the caret is there, and sliding to
+   * Content would take the text being typed in off the screen.
+   */
+  test("picking a text on the page, as Select starts, types in it there", async ({
+    page,
+  }) => {
+    await openPreview(page);
+    await paneButton(page, "Content").click();
+    await expect(mode(page, "On this page")).toBeVisible({ timeout: 60_000 });
+    await goTo(page, "On this page");
+    await goTo(page, "Preview");
+    await expect(
+      page.getByRole("button", {
+        name: "Stop selecting and editing on the page",
+      }),
+    ).toBeVisible();
+
+    const preview = page.frameLocator('iframe[title^="Preview of"]');
+    const target = preview.locator(`[data-val-path='${TEXT_FIELD}']`);
+    await expect(target).toBeVisible();
+    await target.click();
+
+    await expect(preview.locator("[data-val-inline-editor]")).toBeFocused();
+    await expect(paneButton(page, "Preview")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   test("stops the page when you exit", async ({ page }) => {

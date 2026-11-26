@@ -4,7 +4,7 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
-import { discardAll, openStudio, test } from "../studio";
+import { contentSelect, discardAll, openStudio, test } from "../studio";
 import { serverSource } from "./serverState";
 
 /**
@@ -65,7 +65,7 @@ async function openLanding(page: Page): Promise<FrameLocator> {
     timeout: 60_000,
   });
   // The controls are drawn only while Select is on.
-  await page.getByRole("button", { name: "Select on the page" }).click();
+  await contentSelect(page).click();
   return page.frameLocator('iframe[title="Preview of /landing"]');
 }
 

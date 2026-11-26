@@ -5,11 +5,15 @@ import {
   type Page,
 } from "@playwright/test";
 import {
+  chooseSelectMode,
   closeNavPanel,
+  contentSelect,
+  contentSelectOn,
   expandRow,
   openSiteMap,
   openStudio,
   test,
+  type SelectMode,
 } from "./studio";
 
 /**
@@ -58,9 +62,6 @@ export async function written(
   return values.at(-1) ?? null;
 }
 
-/** What Content's Select does with a pick: `CanvasSelectMode` in the Studio. */
-export type SelectMode = "select" | "edit";
-
 /**
  * The page in the preview, once Select is on in `mode` and there is
  * something to pick.
@@ -78,30 +79,11 @@ export async function selectOnPreview(
     timeout: 60_000,
   });
   if (mode === "default") {
-    await page.getByRole("button", { name: /^Select .*on the page$/ }).click();
-    await expect(
-      page.getByRole("button", { name: /^Stop selecting .*on the page$/ }),
-    ).toHaveAttribute("aria-pressed", "true");
-    return page.frameLocator('iframe[title^="Preview of"]');
+    await contentSelect(page).click();
+    await expect(contentSelectOn(page)).toHaveAttribute("aria-pressed", "true");
+  } else {
+    await chooseSelectMode(page, mode);
   }
-  // From the menu whichever it is, as a person chooses it: what Select
-  // starts in is the browser's, and a test says which one it means.
-  await page
-    .getByRole("button", { name: "Choose what selecting on the page does" })
-    .click();
-  await page
-    .getByRole("menuitemradio", {
-      name: mode === "edit" ? /Select & edit/ : /Open the field here/,
-    })
-    .click();
-  await expect(
-    page.getByRole("button", {
-      name:
-        mode === "edit"
-          ? "Stop selecting and editing on the page"
-          : "Stop selecting on the page",
-    }),
-  ).toHaveAttribute("aria-pressed", "true");
   return page.frameLocator('iframe[title^="Preview of"]');
 }
 
