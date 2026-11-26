@@ -27,6 +27,11 @@ type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
  * -- see `Proposals/Code mode`, "Preview could not update" -- and Publish
  * waits until it is fixed.
  *
+ * Once there is nothing to save and the preview is up to date, the main half
+ * is Publish, as it is without Save that builds: a disabled Save hid the one
+ * step left behind the caret. Publish opens the publish dialog, which asks
+ * before anything is published.
+ *
  * Each row is one state of the proposal, as the top bar's split button shows
  * it today and as it would. The caret opens the menu in both.
  */
@@ -126,7 +131,7 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
   },
   {
     label: "Saved, preview up to date",
-    detail: "Nothing left but Publish, in both.",
+    detail: "Publish on the main half, in both.",
     location: inProposal({ unsaved: 0 }),
   },
 ];
@@ -272,4 +277,25 @@ export const InTheStudioMenuOpen = shell({
   saveBuilds: true,
   codeMode: {},
   menuOpen: true,
+});
+
+/**
+ * Everything saved and the preview up to date: the main half is Publish, and
+ * pressing it opens the publish dialog, which asks before anything is
+ * published.
+ */
+export const InTheStudioAllSaved = shell({
+  location: inProposal({ unsaved: 0 }),
+  selectionId: mockSelectionIds.home,
+  saveBuilds: true,
+  codeMode: {},
+});
+
+/** The same, with the publish dialog open. */
+export const InTheStudioAllSavedPublishing = shell({
+  location: inProposal({ unsaved: 0 }),
+  selectionId: mockSelectionIds.home,
+  saveBuilds: true,
+  codeMode: {},
+  dialog: "publish",
 });
