@@ -1,5 +1,23 @@
 # @valbuild/ui
 
+## 0.156.0
+
+### Minor Changes
+
+- [#1099](https://github.com/valbuild/val/pull/1099) [`0cf24ba`](https://github.com/valbuild/val/commit/0cf24ba78e5e0a86ed594b58ff7f7fb5e7fcc440) Thanks [@freekh](https://github.com/freekh)! - Review shows what your changes change, on the page itself.
+
+  - **The differences are the page.** Review used to be a list of what was pending, with the differences in a dialog behind a button. It now opens on the differences, grouped by page and by content file, with only what changed: the words that changed in a text, the items that were added, removed, edited or moved in a list, the paragraphs that changed in a rich text.
+  - **Lists read as lists.** Inserting an item is one line, where it used to read as every later item changing. Reordering says which item moved. Renaming a record entry or a page's address is one rename, not a removal and an addition.
+  - **Inline or side by side.** A switch at the top shows each change marked in place, or the two sides in columns.
+  - **Reverting has its own page.** "Changes and revert" leads to the pending changes as a list you can select from, revert, and (where the project has proposals) publish a selection of. It is at `/val/changes`; a link to `/val/review?compare=…` still lands on that change.
+  - **In a proposal, Review is the same page**, comparing the proposal with the site. Its code changes are listed there whenever it has any, not only while code mode is on, so a proposal that changes only code has something to review. A page can be looked at before and after, side by side.
+
+### Patch Changes
+
+- [#1105](https://github.com/valbuild/val/pull/1105) [`7c47276`](https://github.com/valbuild/val/commit/7c472766183a425ef022e84d341e666c48a6bc3b) Thanks [@freekh](https://github.com/freekh)! - **Select & edit is now what Select starts in.** Turning Select on in the Studio's preview and clicking a text puts the caret in it, on the page; anything that is not a text still opens in the column, as before. The menu beside Select still has plain **Select**, which opens every field in the column, and the mode you choose is remembered per browser.
+
+  If you had chosen Select & edit already, nothing changes. If you had not chosen, or had gone back to plain Select, Select is now Select & edit until you pick plain Select from the menu again.
+
 ## 0.155.0
 
 ### Patch Changes
