@@ -21,17 +21,18 @@ const { valMcpAuthorize, valMcpTools, valMcpMetadata } = initValMcp(
 
 Reading:
 
-| Tool                         |                                                           |
-| ---------------------------- | --------------------------------------------------------- |
-| `get_all_schema`             | every module's path and schema — where to start           |
-| `search_content`             | find content by text, several queries at once             |
-| `get_source`                 | the content at a source path, unpublished changes applied |
-| `get_record_keys`            | a record's keys without its values                        |
-| `count_entries`              | how big something is before asking for it                 |
-| `get_source_path_from_route` | the module behind a URL                                   |
-| `get_patches`                | what is edited but not yet published                      |
-| `validate_content`           | what the Studio would show as an error                    |
-| `get_site_errors`            | what the hosted site's server threw or warned lately      |
+| Tool                         |                                                                |
+| ---------------------------- | -------------------------------------------------------------- |
+| `get_all_schema`             | every module's path and schema — where to start                |
+| `search_content`             | find content by text, several queries at once                  |
+| `get_source`                 | the content at a source path, unpublished changes applied      |
+| `get_record_keys`            | a record's keys without its values                             |
+| `count_entries`              | how big something is before asking for it                      |
+| `get_source_path_from_route` | the module behind a URL                                        |
+| `get_patches`                | what is edited but not yet published                           |
+| `validate_content`           | what the Studio would show as an error                         |
+| `get_site_errors`            | what the hosted site's server threw or warned lately           |
+| `get_logs`                   | the hosted site's last hour of requests, and what each printed |
 
 Writing:
 

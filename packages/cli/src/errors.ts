@@ -1,16 +1,13 @@
-import fs from "fs";
-import path from "path";
 import pc from "picocolors";
 import {
   fetchSiteErrors,
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-  type RemoteFileAuth,
   type SiteError,
   type SiteErrorsAnswer,
 } from "@valbuild/server";
-import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
-import { getContentHost } from "./publish/contentHost";
+import {
+  describeValBuildFailure,
+  resolveValBuildTarget,
+} from "./valBuildTarget";
 
 /**
  * `val errors`: what the hosted site has thrown, warned or been stopped for in
@@ -58,8 +55,6 @@ export async function readSiteErrors(options: {
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
 }): Promise<ReadSiteErrors> {
-  const env = options.env ?? process.env;
-  const root = options.root ? path.resolve(options.root) : process.cwd();
   if (
     options.limit !== undefined &&
     (!Number.isInteger(options.limit) ||
@@ -71,102 +66,27 @@ export async function readSiteErrors(options: {
       message: "--limit takes a whole number from 1 to 200.",
     };
   }
-  const config = await findAndEvalValConfigFile(root).catch(() => null);
-  const project = config?.project ?? env.VAL_PROJECT ?? null;
-  if (!project) {
-    return {
-      status: "error",
-      message:
-        "Nothing says which project this is.\n\n" +
-        'Set `project` ("<org>/<project>") in val.config, or the VAL_PROJECT\n' +
-        "environment variable.",
-    };
-  }
-  const [org, name, ...rest] = project.split("/");
-  if (!org || !name || rest.length > 0) {
-    return {
-      status: "error",
-      message: `Invalid project: "${project}". Expected "<org>/<project>".`,
-    };
-  }
-  const credential = readCredential(root, env);
-  if (credential.status === "error") return credential;
-  const contentHost = getContentHost(env);
+  const resolved = await resolveValBuildTarget({ ...options, what: "errors" });
+  if (resolved.status === "error") return resolved;
+  const { target } = resolved;
   const result = await fetchSiteErrors({
-    contentUrl: contentHost,
-    project,
-    credential: credential.auth,
+    contentUrl: target.contentHost,
+    project: target.project,
+    credential: target.credential,
     ...(options.limit !== undefined ? { limit: options.limit } : {}),
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
   if (result.status === "ok") {
-    return { status: "ok", project, answer: result.answer };
-  }
-  const usingLogin = "pat" in credential.auth;
-  const details = pc.dim(`\n\nDetails: ${result.message}`);
-  switch (result.reason) {
-    case "unauthenticated":
-      return {
-        status: "error",
-        message: usingLogin
-          ? "Your Val login has expired. Log in again:\n\n    npx val login"
-          : `Val Build did not accept VAL_API_KEY for ${project}. Check that it is this project's key, or log in instead:\n\n    npx val login`,
-      };
-    case "forbidden":
-      return {
-        status: "error",
-        message: `You cannot read ${project}'s errors. Ask an owner of ${org} to add you to the project.`,
-      };
-    case "not-found":
-      return {
-        status: "error",
-        message: `Val Build has no project "${project}". Check \`project\` in val.config.${details}`,
-      };
-    case "unavailable":
-      return {
-        status: "error",
-        message: `Val Build could not read the site's errors just now. Trying again in a moment usually works.${details}`,
-      };
-    case "unreachable":
-      return {
-        status: "error",
-        message: `Val Build could not be reached at ${contentHost}.${details}`,
-      };
-    case "invalid-response":
-      return {
-        status: "error",
-        message: `Val Build answered, but not with the site's errors. A newer CLI may read it:\n\n    npm install @valbuild/cli@latest${details}`,
-      };
-  }
-}
-
-/** The `val login` token, else VAL_API_KEY, else what to do. */
-function readCredential(
-  root: string,
-  env: NodeJS.ProcessEnv,
-):
-  | { status: "ok"; auth: RemoteFileAuth }
-  | { status: "error"; message: string } {
-  const patFile = getPersonalAccessTokenPath(root);
-  if (fs.existsSync(patFile)) {
-    const parsed = parsePersonalAccessTokenFile(
-      fs.readFileSync(patFile, "utf-8"),
-    );
-    if (parsed.success) return { status: "ok", auth: { pat: parsed.data.pat } };
-    if (!env.VAL_API_KEY) {
-      return {
-        status: "error",
-        message: `Could not read the Val login at ${patFile}. Log in again:\n\n    npx val login`,
-      };
-    }
-  }
-  if (env.VAL_API_KEY) {
-    return { status: "ok", auth: { apiKey: env.VAL_API_KEY } };
+    return { status: "ok", project: target.project, answer: result.answer };
   }
   return {
     status: "error",
-    message:
-      "Reading the site's errors needs you to be logged in to Val Build:\n\n    npx val login",
+    message: describeValBuildFailure(
+      target,
+      result.reason,
+      result.message,
+      "errors",
+    ),
   };
 }
 
