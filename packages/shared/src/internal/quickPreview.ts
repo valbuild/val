@@ -19,22 +19,20 @@
  *    document's `/_app/` requests from the files, and everything else from
  *    the network: the HTML is the last build's, rendered by its server, and
  *    the new code takes it over in the browser.
- * 4. It takes it over by RENDERING it, not by hydrating it. Hydration keeps
- *    the markup the server sent wherever only an attribute differs -- React
- *    mends text, never a `className` -- so a change to classes and props,
- *    which is most of what the assistant changes, hydrated into the old
- *    page and showed nothing. The worker adds a script to the end of that
- *    document's `<body>` ({@link QUICK_PREVIEW_RENDER_SCRIPT}) that takes the
- *    server's markup out before the app's scripts run, so hydration finds
- *    nothing to keep and React renders the page with the new code.
- *
- *    An app that HYDRATES that emptied body has React report a hydration
- *    failure (#418) as an uncaught error, on every quick preview, which the
- *    page log -- and the page check reading it -- takes for the page's own.
- *    So the client entry renders a quick preview's document with
- *    `createRoot` instead (`hydrateValRoot` in
- *    `@valbuild/tanstack/entry-client`, which the platform's shell uses):
- *    nothing is hydrated, so nothing fails to.
+ * 4. It takes it over by RENDERING it, not by hydrating it: the last build's
+ *    markup and the new code cannot agree. Hydration keeps the server's
+ *    attributes where only those differ -- React mends text, never a
+ *    `className` -- so a change to classes, most of what the assistant
+ *    changes, showed nothing; and where text differs React reports a
+ *    hydration failure. The worker once emptied the body before the app's
+ *    scripts ran, which showed the classes, but then React reported the
+ *    empty page as a hydration failure (React error 418) on every quick
+ *    preview, and the page check took it for the site's. Now the document
+ *    is served as the server sent it, and `ValProvider` renders the site
+ *    inside it with the new code once the page has hydrated, without
+ *    hydrating that part at all (`QuickPreviewRender` in
+ *    `@valbuild/tanstack`): the old page stays on screen until the new one
+ *    replaces it.
  *
  * What it cannot show, and the tab says so: anything on the server. Server
  * functions, API routes and loaders that run there are the last build's, as
@@ -46,23 +44,11 @@
  * given them.
  */
 
-import { QUICK_PREVIEW_PARAM } from "./quickPreviewParam";
-export { QUICK_PREVIEW_PARAM, isQuickPreviewUrl } from "./quickPreviewParam";
+/** The parameter a quick preview's page is opened with. */
+export const QUICK_PREVIEW_PARAM = "val_quick";
 
 /** Where Val's API serves the worker: under `/api/val`. */
 export const QUICK_PREVIEW_SERVICE_WORKER_PATH = "/quick-preview-sw.js";
-
-/**
- * What a quick preview's document runs before the app's scripts: the
- * server's markup out of `<body>`, every script left where it is -- the
- * router's dehydrated state and the app's entry are among them. Hydration
- * then finds the body empty and React renders the page, with the new code's
- * attributes and classes, where it would have kept the old ones.
- */
-export const QUICK_PREVIEW_RENDER_SCRIPT =
-  "<script>(function(){var b=document.body;if(!b)return;" +
-  "Array.prototype.slice.call(b.childNodes).forEach(function(n){" +
-  'if(n.nodeName!=="SCRIPT")b.removeChild(n)})})()</script>';
 
 /** What the page sends the worker to store a preview's files. */
 export const QUICK_PREVIEW_STORE_MESSAGE = "val-quick-preview-store";
@@ -102,7 +88,6 @@ export function isQuickPreviewFiles(
 export const QUICK_PREVIEW_SERVICE_WORKER_SOURCE = `
 "use strict";
 const PARAM = "${QUICK_PREVIEW_PARAM}";
-const RENDER = ${JSON.stringify(QUICK_PREVIEW_RENDER_SCRIPT)};
 const CACHE = "val-quick-preview";
 const PREFIX = "/__val_quick/";
 const INDEX = PREFIX + "index";
@@ -181,31 +166,13 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (event.request.mode === "navigate") {
     const id = url.searchParams.get(PARAM);
+    // Known by its address before the page has one; served as it is.
     if (event.resultingClientId) byClient.set(event.resultingClientId, id);
-    if (id) event.respondWith(rendered(event.request));
     return;
   }
   if (!url.pathname.startsWith("/_app/")) return;
   event.respondWith(serve(event, url));
 });
-
-/** A quick preview's document, with the script that has it rendered, not hydrated. */
-async function rendered(request) {
-  const response = await fetch(request);
-  const type = response.headers.get("Content-Type") || "";
-  if (!response.ok || !type.includes("text/html")) return response;
-  const html = await response.text();
-  const at = html.lastIndexOf("</body>");
-  if (at === -1) return new Response(html, response);
-  const headers = new Headers(response.headers);
-  headers.delete("Content-Length");
-  headers.delete("Content-Encoding");
-  return new Response(html.slice(0, at) + RENDER + html.slice(at), {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
 
 async function serve(event, url) {
   const id = await previewOf(event.clientId);

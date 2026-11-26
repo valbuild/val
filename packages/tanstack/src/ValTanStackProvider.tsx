@@ -18,6 +18,7 @@ import { useRouter, useRouterState } from "@tanstack/react-router";
 import React, { useEffect } from "react";
 import { ValScript } from "./ValScript";
 import { ValOverlayProvider } from "./ValOverlayContext";
+import { QuickPreviewRender } from "./QuickPreviewRender";
 import {
   SET_AUTO_TAG_JSX_ENABLED,
   isReactDevelopmentBuild,
@@ -44,6 +45,7 @@ import { floatDarkBg, floatLightBg } from "./fallbackColors";
 import {
   installPageLogInCanvasFrame,
   isValCanvasFrame,
+  QUICK_PREVIEW_PARAM,
 } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { isLiveSitePage, type ValDraft } from "./ValDraft";
@@ -388,6 +390,16 @@ export const ValTanStackProvider = (props: {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  /*
+   * Whether this page was opened as a quick preview (`?val_quick=`), as the
+   * address said when it was first rendered: the same on the server and in
+   * the browser, and kept for the page's life (see `QuickPreviewRender`).
+   */
+  const openedAsQuickPreview = useRouterState({
+    select: (state) =>
+      new URLSearchParams(state.location.searchStr).has(QUICK_PREVIEW_PARAM),
+  });
+  const [quickPreview] = React.useState(openedAsQuickPreview);
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("val-provider:pathname", {
@@ -905,7 +917,12 @@ export const ValTanStackProvider = (props: {
       suspend={suspendActive}
       store={valStore}
     >
-      {props.children}
+      <QuickPreviewRender
+        quickPreview={quickPreview}
+        onServer={router.isServer}
+      >
+        {props.children}
+      </QuickPreviewRender>
       {platformAnalytics !== null && (
         <PlatformAnalytics value={platformAnalytics} />
       )}

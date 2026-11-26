@@ -42,10 +42,6 @@
       "module": "./autotag/dist/valbuild-tanstack-autotag.esm.js",
       "default": "./autotag/dist/valbuild-tanstack-autotag.cjs.js"
     },
-    "./entry-client": {
-      "module": "./entry-client/dist/valbuild-tanstack-entry-client.esm.js",
-      "default": "./entry-client/dist/valbuild-tanstack-entry-client.cjs.js"
-    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-tanstack.cjs.d.ts",
@@ -54,7 +50,6 @@
       "./index.ts",
       "./server/index.ts",
       "./client/index.ts",
-      "./entry-client/index.ts",
       "./demo/index.ts",
       "./autotag/index.ts"
     ],
@@ -94,7 +89,6 @@
     "CHANGELOG.md",
     "dist",
     "client",
-    "entry-client",
     "server",
     "demo",
     "autotag"

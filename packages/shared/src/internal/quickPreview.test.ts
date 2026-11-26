@@ -1,5 +1,4 @@
 import {
-  QUICK_PREVIEW_RENDER_SCRIPT,
   QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
   QUICK_PREVIEW_STORE_MESSAGE,
 } from "./quickPreview";
@@ -133,19 +132,14 @@ describe("the quick preview's worker", () => {
     expect(await app?.text()).toBe("export const quick = true;");
   });
 
-  test("has a preview's page rendered by the new code, not hydrated into the old markup", async () => {
+  test("leaves a preview's page as the server sent it: ValProvider renders the site in it", () => {
+    // Emptying the body made React report a hydration failure on every
+    // quick preview (React error 418); the markup stays, and the new code
+    // renders over it without hydrating it (`QuickPreviewRender`).
     const worker = load([]);
-    const page = await worker.request(
-      "/about?val_quick=q1",
-      "fresh",
-      "navigate",
-    );
-    const html = (await page?.text()) ?? "";
-    // Before the app's scripts run, which are deferred: the body's markup
-    // goes, its scripts stay
-    expect(html).toBe(
-      PAGE.replace("</body>", `${QUICK_PREVIEW_RENDER_SCRIPT}</body>`),
-    );
+    expect(
+      worker.request("/about?val_quick=q1", "fresh", "navigate"),
+    ).toBeNull();
   });
 
   test("leaves a page not opened as a preview to the network, as it is", () => {
