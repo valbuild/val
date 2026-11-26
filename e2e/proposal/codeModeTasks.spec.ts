@@ -174,16 +174,11 @@ test("add a section: a new component, the route rendering it, a quick preview, a
       },
     },
     { name: "search_code", arguments: { query: "<Contact />" } },
-    /*
-     * No `lint` here: in this suite the Studio is served by Vite's dev
-     * server, whose config lacks the plugin that makes ESLint run in a
-     * browser (`build/eslintInBrowser.ts`, in `spa.vite.config.mts` only), so
-     * it answers "esquery.matches is not a function". Headlessly, lint runs:
-     * `scenarios/src/codeModeTasks.scenario.test.ts`.
-     */
+    { name: "lint" },
     { name: "quick_preview" },
   ]);
-  const [list, readRoute, write, importIt, renderIt, search, quick] = calls;
+  const [list, readRoute, write, importIt, renderIt, search, lint, quick] =
+    calls;
 
   expect(JSON.stringify(answered(list))).toContain(HERO_FILE);
   expect(JSON.stringify(answered(list))).toContain(BUTTON_FILE);
@@ -194,6 +189,7 @@ test("add a section: a new component, the route rendering it, a quick preview, a
   expect(answered(search).matches).toEqual([
     expect.objectContaining({ path: ROUTE_FILE }),
   ]);
+  answered(lint);
   answered(quick);
   await quickPreviewInFront(page);
 
