@@ -380,7 +380,7 @@ export type MockAiState = {
 async function control<T>(
   target: HttpTarget,
   action: string,
-  init?: { method: "POST"; body?: unknown },
+  init?: { method: "POST" | "PUT"; body?: unknown },
 ): Promise<T> {
   const res = await fetch(
     `http://localhost:${target.mockPort}/__test__/${action}`,
@@ -444,6 +444,18 @@ function mockOf(target: HttpTarget) {
       await control(target, "quick-preview", {
         method: "POST",
         body: { enabled: true, delayMs: options.delayMs ?? 0 },
+      });
+    },
+
+    /**
+     * The files the site's live build was made from, as a publish leaves the
+     * platform holding them (`GET /v1/project-source`): what the assistant's
+     * code tools read, search and edit. `null`: never published.
+     */
+    async projectSource(files: Record<string, string> | null): Promise<void> {
+      await control(target, "project-source", {
+        method: "PUT",
+        body: { files },
       });
     },
 

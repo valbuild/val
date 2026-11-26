@@ -47,7 +47,8 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  *   what a hosted Studio is left with after every schema change: the tab
  *   evaluates staged code only where it can bundle (`canBuildHere`,
  *   `studioStagedCodeDeps`), and a Studio that builds on Val Build mostly
- *   cannot. That is the one path here that reloads today.
+ *   cannot. With nothing else left, a reload is the last resort, and B6
+ *   holds that it is one: once, after the build's code was tried.
  *
  * Every action is the product's, as in `codeMode.scenario.test.ts`: the
  * writes are the assistant's `write_files` (`runCodeTool`), the build is
@@ -234,13 +235,11 @@ describe("Build in code mode, at a proposal the site's </> made", () => {
 
   /**
    * The schema moved under a Studio that did not evaluate it, and the
-   * build's code cannot be imported: today `BuildCode` reloads the page
-   * three seconds after the build lands (`scheduleReload`). In code mode it
-   * is the Studio's own Build that landed, in the middle of the session the
-   * person is in. What the Studio does instead of reloading is the fix's to
-   * decide; that it does not reload by itself is what this holds.
+   * build's code cannot be imported: nothing is left but the page, so
+   * `BuildCode` reloads it -- the last resort. Once, and only after the
+   * build's code was tried.
    */
-  test("B6 a .val.ts the tab did not evaluate, and a build whose code is not on the site: no reload", async () => {
+  test("B6 a .val.ts the tab did not evaluate, and a build whose code is not on the site: one reload, as the last resort", async () => {
     const { world, proposal, editor } = await open();
     const staged = await proposal.stage({ [HOME_FILE]: afterText }, "Eyebrow", {
       studio: (await world.studio("other tab")) ?? editor,
@@ -248,12 +247,14 @@ describe("Build in code mode, at a proposal the site's </> made", () => {
     });
     expect(staged.isError).toBe(false);
     await world.settle();
+    expect(editor.reloads()).toBe(0);
 
     await buildLands(world, { registry: "missing" });
 
-    expect(editor.work.count("code:import-build")).toBeGreaterThanOrEqual(1);
-    expect(editor.reloads()).toBe(0);
+    expect(editor.work.count("code:import-build")).toBe(1);
+    expect(editor.reloads()).toBe(1);
     expect(editor.errors()).toEqual([]);
+    editor.expectReloads(1);
   });
 
   test("B7 only a component changed, and a build whose code is not on the site: no reload", async () => {

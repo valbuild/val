@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { MOCK_PROPOSAL } from "../http/config";
-import { httpTarget, PROPOSAL_APP } from "../http/httpMode";
+import {
+  canvasFrames,
+  mock,
+  openCodeMode,
+  quickPreviewInFront,
+  sessionCookie,
+} from "./codeModeStudio";
 import { send, toolCalls } from "../http/assistant";
 
 /**
@@ -24,8 +30,6 @@ import { send, toolCalls } from "../http/assistant";
  * showcase's home page, which logs nothing of its own on a normal load (the
  * last test says so, so a failure of the first is not the page's).
  */
-const { sessionCookie, openHttpStudio, mock } = httpTarget(PROPOSAL_APP);
-
 test.use({
   storageState: { cookies: [sessionCookie("ada")], origins: [] },
 });
@@ -38,31 +42,6 @@ test.beforeEach(async () => {
   await mock.proposal(MOCK_PROPOSAL);
   await mock.quickPreviews({ delayMs: 300 });
 });
-
-/** The Studio at the proposal, in code mode, with the page in the canvas live. */
-async function openCodeMode(page: Page): Promise<void> {
-  const on = await page.request.post(
-    `/api/val/proposals-api/${MOCK_PROPOSAL}/code-mode`,
-    { data: { on: true } },
-  );
-  expect(on.ok(), await on.text()).toBe(true);
-  await openHttpStudio(page);
-  const studio = page.locator("#val-shadow-root");
-  await studio.getByRole("button", { name: "AI assistant" }).first().click();
-  // Live: see `codeModePreview.spec.ts` for why this is the wait.
-  await expect(
-    studio.getByRole("button", {
-      name: "Point the assistant at something on the page",
-    }),
-  ).toBeEnabled({ timeout: 120_000 });
-}
-
-/** The canvas's frames. */
-function canvasFrames(page: Page) {
-  return page
-    .locator("#val-shadow-root")
-    .locator('[data-val-tour="canvas"] iframe');
-}
 
 /**
  * The errors `read_page_log` answers for the page in the canvas: asked by a
@@ -125,16 +104,7 @@ test("a change's quick preview logs no error the page did not make", async ({
       message: "no quick preview was made once the turn ended",
     })
     .toBe(1);
-  await expect
-    .poll(
-      async () =>
-        (await canvasFrames(page).count()) === 1 &&
-        ((await canvasFrames(page).first().getAttribute("src")) ?? "").includes(
-          "val_quick=",
-        ),
-      { timeout: 30_000, message: "the quick preview never came to the front" },
-    )
-    .toBe(true);
+  await quickPreviewInFront(page);
 
   expect(await pageLogErrors(page, 2)).toEqual([]);
 });

@@ -1,9 +1,14 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MOCK_PROPOSAL } from "../http/config";
-import { httpTarget, PROPOSAL_APP } from "../http/httpMode";
 import { send, toolCalls } from "../http/assistant";
+import {
+  arriveInCodeMode,
+  mock,
+  sessionCookie,
+  watchForReload,
+} from "./codeModeStudio";
 
 /**
  * Build, after a coding session in code mode, does not reload the Studio.
@@ -33,8 +38,6 @@ import { send, toolCalls } from "../http/assistant";
  * "Reloaded" is read at the browser's boundary: a navigation of the main
  * frame, and a value set on the Studio's `window` that a reload would lose.
  */
-const { sessionCookie, openHttpStudio, mock } = httpTarget(PROPOSAL_APP);
-
 test.use({
   storageState: { cookies: [sessionCookie("ada")], origins: [] },
 });
@@ -48,51 +51,6 @@ test.beforeEach(async () => {
   await mock.quickPreviews({ delayMs: 300 });
   await mock.serverBuilds({ delayMs: 1_500 });
 });
-
-/**
- * The Studio as `</>` on the site leaves it: at the proposal's address with
- * the parameter that asks for code mode, and the assistant open.
- */
-async function arriveInCodeMode(page: Page): Promise<void> {
-  await openHttpStudio(page, "/val?val_code_mode=on");
-  const studio = page.locator("#val-shadow-root");
-  // The parameter is acted on once the proposal's own read says code mode
-  // is off, and then taken out of the address.
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get("val_code_mode"), {
-      timeout: 120_000,
-      message: "the Studio never acted on ?val_code_mode=on",
-    })
-    .toBe(null);
-  await studio.getByRole("button", { name: "AI assistant" }).first().click();
-  // Live in code mode: see `codeModePreview.spec.ts` for why this is the wait.
-  await expect(
-    studio.getByRole("button", {
-      name: "Point the assistant at something on the page",
-    }),
-  ).toBeEnabled({ timeout: 120_000 });
-}
-
-/** Watch for the Studio's page being reloaded or navigated away from. */
-async function watchForReload(page: Page): Promise<() => Promise<string[]>> {
-  /*
-   * A new document in the main frame, by its address. Not `framenavigated`:
-   * that fires for the Studio's own `history.replaceState` too, which is
-   * how it keeps where the editor is in the address.
-   */
-  const navigations: string[] = [];
-  page.on("domcontentloaded", () => navigations.push(page.url()));
-  // Lost by any reload, however it was caused.
-  await page.evaluate(() => {
-    Reflect.set(window, "__e2eSameDocument", true);
-  });
-  return async () => {
-    const same = await page
-      .evaluate(() => Reflect.get(window, "__e2eSameDocument") === true)
-      .catch(() => false);
-    return same ? navigations : [...navigations, "(the document was replaced)"];
-  };
-}
 
 test("Build after a coding session builds the proposal without reloading the Studio", async ({
   page,
@@ -170,10 +128,14 @@ function manifestModules(json: unknown): Record<string, { schema: string }> {
  * has no bundler), and its registry is named but not on the site, which is
  * what `@valbuild/tanstack-build` leaves for Val modules it cannot bundle for
  * the browser (`valModulesEntry`). `architecture/quirks.md` names that 404 as
- * the reason a hosted Studio reloads after a deploy. Today the Studio
- * reloads its page three seconds later (`BuildCode.scheduleReload`).
+ * the reason a hosted Studio reloads after a deploy.
+ *
+ * With nothing else left, the Studio reloads its page
+ * (`BuildCode.scheduleReload`): the last resort, which is allowed. What this
+ * holds is that it IS the last one -- the build's code was asked for first,
+ * and the page reloaded once, after that and never before.
  */
-test("Build whose code the Studio cannot import in place does not reload the Studio either", async ({
+test("Build whose code the Studio cannot import in place reloads the Studio once, as the last resort", async ({
   page,
 }) => {
   let built = false;
@@ -237,11 +199,22 @@ test("Build whose code the Studio cannot import in place does not reload the Stu
     "The preview is behind the latest changes. Press to update it.",
     { timeout: 30_000 },
   );
-  const reloads = await watchForReload(page);
+  /** What happened, in order: the build's code asked for, and reloads. */
+  const happened: string[] = [];
+  page.on("response", (res) => {
+    if (
+      new URL(res.url()).pathname === "/_app/val-modules-e2e-proposal-build.js"
+    ) {
+      happened.push(`registry ${res.status()}`);
+    }
+  });
+  page.on("domcontentloaded", () => happened.push("reload"));
   await build.click();
   await expect(
     page.getByText("Built: the preview shows the change"),
   ).toBeVisible({ timeout: 60_000 });
+  // Nothing reloaded for the build itself.
+  expect(happened).toEqual([]);
   built = true;
   // What the canvas does when a page of a newer build loads in it: read the
   // manifest now (`checkCodeNow`), rather than at the next `/stat`.
@@ -254,8 +227,17 @@ test("Build whose code the Studio cannot import in place does not reload the Stu
   });
   // The Studio tried the build's code, and it was not there...
   expect((await missingEntry).status()).toBe(404);
-  // ...and past the grace (`STUDIO_RELOAD_GRACE_MS`, 3 s) it is still the
-  // page the Build was pressed in.
+  // ...so, past the grace (`STUDIO_RELOAD_GRACE_MS`, 3 s), the page
+  // reloaded: once, and after the build's code was asked for.
+  await expect
+    .poll(() => happened.includes("reload"), {
+      timeout: 30_000,
+      message: "the Studio never fell back to reloading",
+    })
+    .toBe(true);
+  // The reloaded Studio, on the same rewritten manifest, asks for the code
+  // again; it must not reload again for it.
   await page.waitForTimeout(8_000);
-  expect(await reloads()).toEqual([]);
+  expect(happened.filter((event) => event === "reload")).toEqual(["reload"]);
+  expect(happened[0]).toBe("registry 404");
 });

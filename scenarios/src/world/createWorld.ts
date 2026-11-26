@@ -445,8 +445,16 @@ export type ProposalAt = {
    * modules could not be bundled for the browser (`valModulesEntry`), or a
    * builder that predates the entry: its server still names one, and a
    * Studio importing it is answered 404.
+   *
+   * `modules`: what the build of the staged files evaluates to, where no
+   * Studio's evaluation said so (`stage`'s `evaluateIn` does): a Studio
+   * that cannot bundle staged code -- one that builds on Val Build -- never
+   * evaluates it, and the build is the first to.
    */
-  redeploy(options?: { registry?: "missing" }): Promise<void>;
+  redeploy(options?: {
+    registry?: "missing";
+    modules?: AnyModule[];
+  }): Promise<void>;
   /** Publish in the proposal: the press the Studio makes (`pressMerge`). */
   merge(commitMessage?: string): ReturnType<StudioJobClient["pressMerge"]>;
   /**
@@ -1954,7 +1962,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
               }
             : {}),
         };
-        deployCode(serverModules);
+        deployCode(options?.modules ?? serverModules);
         if (
           options?.registry === "missing" &&
           host.mode === "http" &&
