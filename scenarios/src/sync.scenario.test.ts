@@ -1,4 +1,4 @@
-import { Internal, initVal } from "@valbuild/core";
+import { Internal, initVal, type PatchId } from "@valbuild/core";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createWorld, type ServerMode, type World } from "./world/createWorld";
@@ -85,6 +85,38 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     expect(editor.errors()).toEqual([]);
     const deletes = world.network.log.filter((e) => e.method === "DELETE");
     expect(deletes).toHaveLength(1); // the discard, and nothing after it
+  });
+
+  /**
+   * A discard of many changes is one request, and every change goes.
+   *
+   * Given more saved edits than one query string used to carry (37 ids),
+   * when the editor discards all of them,
+   * then the Studio sends ONE delete, and holds none of them afterwards.
+   *
+   * The ids used to go on the query string, a chunk per request, in turn --
+   * and a chunk failing after the first left the deletes before it
+   * unreported, so the Studio kept changes that were already gone.
+   */
+  test("a discard of many changes is one request", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    const edits: PatchId[] = [];
+    for (let i = 0; i < 60; i++) {
+      edits.push(await editor.edit(homeVal, ["title"], `Title ${i}`));
+    }
+    await world.settle();
+
+    expect(await editor.discard(edits)).toEqual({ status: "discarded" });
+    await world.settle();
+
+    const deletes = world.network.log.filter(
+      (exchange) =>
+        exchange.method === "DELETE" && exchange.path === "/api/val/patches",
+    );
+    expect(deletes).toHaveLength(1);
+    expect(editor.system.patchStore.allRecords()).toEqual([]);
+    expect(editor.errors()).toEqual([]);
   });
 
   /**

@@ -1,4 +1,5 @@
 import { createRequestPublish } from "../publish/requestPublish";
+import { discardFailureNotice } from "./discardFailureNotice";
 import {
   createStudioJobClient,
   isTransientPublishError,
@@ -2118,55 +2119,67 @@ export function useDeletePatches() {
         Internal.log.error("cannot discard: no store system is mounted");
         return;
       }
-      // In batches of 100: the ids go into the request URL as query params, and
-      // a chain long enough to matter is long enough to exceed a URL limit.
-      for (let i = 0; i < patchIds.length; i += 100) {
-        const batch = patchIds.slice(i, i + 100);
-        const discard = () =>
-          val.system.discard(batch).then((res) => {
-            if (res.status === "discarded") return;
-            if (res.publishJobId === undefined) {
-              val.system.status.reportError("Not discarded", res.message);
-              return;
-            }
-            const publishJobId = res.publishJobId;
-            /*
-             * A publish holds the change. Discarding it from under the publish
-             * would publish a page without the change it was built with, so
-             * the server refuses -- and the two ways on are to let the publish
-             * end, or to stop it. "Cancel publish" stops it and then does the
-             * discard that was asked for, so the button finishes the job
-             * rather than leading to the same refusal again.
-             */
-            toast.error("Being published right now", {
-              id: `discard-held:${publishJobId}`,
-              description: res.message,
+      /*
+       * One discard for the whole list: `discardPatches` sends it as one
+       * request. This used to fire batches of 100 in parallel, which made one
+       * click into several outcomes and several toasts.
+       */
+      const discard = (asked: PatchId[]): Promise<void> =>
+        val.system.discard(asked).then((res) => {
+          if (res.status === "discarded") return;
+          // What went is already forgotten; the notice and its action are
+          // about what is left.
+          const notice = discardFailureNotice(asked, res);
+          if (notice.remaining.length === 0) return;
+          const publishJobId = res.publishJobId;
+          if (notice.action === "retry" || publishJobId === undefined) {
+            toast.error(notice.title, {
+              id: "discard-failed",
+              description: notice.description,
               duration: Infinity,
               action: {
-                label: "Cancel publish",
-                onClick: () => {
-                  void createStudioJobClient({ api: "/api/val" })
-                    .cancel(publishJobId)
-                    .then((cancelled) => {
-                      if (cancelled) return discard();
-                      val.system.status.reportError(
-                        "The publish could not be cancelled",
-                        "It is already going live. Discard the change once it is published.",
-                      );
-                    })
-                    .catch((e: unknown) =>
-                      val.system.status.reportError(
-                        "The publish could not be cancelled",
-                        e instanceof Error ? e.message : String(e),
-                      ),
-                    );
-                },
+                label: "Try again",
+                onClick: () => void discard(notice.remaining),
               },
-              cancel: { label: "Wait", onClick: () => {} },
             });
+            return;
+          }
+          /*
+           * A publish holds the change. Discarding it from under the publish
+           * would publish a page without the change it was built with, so
+           * the server refuses -- and the two ways on are to let the publish
+           * end, or to stop it. "Cancel publish" stops it and then discards
+           * what is left, so the button finishes the job rather than leading
+           * to the same refusal again.
+           */
+          toast.error(notice.title, {
+            id: `discard-held:${publishJobId}`,
+            description: notice.description,
+            duration: Infinity,
+            action: {
+              label: "Cancel publish",
+              onClick: () => {
+                void createStudioJobClient({ api: "/api/val" })
+                  .cancel(publishJobId)
+                  .then((cancelled) => {
+                    if (cancelled) return discard(notice.remaining);
+                    val.system.status.reportError(
+                      "The publish could not be cancelled",
+                      "It is already going live. Discard the change once it is published.",
+                    );
+                  })
+                  .catch((e: unknown) =>
+                    val.system.status.reportError(
+                      "The publish could not be cancelled",
+                      e instanceof Error ? e.message : String(e),
+                    ),
+                  );
+              },
+            },
+            cancel: { label: "Wait", onClick: () => {} },
           });
-        void discard();
-      }
+        });
+      void discard(patchIds);
     },
     [val],
   );
