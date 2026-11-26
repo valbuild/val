@@ -3,12 +3,15 @@
 Content's Select has two modes, chosen from the menu beside it and remembered
 per browser (`selectModePreference.ts`):
 
-- **Select** opens a picked field in the Studio's column. What a click on the
-  page has always done, and the mode it starts in.
 - **Select & edit** puts the caret in a picked TEXT where the page shows it.
-  Everything that is not a text still opens in the column.
+  Everything that is not a text still opens in the column. The mode it starts
+  in (`DEFAULT_SELECT_MODE`): it takes nothing away from the other, and a
+  text is most often picked to be typed in.
+- **Select** opens a picked field in the Studio's column, text or not. What a
+  click on the page did before there was a choice, and still there for
+  whoever wants the column every time.
 
-This page is about the second.
+This page is about the first.
 
 The parts, and nothing else knows about it:
 

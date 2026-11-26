@@ -5,11 +5,15 @@ import {
   type Page,
 } from "@playwright/test";
 import {
+  chooseSelectMode,
   closeNavPanel,
+  contentSelect,
+  contentSelectOn,
   expandRow,
   openSiteMap,
   openStudio,
   test,
+  type SelectMode,
 } from "./studio";
 
 /**
@@ -58,39 +62,27 @@ export async function written(
   return values.at(-1) ?? null;
 }
 
-/** What Content's Select does with a pick: `CanvasSelectMode` in the Studio. */
-export type SelectMode = "select" | "edit";
-
 /**
  * The page in the preview, once Select is on in `mode` and there is
  * something to pick.
  *
- * "Select & edit" is chosen as a person chooses it, from the menu beside
- * Select -- which also turns it on.
+ * The mode is chosen as a person chooses it, from the menu beside Select --
+ * which also turns it on. `"default"` chooses nothing and presses Select
+ * itself: whatever mode a browser nobody has chosen in starts in.
  */
 export async function selectOnPreview(
   page: Page,
-  mode: SelectMode = "select",
+  mode: SelectMode | "default" = "select",
 ): Promise<FrameLocator> {
   // The page reporting its fields is when there is something to pick.
   await expect(page.getByRole("tab", { name: /On this page \d/ })).toBeVisible({
     timeout: 60_000,
   });
-  if (mode === "edit") {
-    await page
-      .getByRole("button", { name: "Choose what selecting on the page does" })
-      .click();
-    await page.getByRole("menuitemradio", { name: /Select & edit/ }).click();
-    await expect(
-      page.getByRole("button", {
-        name: "Stop selecting and editing on the page",
-      }),
-    ).toHaveAttribute("aria-pressed", "true");
+  if (mode === "default") {
+    await contentSelect(page).click();
+    await expect(contentSelectOn(page)).toHaveAttribute("aria-pressed", "true");
   } else {
-    await page.getByRole("button", { name: "Select on the page" }).click();
-    await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    await chooseSelectMode(page, mode);
   }
   return page.frameLocator('iframe[title^="Preview of"]');
 }
@@ -130,7 +122,7 @@ const BLOG = "/blogs/blog1";
 /** The blog page both apps have, in the preview, with Select on. */
 async function openBlog(
   page: Page,
-  mode: SelectMode = "select",
+  mode: SelectMode | "default" = "select",
 ): Promise<FrameLocator> {
   await openStudio(page);
   const studio = await openSiteMap(page);
@@ -151,10 +143,22 @@ export function defineInlineEditingSuite(): void {
   test.use({ viewport: { width: 1512, height: 900 } });
 
   test.describe("editing on the page", () => {
-    test("Select, the mode it starts in, opens the field in the column", async ({
+    test("Select & edit is the mode Select starts in", async ({ page }) => {
+      // Select pressed, and nothing chosen from its menu.
+      const preview = await openBlog(page, "default");
+      await expect(
+        page.getByRole("button", {
+          name: "Stop selecting and editing on the page",
+        }),
+      ).toBeVisible();
+      await preview.locator("h1").click();
+      await expect(inlineEditor(preview)).toBeFocused();
+    });
+
+    test("Select, chosen from the menu, opens the field in the column", async ({
       page,
     }) => {
-      const preview = await openBlog(page);
+      const preview = await openBlog(page, "select");
       const headline = preview.locator("h1");
       await headline.click();
       // Opened in the column, which the page shows by outlining the field

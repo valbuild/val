@@ -442,3 +442,54 @@ export async function peekThroughStore(
     return peeked === undefined ? null : (peeked.data ?? null);
   }, path);
 }
+
+/** What Content's Select does with a pick: `CanvasSelectMode` in the Studio. */
+export type SelectMode = "select" | "edit";
+
+/**
+ * Content's Select beside the preview, off, whichever of its two modes it
+ * is in: its name says the mode ("Select on the page", "Select and edit on
+ * the page"), and a test of the button itself is not a test of either.
+ */
+export function contentSelect(studio: Page | Locator): Locator {
+  return studio.getByRole("button", {
+    name: /^Select (and edit )?on the page$/,
+  });
+}
+
+/** {@link contentSelect}, pressed. */
+export function contentSelectOn(studio: Page | Locator): Locator {
+  return studio.getByRole("button", {
+    name: /^Stop selecting (and editing )?on the page$/,
+  });
+}
+
+/**
+ * Choose what Content's Select does, from the menu beside it, as a person
+ * chooses it -- which also turns Select on.
+ *
+ * A test of what a click on the page does says which mode it means: what
+ * Select starts in is the browser's own (`selectModePreference.ts`), and it
+ * has changed once already.
+ */
+export async function chooseSelectMode(
+  studio: Page | Locator,
+  mode: SelectMode,
+): Promise<void> {
+  await studio
+    .getByRole("button", { name: "Choose what selecting on the page does" })
+    .click();
+  await studio
+    .getByRole("menuitemradio", {
+      name: mode === "edit" ? /Select & edit/ : /Open the field here/,
+    })
+    .click();
+  await expect(
+    studio.getByRole("button", {
+      name:
+        mode === "edit"
+          ? "Stop selecting and editing on the page"
+          : "Stop selecting on the page",
+    }),
+  ).toHaveAttribute("aria-pressed", "true");
+}
