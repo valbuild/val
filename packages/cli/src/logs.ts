@@ -289,12 +289,13 @@ function headerOf(
     `${target.project}: ${count}${answer.truncated ? "+" : ""} ${count === 1 ? "request" : "requests"} in ${label}, oldest first`,
   ];
   if (options.search) parts.push(`matching "${options.search}"`);
-  if (options.follow) {
-    parts.push(
-      "following (Ctrl-C to stop; new requests can take up to a minute to start arriving)",
-    );
-  }
-  return parts.join(", ");
+  if (options.follow) parts.push("following");
+  return (
+    parts.join(", ") +
+    (options.follow
+      ? "\nCtrl-C to stop. New requests can take up to a minute to start arriving."
+      : "")
+  );
 }
 
 /** One request: a line for it, and one indented under it per line it printed. */
