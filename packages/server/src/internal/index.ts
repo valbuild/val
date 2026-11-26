@@ -19,6 +19,7 @@
 import type { ValConfig, ValModules } from "@valbuild/core";
 import type { ValApiOptions } from "../ValRouter";
 import type { ValRuntime } from "../valRuntime";
+import type { FoldResult } from "../proposalMerge/foldContent";
 
 /**
  * The runtime the draft readers read through: see `createValRuntime` in
@@ -80,14 +81,22 @@ export {
   type HeadTree,
   type ModuleAnswer,
 } from "../head";
-/*
+/**
  * Content written back into a project's files, for connecting a project Val
  * Build hosts to a repository (valbuild/home,
- * docs/plans/connect-with-history.md, phase 6a).
+ * docs/plans/connect-with-history.md, phase 6a): see `foldContent` in
+ * `../proposalMerge/foldContent`.
+ *
+ * Loaded when it is called, like `createValRuntime` above. It writes
+ * `.val.ts` files, so it imports TypeScript, and re-exported statically it
+ * put the compiler on every visitor's page.
  */
-export {
-  foldContent,
-  type FoldResult,
-  type FoldRefusal,
-} from "../proposalMerge/foldContent";
+export async function foldContent(input: FoldInput): Promise<FoldResult> {
+  const { foldContent } = await import("../proposalMerge/foldContent");
+  return foldContent(input);
+}
+type FoldInput = Parameters<
+  typeof import("../proposalMerge/foldContent").foldContent
+>[0];
+export type { FoldResult, FoldRefusal } from "../proposalMerge/foldContent";
 export type { Files as ProjectFiles } from "../proposalMerge/project";
