@@ -315,4 +315,3 @@ export function withQuickPreviewParam(url: string, id: string): string {
   parsed.searchParams.set(QUICK_PREVIEW_PARAM, id);
   return parsed.toString();
 }
-
