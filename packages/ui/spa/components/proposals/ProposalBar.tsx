@@ -558,6 +558,21 @@ export type ProposalCommit = {
   upToDate?: boolean;
 };
 
+/**
+ * The validation errors that refuse Publish, or `null`. Only where a save
+ * does not stop them first: in code mode, where a save takes invalid content,
+ * and where Save updates the preview too. Otherwise Save is "Fix N" while
+ * there are errors, and nothing unsaved means nothing invalid is waiting.
+ * One rule for the top bar's button, the phone's and the changes sheet.
+ */
+export function publishRefusingErrors(
+  saveBlockedBy: { errors: number; onShow: () => void } | undefined,
+  { codeMode, saveBuilds }: { codeMode: boolean; saveBuilds: boolean },
+): { errors: number; onShow: () => void } | null {
+  if (saveBlockedBy === undefined || saveBlockedBy.errors === 0) return null;
+  return codeMode || saveBuilds ? saveBlockedBy : null;
+}
+
 /** What a proposal's one primary action is: whichever step comes next. */
 export type ProposalNextAction = "save" | "build" | "publish";
 
@@ -714,10 +729,10 @@ export function ProposalActionButton({
             failed: code.state === "failed",
           };
 
-  // Validation errors refuse Publish where a save does not stop them first:
-  // in code mode, and where Save updates the preview.
-  const publishErrors =
-    errors !== null && (codeMode || saveAndBuild !== null) ? errors : null;
+  const publishErrors = publishRefusingErrors(saveBlockedBy, {
+    codeMode,
+    saveBuilds: saveAndBuild !== null,
+  });
   const mainDisabled =
     action === "save"
       ? saving ||

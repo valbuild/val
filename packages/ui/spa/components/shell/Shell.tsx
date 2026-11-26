@@ -87,6 +87,7 @@ import {
   ProposalSaveAndBuildButton,
   ProposalSaveButton,
   nextProposalAction,
+  publishRefusingErrors,
 } from "../proposals/ProposalBar";
 import {
   FloatingNotices,
@@ -1736,14 +1737,11 @@ const ShellFrame = memo(function ShellFrame({
           phoneSaveAndBuild !== undefined,
         )
       : null;
-  // Errors refuse Publish where a save does not stop them first: see
-  // `ProposalActionButton`.
   const phonePublishErrors =
-    proposals?.saveBlockedBy !== undefined &&
-    proposals.saveBlockedBy.errors > 0 &&
-    (proposals.codeMode?.on === true || phoneSaveAndBuild !== undefined)
-      ? proposals.saveBlockedBy
-      : undefined;
+    publishRefusingErrors(proposals?.saveBlockedBy, {
+      codeMode: proposals?.codeMode?.on === true,
+      saveBuilds: phoneSaveAndBuild !== undefined,
+    }) ?? undefined;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
       phoneAction === "save" && phoneSaveAndBuild !== undefined ? (
