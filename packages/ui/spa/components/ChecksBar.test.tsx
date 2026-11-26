@@ -3,10 +3,12 @@
  */
 import { fireEvent, render, screen } from "@testing-library/react";
 import {
+  ChecksBar,
   ChecksBarView,
   describeFinding,
   type ChecksBarViewProps,
 } from "./ChecksBar";
+import { pageCheckNotShown, resetPageCheck } from "../proposals/pageCheck";
 
 jest.mock("./ValProvider", () => ({
   useCurrentProposal: () => null,
@@ -167,4 +169,101 @@ test("a failed page check reads as what was seen, and where", () => {
     "On the page: The heading is the old colour.",
     "h1 is black (main h1)",
   ]);
+});
+
+/**
+ * Reported from a phone: once the checks failed, the assistant could not be
+ * used -- what they found filled the space above the composer, and nothing
+ * put it away.
+ */
+describe("putting the checks away", () => {
+  const STOPPED: ChecksBarViewProps = {
+    ...IDLE,
+    typecheck: { status: "ok" },
+    lint: { status: "ok" },
+    page: { status: "problems", count: 1 },
+    followUp: {
+      status: "stopped",
+      reason: "budget",
+      attempts: 2,
+      findings: [
+        {
+          key: "page_check",
+          failing: true,
+          value: {
+            summary: "The buttons have no red border.",
+            findings: [{ message: "a is 1.33px transparent", where: "a" }],
+          },
+        },
+      ],
+    },
+  };
+
+  test("the checks can be hidden, and stay hidden while they say the same", () => {
+    const { container, rerender } = render(<ChecksBarView {...STOPPED} />);
+    fireEvent.click(screen.getByRole("button", { name: "Hide the checks" }));
+    expect(container.innerHTML).toBe("");
+    // The same checks again -- the bar re-renders as the chat does.
+    rerender(<ChecksBarView {...STOPPED} followUp={{ ...STOPPED.followUp }} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  test("hidden checks come back when they have something new to say", () => {
+    const { rerender } = render(<ChecksBarView {...STOPPED} />);
+    fireEvent.click(screen.getByRole("button", { name: "Hide the checks" }));
+    rerender(<ChecksBarView {...STOPPED} page={{ status: "running" }} />);
+    expect(
+      screen.getByRole("status", { name: "Checks of the change" }),
+    ).toBeTruthy();
+  });
+
+  test("a check that could not run can be hidden too", () => {
+    const { container } = render(
+      <ChecksBarView
+        {...IDLE}
+        page={{ status: "failed", message: "The page check was stopped." }}
+        pageRetry={{ status: "available", run: () => {} }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Hide the checks" }));
+    expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("a page the change is not on yet", () => {
+  const NAME = "0123456789abcdef0123";
+  const INPUTS = "a".repeat(64);
+  beforeEach(() => resetPageCheck());
+
+  function bar() {
+    return render(
+      <ChecksBar
+        proposalName={NAME}
+        onFixIt={() => {}}
+        retryPageCheck={() => {}}
+        pageCheckCanRun={() => "yes"}
+        retryChecks={() => {}}
+      />,
+    );
+  }
+
+  test("says it was not checked and why, with no Try again that would only say it again", () => {
+    pageCheckNotShown(NAME, INPUTS, {
+      reason: "failed",
+      message: "The page with the quick preview did not load.",
+    });
+    bar();
+    expect(
+      screen.getByText(
+        /The page was not checked: the change could not be shown in a quick preview/,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  test("a quick preview that was slow to come can be checked again", () => {
+    pageCheckNotShown(NAME, INPUTS, { reason: "timeout", waitedMs: 120_000 });
+    bar();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
 });

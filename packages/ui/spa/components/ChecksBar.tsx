@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AlertTriangle, Check, Loader2, RotateCcw, X } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
@@ -36,7 +37,12 @@ export type PageRetry =
   /** As often as it may since the person's last message. */
   | { status: "limited" }
   /** No preview open: there is no page to read. */
-  | { status: "no-preview" };
+  | { status: "no-preview" }
+  /**
+   * The change could not be on the page, and a check now would find it so
+   * again: what it says is what to do (`pageCheckNotShown`).
+   */
+  | { status: "not-shown" };
 
 export type ChecksBarViewProps = {
   typecheck: CheckStatus;
@@ -65,10 +71,17 @@ export function ChecksBarView({
     lint.status !== "idle" ||
     page.status !== "idle" ||
     followUp.status !== "idle";
-  if (!anything) return null;
+  /*
+   * Hidden until the checks say something else: on a phone, what they found
+   * can fill the space above the composer. What they say is the four of
+   * them; a re-render with the same is not something new.
+   */
+  const saying = JSON.stringify([typecheck, lint, page, followUp]);
+  const [hidden, setHidden] = useState<string | null>(null);
+  if (!anything || hidden === saying) return null;
   return (
     <div
-      className="mb-2 flex flex-col gap-2"
+      className="mb-2 flex max-h-[40vh] flex-col gap-2 overflow-y-auto"
       role="status"
       aria-label="Checks of the change"
     >
@@ -83,6 +96,16 @@ export function ChecksBarView({
             Fixing what they found ({followUp.attempt} of {followUp.of})
           </span>
         )}
+        <Button
+          size="xs"
+          variant="ghost"
+          className="ml-auto h-6 w-6 p-0 touch:h-8 touch:w-8"
+          aria-label="Hide the checks"
+          title="Hide the checks until they find something new"
+          onClick={() => setHidden(saying)}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </Button>
       </div>
       {(typecheck.status === "failed" || lint.status === "failed") && (
         <FailureRow
@@ -338,6 +361,13 @@ export function ChecksBar({
   const page = usePageCheck();
   const followUp = useChecksFollowUp();
   const canRun = pageCheckCanRun();
+  // Checked again, a change that could not be on the page is not on it
+  // again -- unless its quick preview was only slow.
+  const notShown =
+    page.status === "done" &&
+    page.name === proposalName &&
+    page.notShown !== undefined &&
+    page.notShown !== "timeout";
   const typecheckOf: CheckStatus =
     typecheck.status === "idle" || typecheck.name !== proposalName
       ? { status: "idle" }
@@ -378,9 +408,11 @@ export function ChecksBar({
       followUp={followUp}
       onFixIt={onFixIt}
       pageRetry={
-        canRun === "yes"
-          ? { status: "available", run: retryPageCheck }
-          : { status: canRun }
+        notShown
+          ? { status: "not-shown" }
+          : canRun === "yes"
+            ? { status: "available", run: retryPageCheck }
+            : { status: canRun }
       }
       onRetryChecks={typecheckRetryable ? retryChecks : null}
     />

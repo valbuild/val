@@ -10,6 +10,7 @@ import {
   quickPreviewRunner,
   waitForStagedPreview,
 } from "../proposals/quickPreviewControl";
+import type { ProposalJson } from "../proposals/proposalsClient";
 import type { ProposalsClient } from "../proposals/proposalsClient";
 import type { ProjectReadDeps } from "../proposals/proposalCode";
 import {
@@ -21,7 +22,9 @@ import {
   PAGE_CHECK_SYSTEM_PROMPT,
   PAGE_CHECK_TOOLS,
   pageCheckFailed,
+  pageCheckNotShown,
   pageCheckPrompt,
+  type PageNotShown,
   pageCheckReported,
   pageCheckStarted,
   runPageCheckTool,
@@ -59,9 +62,69 @@ export type PageCheckSession = {
 
 /**
  * How long a page check waits for the staged files to be in front of the
- * person before it looks at the page anyway: a quick preview is seconds.
+ * person: Val Build making the quick preview (45 seconds is not unusual),
+ * and the page in the preview loading it (`useQuickPreview` gives it 30).
+ * Nobody waits on the check, so a long wait costs nothing; the wait ends
+ * as soon as the preview says how it went. After it, the page is NOT read:
+ * it is the last build, and the change is not on it.
  */
-export const PAGE_CHECK_PREVIEW_WAIT_MS = 20_000;
+export const PAGE_CHECK_PREVIEW_WAIT_MS = 2 * 60_000;
+
+/** Whether the change is on the page in the preview, once it is known. */
+type PageOfChange =
+  | { status: "shown"; line: string }
+  | { status: "not-shown"; why: PageNotShown };
+
+/**
+ * Whether the page in the preview shows the staged files: the page check
+ * looks at it only when it does. When the build the preview serves already
+ * has them, it does. When it does not, it does once their quick preview is
+ * in front -- which starts as the turn ends, when the check does -- so this
+ * waits for the preview to say how it went (`waitForStagedPreview`).
+ */
+async function pageOf(
+  staged: ProposalJson["staged"] | null,
+): Promise<PageOfChange> {
+  const served: PageOfChange = {
+    status: "shown",
+    line: "The page in the preview is the site's build, which has these files.",
+  };
+  if (staged === null || staged === undefined || staged.inputs === null) {
+    return served;
+  }
+  if (!staged.buildRequired) return served;
+  if (quickPreviewRunner() === null) {
+    return { status: "not-shown", why: { reason: "no-quick-preview" } };
+  }
+  const preview = await waitForStagedPreview(
+    staged.inputs,
+    PAGE_CHECK_PREVIEW_WAIT_MS,
+  );
+  switch (preview.status) {
+    case "shown":
+      return {
+        status: "shown",
+        line: "The page in the preview is a quick preview of exactly these files: the change is on it.",
+      };
+    case "served":
+      return served;
+    case "failed":
+      return {
+        status: "not-shown",
+        why: {
+          reason: "failed",
+          message: preview.message ?? "It did not say why.",
+        },
+      };
+    case "off":
+      return { status: "not-shown", why: { reason: "off" } };
+    case "timeout":
+      return {
+        status: "not-shown",
+        why: { reason: "timeout", waitedMs: PAGE_CHECK_PREVIEW_WAIT_MS },
+      };
+  }
+}
 
 /**
  * The page check (`proposals/pageCheck.ts`) as a hidden session on the
@@ -135,33 +198,23 @@ export function usePageCheckSession(options: {
         .get(name)
         .then((proposal) => proposal.staged ?? null)
         .catch(() => null)
-        .then(async (staged) => {
-          /*
-           * The check looks at the page, and the page shows what is staged
-           * only once its quick preview is in front -- which starts as the
-           * turn ends, when this does. So it waits for the preview to say
-           * so (`waitForStagedPreview`), or that it will not show them, or
-           * for the wait to run out: then it checks the page as it is.
-           * Only where a preview is being shown at all, and only for files
-           * the served build does not have.
-           */
-          if (
-            staged !== null &&
-            staged.inputs !== null &&
-            staged.buildRequired &&
-            quickPreviewRunner() !== null
-          ) {
-            await waitForStagedPreview(
-              staged.inputs,
-              PAGE_CHECK_PREVIEW_WAIT_MS,
-            );
-          }
-          return staged;
-        })
-        .then((staged) => {
+        .then(async (staged) => ({
+          staged,
+          page: await pageOf(staged),
+        }))
+        .then(({ staged, page }) => {
           if (runningRef.current?.promptId !== promptId) return;
           const inputs = staged?.inputs ?? null;
           runningRef.current = { ...runningRef.current, inputs };
+          if (page.status === "not-shown") {
+            // Said without a model: asked to judge a page the change is not
+            // on, one reports the change missing, and the assistant goes
+            // back to fix what it already fixed.
+            runningRef.current.reported = true;
+            pageCheckNotShown(name, inputs, page.why);
+            finish(null);
+            return;
+          }
           pageCheckStarted(name, inputs);
           const typecheck = typecheckStatusOf(name);
           const lint = backgroundLintOf(name);
@@ -200,6 +253,7 @@ export function usePageCheckSession(options: {
                     : lint,
                 "problems",
               ),
+              page: page.line,
             }),
             agents: [
               {
