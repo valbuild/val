@@ -1598,10 +1598,23 @@ export const Api = {
     DELETE: {
       req: {
         query: {
-          id: z.array(PatchId).min(1, "At least one patch id is required"),
+          /*
+           * The ids, as a Studio from before `ids` in the body sends them. Kept
+           * for a tab left open across a deploy; the Studio sends `ids` now,
+           * because a query string long enough for a big discard is refused
+           * before the handler sees it.
+           */
+          id: z.array(PatchId).optional(),
         },
         body: z
           .object({
+            /*
+             * The patches to delete, all of them in one request. In the body
+             * rather than the query so that "discard all" on a long chain is
+             * one delete and not a sequence of them, any of which could fail
+             * after the ones before it had already deleted.
+             */
+            ids: z.array(PatchId).optional(),
             /*
              * Answer with `{ deleted, headVersion }` rather than the bare id
              * array. Asked for rather than always sent, because the array is
@@ -1617,11 +1630,22 @@ export const Api = {
       },
       res: z.union([
         unauthorizedResponse,
+        /* No ids at all, or ids in both the query and the body. */
+        z.object({ status: z.literal(400), json: GenericError }),
         z.object({
           status: z.literal(500),
           json: z.object({
             message: z.string(),
             errors: z.array(GenericPatchError),
+            /*
+             * The patches that WERE deleted, though others were not: they are
+             * gone, and a client that kept them would show, save and publish
+             * changes that no longer exist. Optional because a server from
+             * before it did not say, and then nothing is known to be deleted.
+             */
+            deleted: z.array(PatchId).optional(),
+            /** As on the 200: the chain version those deletes moved to. */
+            headVersion: z.number().optional(),
           }),
         }),
         /*

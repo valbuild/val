@@ -272,6 +272,11 @@ export type System = HostRealm &
           message: string;
           /** See `publishJobId` on {@link DiscardPatches}' error. */
           publishJobId?: string;
+          /**
+           * Discarded although the discard as a whole failed, and already
+           * forgotten. What is left to try again is the rest.
+           */
+          discarded: PatchId[];
         }
     >;
     /**
@@ -765,7 +770,8 @@ export function createSystem(options: SystemOptions): System {
       return;
     }
     const res = await options.discardPatches(toDelete);
-    if (res.status === "discarded" && res.headVersion !== undefined) {
+    // Noted on a failure too: one that deleted some of them moved the chain.
+    if (res.headVersion !== undefined) {
       stat.noteHeadVersion(res.headVersion);
     }
     if (res.status === "error") {
@@ -1869,22 +1875,32 @@ export function createSystem(options: SystemOptions): System {
         return {
           status: "failed",
           message: "This system has no discard seam configured.",
+          discarded: [],
         };
       }
       const res = await options.discardPatches(patchIds);
+      // A `/stat` read before the delete still names the discarded patches —
+      // and, if one was the head, would hand it back as the next parent. On a
+      // failure too: one that deleted some of them moved the chain.
+      if (res.headVersion !== undefined) {
+        stat.noteHeadVersion(res.headVersion);
+      }
       if (res.status === "error") {
+        /*
+         * A failure can still have deleted some: one change refused does not
+         * stop the others going. Those are gone on the server, and kept here
+         * they would be shown, saved and published again -- so they are
+         * forgotten, and the rest kept for the editor to try again.
+         */
+        patchStore.drop(res.discarded);
         return {
           status: "failed",
           message: res.message,
+          discarded: res.discarded,
           ...(res.publishJobId !== undefined
             ? { publishJobId: res.publishJobId }
             : {}),
         };
-      }
-      // A `/stat` read before the delete still names the discarded patches —
-      // and, if one was the head, would hand it back as the next parent.
-      if (res.headVersion !== undefined) {
-        stat.noteHeadVersion(res.headVersion);
       }
       // The ids the SERVER says it deleted, not the ids we asked about: a partial
       // delete must not make the client forget a patch that still exists.
