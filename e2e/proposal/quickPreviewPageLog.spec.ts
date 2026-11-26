@@ -17,11 +17,12 @@ import { send, toolCalls } from "../http/assistant";
  * client)", which it could not place and handed to the assistant to fix.
  *
  * The page it reads after a change is a quick preview: the last build's HTML
- * with the new code's scripts, and a script that takes the server's markup
- * out first so React renders the new code rather than hydrating the old
- * markup (`QUICK_PREVIEW_RENDER_SCRIPT`). React reports the emptied body as
- * a hydration failure, and the page log keeps it as an uncaught error of the
- * page's. Headlessly: `packages/tanstack/src/quickPreviewHydration.test.tsx`.
+ * run by the new code. The new code used to hydrate it after the server's
+ * markup was taken out, and React reported the emptied body as a hydration
+ * failure, which the page log kept as an uncaught error of the page's. Now
+ * `ValProvider` renders the site with the new code without hydrating it
+ * (`QuickPreviewRender`). Headlessly:
+ * `packages/tanstack/src/quickPreviewHydration.test.tsx`.
  *
  * Here in a real browser, the page check's way: a change is written (the
  * mock's scripted turn, no model), its quick preview comes to the front of

@@ -1,20 +1,19 @@
 /**
  * @jest-environment jsdom
  */
-import { act } from "react";
+import React, { act } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import {
   installPageLog,
   pageLogOf,
-  QUICK_PREVIEW_RENDER_SCRIPT,
-  withQuickPreviewParam,
   type PageLog,
 } from "@valbuild/shared/internal";
-import { hydrateValRoot } from "./hydrateValRoot";
+import { QuickPreviewRender } from "./QuickPreviewRender";
 
 /**
- * A quick preview's page, and what its log says went wrong on it.
+ * A quick preview's page: what the new code makes of it, and what its log
+ * says went wrong on it.
  *
  * Reported from code mode: every page check of a change failed on "React
  * minified error #418 (hydration mismatch, HTML text differing between server
@@ -22,73 +21,99 @@ import { hydrateValRoot } from "./hydrateValRoot";
  * preview whether the change caused it or it was already there" -- and handed
  * to the assistant as a finding to fix.
  *
- * It is not the change, and not the site. A quick preview takes the server's
- * markup out of `<body>` before the app's scripts run
- * (`QUICK_PREVIEW_RENDER_SCRIPT`), so that React RENDERS the page with the new
- * code instead of hydrating the old markup, which keeps the old classes. That
- * is by design -- and React 19 reports a body with nothing to hydrate as a
- * hydration failure, an uncaught error (`reportError`), on every quick
- * preview. `read_page_log`, and so the page check, reads it as the page's.
+ * It was not the change, and not the site. A quick preview is the HTML the
+ * LAST build's server rendered, run by the proposal's NEW code, and the new
+ * code was made to hydrate it -- after the quick preview's worker had
+ * emptied the body, so the old classes could not stay. React reported the
+ * empty page as a hydration failure, an uncaught error, on every quick
+ * preview.
  *
- * So a quick preview's document is RENDERED, not hydrated: the client entry
- * calls `hydrateValRoot` where TanStack Start's own calls `hydrateRoot`, and
- * at a quick preview's address (`?val_quick=`) that is `createRoot`. Nothing
- * is hydrated, so nothing fails to be, and nothing is filtered out of the
- * log to get there. Everywhere else it IS `hydrateRoot`, so a real hydration
- * bug is still heard (the last test).
+ * Now `ValProvider` wraps the site in `QuickPreviewRender` on a page opened
+ * as a quick preview: rendered by the new code once the page has hydrated,
+ * never hydrated itself, so nothing can fail to hydrate, and nothing is
+ * filtered out of the log to get there. Everywhere else it is the children
+ * as they are, so a real hydration bug is still heard.
  *
- * Driven with the product's own pieces: the render script the quick preview's
- * worker adds to the document, the page log the canvas bridge installs before
- * React runs (`installPageLog`), and the client entry's `hydrateValRoot` on
- * the whole document, as `src/client.tsx` and the platform's shell call it.
+ * Driven as the browser runs it: the page server-rendered with the LAST
+ * build's code (`renderToString`, with `QuickPreviewRender` where
+ * `ValProvider` puts it), the page log the canvas bridge installs before
+ * React runs (`installPageLog`), and the NEW code hydrating the whole
+ * document, as TanStack Start does (`hydrateRoot(document, <StartClient />)`).
  * React and the DOM are the edge.
  */
 
-/** A site's page: the hero the report was about. */
-function Page({ heading, dark }: { heading: string; dark: boolean }) {
+/**
+ * A site's page as TanStack Start renders it: `__root`'s document, with the
+ * site inside `ValProvider` -- here only the part of it this is about.
+ */
+function Page({
+  heading,
+  dark,
+  quickPreview,
+  provider = true,
+  onServer = false,
+}: {
+  heading: string;
+  dark: boolean;
+  quickPreview: boolean;
+  /** `false`: an app from before `QuickPreviewRender`, for the why. */
+  provider?: boolean;
+  /** Rendered by the server: `serverDocument` says so. */
+  onServer?: boolean;
+}) {
+  const site = (
+    <main>
+      <section className={dark ? "bg-black text-white" : "bg-white"}>
+        <p>Eyebrow</p>
+        <h1>{heading}</h1>
+        <a href="/kontakt">Kontakt oss</a>
+      </section>
+    </main>
+  );
   return (
     <html lang="no">
       <head>
         <title>Forside</title>
       </head>
       <body>
-        <main>
-          <section className={dark ? "bg-black text-white" : "bg-white"}>
-            <p>Eyebrow</p>
-            <h1>{heading}</h1>
-            <a href="/kontakt">Kontakt oss</a>
-          </section>
-        </main>
+        {provider ? (
+          <QuickPreviewRender quickPreview={quickPreview} onServer={onServer}>
+            {site}
+          </QuickPreviewRender>
+        ) : (
+          site
+        )}
+        <script dangerouslySetInnerHTML={{ __html: "window.$_TSR = {}" }} />
+        <AtHydration />
       </body>
     </html>
   );
 }
 
 /**
- * The document the server sent, as the browser has it before any script
- * runs: the server's markup, and the router's dehydrated state as a script
- * in `<body>` (which the render script leaves where it is).
+ * What the page showed when hydration committed -- before any effect ran,
+ * so before `QuickPreviewRender` replaced anything: the first frame the new
+ * code is responsible for.
  */
-function serverDocument(html: string) {
-  const body = /<body>([\s\S]*)<\/body>/.exec(html)?.[1] ?? "";
+let headingAtHydration: string | null = null;
+function AtHydration() {
+  React.useLayoutEffect(() => {
+    headingAtHydration = document.querySelector("h1")?.textContent ?? null;
+  }, []);
+  return null;
+}
+
+/**
+ * The document the server sent, as the browser has it before any script
+ * runs: rendered with the LAST build's code, on the server.
+ */
+function serverDocument(page: React.ReactElement<{ onServer?: boolean }>) {
+  const html = renderToString(React.cloneElement(page, { onServer: true }));
+  // What a server render that could not finish leaves behind: never here.
+  expect(html).not.toContain("<!--$!-->");
+  document.documentElement.lang = "no";
   document.head.innerHTML = "<title>Forside</title>";
-  document.body.innerHTML = body + "<script>window.$_TSR = {}</script>";
-}
-
-/** What a quick preview's worker adds to the document, run as the browser runs it. */
-function runQuickPreviewRenderScript() {
-  new Function(
-    QUICK_PREVIEW_RENDER_SCRIPT.replace(/^<script>|<\/script>$/g, ""),
-  )();
-}
-
-/** This document at a quick preview's address, as the canvas opens it. */
-function atQuickPreview() {
-  window.history.replaceState(
-    null,
-    "",
-    withQuickPreviewParam(window.location.href, "e2e-preview"),
-  );
+  document.body.innerHTML = /<body>([\s\S]*)<\/body>/.exec(html)?.[1] ?? "";
 }
 
 /** The errors the page log holds: what `read_page_log` hands the page check. */
@@ -98,14 +123,12 @@ function loggedErrors(log: PageLog) {
     .entries.map((entry) => `${entry.source}: ${entry.text.split("\n")[0]}`);
 }
 
-describe("a quick preview's page log", () => {
+describe("a quick preview's page", () => {
   let root: Root | null = null;
 
   beforeEach(() => {
     // Rendering inside `act`, as React asks a test environment to say.
     Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
-    // React's own dev warnings go to the console; the log is what is asserted.
-    jest.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -115,93 +138,51 @@ describe("a quick preview's page log", () => {
     jest.restoreAllMocks();
     document.head.innerHTML = "";
     document.body.innerHTML = "";
-    window.history.replaceState(null, "", "/");
   });
 
-  test("a quick preview logs no error the page did not make", async () => {
-    // The last build's server rendered the page...
+  /** The new code takes the page over, as the browser runs it. */
+  async function hydrate(page: React.ReactElement) {
+    await act(async () => {
+      root = hydrateRoot(document, page);
+    });
+  }
+
+  test("a change to classes is on the page, and nothing is logged", async () => {
     serverDocument(
-      renderToString(<Page heading="Dette er så gøy" dark={false} />),
+      <Page heading="Dette er så gøy" dark={false} quickPreview />,
     );
-    // ...the canvas opened it as a quick preview, the bridge's log is
-    // listening before React runs...
-    atQuickPreview();
-    const log = installPageLog(window);
-    // ...and the quick preview's document takes the server's markup out.
-    runQuickPreviewRenderScript();
-
-    // The new code: a darker hero, the same text.
-    await act(async () => {
-      root = hydrateValRoot(document, <Page heading="Dette er så gøy" dark />);
-    });
-
-    // The new code is what is on the page...
-    expect(document.querySelector("section")?.className).toBe(
-      "bg-black text-white",
-    );
-    expect(document.querySelector("h1")?.textContent).toBe("Dette er så gøy");
-    // ...and nothing went wrong on it.
-    expect(loggedErrors(log)).toEqual([]);
-  });
-
-  test("a quick preview of the page as it was logs no error either", async () => {
-    // No change at all: whatever is logged is the quick preview's own.
-    serverDocument(
-      renderToString(<Page heading="Dette er så gøy" dark={false} />),
-    );
-    atQuickPreview();
-    const log = installPageLog(window);
-    runQuickPreviewRenderScript();
-
-    await act(async () => {
-      root = hydrateValRoot(
-        document,
-        <Page heading="Dette er så gøy" dark={false} />,
-      );
-    });
-
-    expect(document.querySelector("h1")?.textContent).toBe("Dette er så gøy");
-    expect(loggedErrors(log)).toEqual([]);
-  });
-
-  /**
-   * The other side: a page whose own code renders something on the server
-   * that it does not render in the browser has a real hydration bug, and a
-   * page check has to keep hearing about it. Whatever makes the quick
-   * preview quiet must not do it by not listening.
-   */
-  test("a page that is not a quick preview still logs its own hydration mismatch", async () => {
-    serverDocument(renderToString(<Page heading="Server" dark={false} />));
     const log = installPageLog(window);
 
-    await act(async () => {
-      root = hydrateValRoot(document, <Page heading="Browser" dark={false} />);
-    });
-
-    expect(loggedErrors(log)).toEqual(
-      expect.arrayContaining([expect.stringMatching(/Hydration failed/)]),
-    );
-  });
-
-  /**
-   * Without the render script -- a worker from before it, or a page that
-   * outran it -- the server's markup is still in the body: it is the new
-   * code's all the same, with nothing of the old left behind.
-   */
-  test("a quick preview with the server's markup still in it is the new code's", async () => {
-    serverDocument(renderToString(<Page heading="Gammel" dark={false} />));
-    atQuickPreview();
-    const log = installPageLog(window);
-
-    await act(async () => {
-      root = hydrateValRoot(document, <Page heading="Ny" dark />);
-    });
+    await hydrate(<Page heading="Dette er så gøy" dark quickPreview />);
 
     expect(document.querySelectorAll("section")).toHaveLength(1);
     expect(document.querySelector("section")?.className).toBe(
       "bg-black text-white",
     );
+    expect(loggedErrors(log)).toEqual([]);
+  });
+
+  test("a change to text is on the page, and nothing is logged", async () => {
+    serverDocument(<Page heading="Gammel" dark={false} quickPreview />);
+    const log = installPageLog(window);
+
+    await hydrate(<Page heading="Ny" dark={false} quickPreview />);
+
+    expect(document.querySelectorAll("h1")).toHaveLength(1);
     expect(document.querySelector("h1")?.textContent).toBe("Ny");
+    expect(loggedErrors(log)).toEqual([]);
+  });
+
+  test("the page as it was, as a quick preview: nothing is logged", async () => {
+    serverDocument(
+      <Page heading="Dette er så gøy" dark={false} quickPreview />,
+    );
+    const log = installPageLog(window);
+
+    await hydrate(<Page heading="Dette er så gøy" dark={false} quickPreview />);
+
+    expect(document.querySelector("h1")?.textContent).toBe("Dette er så gøy");
+    // The router's state, outside the site, is hydrated where it was.
     expect(document.body.querySelector("script")?.textContent).toBe(
       "window.$_TSR = {}",
     );
@@ -209,22 +190,66 @@ describe("a quick preview's page log", () => {
   });
 
   /**
-   * Why: an entry that HYDRATES a quick preview -- TanStack Start's own,
-   * which every app had -- has React report the emptied body as a hydration
-   * failure, an uncaught error the page check reads as the page's (React
-   * #418 in a production build). What `hydrateValRoot` is there to avoid.
+   * Until the page has hydrated, the last build's page is on screen, never
+   * an empty one: the quick preview used to empty the body before any of
+   * the new code had run.
    */
-  test("why: hydrating a quick preview's document logs a hydration failure", async () => {
-    serverDocument(
-      renderToString(<Page heading="Dette er så gøy" dark={false} />),
-    );
-    atQuickPreview();
-    const log = installPageLog(window);
-    runQuickPreviewRenderScript();
+  test("the old page is on screen until the new code replaces it", async () => {
+    serverDocument(<Page heading="Gammel" dark={false} quickPreview />);
+    installPageLog(window);
+    headingAtHydration = null;
 
-    await act(async () => {
-      root = hydrateRoot(document, <Page heading="Dette er så gøy" dark />);
-    });
+    await hydrate(<Page heading="Ny" dark={false} quickPreview />);
+
+    // When the page had hydrated, the last build's page was there, whole...
+    expect(headingAtHydration).toBe("Gammel");
+    // ...and the new code replaced it in one commit: no frame between.
+    expect(document.querySelectorAll("h1")).toHaveLength(1);
+    expect(document.querySelector("h1")?.textContent).toBe("Ny");
+  });
+
+  /**
+   * The other side: a page that is not a quick preview whose own code
+   * renders something on the server that it does not render in the browser
+   * has a real hydration bug, and a page check has to keep hearing about it.
+   * Whatever makes the quick preview quiet must not do it by not listening.
+   */
+  test("a page that is not a quick preview still logs its own hydration mismatch", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    serverDocument(<Page heading="Server" dark={false} quickPreview={false} />);
+    const log = installPageLog(window);
+
+    await hydrate(<Page heading="Browser" dark={false} quickPreview={false} />);
+
+    expect(loggedErrors(log)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/Hydration failed/)]),
+    );
+  });
+
+  test("a page that is not a quick preview is the children as they are", () => {
+    const html = renderToString(
+      <Page heading="Hei" dark={false} quickPreview={false} />,
+    );
+    // No boundary: a visitor's page is the page it always was.
+    expect(html).not.toContain("<!--$-->");
+  });
+
+  /**
+   * Why: the new code hydrating the last build's markup. Text that differs
+   * is a hydration failure the page logs as its own (React error 418 in a
+   * production build) -- and emptying the body first, as the quick preview
+   * did, made every quick preview one.
+   */
+  test("why: hydrating the last build's markup with the new code logs a hydration failure", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => undefined);
+    serverDocument(
+      <Page heading="Gammel" dark={false} quickPreview provider={false} />,
+    );
+    const log = installPageLog(window);
+
+    await hydrate(
+      <Page heading="Ny" dark={false} quickPreview provider={false} />,
+    );
 
     expect(loggedErrors(log)).toEqual(
       expect.arrayContaining([expect.stringMatching(/Hydration failed/)]),
