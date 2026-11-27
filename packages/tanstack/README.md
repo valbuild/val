@@ -581,7 +581,7 @@ To see the mode working in local development, set `VAL_ANALYTICS=true` in
 
 ### On your own hosting
 
-A site Val does not host is counted too, on the Custom hosting plan. Its own
+A site Val does not host is counted too, on the Pro plan. Its own
 Val server answers `/api/val/analytics` and forwards each beacon to Val, with
 the `VAL_API_KEY` and `VAL_PROJECT` it already has for publishing. It needs
 two things:

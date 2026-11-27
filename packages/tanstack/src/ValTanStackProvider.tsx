@@ -168,7 +168,7 @@ export const ValTanStackProvider = (props: {
    * from a route outside it -- has to be handed the value then too, or it
    * stays off until the next page load.
    *
-   * A SELF-HOSTED site (Custom hosting) has no platform to hand it the
+   * A SELF-HOSTED site (on Pro) has no platform to hand it the
    * setting, so the provider reads nothing there: the layout's loader reads
    * `VAL_ANALYTICS` from the server's environment and passes it here, as
    * the showcase's `fetchValAnalytics()` does --
