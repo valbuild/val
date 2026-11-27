@@ -4049,6 +4049,122 @@ async function proposalMerge(
 }
 
 /** `/v1/{project}/proposals[/...]`: the routes `ValOpsHttp` reaches. */
+/**
+ * Sketchpads, as valbuild/home keeps them at `/v1/{project}/sketchpads`: in
+ * memory here, with the version check the service does in one statement.
+ * Shapes are `Sketchpad` / `SketchpadSummary` in `@valbuild/shared`, and the
+ * client is `packages/server/src/sketchpads/httpSketchpadStore.ts`.
+ */
+type MockSketchpad = {
+  id: string;
+  page: string | null;
+  title: string | null;
+  text: string;
+  version: number;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+};
+const sketchpads = new Map<string, MockSketchpad>();
+
+async function sketchpadsRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  rest: string,
+): Promise<void> {
+  const profile = req.headers["x-val-profile-id"];
+  const by = typeof profile === "string" ? profile : null;
+  const now = new Date().toISOString();
+  if (rest === "/sketchpads") {
+    if (req.method === "GET") {
+      const archived = url.searchParams.get("archived") ?? "exclude";
+      const page = url.searchParams.get("page");
+      const list = [...sketchpads.values()]
+        .filter((s) => page === null || s.page === page)
+        .filter((s) =>
+          archived === "include"
+            ? true
+            : archived === "only"
+              ? s.archived
+              : !s.archived,
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map(({ text, ...summary }) => {
+          void text;
+          return summary;
+        });
+      json(res, 200, { sketchpads: list });
+      return;
+    }
+    if (req.method === "POST") {
+      const body = await readJsonBody<{
+        text?: string;
+        title?: string | null;
+        page?: string | null;
+      }>(req);
+      if (typeof body?.text !== "string") {
+        json(res, 400, { message: "A sketchpad needs a text" });
+        return;
+      }
+      const sketchpad: MockSketchpad = {
+        id: randomUUID(),
+        page: body.page ?? null,
+        title: body.title ?? null,
+        text: body.text,
+        version: 1,
+        archived: false,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: by,
+        updatedBy: by,
+      };
+      sketchpads.set(sketchpad.id, sketchpad);
+      json(res, 200, { sketchpad });
+      return;
+    }
+  }
+  const id = decodeURIComponent(rest.slice("/sketchpads/".length));
+  const current = sketchpads.get(id);
+  if (!current) {
+    json(res, 404, { message: `No sketchpad ${id}` });
+    return;
+  }
+  if (req.method === "GET") {
+    json(res, 200, { sketchpad: current });
+    return;
+  }
+  if (req.method === "PATCH") {
+    const change = await readJsonBody<{
+      baseVersion?: number;
+      text?: string;
+      title?: string | null;
+      page?: string | null;
+      archived?: boolean;
+    }>(req);
+    if (change?.baseVersion !== current.version) {
+      json(res, 409, { sketchpad: current });
+      return;
+    }
+    const sketchpad: MockSketchpad = {
+      ...current,
+      ...(change.text !== undefined ? { text: change.text } : {}),
+      ...(change.title !== undefined ? { title: change.title } : {}),
+      ...(change.page !== undefined ? { page: change.page } : {}),
+      ...(change.archived !== undefined ? { archived: change.archived } : {}),
+      version: current.version + 1,
+      updatedAt: now,
+      updatedBy: by,
+    };
+    sketchpads.set(id, sketchpad);
+    json(res, 200, { sketchpad });
+    return;
+  }
+  json(res, 405, { message: `${req.method} is not a sketchpad route` });
+}
+
 async function proposalsRoute(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4412,6 +4528,7 @@ const controlPlane: Handler = async (req, res, url) => {
   if (action === "reset" && req.method === "POST") {
     state = emptyState();
     countedDeployments = [];
+    sketchpads.clear();
     buildBases = new Map();
     /*
      * A reset changes every chain -- every patch is gone -- so it moves each
@@ -5000,6 +5117,10 @@ async function handle(
     } else {
       await commitFile(req, res, url);
     }
+    return;
+  }
+  if (rest === "/sketchpads" || rest.startsWith("/sketchpads/")) {
+    await sketchpadsRoute(req, res, url, rest);
     return;
   }
   if (rest === "/proposals" || rest.startsWith("/proposals/")) {
