@@ -778,7 +778,14 @@ export const ValTanStackProvider = (props: {
       // A visitor: only analytics tags content, and only after hydration
       // (`useEncodesEditTags`), so this cannot reach a component still
       // hydrating either.
-      SET_AUTO_TAG_JSX_ENABLED(analytics);
+      //
+      // Or not known YET: `mountOverlay` is undefined until its own effect
+      // has run. A page rendered from a server draft is tagged regardless,
+      // because its hooks encode edit tags from the render after hydration on
+      // (`useEncodesEditTags`), and only this turns them into attributes:
+      // switched off here, that render left its tags in the text, untagged,
+      // and nothing renders it again -- so Select & edit found nothing to edit.
+      SET_AUTO_TAG_JSX_ENABLED(analytics || (hasDraft && draftMode === true));
     } else {
       if (analytics) {
         SET_AUTO_TAG_JSX_ENABLED(true);
@@ -831,7 +838,7 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode, analytics]);
+  }, [mountOverlay, draftMode, analytics, hasDraft]);
 
   React.useEffect(() => {
     if (!mountOverlay) {

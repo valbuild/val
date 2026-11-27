@@ -4,8 +4,12 @@
 import "./client/__suspense-test-setup__"; // must come first — polyfills TextEncoder
 import React from "react";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { Internal, initVal } from "@valbuild/core";
+import { createRoot, hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { Internal, initVal, type ModuleFilePath } from "@valbuild/core";
+import { autoTagJSX } from "@valbuild/react/stega";
+import { type ValDraft } from "@valbuild/react/internal";
+import { initValClient } from "./client/initValClient";
 import { ValTanStackProvider } from "./ValTanStackProvider";
 
 // Loading the Studio's bundle is not what this is about.
@@ -16,7 +20,7 @@ jest.mock("@tanstack/react-router", () => ({
   useRouterState: () => "/",
 }));
 
-const { config } = initVal();
+const { s, c, config } = initVal();
 
 /**
  * Draft mode switching re-runs the loaders, once: what they read moved with
@@ -168,5 +172,53 @@ describe("which Studio's messages refresh the page", () => {
     expect(mockInvalidate).toHaveBeenCalledTimes(0);
     await send({ type: "confirmed", seq: 4 });
     expect(mockInvalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A page rendered from a server draft (`<ValProvider draft>`): its hooks
+ * encode edit tags from the render after hydration on, and that render has to
+ * turn them into `data-val-path`. Nothing renders the page again after it, so
+ * text that was not tagged then kept its edit tag on the page, and Select &
+ * edit had nothing to find. `ValNextProvider.draft.test.tsx` pins Next's.
+ */
+describe("a page hydrated from a server draft", () => {
+  // What importing `@valbuild/tanstack` does: edit tags become `data-val-path`.
+  autoTagJSX();
+  const path = "/content/home.val.ts" as ModuleFilePath;
+  const homeVal = c.define(path, s.object({ title: s.string() }), {
+    title: "Published",
+  });
+  const draft: ValDraft = { sources: { [path]: { title: "Drafted" } } };
+  const { useValStega } = initValClient(config);
+  function Page() {
+    return <h1>{useValStega(homeVal).title}</h1>;
+  }
+  const tree = () => (
+    <ValTanStackProvider config={config} draft={draft}>
+      <Page />
+    </ValTanStackProvider>
+  );
+
+  let root: Root | null = null;
+  let container: HTMLElement;
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+  });
+  afterEach(() => {
+    act(() => root?.unmount());
+    root = null;
+    container.remove();
+  });
+
+  test("tags its text after hydration, so the canvas can find it", async () => {
+    container.innerHTML = renderToString(tree());
+    await act(async () => {
+      root = hydrateRoot(container, tree());
+    });
+    const heading = container.querySelector("h1");
+    expect(heading?.getAttribute("data-val-path")).toBe(`${path}?p="title"`);
+    expect(heading?.textContent).toBe("Drafted");
   });
 });
