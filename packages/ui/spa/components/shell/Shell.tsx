@@ -942,6 +942,9 @@ const ShellFrame = memo(function ShellFrame({
   });
   const phonePane = phone.pane;
   const pagePane = phone.page;
+  /** For callbacks that must stay stable. See `openPanelForTour`. */
+  const pagePaneRef = useRef(pagePane);
+  pagePaneRef.current = pagePane;
   /**
    * A phone's full screen: no top bar, and the pane bar a small row of
    * icons, so the pane in front has the screen (`PhonePaneBar`). Every pane
@@ -1208,8 +1211,31 @@ const ShellFrame = memo(function ShellFrame({
    * panel on every keystroke elsewhere in the shell.
    */
   const openPanelForTour = useCallback(
-    (panel: ShellPanel | null | undefined) => setOpenPanel(panel ?? null),
-    [],
+    (panel: ShellPanel | null | undefined) => {
+      /*
+       * Each step shows the one panel it is about, and nothing left over
+       * from the step before.
+       *
+       * The assistant is a PANE rather than a panel (`setOpenPanel` keeps
+       * whatever panel was open when it opens one), so on a phone the Data
+       * panel stayed open on top of it: the assistant's step outlined a patch
+       * of Data. Every other panel goes first.
+       *
+       * And on a phone the assistant is the whole screen, which closing a
+       * panel does not leave: Review, Preview and Publish were explained over
+       * the conversation. Any step that is not about it goes back to the page.
+       */
+      if (panel === "ai") {
+        setOpenPanel(null);
+        setOpenPanel("ai");
+        return;
+      }
+      setOpenPanel(panel ?? null);
+      if (breakpointRef.current === "mobile") {
+        setPhonePane((pane) => (pane === "chat" ? pagePaneRef.current : pane));
+      }
+    },
+    [setOpenPanel, setPhonePane],
   );
   /**
    * Leaving the tour, however it was left.
