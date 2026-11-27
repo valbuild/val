@@ -2106,7 +2106,10 @@ const ValShellBody = memo(function ValShellBody({
               tourLook={demo !== null ? "ring" : undefined}
               onTourHighlightPage={setTourPagePath}
               onTourWrite={demo !== null ? writeForTour : undefined}
-              onTourAddPage={demo !== null ? addPageForTour : undefined}
+              // Everywhere, not only in the demo: the assistant's guide
+              // (`show_guide`) can wait for a page to be added, and its "Do
+              // it for me" adds it as the New page form would.
+              onTourAddPage={addPageForTour}
               onTourClose={demo !== null ? writeDemoTourSeen : undefined}
               renderDemoBanner={
                 demo !== null

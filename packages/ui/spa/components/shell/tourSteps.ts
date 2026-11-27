@@ -90,6 +90,16 @@ export type TourMoveOn =
   /** The language shown changes. Do it for me picks the next one. */
   | { type: "locale" };
 
+/** How a step was left: what the assistant's guide reports back. */
+export type TourStepEnd =
+  /** The person did what it asked, and it moved on by itself. */
+  | "did-it"
+  /** "Do it for me". */
+  | "done-for-them"
+  | "skipped"
+  /** Next, on a step that waits for nothing. */
+  | "read";
+
 /**
  * How Val is running, for the one step whose subject is named differently in
  * each. See `PublishButton`: on a local checkout it says "Save".
@@ -231,4 +241,19 @@ export type TourRun = {
   /** Called as the tour starts: the demo goes to the tour's page. */
   onStart?: () => void;
   onFinish?: () => void;
+  /**
+   * Left part way: the X, Escape, or the phone's "Back to chat". After
+   * `onFinish` when the last step was done, so it is told either way.
+   */
+  onClose?: (how: { backToChat: boolean }) => void;
+  /** A step was left, and how. The assistant's guide reports these. */
+  onStepEnd?: (index: number, how: TourStepEnd) => void;
+  /** The step shown changed, the first included. */
+  onStepChange?: (index: number) => void;
+  /**
+   * Who wrote it, where that is not the Studio. An assistant's guide is drawn
+   * as a ring, says it is from the assistant, and does not count as having
+   * taken the Studio's own tour.
+   */
+  from?: "assistant";
 };

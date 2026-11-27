@@ -38,6 +38,15 @@ import {
   CodeModeRequestCard,
   type CodeModeRequest,
 } from "./CodeModeRequestCard";
+import { GuideRequestCard } from "./GuideRequestCard";
+import type { GuideRequest } from "./shell/assistantGuide";
+
+/** What a `show_guide` card's buttons do, by tool call. */
+export type GuideCardActions = {
+  start: (toolCallId: string) => void;
+  decline: (toolCallId: string) => void;
+  stop: (toolCallId: string) => void;
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,6 +82,11 @@ export type ToolActivity = {
    */
   codeModeRequest?: CodeModeRequest;
   /**
+   * `show_guide`: the assistant offering to show how something is done. A
+   * card of its own, which the turn waits on. See `GuideRequestCard`.
+   */
+  guideRequest?: GuideRequest;
+  /**
    * The model is still writing this call: it has not reached the Studio yet,
    * and nothing runs. A row for it all the same, because a call that writes a
    * file takes the model many seconds to write. Cleared when the call comes;
@@ -104,6 +118,11 @@ export function isPendingQuestion(activity: ToolActivity): boolean {
 export function isWaitingOnPerson(activity: ToolActivity): boolean {
   return (
     isPendingQuestion(activity) ||
+    // Offered and not yet answered, or being shown: the person has it.
+    (activity.guideRequest !== undefined &&
+      activity.status === "pending" &&
+      (activity.guideRequest.state.kind === "offered" ||
+        activity.guideRequest.state.kind === "showing")) ||
     (activity.codeModeRequest !== undefined &&
       activity.status === "pending" &&
       (activity.codeModeRequest.state === "asking" ||
@@ -286,6 +305,10 @@ const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
     label: "Asking for code mode",
     icon: <CodeXml className="h-3 w-3" />,
   },
+  show_guide: {
+    label: "Offering to show you how",
+    icon: <Navigation className="h-3 w-3" />,
+  },
 };
 
 /**
@@ -350,6 +373,7 @@ export function ToolActivities({
   onCancel,
   onEnableCodeMode,
   onDeclineCodeMode,
+  guideActions,
   defaultExpanded,
 }: {
   activities: ToolActivity[];
@@ -362,12 +386,18 @@ export function ToolActivities({
   onEnableCodeMode?: (toolCallId: string) => void;
   /** Its "Not now". */
   onDeclineCodeMode?: (toolCallId: string) => void;
+  /** A `show_guide` card's buttons. Without them its buttons do nothing. */
+  guideActions?: GuideCardActions;
   /** Stories and tests open the list without a click. */
   defaultExpanded?: boolean;
 }) {
   const toolCalls = activities.filter(
-    (a) => a.questions === undefined && a.codeModeRequest === undefined,
+    (a) =>
+      a.questions === undefined &&
+      a.codeModeRequest === undefined &&
+      a.guideRequest === undefined,
   );
+  const guideRequests = activities.filter((a) => a.guideRequest !== undefined);
   const questions = activities.filter((a) => a.questions !== undefined);
   const codeModeRequests = activities.filter(
     (a) => a.codeModeRequest !== undefined,
@@ -423,6 +453,17 @@ export function ToolActivities({
             request={activity.codeModeRequest}
             onEnable={() => onEnableCodeMode?.(activity.toolCallId)}
             onDecline={() => onDeclineCodeMode?.(activity.toolCallId)}
+          />
+        ) : null,
+      )}
+      {guideRequests.map((activity) =>
+        activity.guideRequest !== undefined ? (
+          <GuideRequestCard
+            key={activity.toolCallId}
+            request={activity.guideRequest}
+            onStart={() => guideActions?.start(activity.toolCallId)}
+            onDecline={() => guideActions?.decline(activity.toolCallId)}
+            onStop={() => guideActions?.stop(activity.toolCallId)}
           />
         ) : null,
       )}

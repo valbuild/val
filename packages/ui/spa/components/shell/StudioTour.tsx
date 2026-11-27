@@ -1,10 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { Compass, X } from "lucide-react";
+import { Compass, Sparkles, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { isPathWithin } from "../../utils/sourcePath";
-import { TourMoveOn, TourStep } from "./tourSteps";
+import { TourMoveOn, TourStep, TourStepEnd } from "./tourSteps";
 import { ShellPanel } from "./types";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 
@@ -114,6 +114,28 @@ function firstOnScreen(
     return box;
   }
   return null;
+}
+
+/**
+ * Every tour target the person can see right now, by name: what the
+ * assistant can point a guide at. The same test the tour draws with, so a
+ * name listed here is one a step can ring.
+ */
+export function tourTargetsOnScreen(root: Element): string[] {
+  const scope = root.getRootNode();
+  if (!(scope instanceof Document || scope instanceof ShadowRoot)) return [];
+  const names = new Set<string>();
+  for (const node of root.querySelectorAll("[data-val-tour]")) {
+    const box = node.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) continue;
+    if (isCovered(scope, node, box)) continue;
+    for (const name of (node.getAttribute("data-val-tour") ?? "").split(
+      /\s+/,
+    )) {
+      if (name !== "") names.add(name);
+    }
+  }
+  return [...names];
 }
 
 /**
@@ -497,6 +519,17 @@ export type StudioTourProps = {
   act?: TourActions;
   /** Outline a place on the page (a step's `page`), or nothing. */
   onHighlightPage?: (path: SourcePath | null) => void;
+  /** A step was left, and how. See `TourRun.onStepEnd`. */
+  onStepEnd?: (index: number, how: TourStepEnd) => void;
+  /** The step shown changed: on every step, the first included. */
+  onStepChange?: (index: number) => void;
+  /** Written by the assistant: the card says so. See `TourRun.from`. */
+  from?: "assistant";
+  /**
+   * Leave the tour for the conversation. Offered on a phone, where the
+   * conversation is a pane of its own and the person cannot see it from here.
+   */
+  onBackToChat?: () => void;
 };
 
 /**
@@ -516,6 +549,10 @@ export function StudioTour({
   observed = NOT_OBSERVED,
   act = {},
   onHighlightPage,
+  onStepEnd,
+  onStepChange,
+  from,
+  onBackToChat,
 }: StudioTourProps) {
   const ring = look === "ring";
   const [index, setIndex] = useState(0);
@@ -549,6 +586,15 @@ export function StudioTour({
   const [arrow, setArrow] = useState<CardArrow | null>(null);
   const step = steps[stepIndex];
   const isLast = stepIndex === steps.length - 1;
+  /**
+   * The assistant's guide of one step is a pointer -- "Publish is here" --
+   * not a tour: no count of one, and "Got it" rather than "Done". Only the
+   * assistant's: the demo's short tours are tours, and say so.
+   */
+  const single = from === "assistant" && steps.length === 1;
+  useEffect(() => {
+    onStepChange?.(stepIndex);
+  }, [stepIndex, onStepChange]);
 
   // The panel this step wants, before anything is measured: the rail button it
   // spotlights does not move, but the panel opening is what the step is FOR.
@@ -582,7 +628,14 @@ export function StudioTour({
   const done =
     moveOn !== undefined &&
     hasMovedOn(moveOn, observed, startedAt.current.observed);
-  const advance = () => {
+  /*
+   * Whether "Do it for me" was pressed during this step. What it does is
+   * what the person would have, so the step moves on the same way either
+   * way -- and the assistant asked to be told which it was.
+   */
+  const doneForThem = useRef<number | null>(null);
+  const advance = (how: TourStepEnd) => {
+    onStepEnd?.(stepIndex, how);
     if (!isLast) {
       setIndex(stepIndex + 1);
       return;
@@ -595,13 +648,17 @@ export function StudioTour({
   useEffect(() => {
     if (!done) return;
     const timer = window.setTimeout(
-      () => advanceRef.current(),
+      () =>
+        advanceRef.current(
+          doneForThem.current === stepIndex ? "done-for-them" : "did-it",
+        ),
       MOVE_ON_DELAY_MS,
     );
     return () => window.clearTimeout(timer);
   }, [done, stepIndex]);
   const doItForMe = () => {
     if (!moveOn) return;
+    doneForThem.current = stepIndex;
     switch (moveOn.type) {
       case "open":
         act.openPath?.(moveOn.path);
@@ -952,6 +1009,26 @@ export function StudioTour({
             }
           />
         )}
+        {from === "assistant" && (
+          /*
+           * Whose words these are. The Studio's own tour speaks for the
+           * Studio; this one was written a moment ago by the assistant, for
+           * this person, and should not be mistaken for the product's.
+           */
+          <div className="mb-2 flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-border-brand-secondary">
+            <Sparkles size={11} className="shrink-0" />
+            <span>From the assistant</span>
+            {onBackToChat && (
+              <button
+                type="button"
+                onClick={onBackToChat}
+                className="ml-auto rounded px-1.5 py-0.5 text-[0.6875rem] font-medium normal-case tracking-normal text-fg-secondary underline underline-offset-2 hover:bg-bg-float-raised hover:text-fg-primary"
+              >
+                Back to chat
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-start gap-2">
           {/*
            * The same green as the spotlight ring, which is the tour's colour.
@@ -1003,9 +1080,11 @@ export function StudioTour({
           </button>
         </div>
         <div className="mt-3.5 flex items-center gap-2">
-          <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
-            {stepIndex + 1} / {steps.length}
-          </span>
+          {!single && (
+            <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
+              {stepIndex + 1} / {steps.length}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             {moveOn ? (
               /*
@@ -1018,7 +1097,7 @@ export function StudioTour({
               <>
                 <button
                   type="button"
-                  onClick={advance}
+                  onClick={() => advance("skipped")}
                   className="inline-flex h-7 items-center rounded-md px-2 text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
                 >
                   Skip
@@ -1047,10 +1126,10 @@ export function StudioTour({
                 )}
                 <button
                   type="button"
-                  onClick={advance}
+                  onClick={() => advance("read")}
                   className="inline-flex h-7 items-center rounded-md border border-border-brand-primary bg-bg-brand-primary px-2.5 text-xs font-medium text-fg-brand-primary hover:bg-bg-brand-primary-hover"
                 >
-                  {isLast ? "Done" : "Next"}
+                  {single ? "Got it" : isLast ? "Done" : "Next"}
                 </button>
               </>
             )}

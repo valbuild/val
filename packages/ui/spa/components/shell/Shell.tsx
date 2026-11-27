@@ -25,6 +25,7 @@ import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
 import { toRows } from "./externalPageGroups";
 import { ShellPanelProvider } from "./shellPanelLink";
+import { ShellTourProvider } from "./shellTour";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
 import {
   CanvasView,
@@ -94,7 +95,7 @@ import {
   type FloatingNoticeItem,
 } from "./FloatingNotices";
 import { availableDestinations } from "./shellDataMapping";
-import { TourActions, TourObserved } from "./StudioTour";
+import { TourActions, TourObserved, tourTargetsOnScreen } from "./StudioTour";
 import {
   readTourCompleted,
   studioTourSteps,
@@ -740,6 +741,21 @@ type ShellLiveProps =
   | "discardAllDescription";
 
 /**
+ * A key per tour run, so a run started in place of another starts at its own
+ * first step rather than at the step the other had reached.
+ */
+const tourRunKeys = new WeakMap<TourRun, string>();
+let nextTourRunKey = 0;
+function tourRunKey(run: TourRun): string {
+  let key = tourRunKeys.get(run);
+  if (key === undefined) {
+    key = `run-${nextTourRunKey++}`;
+    tourRunKeys.set(run, key);
+  }
+  return key;
+}
+
+/**
  * The shell, as the app and the stories render it.
  *
  * Only a split: the props a field write moves go into `ShellLive`'s store,
@@ -1200,8 +1216,20 @@ const ShellFrame = memo(function ShellFrame({
   const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
   /** The tour that is open, when it is not the usual one. See `TourRun`. */
   const [tourRun, setTourRun] = useState<TourRun | null>(null);
+  /**
+   * The same, for callbacks that must not change identity with it: the tour
+   * re-runs `onOpenPanel` whenever that does.
+   */
+  const tourRunRef = useRef<TourRun | null>(null);
   const startTour = useCallback((run?: TourRun) => {
+    // A tour replaced by another is a tour left part way, and whoever
+    // started it -- the assistant, waiting on its answer -- is told so.
+    const replaced = tourRunRef.current;
+    if (replaced !== null && replaced !== run) {
+      replaced.onClose?.({ backToChat: false });
+    }
     run?.onStart?.();
+    tourRunRef.current = run ?? null;
     setTourRun(run ?? null);
     setIsTourOpen(true);
   }, []);
@@ -1212,6 +1240,20 @@ const ShellFrame = memo(function ShellFrame({
    */
   const openPanelForTour = useCallback(
     (panel: ShellPanel | null | undefined) => {
+      /*
+       * The assistant's guide asks the person to open things themselves, so
+       * it leaves the panels as they have them: closing Pages because the
+       * next step is about a row IN Pages would undo the step before. On a
+       * phone it still leaves the conversation, which fills the screen.
+       */
+      if (tourRunRef.current?.from === "assistant" && !panel) {
+        if (breakpointRef.current === "mobile") {
+          setPhonePane((pane) =>
+            pane === "chat" ? pagePaneRef.current : pane,
+          );
+        }
+        return;
+      }
       /*
        * Each step shows the one panel it is about, and nothing left over
        * from the step before.
@@ -1245,12 +1287,44 @@ const ShellFrame = memo(function ShellFrame({
    * the clearest possible answer to that. The tour never becomes unreachable:
    * Quick actions and the Account panel both keep it.
    */
-  const closeTour = useCallback(() => {
-    setIsTourOpen(false);
-    setTourCompleted(true);
-    writeTourCompleted(true);
-    onTourClose?.();
-  }, [onTourClose]);
+  const closeTour = useCallback(
+    (how?: { backToChat: boolean }) => {
+      const run = tourRunRef.current;
+      tourRunRef.current = null;
+      setIsTourOpen(false);
+      // A guide the assistant wrote is not the Studio's tour, and having
+      // been shown where Publish is says nothing about having seen the rest.
+      if (run?.from !== "assistant") {
+        setTourCompleted(true);
+        writeTourCompleted(true);
+        onTourClose?.();
+      }
+      run?.onClose?.({ backToChat: how?.backToChat === true });
+    },
+    [onTourClose],
+  );
+  /** Close `run` from outside the tour: the assistant's Stop. */
+  const stopTour = useCallback(
+    (run: TourRun) => {
+      if (tourRunRef.current === run) closeTour();
+    },
+    [closeTour],
+  );
+  /** The shell's own element, which the assistant's guide looks inside. */
+  const shellRootRef = useRef<HTMLDivElement>(null);
+  const tourTargetsNow = useCallback(
+    () =>
+      shellRootRef.current === null
+        ? []
+        : tourTargetsOnScreen(shellRootRef.current),
+    [],
+  );
+  /** The phone's "Back to chat": the tour closes, and the conversation is in front. */
+  const backToChatFromTour = useCallback(() => {
+    closeTour({ backToChat: true });
+    setChatOpen(true);
+    setPhonePane("chat");
+  }, [closeTour, setPhonePane]);
   /** What a step that moves on by itself watches. See `TourObserved`. */
   const tourObserved = useMemo<Omit<TourObserved, "reviewCount">>(
     () => ({
@@ -2068,718 +2142,743 @@ const ShellFrame = memo(function ShellFrame({
 
   return (
     <ShellPanelProvider openPanel={openPanelFromLink}>
-      <div
-        data-mode={theme}
-        className="relative w-full overflow-clip bg-bg-canvas text-fg-primary font-sans"
-        // The theme travels with `data-mode`: everything below draws its brand
-        // tokens out of these custom properties. See `ValThemeProvider`.
-        style={{
-          height: "100svh",
-          ...themeStyle,
-          // Where the phone's panes start and end: see `PHONE_TOP`.
-          ...(breakpoint === "mobile" ? phoneInsets(phoneFullScreen) : {}),
-        }}
+      <ShellTourProvider
+        start={startTour}
+        stop={stopTour}
+        targetsOnScreen={tourTargetsNow}
       >
-        {/*
-         * Everything the editor works in, which a docked assistant moves out
-         * from under it rather than covering: the editor column, the canvas,
-         * or the Sketchpad's panes.
-         */}
         <div
-          className="absolute inset-0"
-          // On a phone, while the Assistant or the Sketch is in front: slid
-          // off to the left, as it was left (`phoneTrack`).
-          {...(breakpoint === "mobile" && pageOffset !== 0
-            ? { inert: true, "aria-hidden": true }
-            : {})}
-          style={
-            breakpoint === "mobile"
-              ? phoneSlideStyle(pageOffset, { gap: 0, animate: slide })
-              : placed !== null && placed.rightWidth > 0
-                ? { right: placed.rightWidth }
-                : undefined
-          }
+          ref={shellRootRef}
+          data-mode={theme}
+          className="relative w-full overflow-clip bg-bg-canvas text-fg-primary font-sans"
+          // The theme travels with `data-mode`: everything below draws its brand
+          // tokens out of these custom properties. See `ValThemeProvider`.
+          style={{
+            height: "100svh",
+            ...themeStyle,
+            // Where the phone's panes start and end: see `PHONE_TOP`.
+            ...(breakpoint === "mobile" ? phoneInsets(phoneFullScreen) : {}),
+          }}
         >
-          <PageWorkspace
-            breakpoint={breakpoint}
-            page={canCanvas ? canvasPage : undefined}
-            renderCanvas={canCanvas ? renderCanvas : undefined}
-            canvasPaths={canCanvas ? canvasPaths : undefined}
-            onSelectCanvasPath={onSelectCanvasPath}
-            selectedCanvasPath={selectedCanvasPath}
-            editingCanvasPath={canCanvas ? editingCanvasPath : undefined}
-            selectMode={selectMode}
-            onSelectModeChange={canCanvas ? onSelectModeChange : undefined}
-            canvasRoute={canCanvas ? canvasRoute : undefined}
-            onCanvasRouteChange={onCanvasRouteChange}
-            canvasRoutes={canvasRoutes}
-            initialTransform={initialCanvasTransform}
-            onTransformChange={setCanvasTransform}
-            isCanvasOpen={isCanvasOpen && canCanvas}
-            onCloseCanvas={closeCanvas}
-            view={canvasView}
-            onViewChange={setCanvasView}
-            pane={workspacePane}
-            onPaneChange={setWorkspacePane}
-            isDevMode={isDevMode}
-            onAttachToChat={aiEnabled ? attachToChat : undefined}
-            skipTransition={skipTransition}
-            previewStatus={previewStatus}
-            replacePreview={
-              breakpoint !== "mobile" && stage !== undefined && stageOpen ? (
-                <div className="h-full min-h-0" data-val-pane="components">
-                  {stage}
-                </div>
-              ) : breakpoint !== "mobile" && history !== undefined ? (
-                <HistoryInPreviewsPlace label={history.label}>
-                  {history.past}
-                </HistoryInPreviewsPlace>
-              ) : undefined
-            }
-            contentPlacement={placed?.content}
-            onContentWidthChange={(width) => setColumnWidth(["content"], width)}
-            contentWidthMax={
-              placed?.content.kind === "column"
-                ? placed.content.width + placed.slack
-                : undefined
-            }
-            codeMode={assistantSelect?.codeMode === true}
-            onUseContent={() => usePane("content")}
-            // A pick opened a field in Content: switched off, it is switched
-            // on, and folded, it is used, which is what unfolds it.
-            onRevealContent={() => {
-              setContentOpen(true);
-              usePane("content");
-            }}
-            // Closing Content's sheet hands its room back to the pane
-            // beside it -- or, with none open, switches Content off, since
-            // there is nothing to fold it behind (the top bar's switch
-            // brings it back).
-            onFoldContent={() => {
-              const shown: Record<"sketch" | "chat", boolean> = {
-                sketch: sketchOpen,
-                chat: aiEnabled && chatOpen,
-              };
-              const other = sideFront === "sketch" ? "chat" : "sketch";
-              if (shown[sideFront]) usePane(sideFront);
-              else if (shown[other]) usePane(other);
-              else setContentOpen(false);
-            }}
-            isAssistantPicking={assistantPicking}
-            onStopAssistantPicking={
-              assistantPicking ? () => stopAssistantPicking?.(false) : undefined
-            }
-          >
-            {/*
-             * The editor column, built once and then either rendered on its own
-             * or handed to `renderHistory` as the left half. Built once because
-             * the alternative - the same tree written twice, in two branches -
-             * is the shape where the two quietly stop matching.
-             */}
-            {breakpoint !== "mobile" && history !== undefined
-              ? history.now(editorColumn)
-              : renderHistory
-                ? renderHistory(editorColumn, breakpoint)
-                : editorColumn}
-          </PageWorkspace>
-        </div>
-
-        {/*
-         * The Sketch pane, mounted for as long as a sketchpad is open and
-         * placed rather than moved: a sketch keeps its caret, its undo and
-         * what is not saved yet only while it stays where it is in the tree.
-         * Hidden, not unmounted, while it is folded or behind the
-         * Assistant's tab.
-         */}
-        {sketchPane !== undefined && (
+          {/*
+           * Everything the editor works in, which a docked assistant moves out
+           * from under it rather than covering: the editor column, the canvas,
+           * or the Sketchpad's panes.
+           */}
           <div
-            data-val-pane="sketch"
-            onPointerDownCapture={() => usePane("sketch")}
-            {...(breakpoint === "mobile" && sketchOffset !== 0
+            className="absolute inset-0"
+            // On a phone, while the Assistant or the Sketch is in front: slid
+            // off to the left, as it was left (`phoneTrack`).
+            {...(breakpoint === "mobile" && pageOffset !== 0
               ? { inert: true, "aria-hidden": true }
               : {})}
-            className={cn(
-              "absolute flex flex-col gap-2",
-              breakpoint === "mobile"
-                ? // A phone's pane: below the top bar, above the pane bar,
-                  // beside the others on the phone's strip (`phoneTrack`).
-                  "inset-x-3"
-                : cn(
-                    "top-20 bottom-14",
-                    placed?.sketch == null && "hidden",
-                    placed?.sketch?.sheet === true && "z-window",
-                  ),
-            )}
             style={
               breakpoint === "mobile"
-                ? {
-                    top: PHONE_TOP,
-                    bottom: PHONE_BOTTOM,
-                    ...phoneSlideStyle(sketchOffset, {
-                      gap: PHONE_PANE_GAP,
-                      animate: slide,
-                    }),
-                  }
-                : placed?.sketch != null
-                  ? {
-                      right: GUTTER + placed.sketch.right,
-                      width: placed.sketch.width,
-                    }
+                ? phoneSlideStyle(pageOffset, { gap: 0, animate: slide })
+                : placed !== null && placed.rightWidth > 0
+                  ? { right: placed.rightWidth }
                   : undefined
             }
           >
-            <div
-              className={cn(
-                "min-h-0 flex-1",
-                placed?.sketch?.sheet === true && "rounded-lg shadow-2xl",
-              )}
-            >
-              {/* In the sketch's own header, beside Build: see `PaneTabs`. */}
-              <PaneTabsProvider
-                tabs={
-                  placed?.sketch?.tabs != null ? (
-                    <SideTabs
-                      tabs={placed.sketch.tabs}
-                      front="sketch"
-                      onChange={usePane}
-                    />
-                  ) : null
-                }
-              >
-                {sketchPane}
-              </PaneTabsProvider>
-            </div>
-          </div>
-        )}
-        {/*
-         * The left edge of Sketch's column and of the Assistant's, to drag
-         * them wider or narrower. The preview gives and takes the room, and
-         * stops a drag at its minimum. A column the two share as tabs is one
-         * column, so it has one edge, and its width is both of theirs.
-         */}
-        {placed !== null &&
-          RESIZABLE_SIDES.map((pane) => {
-            const column = placed[pane];
-            if (column === null || column.sheet) return null;
-            const panes = column.tabs ?? [pane];
-            return (
-              <ColumnDivider
-                key={pane}
-                label={
-                  panes.length === 2
-                    ? "Resize Sketch and the Assistant"
-                    : pane === "sketch"
-                      ? "Resize Sketch"
-                      : "Resize the Assistant"
-                }
-                edge="left"
-                width={column.width}
-                min={RESIZE_MIN[pane]}
-                max={column.width + placed.slack}
-                onResize={(width) => setColumnWidth(panes, width)}
-                onReset={() => setColumnWidth(panes, null)}
-                // In the gap left of the column, the line in its middle.
-                className="absolute top-20 bottom-14 z-hover"
-                style={{
-                  right: GUTTER + column.right + column.width + GAP / 2 - 6,
-                }}
-              />
-            );
-          })}
-        {placed?.strips.map((strip) => (
-          <PaneStrip
-            key={strip.panes.join(",")}
-            panes={strip.panes}
-            style={{ right: GUTTER + strip.right, width: strip.width }}
-            onUse={usePane}
-          />
-        ))}
-
-        {breakpoint === "desktop" && (
-          <LiveLeftRail
-            openPanel={openPanel}
-            onSelect={togglePanel}
-            destinations={destinations}
-            user={data.user}
-            accountError={accountError}
-            logo={data.logo}
-            isLoading={isLoading}
-            components={components}
-          />
-        )}
-
-        {/* Full screen on a phone is the pane without the bars around it. */}
-        {!phoneFullScreen && (
-          <LiveTopBar
-            breakpoint={breakpoint}
-            projectName={data.projectName}
-            projectHref={data.admin?.project}
-            webComponentsUrl={data.webComponentsUrl}
-            studioMode={data.studioMode}
-            logo={data.logo}
-            openPanel={openPanel}
-            aiOpen={assistantOpen}
-            onTogglePanel={togglePanel}
-            // The menu button opens the first destination this project has, which
-            // is Pages wherever there is one — but a project with no routes has to
-            // land somewhere that exists.
-            onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
-            onOpenSearch={openSearch}
-            locales={locales}
-            locale={locale}
-            onLocaleChange={onLocaleChange}
-            unreadNotifications={
-              data.notifications === undefined ? undefined : unreadNotifications
-            }
-            // The rail owns the account wherever it is shown. Passing the user
-            // here too would put the same avatar in two corners of one screen.
-            user={breakpoint === "desktop" ? undefined : data.user}
-            // The rail carries the mark on desktop; below that the top bar owns the
-            // account, so it owns the mark — and has to put a button there at all,
-            // since a failed load means there is no avatar to hang it on.
-            accountError={breakpoint === "desktop" ? undefined : accountError}
-            isLoading={isLoading}
-            aiEnabled={aiEnabled}
-            sketchpad={sketchpad}
-            proposals={proposals}
-            planStatus={
-              breakpoint === "desktop"
-                ? renderPlanStatus?.("top-bar")
-                : undefined
-            }
-            historyEnabled={historyEnabled}
-            historyActive={historyActive}
-            onOpenHistory={onOpenHistory}
-            onOpenValidate={onOpenValidate}
-            upgrade={upgrade}
-            validateActive={validateActive}
-            validateCount={validateCount}
-            onPreview={onPreview ?? (() => undefined)}
-            previewHref={previewHref}
-            onToggleCanvas={canCanvas ? togglePreview : undefined}
-            isCanvasOpen={isCanvasOpen}
-            paneSwitches={paneSwitches}
-            phoneActions={
-              <>
-                {/* The tour's Publish step points here on a phone. */}
-                <span data-val-tour="publish" className="inline-flex">
-                  {mobilePrimary}
-                </span>
-                <button
-                  type="button"
-                  aria-label="More for these changes"
-                  aria-pressed={openPanel === "changes"}
-                  onClick={() => togglePanel("changes")}
-                  className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-                >
-                  <ChevronDown size={15} />
-                </button>
-              </>
-            }
-            accountDot={activityCount > 0}
-            onPublish={onPublish ?? (() => undefined)}
-            publishSlot={publishSlot}
-            onCompare={onCompare}
-            publishState={
-              publishState === "idle" && validationErrorCount > 0
-                ? "blocked"
-                : publishState
-            }
-          />
-        )}
-
-        {breakpoint === "mobile" ? (
-          <PhonePaneBar
-            panes={phonePanes}
-            shown={phonePane}
-            fullScreen={phoneFullScreen}
-            onFullScreenChange={setPhoneFullScreen}
-            attention={activityCount > 0}
-          />
-        ) : (
-          <LiveStatusBar
-            breakpoint={breakpoint}
-            mode={mode}
-            autoSave={autoSave}
-            onAutoSaveChange={onAutoSaveChange}
-            branch={data.branch}
-            unsavedInProposal={
-              proposals?.location.kind === "proposal"
-                ? proposals.location.unsaved
-                : 0
-            }
-            deployments={deployments}
-            studioIsDeployer={studioIsDeployer}
-            publishIndicator={publishIndicator}
-            deploymentsOpen={deploymentsOpen}
-            onDeploymentsOpenChange={setDeploymentsOpen}
-            notice={
-              statusNotice === undefined && foldedNotices.length === 0 ? (
-                statusNotice
-              ) : (
-                <>
-                  {foldedNotices.map((each) => (
-                    <FoldedNoticeChip
-                      key={each.id}
-                      notice={each}
-                      onOpen={() => toggleNotice(each.id, false)}
-                    />
-                  ))}
-                  {statusNotice}
-                </>
-              )
-            }
-          />
-        )}
-        {breakpoint !== "mobile" && (
-          <FloatingNotices
-            notices={openNotices}
-            onDismiss={(id) => toggleNotice(id, true)}
-            // Above the status bar, at the right edge the bar ends at.
-            className="bottom-14 right-3"
-          />
-        )}
-
-        {openPanel === "pages" && (
-          <PagesPanel
-            breakpoint={breakpoint}
-            pages={data.pages}
-            externalPages={data.externalPages}
-            selectedId={selection?.id ?? null}
-            // A row with no source path is a path segment rather than a page —
-            // `/blog` existing because `/blog/why-val` does. Clicking it expands
-            // it; there is nothing to open.
-            onSelectPage={(page) => {
-              const next = toPageSelection(page);
-              if (next) select(next);
-            }}
-            onOpenExternalPages={
-              renderExternalPages
-                ? () => setIsExternalPagesOpen(true)
-                : undefined
-            }
-            externalIssueCount={externalIssueCount}
-            externalPagesLoading={data.externalPagesLoading}
-            onNewPage={onNewPage ?? (() => undefined)}
-            onDuplicatePage={onDuplicatePage}
-            onRenamePage={onRenamePage}
-            onSketchPage={onSketchPage}
-            // Only where a route accepts one. A project of static routes has no
-            // key to invent, so there is nothing for a New page button to do.
-            newPage={onNewPage ? data.newPage : undefined}
-            onClose={closePanel}
-            navSwitcher={navSwitcher}
-            isLoading={isLoading}
-            loadError={loadError}
-          />
-        )}
-
-        {isExternalPagesOpen &&
-          renderExternalPages?.({
-            close: () => setIsExternalPagesOpen(false),
-            onSelectExternalPage: (page) => {
-              const next = toExternalSelection(page);
-              if (next) select(next);
-            },
-            breakpoint,
-          })}
-
-        {openPanel === "media" && (
-          <MediaPanel
-            breakpoint={breakpoint}
-            media={data.media}
-            selectedId={selection?.id ?? null}
-            onSelect={(gallery) => select(toMediaSelection(gallery))}
-            onSelectFile={(gallery, file) =>
-              select({
-                kind: "media",
-                // The file's own entry, so the editor opens that one rather than
-                // the whole gallery.
-                id: file.sourcePath,
-                title: file.ref.split("/").pop() ?? file.ref,
-                urlPath: servedPath(gallery.dir),
-                sourcePath: file.sourcePath,
-              })
-            }
-            getFileUrl={getMediaFileUrl}
-            // The panel asks which gallery; it used to guess from the selection,
-            // so the button did nothing at all unless a gallery happened to be
-            // open — which is most of the time.
-            onUpload={onUploadMedia}
-            onClose={closePanel}
-            navSwitcher={navSwitcher}
-            isLoading={isLoading}
-            loadError={loadError}
-          />
-        )}
-
-        {openPanel === "data" && (
-          <DataPanel
-            breakpoint={breakpoint}
-            data={data.data}
-            selectedId={selection?.id ?? null}
-            onSelect={(module) => select(toDataSelection(module))}
-            onClose={closePanel}
-            navSwitcher={navSwitcher}
-            isLoading={isLoading}
-            loadError={loadError}
-          />
-        )}
-
-        {openPanel === "settings" && (
-          <SettingsPanel
-            breakpoint={breakpoint}
-            onClose={closePanel}
-            navSwitcher={navSwitcher}
-            isLoading={isLoading}
-            loadError={loadError}
-          >
-            {renderSettings ? renderSettings() : <NoSettingsModule />}
-          </SettingsPanel>
-        )}
-
-        {openPanel === "account" && (
-          <AccountPanel
-            breakpoint={breakpoint}
-            // The status bar is not shown on a phone; this sheet is. Acting
-            // on the notice closes the sheet, so what it brings back (the card
-            // above the editor) is in view rather than underneath.
-            notice={
-              breakpoint === "mobile" && statusNotice ? (
-                <div onClick={closePanel}>{statusNotice}</div>
-              ) : undefined
-            }
-            mode={mode}
-            user={data.user}
-            accountError={accountError}
-            theme={theme}
-            onThemeChange={onThemeChange}
-            admin={data.admin}
-            autoSave={autoSave}
-            onAutoSaveChange={onAutoSaveChange}
-            branch={data.branch}
-            /**
-             * No deploy feed in dev.
-             *
-             * Running against the working copy on disk there is nothing to
-             * publish to, so the section could only ever say "nothing published
-             * yet" — a heading and an explanation for something that will never
-             * happen here. The status bar already applies this rule to its own
-             * feed (`mode === "http"`); the panel was missed.
-             */
-            deployments={mode === "fs" ? undefined : deployments}
-            // Passed through as-is: absent means there is no session to end, and
-            // the panel then shows no Sign out button rather than a dead one.
-            onSignOut={onSignOut}
-            onStartTour={
-              breakpoint === "mobile" && canStartTour ? startTour : undefined
-            }
-            upgrade={breakpoint === "mobile" ? upgrade : undefined}
-            versions={versions}
-            activity={
-              breakpoint === "mobile"
-                ? {
-                    count: activityCount,
-                    onOpen: () => setOpenPanel("notifications"),
-                  }
-                : undefined
-            }
-            members={
-              breakpoint === "mobile" &&
-              orgOfProject(data.projectName) !== null &&
-              data.admin?.project !== undefined &&
-              data.webComponentsUrl !== undefined ? (
-                <ProjectMembersButton
-                  variant="row"
-                  projectName={data.projectName}
-                  projectHref={data.admin.project}
-                  webComponentsUrl={data.webComponentsUrl}
-                  studioMode={data.studioMode}
-                  breakpoint={breakpoint}
-                />
-              ) : undefined
-            }
-            onClose={closePanel}
-            // Not on a phone: the account is not a destination, and its sheet
-            // carrying the destination tabs made it a second navigation menu
-            // beside the one behind the menu button.
-            navSwitcher={breakpoint === "mobile" ? undefined : navSwitcher}
-          />
-        )}
-
-        {openPanel === "utility" && (
-          <LiveUtilityPanel
-            breakpoint={breakpoint}
-            validationErrors={data.validationErrors}
-            onSelectValidationError={
-              onSelectValidationError ?? (() => undefined)
-            }
-            // Both quick actions are shortcuts to the panel that owns the flow:
-            // the route picker and the gallery picker live there, and a second
-            // copy of either would be a second set of rules for what a URL or a
-            // directory may be.
-            onNewPage={() => setOpenPanel("pages")}
-            onUploadMedia={() => setOpenPanel("media")}
-            destinations={destinations}
-            onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
-            onCompare={onCompare}
-            // The tour's permanent home, whatever the project's setting says —
-            // but not until the destinations it is built from are the real ones.
-            onStartTour={canStartTour ? startTour : undefined}
-            portalContainer={portalContainer}
-            onSelectActivity={onSelectActivity ?? (() => undefined)}
-            onClose={closePanel}
-          />
-        )}
-
-        {/*
-         * Mounted for as long as the studio is, and merely hidden when dismissed.
-         * Everything else here comes and goes with `openPanel`; the assistant
-         * cannot, because closing it would drop a turn in flight — see `hidden`
-         * on `FloatingPanel`.
-         */}
-        {/*
-         * On a phone the Assistant's Select is in a sheet that is out of the
-         * way while it picks, so its pressed state is said here, over the
-         * page it is picking on, with the way out.
-         */}
-        {breakpoint === "mobile" && assistantPicking && (
-          <PointingPill
-            codeMode={assistantSelect?.codeMode === true}
-            onCancel={() => stopAssistantPicking?.(false)}
-          />
-        )}
-        {aiEnabled && (
-          <AIChatPanel
-            breakpoint={breakpoint}
-            // On a phone always there, on the phone's strip beside the
-            // others, so it slides in and out like them (`phoneTrack`).
-            hidden={breakpoint === "mobile" ? false : !assistantPlaced}
-            phoneOffset={chatOffset}
-            phoneAnimate={slide}
-            docked={placed?.chat != null && !placed.chat.sheet}
-            // As wide as its column: the layout's, which a drag of its
-            // edge sets.
-            width={placed?.chat?.width}
-            // While pointing, a click on the page is a pick, not a click
-            // outside the panel that closes it.
-            modal={!assistantPicking}
-            // A sheet over the preview folds back to its strip when closed,
-            // handing its room back to the page; a column closes.
-            onClose={
-              // With Content switched off there is nothing to fold back
-              // to, so the X closes it.
-              placed?.chat?.sheet === true && contentOpen
-                ? () => usePane("content")
-                : closeAssistant
-            }
-            onUse={() => usePane("chat")}
-            headerEnd={
-              placed?.chat?.tabs != null ? (
-                <SideTabs
-                  tabs={placed.chat.tabs}
-                  front="chat"
-                  onChange={usePane}
-                />
-              ) : undefined
-            }
-            headerStart={
-              canPointAssistant && assistantSelect !== undefined ? (
-                <SelectButton
-                  selectFor="assistant"
-                  pressed={assistantPicking}
-                  onPressedChange={pressAssistantSelect}
-                  codeMode={assistantSelect.codeMode}
-                  unavailable={assistantSelect.unavailable}
-                />
-              ) : undefined
-            }
-          >
-            {aiSlot ?? <NoAssistantConfigured />}
-          </AIChatPanel>
-        )}
-
-        {openPanel === "notifications" &&
-          (breakpoint === "mobile" ? (
-            <LiveActivitySheet
+            <PageWorkspace
               breakpoint={breakpoint}
-              notifications={
-                data.notifications === undefined ? undefined : notifications
+              page={canCanvas ? canvasPage : undefined}
+              renderCanvas={canCanvas ? renderCanvas : undefined}
+              canvasPaths={canCanvas ? canvasPaths : undefined}
+              onSelectCanvasPath={onSelectCanvasPath}
+              selectedCanvasPath={selectedCanvasPath}
+              editingCanvasPath={canCanvas ? editingCanvasPath : undefined}
+              selectMode={selectMode}
+              onSelectModeChange={canCanvas ? onSelectModeChange : undefined}
+              canvasRoute={canCanvas ? canvasRoute : undefined}
+              onCanvasRouteChange={onCanvasRouteChange}
+              canvasRoutes={canvasRoutes}
+              initialTransform={initialCanvasTransform}
+              onTransformChange={setCanvasTransform}
+              isCanvasOpen={isCanvasOpen && canCanvas}
+              onCloseCanvas={closeCanvas}
+              view={canvasView}
+              onViewChange={setCanvasView}
+              pane={workspacePane}
+              onPaneChange={setWorkspacePane}
+              isDevMode={isDevMode}
+              onAttachToChat={aiEnabled ? attachToChat : undefined}
+              skipTransition={skipTransition}
+              previewStatus={previewStatus}
+              replacePreview={
+                breakpoint !== "mobile" && stage !== undefined && stageOpen ? (
+                  <div className="h-full min-h-0" data-val-pane="components">
+                    {stage}
+                  </div>
+                ) : breakpoint !== "mobile" && history !== undefined ? (
+                  <HistoryInPreviewsPlace label={history.label}>
+                    {history.past}
+                  </HistoryInPreviewsPlace>
+                ) : undefined
               }
-              onSelectNotification={markNotificationRead}
-              onMarkAllRead={markAllNotificationsRead}
+              contentPlacement={placed?.content}
+              onContentWidthChange={(width) =>
+                setColumnWidth(["content"], width)
+              }
+              contentWidthMax={
+                placed?.content.kind === "column"
+                  ? placed.content.width + placed.slack
+                  : undefined
+              }
+              codeMode={assistantSelect?.codeMode === true}
+              onUseContent={() => usePane("content")}
+              // A pick opened a field in Content: switched off, it is switched
+              // on, and folded, it is used, which is what unfolds it.
+              onRevealContent={() => {
+                setContentOpen(true);
+                usePane("content");
+              }}
+              // Closing Content's sheet hands its room back to the pane
+              // beside it -- or, with none open, switches Content off, since
+              // there is nothing to fold it behind (the top bar's switch
+              // brings it back).
+              onFoldContent={() => {
+                const shown: Record<"sketch" | "chat", boolean> = {
+                  sketch: sketchOpen,
+                  chat: aiEnabled && chatOpen,
+                };
+                const other = sideFront === "sketch" ? "chat" : "sketch";
+                if (shown[sideFront]) usePane(sideFront);
+                else if (shown[other]) usePane(other);
+                else setContentOpen(false);
+              }}
+              isAssistantPicking={assistantPicking}
+              onStopAssistantPicking={
+                assistantPicking
+                  ? () => stopAssistantPicking?.(false)
+                  : undefined
+              }
+            >
+              {/*
+               * The editor column, built once and then either rendered on its own
+               * or handed to `renderHistory` as the left half. Built once because
+               * the alternative - the same tree written twice, in two branches -
+               * is the shape where the two quietly stop matching.
+               */}
+              {breakpoint !== "mobile" && history !== undefined
+                ? history.now(editorColumn)
+                : renderHistory
+                  ? renderHistory(editorColumn, breakpoint)
+                  : editorColumn}
+            </PageWorkspace>
+          </div>
+
+          {/*
+           * The Sketch pane, mounted for as long as a sketchpad is open and
+           * placed rather than moved: a sketch keeps its caret, its undo and
+           * what is not saved yet only while it stays where it is in the tree.
+           * Hidden, not unmounted, while it is folded or behind the
+           * Assistant's tab.
+           */}
+          {sketchPane !== undefined && (
+            <div
+              data-val-pane="sketch"
+              onPointerDownCapture={() => usePane("sketch")}
+              {...(breakpoint === "mobile" && sketchOffset !== 0
+                ? { inert: true, "aria-hidden": true }
+                : {})}
+              className={cn(
+                "absolute flex flex-col gap-2",
+                breakpoint === "mobile"
+                  ? // A phone's pane: below the top bar, above the pane bar,
+                    // beside the others on the phone's strip (`phoneTrack`).
+                    "inset-x-3"
+                  : cn(
+                      "top-20 bottom-14",
+                      placed?.sketch == null && "hidden",
+                      placed?.sketch?.sheet === true && "z-window",
+                    ),
+              )}
+              style={
+                breakpoint === "mobile"
+                  ? {
+                      top: PHONE_TOP,
+                      bottom: PHONE_BOTTOM,
+                      ...phoneSlideStyle(sketchOffset, {
+                        gap: PHONE_PANE_GAP,
+                        animate: slide,
+                      }),
+                    }
+                  : placed?.sketch != null
+                    ? {
+                        right: GUTTER + placed.sketch.right,
+                        width: placed.sketch.width,
+                      }
+                    : undefined
+              }
+            >
+              <div
+                className={cn(
+                  "min-h-0 flex-1",
+                  placed?.sketch?.sheet === true && "rounded-lg shadow-2xl",
+                )}
+              >
+                {/* In the sketch's own header, beside Build: see `PaneTabs`. */}
+                <PaneTabsProvider
+                  tabs={
+                    placed?.sketch?.tabs != null ? (
+                      <SideTabs
+                        tabs={placed.sketch.tabs}
+                        front="sketch"
+                        onChange={usePane}
+                      />
+                    ) : null
+                  }
+                >
+                  {sketchPane}
+                </PaneTabsProvider>
+              </div>
+            </div>
+          )}
+          {/*
+           * The left edge of Sketch's column and of the Assistant's, to drag
+           * them wider or narrower. The preview gives and takes the room, and
+           * stops a drag at its minimum. A column the two share as tabs is one
+           * column, so it has one edge, and its width is both of theirs.
+           */}
+          {placed !== null &&
+            RESIZABLE_SIDES.map((pane) => {
+              const column = placed[pane];
+              if (column === null || column.sheet) return null;
+              const panes = column.tabs ?? [pane];
+              return (
+                <ColumnDivider
+                  key={pane}
+                  label={
+                    panes.length === 2
+                      ? "Resize Sketch and the Assistant"
+                      : pane === "sketch"
+                        ? "Resize Sketch"
+                        : "Resize the Assistant"
+                  }
+                  edge="left"
+                  width={column.width}
+                  min={RESIZE_MIN[pane]}
+                  max={column.width + placed.slack}
+                  onResize={(width) => setColumnWidth(panes, width)}
+                  onReset={() => setColumnWidth(panes, null)}
+                  // In the gap left of the column, the line in its middle.
+                  className="absolute top-20 bottom-14 z-hover"
+                  style={{
+                    right: GUTTER + column.right + column.width + GAP / 2 - 6,
+                  }}
+                />
+              );
+            })}
+          {placed?.strips.map((strip) => (
+            <PaneStrip
+              key={strip.panes.join(",")}
+              panes={strip.panes}
+              style={{ right: GUTTER + strip.right, width: strip.width }}
+              onUse={usePane}
+            />
+          ))}
+
+          {breakpoint === "desktop" && (
+            <LiveLeftRail
+              openPanel={openPanel}
+              onSelect={togglePanel}
+              destinations={destinations}
+              user={data.user}
+              accountError={accountError}
+              logo={data.logo}
+              isLoading={isLoading}
+              components={components}
+            />
+          )}
+
+          {/* Full screen on a phone is the pane without the bars around it. */}
+          {!phoneFullScreen && (
+            <LiveTopBar
+              breakpoint={breakpoint}
+              projectName={data.projectName}
+              projectHref={data.admin?.project}
+              webComponentsUrl={data.webComponentsUrl}
+              studioMode={data.studioMode}
+              logo={data.logo}
+              openPanel={openPanel}
+              aiOpen={assistantOpen}
+              onTogglePanel={togglePanel}
+              // The menu button opens the first destination this project has, which
+              // is Pages wherever there is one — but a project with no routes has to
+              // land somewhere that exists.
+              onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
+              onOpenSearch={openSearch}
+              locales={locales}
+              locale={locale}
+              onLocaleChange={onLocaleChange}
+              unreadNotifications={
+                data.notifications === undefined
+                  ? undefined
+                  : unreadNotifications
+              }
+              // The rail owns the account wherever it is shown. Passing the user
+              // here too would put the same avatar in two corners of one screen.
+              user={breakpoint === "desktop" ? undefined : data.user}
+              // The rail carries the mark on desktop; below that the top bar owns the
+              // account, so it owns the mark — and has to put a button there at all,
+              // since a failed load means there is no avatar to hang it on.
+              accountError={breakpoint === "desktop" ? undefined : accountError}
+              isLoading={isLoading}
+              aiEnabled={aiEnabled}
+              sketchpad={sketchpad}
+              proposals={proposals}
+              planStatus={
+                breakpoint === "desktop"
+                  ? renderPlanStatus?.("top-bar")
+                  : undefined
+              }
+              historyEnabled={historyEnabled}
+              historyActive={historyActive}
+              onOpenHistory={onOpenHistory}
+              onOpenValidate={onOpenValidate}
+              upgrade={upgrade}
+              validateActive={validateActive}
+              validateCount={validateCount}
+              onPreview={onPreview ?? (() => undefined)}
+              previewHref={previewHref}
+              onToggleCanvas={canCanvas ? togglePreview : undefined}
+              isCanvasOpen={isCanvasOpen}
+              paneSwitches={paneSwitches}
+              phoneActions={
+                <>
+                  {/* The tour's Publish step points here on a phone. */}
+                  <span data-val-tour="publish" className="inline-flex">
+                    {mobilePrimary}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="More for these changes"
+                    aria-pressed={openPanel === "changes"}
+                    onClick={() => togglePanel("changes")}
+                    className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+                  >
+                    <ChevronDown size={15} />
+                  </button>
+                </>
+              }
+              accountDot={activityCount > 0}
+              onPublish={onPublish ?? (() => undefined)}
+              publishSlot={publishSlot}
+              onCompare={onCompare}
+              publishState={
+                publishState === "idle" && validationErrorCount > 0
+                  ? "blocked"
+                  : publishState
+              }
+            />
+          )}
+
+          {breakpoint === "mobile" ? (
+            <PhonePaneBar
+              panes={phonePanes}
+              shown={phonePane}
+              fullScreen={phoneFullScreen}
+              onFullScreenChange={setPhoneFullScreen}
+              attention={activityCount > 0}
+            />
+          ) : (
+            <LiveStatusBar
+              breakpoint={breakpoint}
+              mode={mode}
+              autoSave={autoSave}
+              onAutoSaveChange={onAutoSaveChange}
+              branch={data.branch}
+              unsavedInProposal={
+                proposals?.location.kind === "proposal"
+                  ? proposals.location.unsaved
+                  : 0
+              }
+              deployments={deployments}
+              studioIsDeployer={studioIsDeployer}
+              publishIndicator={publishIndicator}
+              deploymentsOpen={deploymentsOpen}
+              onDeploymentsOpenChange={setDeploymentsOpen}
+              notice={
+                statusNotice === undefined && foldedNotices.length === 0 ? (
+                  statusNotice
+                ) : (
+                  <>
+                    {foldedNotices.map((each) => (
+                      <FoldedNoticeChip
+                        key={each.id}
+                        notice={each}
+                        onOpen={() => toggleNotice(each.id, false)}
+                      />
+                    ))}
+                    {statusNotice}
+                  </>
+                )
+              }
+            />
+          )}
+          {breakpoint !== "mobile" && (
+            <FloatingNotices
+              notices={openNotices}
+              onDismiss={(id) => toggleNotice(id, true)}
+              // Above the status bar, at the right edge the bar ends at.
+              className="bottom-14 right-3"
+            />
+          )}
+
+          {openPanel === "pages" && (
+            <PagesPanel
+              breakpoint={breakpoint}
+              pages={data.pages}
+              externalPages={data.externalPages}
+              selectedId={selection?.id ?? null}
+              // A row with no source path is a path segment rather than a page —
+              // `/blog` existing because `/blog/why-val` does. Clicking it expands
+              // it; there is nothing to open.
+              onSelectPage={(page) => {
+                const next = toPageSelection(page);
+                if (next) select(next);
+              }}
+              onOpenExternalPages={
+                renderExternalPages
+                  ? () => setIsExternalPagesOpen(true)
+                  : undefined
+              }
+              externalIssueCount={externalIssueCount}
+              externalPagesLoading={data.externalPagesLoading}
+              onNewPage={onNewPage ?? (() => undefined)}
+              onDuplicatePage={onDuplicatePage}
+              onRenamePage={onRenamePage}
+              onSketchPage={onSketchPage}
+              // Only where a route accepts one. A project of static routes has no
+              // key to invent, so there is nothing for a New page button to do.
+              newPage={onNewPage ? data.newPage : undefined}
+              onClose={closePanel}
+              navSwitcher={navSwitcher}
+              isLoading={isLoading}
+              loadError={loadError}
+            />
+          )}
+
+          {isExternalPagesOpen &&
+            renderExternalPages?.({
+              close: () => setIsExternalPagesOpen(false),
+              onSelectExternalPage: (page) => {
+                const next = toExternalSelection(page);
+                if (next) select(next);
+              },
+              breakpoint,
+            })}
+
+          {openPanel === "media" && (
+            <MediaPanel
+              breakpoint={breakpoint}
+              media={data.media}
+              selectedId={selection?.id ?? null}
+              onSelect={(gallery) => select(toMediaSelection(gallery))}
+              onSelectFile={(gallery, file) =>
+                select({
+                  kind: "media",
+                  // The file's own entry, so the editor opens that one rather than
+                  // the whole gallery.
+                  id: file.sourcePath,
+                  title: file.ref.split("/").pop() ?? file.ref,
+                  urlPath: servedPath(gallery.dir),
+                  sourcePath: file.sourcePath,
+                })
+              }
+              getFileUrl={getMediaFileUrl}
+              // The panel asks which gallery; it used to guess from the selection,
+              // so the button did nothing at all unless a gallery happened to be
+              // open — which is most of the time.
+              onUpload={onUploadMedia}
+              onClose={closePanel}
+              navSwitcher={navSwitcher}
+              isLoading={isLoading}
+              loadError={loadError}
+            />
+          )}
+
+          {openPanel === "data" && (
+            <DataPanel
+              breakpoint={breakpoint}
+              data={data.data}
+              selectedId={selection?.id ?? null}
+              onSelect={(module) => select(toDataSelection(module))}
+              onClose={closePanel}
+              navSwitcher={navSwitcher}
+              isLoading={isLoading}
+              loadError={loadError}
+            />
+          )}
+
+          {openPanel === "settings" && (
+            <SettingsPanel
+              breakpoint={breakpoint}
+              onClose={closePanel}
+              navSwitcher={navSwitcher}
+              isLoading={isLoading}
+              loadError={loadError}
+            >
+              {renderSettings ? renderSettings() : <NoSettingsModule />}
+            </SettingsPanel>
+          )}
+
+          {openPanel === "account" && (
+            <AccountPanel
+              breakpoint={breakpoint}
+              // The status bar is not shown on a phone; this sheet is. Acting
+              // on the notice closes the sheet, so what it brings back (the card
+              // above the editor) is in view rather than underneath.
+              notice={
+                breakpoint === "mobile" && statusNotice ? (
+                  <div onClick={closePanel}>{statusNotice}</div>
+                ) : undefined
+              }
+              mode={mode}
+              user={data.user}
+              accountError={accountError}
+              theme={theme}
+              onThemeChange={onThemeChange}
+              admin={data.admin}
+              autoSave={autoSave}
+              onAutoSaveChange={onAutoSaveChange}
+              branch={data.branch}
+              /**
+               * No deploy feed in dev.
+               *
+               * Running against the working copy on disk there is nothing to
+               * publish to, so the section could only ever say "nothing published
+               * yet" — a heading and an explanation for something that will never
+               * happen here. The status bar already applies this rule to its own
+               * feed (`mode === "http"`); the panel was missed.
+               */
+              deployments={mode === "fs" ? undefined : deployments}
+              // Passed through as-is: absent means there is no session to end, and
+              // the panel then shows no Sign out button rather than a dead one.
+              onSignOut={onSignOut}
+              onStartTour={
+                breakpoint === "mobile" && canStartTour ? startTour : undefined
+              }
+              upgrade={breakpoint === "mobile" ? upgrade : undefined}
+              versions={versions}
+              activity={
+                breakpoint === "mobile"
+                  ? {
+                      count: activityCount,
+                      onOpen: () => setOpenPanel("notifications"),
+                    }
+                  : undefined
+              }
+              members={
+                breakpoint === "mobile" &&
+                orgOfProject(data.projectName) !== null &&
+                data.admin?.project !== undefined &&
+                data.webComponentsUrl !== undefined ? (
+                  <ProjectMembersButton
+                    variant="row"
+                    projectName={data.projectName}
+                    projectHref={data.admin.project}
+                    webComponentsUrl={data.webComponentsUrl}
+                    studioMode={data.studioMode}
+                    breakpoint={breakpoint}
+                  />
+                ) : undefined
+              }
+              onClose={closePanel}
+              // Not on a phone: the account is not a destination, and its sheet
+              // carrying the destination tabs made it a second navigation menu
+              // beside the one behind the menu button.
+              navSwitcher={breakpoint === "mobile" ? undefined : navSwitcher}
+            />
+          )}
+
+          {openPanel === "utility" && (
+            <LiveUtilityPanel
+              breakpoint={breakpoint}
               validationErrors={data.validationErrors}
               onSelectValidationError={
                 onSelectValidationError ?? (() => undefined)
               }
-              onOpenValidate={onOpenValidate}
+              // Both quick actions are shortcuts to the panel that owns the flow:
+              // the route picker and the gallery picker live there, and a second
+              // copy of either would be a second set of rules for what a URL or a
+              // directory may be.
+              onNewPage={() => setOpenPanel("pages")}
+              onUploadMedia={() => setOpenPanel("media")}
+              destinations={destinations}
+              onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
+              onCompare={onCompare}
+              // The tour's permanent home, whatever the project's setting says —
+              // but not until the destinations it is built from are the real ones.
+              onStartTour={canStartTour ? startTour : undefined}
+              portalContainer={portalContainer}
               onSelectActivity={onSelectActivity ?? (() => undefined)}
-              onOpenHistory={historyEnabled ? onOpenHistory : undefined}
               onClose={closePanel}
             />
-          ) : (
-            <NotificationsPanel
+          )}
+
+          {/*
+           * Mounted for as long as the studio is, and merely hidden when dismissed.
+           * Everything else here comes and goes with `openPanel`; the assistant
+           * cannot, because closing it would drop a turn in flight — see `hidden`
+           * on `FloatingPanel`.
+           */}
+          {/*
+           * On a phone the Assistant's Select is in a sheet that is out of the
+           * way while it picks, so its pressed state is said here, over the
+           * page it is picking on, with the way out.
+           */}
+          {breakpoint === "mobile" && assistantPicking && (
+            <PointingPill
+              codeMode={assistantSelect?.codeMode === true}
+              onCancel={() => stopAssistantPicking?.(false)}
+            />
+          )}
+          {aiEnabled && (
+            <AIChatPanel
               breakpoint={breakpoint}
-              notifications={notifications}
-              onSelect={markNotificationRead}
-              onMarkAllRead={markAllNotificationsRead}
+              // On a phone always there, on the phone's strip beside the
+              // others, so it slides in and out like them (`phoneTrack`).
+              hidden={breakpoint === "mobile" ? false : !assistantPlaced}
+              phoneOffset={chatOffset}
+              phoneAnimate={slide}
+              docked={placed?.chat != null && !placed.chat.sheet}
+              // As wide as its column: the layout's, which a drag of its
+              // edge sets.
+              width={placed?.chat?.width}
+              // While pointing, a click on the page is a pick, not a click
+              // outside the panel that closes it.
+              modal={!assistantPicking}
+              // A sheet over the preview folds back to its strip when closed,
+              // handing its room back to the page; a column closes.
+              onClose={
+                // With Content switched off there is nothing to fold back
+                // to, so the X closes it.
+                placed?.chat?.sheet === true && contentOpen
+                  ? () => usePane("content")
+                  : closeAssistant
+              }
+              onUse={() => usePane("chat")}
+              headerEnd={
+                placed?.chat?.tabs != null ? (
+                  <SideTabs
+                    tabs={placed.chat.tabs}
+                    front="chat"
+                    onChange={usePane}
+                  />
+                ) : undefined
+              }
+              headerStart={
+                canPointAssistant && assistantSelect !== undefined ? (
+                  <SelectButton
+                    selectFor="assistant"
+                    pressed={assistantPicking}
+                    onPressedChange={pressAssistantSelect}
+                    codeMode={assistantSelect.codeMode}
+                    unavailable={assistantSelect.unavailable}
+                  />
+                ) : undefined
+              }
+            >
+              {aiSlot ?? <NoAssistantConfigured />}
+            </AIChatPanel>
+          )}
+
+          {openPanel === "notifications" &&
+            (breakpoint === "mobile" ? (
+              <LiveActivitySheet
+                breakpoint={breakpoint}
+                notifications={
+                  data.notifications === undefined ? undefined : notifications
+                }
+                onSelectNotification={markNotificationRead}
+                onMarkAllRead={markAllNotificationsRead}
+                validationErrors={data.validationErrors}
+                onSelectValidationError={
+                  onSelectValidationError ?? (() => undefined)
+                }
+                onOpenValidate={onOpenValidate}
+                onSelectActivity={onSelectActivity ?? (() => undefined)}
+                onOpenHistory={historyEnabled ? onOpenHistory : undefined}
+                onClose={closePanel}
+              />
+            ) : (
+              <NotificationsPanel
+                breakpoint={breakpoint}
+                notifications={notifications}
+                onSelect={markNotificationRead}
+                onMarkAllRead={markAllNotificationsRead}
+                onClose={closePanel}
+              />
+            ))}
+
+          {openPanel === "proposals" && proposals !== undefined && (
+            <ProposalSheet
+              breakpoint={breakpoint}
+              proposals={proposals}
               onClose={closePanel}
             />
-          ))}
+          )}
 
-        {openPanel === "proposals" && proposals !== undefined && (
-          <ProposalSheet
-            breakpoint={breakpoint}
-            proposals={proposals}
-            onClose={closePanel}
-          />
-        )}
+          {openPanel === "changes" && (
+            <LiveChangesSheet
+              breakpoint={breakpoint}
+              proposals={proposals}
+              onCompare={onCompare}
+              portalContainer={portalContainer}
+              onClose={closePanel}
+            />
+          )}
 
-        {openPanel === "changes" && (
-          <LiveChangesSheet
-            breakpoint={breakpoint}
-            proposals={proposals}
-            onCompare={onCompare}
-            portalContainer={portalContainer}
-            onClose={closePanel}
-          />
-        )}
+          {/*
+           * Not while the tour is open: one card at a time, and on a phone the
+           * two were stacked on top of each other. The tour is started from it,
+           * so it is back the moment the tour is left.
+           */}
+          {!isTourOpen && renderDemoBanner?.(startTour)}
 
-        {/*
-         * Not while the tour is open: one card at a time, and on a phone the
-         * two were stacked on top of each other. The tour is started from it,
-         * so it is back the moment the tour is left.
-         */}
-        {!isTourOpen && renderDemoBanner?.(startTour)}
+          {isTourOpen && (
+            <LiveStudioTour
+              // A new run starts at its first step, even in place of another.
+              key={tourRun === null ? "studio" : tourRunKey(tourRun)}
+              steps={tourRun?.steps ?? tourSteps}
+              onFinish={tourRun?.onFinish}
+              onClose={closeTour}
+              onOpenPanel={openPanelForTour}
+              onStepEnd={tourRun?.onStepEnd}
+              onStepChange={tourRun?.onStepChange}
+              from={tourRun?.from}
+              onBackToChat={
+                tourRun?.from === "assistant" && breakpoint === "mobile"
+                  ? backToChatFromTour
+                  : undefined
+              }
+              // The assistant's guide asks the person to DO things, as the
+              // demo's does, so the Studio stays usable under it.
+              look={tourRun?.from === "assistant" ? "ring" : tourLook}
+              observed={tourObserved}
+              act={tourActions}
+              onHighlightPage={onTourHighlightPage}
+            />
+          )}
 
-        {isTourOpen && (
-          <LiveStudioTour
-            steps={tourRun?.steps ?? tourSteps}
-            onFinish={tourRun?.onFinish}
-            onClose={closeTour}
-            onOpenPanel={openPanelForTour}
-            look={tourLook}
-            observed={tourObserved}
-            act={tourActions}
-            onHighlightPage={onTourHighlightPage}
-          />
-        )}
-
-        {isSearchOpen && (
-          <LiveGlobalSearch
-            results={searchResults}
-            contentResults={searchContentResults}
-            isSearchingContent={isSearchingContent}
-            contentLoad={searchContentLoad}
-            onQueryChange={onSearchQueryChange}
-            onSelect={(result) => {
-              setIsSearchOpen(false);
-              selectSearchResult(result);
-            }}
-            onClose={() => setIsSearchOpen(false)}
-          />
-        )}
-      </div>
+          {isSearchOpen && (
+            <LiveGlobalSearch
+              results={searchResults}
+              contentResults={searchContentResults}
+              isSearchingContent={isSearchingContent}
+              contentLoad={searchContentLoad}
+              onQueryChange={onSearchQueryChange}
+              onSelect={(result) => {
+                setIsSearchOpen(false);
+                selectSearchResult(result);
+              }}
+              onClose={() => setIsSearchOpen(false)}
+            />
+          )}
+        </div>
+      </ShellTourProvider>
     </ShellPanelProvider>
   );
 });
