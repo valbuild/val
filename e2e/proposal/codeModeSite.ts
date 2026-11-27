@@ -108,3 +108,79 @@ export const darkHero = {
   old_string: `    <section className="bg-white text-black py-24">`,
   new_string: `    <section className="bg-black text-white py-24">`,
 };
+
+export const STYLESHEET_FILE = "src/styles.css";
+export const ROOT_ROUTE_FILE = "src/routes/__root.tsx";
+export const ROUTER_FILE = "src/router.tsx";
+
+/** As the templates write theirs: Tailwind v4, with nothing it cannot compile. */
+export const stylesheet = `@import "tailwindcss";\n`;
+
+/**
+ * The root route, linking the stylesheet as the templates do: `?url`, and a
+ * `<link>` in the head (`_site.tsx` in valbuild/templates).
+ */
+export const rootRoute = `import { Outlet, createRootRoute } from "@tanstack/react-router";
+import appCss from "../styles.css?url";
+
+export const Route = createRootRoute({
+  head: () => ({ links: [{ rel: "stylesheet", href: appCss }] }),
+  component: () => <Outlet />,
+});
+`;
+
+/**
+ * The root route of a site that imports its stylesheet for its effect, as
+ * Vite lets it: the other way a TanStack site is written.
+ */
+export const bareImportRootRoute = `import { Outlet, createRootRoute } from "@tanstack/react-router";
+import "../styles.css";
+
+export const Route = createRootRoute({ component: () => <Outlet /> });
+`;
+
+export const router = `import { createRouter } from "@tanstack/react-router";
+import { routeTree } from "./routeTree.gen";
+
+export function getRouter() {
+  return createRouter({ routeTree });
+}
+`;
+
+/**
+ * The same site, styled: a root route that imports a Tailwind stylesheet.
+ * What a check of a change's STYLES is made on, since a class only has a
+ * style when the site's stylesheet is compiled with it.
+ */
+export const styledSiteCode: Record<string, string> = {
+  ...siteCode,
+  [STYLESHEET_FILE]: stylesheet,
+  [ROOT_ROUTE_FILE]: rootRoute,
+  [ROUTER_FILE]: router,
+};
+
+/**
+ * A Tailwind class nothing in the site uses, so the live stylesheet has no
+ * rule for it: a change that adds it is only styled where the stylesheet was
+ * compiled again, from the changed code. `darkHero` cannot show that --
+ * `bg-black` and `text-white` are the primary button's already.
+ */
+export const NEW_CLASS = "border-red-600";
+
+/** "Give the secondary button a red border": report 4's change, as `edit_file` sends it. */
+export const redBorderButton = {
+  old_string: `      className={variant === "primary" ? "bg-black text-white" : "border"}`,
+  new_string: `      className={variant === "primary" ? "bg-black text-white" : "border ${NEW_CLASS}"}`,
+};
+
+/**
+ * Whether a stylesheet has a rule for a class: what a page needs to show it.
+ * For plain class names only (letters, digits, `-`), which need no escaping
+ * in a selector; anything else is refused rather than half-matched.
+ */
+export function hasRuleFor(css: string, className: string): boolean {
+  if (!/^[A-Za-z0-9-]+$/.test(className)) {
+    throw new Error(`hasRuleFor takes a plain class name, not '${className}'`);
+  }
+  return new RegExp(`\\.${className}\\s*[{,:]`).test(css);
+}

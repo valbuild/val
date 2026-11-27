@@ -8,7 +8,10 @@ import { BuildTargetResponse, PublishProblem } from "@valbuild/shared/internal";
  * It implements the protocol over real HTTP - the token exchange, the five
  * publish calls, and an object store the presigned PUTs point at - so
  * `val publish` runs against it exactly as it runs against the service: one
- * `VAL_CONTENT_URL`, and nothing stubbed inside the CLI.
+ * `VAL_CONTENT_URL`, and nothing stubbed inside the CLI. It also answers
+ * `GET /v1/project-source` with what the live build was published from, which
+ * is what the Studio builds on (`studioStyles.test.ts` publishes with the CLI
+ * and then builds as the Studio does, against the same fake).
  *
  * Three things it does for real, because they are the three the CLI can get
  * wrong on its own:
@@ -136,6 +139,15 @@ export async function startFakeContentService(
   let failuresLeft = options.failUploadsWith5xx ?? 0;
   let expiriesLeft = options.expireSlots ?? 0;
   let nextId = 1;
+  /**
+   * What the live build was published from, kept at its promote: the bytes
+   * at a key are overwritten by the next publish's upload, and the live
+   * build's are what `GET /v1/project-source` answers with.
+   */
+  let live: {
+    files: Record<string, string> | null;
+    publicFiles: Artifact[];
+  } | null = null;
 
   const server = http.createServer((req, res) => {
     void handle(req, res).catch((err) => {
@@ -229,6 +241,22 @@ export async function startFakeContentService(
       send(res, 401, {
         statusCode: 401,
         message: "This project token is not valid. It may have been revoked.",
+      });
+      return;
+    }
+
+    // GET /v1/project-source - what the live build was built from: the
+    // project's stored source and its public files, by hash. What a publisher
+    // with no checkout (the Studio) builds on. Before any publish there is
+    // none, as content answers for a project only ever seeded.
+    if (
+      parts.length === 2 &&
+      parts[1] === "project-source" &&
+      req.method === "GET"
+    ) {
+      send(res, 200, {
+        files: live?.files ?? null,
+        publicFiles: live?.publicFiles ?? null,
       });
       return;
     }
@@ -415,6 +443,13 @@ export async function startFakeContentService(
         return;
       }
       publish.state = "live";
+      const source = stored.get("source");
+      live = {
+        files: source ? parseSourceFiles(source) : null,
+        publicFiles: publish.artifacts.filter((artifact) =>
+          artifact.key.startsWith("public/"),
+        ),
+      };
       send(res, 200, {
         state: publish.state,
         url: "https://example.test",
@@ -446,6 +481,17 @@ export async function startFakeContentService(
         server.close((err) => (err ? reject(err) : resolve())),
       ),
   };
+}
+
+/** The `source` artifact: the project's files, by path, as JSON. */
+function parseSourceFiles(bytes: Buffer): Record<string, string> {
+  const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+  const files: Record<string, string> = {};
+  if (typeof parsed !== "object" || parsed === null) return files;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === "string") files[key] = value;
+  }
+  return files;
 }
 
 /**
