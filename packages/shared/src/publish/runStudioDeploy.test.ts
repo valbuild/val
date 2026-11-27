@@ -1,7 +1,11 @@
 import type { BuildOutput } from "@valbuild/tanstack-build";
 import { StudioPublishClient, StudioPublishError } from "./publishClient";
 import type { StudioBuilder } from "./builder";
-import { DeployPhase, runStudioDeploy } from "./runStudioDeploy";
+import {
+  DeployPhase,
+  missingStylesheetMessage,
+  runStudioDeploy,
+} from "./runStudioDeploy";
 
 /**
  * The ORDER, and the refusals.
@@ -839,6 +843,51 @@ describe("the stylesheet", () => {
 
   test("is none when neither has one", async () => {
     expect(await cssOf("", "")).toBe("");
+  });
+
+  /*
+   * The site imports stylesheets the stored source does not hold, and there
+   * is no live stylesheet to ship instead: published, the site is unstyled,
+   * and a merge reusing the build puts it live. An upgrade did exactly that.
+   */
+  const deployMissing = async (live: string) => {
+    const published: string[] = [];
+    const result = await deploy({
+      liveStylesheet: async () => live,
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async () => ({
+            ...buildOutput,
+            cssCode: "",
+            missingStylesheets: ["src/styles.css"],
+          }),
+          publishArtifacts: async (build) => {
+            published.push(build.cssCode);
+            return [{ key: "server", body: "x", sha256: "sha", bytes: 1 }];
+          },
+        }),
+    });
+    return { result, published };
+  };
+
+  test("is not published at all when the site's are missing and the live site has none", async () => {
+    const { result, published } = await deployMissing("");
+    expect(published).toEqual([]);
+    expect(result).toEqual({
+      status: "failed",
+      message: missingStylesheetMessage(["src/styles.css"]),
+      problems: [],
+    });
+    // What puts the styles back, beside the message.
+    expect(missingStylesheetMessage(["src/styles.css"])).toMatch(
+      /val publish.*History/,
+    );
+  });
+
+  test("is the live site's when the site's are missing and the live site has one", async () => {
+    const { result, published } = await deployMissing(".live{}");
+    expect(result.status).not.toBe("failed");
+    expect(published).toEqual([".live{}"]);
   });
 });
 
