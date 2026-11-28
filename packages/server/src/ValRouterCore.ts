@@ -9,6 +9,7 @@ import {
   ValServerGenericResult,
 } from "@valbuild/shared/internal";
 import type { ValServer } from "./ValServer";
+import { serveStudioAppFile } from "./studioApp";
 import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
 
@@ -96,6 +97,11 @@ export function createValRequestHandler<Res>(
         },
         body: QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
       });
+    }
+    // The manifest, icons and worker that make the Studio installable.
+    const studioAppFile = serveStudioAppFile(path, url, route);
+    if (studioAppFile !== null) {
+      return convert(studioAppFile);
     }
     const groupQueryParams = (arr: [string, string][]) => {
       const map: Record<string, string[]> = {};
