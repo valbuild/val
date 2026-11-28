@@ -518,8 +518,7 @@ describe("a page check of a change the preview does not show", () => {
  * then not the change, whatever it shows, and a model asked to judge it
  * passes or fails something nobody can see yet.
  *
- * KNOWN GAP, as `test.failing`: the page check asks the model today. Turn
- * these into `test` once the product decides them.
+ * The product decides these (`quickPreviewCannotShow`): no model is asked.
  */
 describe("a page check of a change a quick preview cannot show (G2)", () => {
   const BUILD_REQUIRED = { ...STAGED, buildRequired: true };
@@ -555,7 +554,7 @@ describe("a page check of a change a quick preview cannot show (G2)", () => {
     return { ws, check: pageCheckOf(NAME) };
   }
 
-  test.failing.each([
+  test.each([
     [
       "a route it adds",
       {

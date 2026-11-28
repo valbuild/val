@@ -1,6 +1,7 @@
 import type { PageSnapshot } from "@valbuild/shared/internal";
 import {
   askPageCheck,
+  quickPreviewCannotShow,
   checksLine,
   MESSAGE_VERIFIER_TOOL,
   noteForMain,
@@ -353,5 +354,71 @@ describe("the page check's model", () => {
     expect(
       pickPageCheckModel([info("anthropic", "claude-opus-5-5")], chat),
     ).toBe(chat);
+  });
+});
+
+/**
+ * G2 in `docs/handoff/code-mode-test-rig-plan.md`: what a quick preview
+ * cannot show, decided from the staged files alone. It runs the change's
+ * code for the browser in the last build, whose server still answers.
+ */
+describe("what a quick preview cannot show", () => {
+  const site = {
+    "package.json": `{ "dependencies": { "react": "^19.2.8" }, "devDependencies": { "typescript": "^6.0.0" } }`,
+    "src/routes/index.tsx": "x",
+    "src/routes/about.tsx": "x",
+    "src/components/Hero.tsx": "x",
+  };
+
+  test("a component's change is shown", () => {
+    expect(
+      quickPreviewCannotShow({ "src/components/Hero.tsx": "y" }, site),
+    ).toBeNull();
+  });
+
+  test("a route it adds is not: the server answers it with a 404", () => {
+    expect(
+      quickPreviewCannotShow({ "src/routes/pricing.tsx": "y" }, site),
+    ).toEqual({ kind: "new-route", paths: ["src/routes/pricing.tsx"] });
+  });
+
+  test("nor one it removes: the server still serves it", () => {
+    expect(
+      quickPreviewCannotShow({ "src/routes/about.tsx": null }, site),
+    ).toEqual({ kind: "removed-route", paths: ["src/routes/about.tsx"] });
+  });
+
+  test("a route's own content module is content, not a route", () => {
+    expect(
+      quickPreviewCannotShow({ "src/routes/pricing.val.ts": "y" }, site),
+    ).toBeNull();
+  });
+
+  test("a dependency it adds or moves is not: no layer the page can load has it", () => {
+    expect(
+      quickPreviewCannotShow(
+        {
+          "package.json": `{ "dependencies": { "react": "^19.2.8", "date-fns": "^4.1.0" }, "devDependencies": { "typescript": "^6.0.0" } }`,
+        },
+        site,
+      ),
+    ).toEqual({ kind: "dependency", paths: ["date-fns"] });
+  });
+
+  test("package.json written again with the same dependencies is shown", () => {
+    expect(
+      quickPreviewCannotShow(
+        {
+          "package.json": `{ "name": "renamed", "dependencies": { "react": "^19.2.8" }, "devDependencies": { "typescript": "^6.0.0" } }`,
+        },
+        site,
+      ),
+    ).toBeNull();
+  });
+
+  test("a Next.js page it adds is a new route too", () => {
+    expect(
+      quickPreviewCannotShow({ "src/app/pricing/page.tsx": "y" }, site),
+    ).toEqual({ kind: "new-route", paths: ["src/app/pricing/page.tsx"] });
   });
 });

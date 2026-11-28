@@ -27,6 +27,7 @@ import {
   type PageNotShown,
   pageCheckReported,
   pageCheckStarted,
+  quickPreviewCannotShow,
   runPageCheckTool,
   takeNotesForPageCheck,
 } from "../proposals/pageCheck";
@@ -84,6 +85,11 @@ type PageOfChange =
  */
 async function pageOf(
   staged: ProposalJson["staged"] | null,
+  /** The staged files, and the site's: what a quick preview is of. */
+  change: () => Promise<{
+    files: Record<string, string | null>;
+    site: Record<string, string>;
+  }>,
 ): Promise<PageOfChange> {
   const served: PageOfChange = {
     status: "shown",
@@ -101,11 +107,23 @@ async function pageOf(
     PAGE_CHECK_PREVIEW_WAIT_MS,
   );
   switch (preview.status) {
-    case "shown":
+    case "shown": {
+      // In front, and still not the change where it adds or removes a page
+      // or a dependency: the last build's server answers (G2).
+      const read = await change().catch(() => null);
+      const cannot =
+        read === null ? null : quickPreviewCannotShow(read.files, read.site);
+      if (cannot !== null) {
+        return {
+          status: "not-shown",
+          why: { reason: "needs-build", change: cannot },
+        };
+      }
       return {
         status: "shown",
         line: "The page in the preview is a quick preview of exactly these files: the change is on it.",
       };
+    }
     case "served":
       return served;
     case "failed":
@@ -200,7 +218,10 @@ export function usePageCheckSession(options: {
         .catch(() => null)
         .then(async (staged) => ({
           staged,
-          page: await pageOf(staged),
+          page: await pageOf(staged, async () => ({
+            files: (await now.proposals.files(name)).files,
+            site: (await now.siteSource()) ?? {},
+          })),
         }))
         .then(({ staged, page }) => {
           if (runningRef.current?.promptId !== promptId) return;

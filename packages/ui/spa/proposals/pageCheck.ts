@@ -161,7 +161,76 @@ export type PageNotShown =
   | { reason: "failed"; message: string }
   | { reason: "off" }
   | { reason: "no-quick-preview" }
-  | { reason: "timeout"; waitedMs: number };
+  | { reason: "timeout"; waitedMs: number }
+  /** A quick preview is in front, but this kind of change is not on it. */
+  | { reason: "needs-build"; change: QuickPreviewCannotShow };
+
+/** A change a quick preview cannot show: see {@link quickPreviewCannotShow}. */
+export type QuickPreviewCannotShow = {
+  kind: "new-route" | "removed-route" | "dependency";
+  /** The routes' files, or the dependencies' names. */
+  paths: string[];
+};
+
+/** A route of the site: TanStack's file routes, and Next's app pages. */
+function isRouteFile(path: string): boolean {
+  if (/\.val\.[jt]sx?$/.test(path)) return false;
+  if (/^src\/routes\/.+\.[jt]sx?$/.test(path)) return true;
+  return /^(src\/)?app\/(.+\/)?(page|route)\.[jt]sx?$/.test(path);
+}
+
+function dependenciesOf(packageJson: string | undefined): Map<string, string> {
+  const found = new Map<string, string>();
+  if (packageJson === undefined) return found;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(packageJson);
+  } catch {
+    return found;
+  }
+  for (const field of ["dependencies", "devDependencies"]) {
+    const deps: unknown = Reflect.get(Object(parsed), field);
+    if (typeof deps !== "object" || deps === null) continue;
+    for (const [name, version] of Object.entries(deps)) {
+      if (typeof version === "string") found.set(name, version);
+    }
+  }
+  return found;
+}
+
+/**
+ * What of a staged change a quick preview cannot show, from the staged files
+ * (`null` for a deleted one) and the site's: decided here, never asked of the
+ * model, which would judge a page the change is not on.
+ *
+ * A quick preview runs the change's code for the browser in the LAST build,
+ * whose server still answers: a route it adds is a 404 there, one it removes
+ * is still served, and a dependency it adds or moves is in no layer the page
+ * can load. All three are on the page once the proposal is built.
+ */
+export function quickPreviewCannotShow(
+  staged: Record<string, string | null>,
+  site: Record<string, string>,
+): QuickPreviewCannotShow | null {
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const [path, text] of Object.entries(staged)) {
+    if (!isRouteFile(path)) continue;
+    if (text !== null && !(path in site)) added.push(path);
+    if (text === null && path in site) removed.push(path);
+  }
+  if (added.length > 0) return { kind: "new-route", paths: added };
+  if (removed.length > 0) return { kind: "removed-route", paths: removed };
+  const packageJson = staged["package.json"];
+  if (typeof packageJson === "string") {
+    const before = dependenciesOf(site["package.json"]);
+    const moved = [...dependenciesOf(packageJson)]
+      .filter(([name, version]) => before.get(name) !== version)
+      .map(([name]) => name);
+    if (moved.length > 0) return { kind: "dependency", paths: moved };
+  }
+  return null;
+}
 
 /** What the person and the assistant are told for each. */
 function notShownSummary(why: PageNotShown): string {
@@ -170,6 +239,16 @@ function notShownSummary(why: PageNotShown): string {
       return `The page was not checked: the change could not be shown in a quick preview, so it is on the page once the proposal is built. The quick preview said: ${why.message}`;
     case "off":
       return "The page was not checked: this project makes no quick previews, so the change is on the page once the proposal is built.";
+    case "needs-build": {
+      const { kind, paths } = why.change;
+      const what =
+        kind === "new-route"
+          ? `it adds a page (${paths.join(", ")}), which the site's server does not serve until it is built`
+          : kind === "removed-route"
+            ? `it removes a page (${paths.join(", ")}), which the site's server serves until it is built`
+            : `it adds or changes a dependency (${paths.join(", ")}), which the quick preview cannot load`;
+      return `The page was not checked: ${what}. Build the proposal to see it.`;
+    }
     case "no-quick-preview":
       return "The page was not checked: no quick preview can be shown here, so the change is on the page once the proposal is built.";
     case "timeout":
