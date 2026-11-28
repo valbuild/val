@@ -447,7 +447,7 @@ export function settings(): SettingsSchema<SettingsSource> {
       logo: image({ dir: THEME_LOGO_DIRECTORY })
         .nullable()
         .describe(
-          "The project's own mark, shown where Val's is in the Studio. A square-ish mark rather than a wordmark: the slot is 32px wide.",
+          "The project's own mark, shown where Val's is in the Studio, and the Studio's icon when it is added to a home screen. A square mark, at least 144 pixels (512 is best), rather than a wordmark.",
         ),
     }),
     studio: new SettingsSchema<StudioSettingsSource>({

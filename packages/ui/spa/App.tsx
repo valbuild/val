@@ -2,7 +2,7 @@
 import { ValStudio } from "./components/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
 import { fallbackRender } from "./fallbackRender";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   createValClient,
   getValDemo,
@@ -17,6 +17,7 @@ import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
 import { useValModules } from "./hooks/useValModules";
 import { Themes } from "./components/ValThemeProvider";
+import { startStudioApp } from "./studioApp/studioApp";
 
 function App() {
   const config = useConfig();
@@ -29,6 +30,13 @@ function App() {
    * client, the same server code, no network. See `docs/plans/demo-mode.md`.
    */
   const [demo] = useState(getValDemo);
+  // Installable from the home screen, and quicker to open once it is. Not in
+  // a demo: its own service worker must keep the Studio's page.
+  useEffect(() => {
+    if (!demo) {
+      startStudioApp(host);
+    }
+  }, [demo, host]);
   const { client } = useMemo(() => {
     const client = createValClient(
       host,

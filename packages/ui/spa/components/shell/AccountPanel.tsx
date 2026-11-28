@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import {
   Bell,
   ArrowUpCircle,
@@ -6,11 +6,13 @@ import {
   Compass,
   ExternalLink,
   LogOut,
+  MonitorDown,
   LucideIcon,
   Moon,
   ScrollText,
   Settings2,
   ShieldAlert,
+  Smartphone,
   Sun,
   Users,
 } from "lucide-react";
@@ -28,6 +30,11 @@ import {
 } from "./types";
 import { VersionList } from "./VersionList";
 import type { UpgradeButton } from "../../upgrade/useUpgrade";
+import {
+  studioAppIosIconSrc,
+  type StudioInstall,
+} from "../../studioApp/studioApp";
+import { InstallAppDialog } from "./InstallAppDialog";
 
 export type AccountPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -103,6 +110,13 @@ export type AccountPanelProps = {
    * Absent where there is no server to ask (a story that does not supply one).
    */
   versions?: ShellVersions;
+  /**
+   * How to put this Studio on the device's home screen. Absent, or `none`,
+   * where it cannot be or already is: the section goes.
+   */
+  install?: StudioInstall;
+  /** Where the install instructions' dialog renders: inside the shadow root. */
+  portalContainer?: HTMLElement | null;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -141,6 +155,8 @@ export function AccountPanel({
   activity,
   upgrade,
   versions,
+  install,
+  portalContainer,
   onClose,
   navSwitcher,
 }: AccountPanelProps) {
@@ -218,6 +234,19 @@ export function AccountPanel({
             ))}
           </div>
         </div>
+
+        {install && install.kind !== "none" && (
+          <>
+            <PanelSectionLabel divided>This device</PanelSectionLabel>
+            <div className="px-4 pt-1">
+              <InstallApp
+                install={install}
+                breakpoint={breakpoint}
+                portalContainer={portalContainer}
+              />
+            </div>
+          </>
+        )}
 
         {admin && (
           <>
@@ -350,6 +379,61 @@ export function AccountPanel({
         {versions && <VersionList versions={versions} mode={mode} />}
       </div>
     </FloatingPanel>
+  );
+}
+
+/**
+ * Put the Studio on the home screen: the browser's own install dialog where
+ * there is one, and on iPhone and iPad, where only the Share menu can do it,
+ * the two taps that do.
+ */
+function InstallApp({
+  install,
+  breakpoint,
+  portalContainer,
+}: {
+  install: Exclude<StudioInstall, { kind: "none" }>;
+  breakpoint: ShellBreakpoint;
+  portalContainer?: HTMLElement | null;
+}) {
+  const [showSteps, setShowSteps] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup={install.kind === "ios" ? "dialog" : undefined}
+        onClick={() => {
+          if (install.kind === "prompt") {
+            void install.install();
+          } else {
+            setShowSteps(true);
+          }
+        }}
+        className="flex w-full items-center gap-2.5 rounded-md bg-bg-float-raised px-3 py-2.5 text-left text-xs text-fg-primary hover:bg-bg-float-raised/80"
+      >
+        {breakpoint === "mobile" ? (
+          <Smartphone size={15} className="shrink-0 text-fg-secondary" />
+        ) : (
+          <MonitorDown size={15} className="shrink-0 text-fg-secondary" />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">
+            {breakpoint === "mobile" ? "Add to home" : "Install app"}
+          </span>
+          <span className="block text-[0.6875rem] text-fg-secondary-alt">
+            Opens full screen, without the address bar.
+          </span>
+        </span>
+      </button>
+      {install.kind === "ios" && (
+        <InstallAppDialog
+          open={showSteps}
+          onOpenChange={setShowSteps}
+          iconSrc={studioAppIosIconSrc()}
+          portalContainer={portalContainer}
+        />
+      )}
+    </>
   );
 }
 

@@ -70,6 +70,7 @@ import type { ChainProgress } from "../../utils/describePendingChangesStall";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { ProposalSheet } from "../proposals/ProposalSheet";
 import { PagesPanel } from "./PagesPanel";
+import { useStudioInstall } from "../../studioApp/useStudioInstall";
 import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
@@ -935,6 +936,9 @@ const ShellFrame = memo(function ShellFrame({
   onOpenSearchResult,
 }: Omit<ShellProps, ShellLiveProps>) {
   const breakpoint = useShellBreakpoint();
+  // Changes once or twice per page at most: when the browser offers to
+  // install the Studio, and when it has been.
+  const install = useStudioInstall();
   const breakpointRef = useRef(breakpoint);
   breakpointRef.current = breakpoint;
   const [openPanel, setOpenPanelState] = useState<ShellPanel | null>(
@@ -2727,6 +2731,8 @@ const ShellFrame = memo(function ShellFrame({
               }
               upgrade={breakpoint === "mobile" ? upgrade : undefined}
               versions={versions}
+              install={install}
+              portalContainer={portalContainer}
               activity={
                 breakpoint === "mobile"
                   ? {

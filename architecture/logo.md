@@ -71,6 +71,15 @@ rather than cropped: that makes a wordmark small, which is a worse picture but
 not a broken one, where cropping the ends off a logo reads as a bug in Val. If a
 wordmark ever has to work, the top bar is where there is room for it.
 
+**It is also the home-screen icon.** A Studio added to a home screen (see
+`studioApp.ts` in `@valbuild/shared`) takes the project's logo as its icon,
+because the installed app is that site's Studio and labels the WORKSPACE, as
+the rail does. Only a published logo, and only one that can fill a tile: an
+SVG, or a square-ish raster of at least 144 pixels, Chrome's minimum to offer
+install at all. Anything else keeps Val's icon, the mark on the Studio's dark
+canvas. iOS takes only PNG and JPEG for its icon, so an SVG or WebP logo is the
+icon everywhere but there.
+
 **Blink only while loading.** `blinking` animates the caret on and off the way a
 terminal cursor does, in SMIL (`calcMode="discrete"` — a cursor is on or off,
 never halfway) so the animation travels with the component into the shadow root
