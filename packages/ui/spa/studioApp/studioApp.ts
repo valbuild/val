@@ -2,10 +2,12 @@ import {
   STUDIO_APP_BACKGROUND,
   STUDIO_APP_SCOPE,
   STUDIO_ICON_PATHS,
-  STUDIO_MANIFEST_PATH,
   STUDIO_SERVICE_WORKER_PATH,
+  StudioAppIcon,
+  studioManifestUrl,
 } from "@valbuild/shared/internal";
 import { Internal } from "@valbuild/core";
+import type { ThemeLogo, ThemeLogoImage } from "../hooks/themeSettings";
 
 /**
  * How this Studio can be put on the device's home screen, if it can.
@@ -79,6 +81,99 @@ export function isIosSafari(
 }
 
 let started = false;
+let route: string | null = null;
+let icon: StudioAppIcon | null = null;
+
+/**
+ * The smallest icon Chrome installs an app with. A smaller logo would not be
+ * an app with a worse icon: the browser would stop offering to install it.
+ */
+const MIN_ICON_SIZE = 144;
+/** How far from square a logo may be and still fill a home-screen tile. */
+const MAX_ICON_ASPECT = 1.25;
+
+/**
+ * `s.settings()`'s `theme.logo` as the app's icon, or `null` to keep Val's.
+ *
+ * Only when it can stand on a home screen:
+ *
+ * - **Published.** A logo with a patch id is bytes only this Studio session
+ *   can read; an icon is fetched once, when the app is installed, and kept.
+ * - **An SVG, or a raster at least {@link MIN_ICON_SIZE} pixels and about
+ *   square** — the settings ask for "a square-ish mark rather than a
+ *   wordmark", and a wordmark letterboxed into a tile is unreadable.
+ *   Dimensions that were never read from the bytes (no `val validate --fix`
+ *   yet) say nothing, so they keep Val's.
+ */
+export function studioAppIconOf(
+  logo: ThemeLogo | null,
+  image: ThemeLogoImage | undefined,
+  filePatchIds: ReadonlyMap<string, string>,
+): StudioAppIcon | null {
+  if (logo === null || filePatchIds.has(logo.path)) return null;
+  const src = Internal.mediaUrl({ path: logo.path });
+  const { width, height, mimeType } = image ?? {};
+  if (mimeType === "image/svg+xml") {
+    return { src, type: mimeType, sizes: "any" };
+  }
+  if (
+    width === undefined ||
+    height === undefined ||
+    (mimeType !== "image/png" &&
+      mimeType !== "image/jpeg" &&
+      mimeType !== "image/webp")
+  ) {
+    return null;
+  }
+  const square =
+    Math.max(width, height) / Math.min(width, height) <= MAX_ICON_ASPECT;
+  if (!square || Math.min(width, height) < MIN_ICON_SIZE) return null;
+  return { src, type: mimeType, sizes: `${width}x${height}` };
+}
+
+/**
+ * Use the project's icon, or Val's again with `null`. Called whenever the
+ * settings' logo changes; before the Studio app has started (or in a demo,
+ * where it never does) it is only remembered.
+ */
+export function setStudioAppIcon(next: StudioAppIcon | null): void {
+  if (
+    next?.src === icon?.src &&
+    next?.type === icon?.type &&
+    next?.sizes === icon?.sizes
+  ) {
+    return;
+  }
+  icon = next;
+  if (started) applyIcon();
+}
+
+/**
+ * Point the manifest and the iOS icon at the current icon. iOS takes only
+ * PNG and JPEG for `apple-touch-icon`, so an SVG or WebP logo is the app's
+ * icon everywhere but there.
+ */
+function applyIcon() {
+  if (route === null) return;
+  const manifest = document.head.querySelector<HTMLLinkElement>(
+    'link[rel="manifest"][data-val-studio-app]',
+  );
+  manifest?.setAttribute("href", studioManifestUrl(route, icon));
+  const apple = document.head.querySelector<HTMLLinkElement>(
+    'link[rel="apple-touch-icon"][data-val-studio-app]',
+  );
+  if (apple) {
+    const own =
+      icon !== null && (icon.type === "image/png" || icon.type === "image/jpeg")
+        ? icon
+        : null;
+    apple.setAttribute(
+      "href",
+      own ? own.src : `${route}${STUDIO_ICON_PATHS[180]}`,
+    );
+    apple.setAttribute("sizes", own ? own.sizes : "180x180");
+  }
+}
 
 /**
  * Make the Studio at `/val` installable: link the manifest and the iOS tags,
@@ -93,8 +188,10 @@ let started = false;
 export function startStudioApp(apiRoute: string): void {
   if (started || typeof window === "undefined") return;
   started = true;
+  route = apiRoute;
 
   addHeadElements(apiRoute);
+  applyIcon();
 
   if ("serviceWorker" in navigator && window.isSecureContext) {
     navigator.serviceWorker
@@ -150,7 +247,7 @@ function addHeadElements(apiRoute: string) {
     el.content = content;
     elements.push(el);
   };
-  link("manifest", `${apiRoute}${STUDIO_MANIFEST_PATH}`);
+  link("manifest", studioManifestUrl(apiRoute, null));
   link("apple-touch-icon", `${apiRoute}${STUDIO_ICON_PATHS[180]}`, "180x180");
   meta("apple-mobile-web-app-capable", "yes");
   meta("mobile-web-app-capable", "yes");

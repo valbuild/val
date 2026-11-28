@@ -2,7 +2,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { AccountPanel } from "./AccountPanel";
 import type { StudioInstall } from "../../studioApp/studioApp";
-import { isIosSafari } from "../../studioApp/studioApp";
+import { isIosSafari, studioAppIconOf } from "../../studioApp/studioApp";
+import { readThemeSettings } from "../../hooks/themeSettings";
 
 /**
  * Putting the Studio on the home screen, from the account panel: the panel
@@ -92,5 +93,73 @@ describe("isIosSafari", () => {
         ),
       ),
     ).toBe(false);
+  });
+});
+
+describe("the project's logo as the app's icon", () => {
+  const logo = { path: "/public/val/brand/mark_a1b2c.png", alt: null };
+  const png = { width: 512, height: 512, mimeType: "image/png" };
+  const published = new Map<string, string>();
+
+  test("a published, square mark big enough to install with", () => {
+    expect(studioAppIconOf(logo, png, published)).toEqual({
+      src: "/val/brand/mark_a1b2c.png",
+      type: "image/png",
+      sizes: "512x512",
+    });
+  });
+
+  test("an SVG is any size", () => {
+    expect(
+      studioAppIconOf(
+        { path: "/public/val/brand/mark.svg", alt: null },
+        { mimeType: "image/svg+xml" },
+        published,
+      ),
+    ).toMatchObject({ type: "image/svg+xml", sizes: "any" });
+  });
+
+  test("a remote logo is its own URL", () => {
+    const path = "https://remote.val.build/file/p/x/mark.png";
+    expect(studioAppIconOf({ path, alt: null }, png, published)?.src).toBe(
+      path,
+    );
+  });
+
+  test("keeps Val's for a logo it could not stand on a home screen", () => {
+    // Only this session can read a logo that is not published yet.
+    expect(
+      studioAppIconOf(logo, png, new Map([[logo.path, "patch-1"]])),
+    ).toBeNull();
+    // A wordmark.
+    expect(
+      studioAppIconOf(logo, { ...png, width: 800, height: 200 }, published),
+    ).toBeNull();
+    // Too small for the browser to offer to install it.
+    expect(
+      studioAppIconOf(logo, { ...png, width: 64, height: 64 }, published),
+    ).toBeNull();
+    // Dimensions never read from the bytes.
+    expect(
+      studioAppIconOf(logo, { mimeType: "image/png" }, published),
+    ).toBeNull();
+    expect(studioAppIconOf(null, png, published)).toBeNull();
+  });
+});
+
+describe("readThemeSettings, for the app icon", () => {
+  test("keeps what was read from the logo's bytes beside it", () => {
+    expect(
+      readThemeSettings({
+        theme: {
+          logo: {
+            path: "/public/val/brand/mark_a1b2c.png",
+            width: 512,
+            height: 512,
+            mimeType: "image/png",
+          },
+        },
+      }).logoImage,
+    ).toEqual({ width: 512, height: 512, mimeType: "image/png" });
   });
 });

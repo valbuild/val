@@ -140,6 +140,10 @@ export type ThemeSettingsSource = {
    * A square-ish mark rather than a wordmark, because the slot it goes in is
    * 32px wide. A wide image is contained rather than cropped, so nothing is
    * cut off — it is simply small.
+   *
+   * Also the icon of the Studio added to a home screen, once it is published
+   * and when it can be one: an SVG, or a square PNG, JPEG or WebP of at least
+   * 144 pixels. Otherwise that icon stays Val's (`studioAppIconOf` in the UI).
    */
   logo?: ImageSource | null;
 };

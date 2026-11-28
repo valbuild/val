@@ -4,6 +4,7 @@ import {
   STUDIO_MANIFEST_PATH,
   STUDIO_SERVICE_WORKER_PATH,
   STUDIO_SERVICE_WORKER_SOURCE,
+  studioAppIconFromQuery,
   studioManifest,
   ValServerGenericResult,
 } from "@valbuild/shared/internal";
@@ -39,7 +40,13 @@ export function serveStudioAppFile(
         "Content-Type": "application/manifest+json; charset=utf-8",
         "Cache-Control": "public, max-age=3600",
       },
-      body: JSON.stringify(studioManifest(url.host, route)),
+      body: JSON.stringify(
+        studioManifest(
+          url.host,
+          route,
+          studioAppIconFromQuery(url.searchParams),
+        ),
+      ),
     };
   }
   if (path === STUDIO_SERVICE_WORKER_PATH) {

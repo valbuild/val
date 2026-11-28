@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { setStudioAppIcon, studioAppIconOf } from "../../studioApp/studioApp";
+import { useEffect, useMemo } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { localeOfModuleRoot, localeScopeAt } from "@valbuild/shared/internal";
 import { useNavMenuData } from "../NavMenu/useNavMenuData";
@@ -181,6 +182,16 @@ export function useShellData(): ShellDataState {
    */
   const themeSettings = useThemeSettings();
   const filePatchIds = useFilePatchIds();
+  // The same logo as the home-screen app's icon, where it can be one.
+  useEffect(() => {
+    setStudioAppIcon(
+      studioAppIconOf(
+        themeSettings.logo,
+        themeSettings.logoImage,
+        filePatchIds,
+      ),
+    );
+  }, [themeSettings.logo, themeSettings.logoImage, filePatchIds]);
   /*
    * In a proposal the branch is the proposal's: its changes and saves are on
    * it, never on the site's, and the status bar should not say otherwise.

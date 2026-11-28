@@ -26,7 +26,21 @@ export type ThemeSettings = {
    * Resolving it here would mean this function reading two stores instead of
    * being a pure read of one module's source.
    */
-  logo: { path: string; alt: string | null } | null;
+  logo: ThemeLogo | null;
+  /**
+   * What was read from the logo's bytes, when there is a logo and any of it
+   * was. Not needed to draw it in the rail -- see `logo` -- but it decides
+   * whether the logo can be the Studio's app icon (`studioAppIconOf`).
+   */
+  logoImage?: ThemeLogoImage;
+};
+
+export type ThemeLogo = { path: string; alt: string | null };
+
+export type ThemeLogoImage = {
+  width?: number;
+  height?: number;
+  mimeType?: string;
 };
 
 export const NO_THEME_SETTINGS: ThemeSettings = {
@@ -61,6 +75,7 @@ export function readThemeSettings(source: Json | undefined): ThemeSettings {
     radius: radiusOrNull(theme["radius"]),
     mode: modeOrNull(theme["mode"]),
     logo: logoOrNull(theme["logo"]),
+    ...logoImageOf(theme["logo"]),
   };
 }
 
@@ -69,12 +84,11 @@ export function readThemeSettings(source: Json | undefined): ThemeSettings {
  *
  * `path` is the only field required: a media value is `{ path, ... }` and
  * everything else on it — the dimensions, the mime type — was read from the
- * bytes and is not needed to draw it in a 32px box. An entry with no path is
- * not a half-usable logo, it is a `<img src="undefined">`.
+ * bytes and is not needed to draw it in a 32px box (see `logoImageOf` for
+ * where it is). An entry with no path is not a half-usable logo, it is a
+ * `<img src="undefined">`.
  */
-function logoOrNull(
-  value: Json | undefined,
-): { path: string; alt: string | null } | null {
+function logoOrNull(value: Json | undefined): ThemeLogo | null {
   if (typeof value !== "object" || value === null || isJsonArray(value)) {
     return null;
   }
@@ -83,6 +97,29 @@ function logoOrNull(
     return null;
   }
   return { path, alt: nonEmptyString(value["alt"]) };
+}
+
+/**
+ * `{ logoImage }` when the logo has a path and well-formed dimensions or a
+ * type, and nothing at all otherwise: absent rather than empty, so a theme
+ * without one reads the same as it always has.
+ */
+function logoImageOf(
+  value: Json | undefined,
+): { logoImage: ThemeLogoImage } | Record<string, never> {
+  if (logoOrNull(value) === null) return {};
+  if (typeof value !== "object" || value === null || isJsonArray(value)) {
+    return {};
+  }
+  const width = value["width"];
+  const height = value["height"];
+  const mimeType = value["mimeType"];
+  const logoImage: ThemeLogoImage = {
+    ...(typeof width === "number" && width > 0 ? { width } : {}),
+    ...(typeof height === "number" && height > 0 ? { height } : {}),
+    ...(typeof mimeType === "string" && mimeType !== "" ? { mimeType } : {}),
+  };
+  return Object.keys(logoImage).length > 0 ? { logoImage } : {};
 }
 
 function nonEmptyString(value: Json | undefined): string | null {

@@ -46,11 +46,57 @@ export const STUDIO_ICON_PATHS: Record<180 | 192 | 512, string> = {
 export const STUDIO_APP_BACKGROUND = "#08080a";
 
 /**
- * The manifest, for a Studio served at `host` with its API at `apiRoute`.
+ * The project's own mark as the app's icon: `s.settings()`'s `theme.logo`,
+ * when it can be one (the Studio decides, in `studioAppIconOf`).
  *
- * `id` is the scope, so reinstalling (or a new Val version) is the same app
- * rather than a second icon.
+ * It reaches the manifest as query parameters on the manifest's URL rather
+ * than by the server reading the settings module: the Studio already has the
+ * logo resolved, and the manifest is then about the same logo the rail shows.
  */
+export type StudioAppIcon = {
+  /** Where the browser fetches it: a path on this origin, or `https:`. */
+  src: string;
+  /** `image/png`, `image/jpeg`, `image/webp` or `image/svg+xml`. */
+  type: string;
+  /** `"512x512"`, or `"any"` for an SVG. */
+  sizes: string;
+};
+
+const ICON_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+
+/** The manifest's URL, carrying the project's icon when it has one. */
+export function studioManifestUrl(
+  apiRoute: string,
+  icon: StudioAppIcon | null,
+): string {
+  const base = `${apiRoute}${STUDIO_MANIFEST_PATH}`;
+  if (icon === null) return base;
+  const params = new URLSearchParams({
+    icon: icon.src,
+    type: icon.type,
+    sizes: icon.sizes,
+  });
+  return `${base}?${params.toString()}`;
+}
+
+/**
+ * The icon a manifest URL carries, or `null` when it carries none or one that
+ * is not an image URL a manifest may name: anyone can write a query string.
+ */
+export function studioAppIconFromQuery(
+  params: URLSearchParams,
+): StudioAppIcon | null {
+  const src = params.get("icon");
+  const type = params.get("type");
+  const sizes = params.get("sizes");
+  if (src === null || type === null || sizes === null) return null;
+  const sameOrigin = src.startsWith("/") && !src.startsWith("//");
+  if (!sameOrigin && !src.startsWith("https://")) return null;
+  if (!ICON_TYPES.includes(type)) return null;
+  if (!/^(\d{1,5}x\d{1,5}|any)$/.test(sizes)) return null;
+  return { src, type, sizes };
+}
+
 export type StudioManifest = {
   id: string;
   name: string;
@@ -64,7 +110,21 @@ export type StudioManifest = {
   icons: { src: string; sizes: string; type: string; purpose?: "maskable" }[];
 };
 
-export function studioManifest(host: string, apiRoute: string): StudioManifest {
+/**
+ * The manifest, for a Studio served at `host` with its API at `apiRoute`.
+ *
+ * `id` is the scope, so reinstalling (or a new Val version) is the same app
+ * rather than a second icon.
+ *
+ * With the project's icon, that icon ALONE: a browser picks whichever listed
+ * icon is nearest the size it wants, so listing Val's beside it would put
+ * Val's on the home screen about as often as the project's.
+ */
+export function studioManifest(
+  host: string,
+  apiRoute: string,
+  icon: StudioAppIcon | null = null,
+): StudioManifest {
   return {
     id: STUDIO_APP_SCOPE,
     name: `Val · ${host}`,
@@ -75,26 +135,28 @@ export function studioManifest(host: string, apiRoute: string): StudioManifest {
     display: "standalone",
     background_color: STUDIO_APP_BACKGROUND,
     theme_color: STUDIO_APP_BACKGROUND,
-    icons: [
-      {
-        src: `${apiRoute}${STUDIO_ICON_PATHS[192]}`,
-        sizes: "192x192",
-        type: "image/png",
-      },
-      {
-        src: `${apiRoute}${STUDIO_ICON_PATHS[512]}`,
-        sizes: "512x512",
-        type: "image/png",
-      },
-      // The mark sits well inside the circle a launcher crops a maskable icon
-      // to, so the same file serves both purposes.
-      {
-        src: `${apiRoute}${STUDIO_ICON_PATHS[512]}`,
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
-    ],
+    icons: icon
+      ? [{ src: icon.src, sizes: icon.sizes, type: icon.type }]
+      : [
+          {
+            src: `${apiRoute}${STUDIO_ICON_PATHS[192]}`,
+            sizes: "192x192",
+            type: "image/png",
+          },
+          {
+            src: `${apiRoute}${STUDIO_ICON_PATHS[512]}`,
+            sizes: "512x512",
+            type: "image/png",
+          },
+          // The mark sits well inside the circle a launcher crops a maskable
+          // icon to, so the same file serves both purposes.
+          {
+            src: `${apiRoute}${STUDIO_ICON_PATHS[512]}`,
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
+        ],
   };
 }
 

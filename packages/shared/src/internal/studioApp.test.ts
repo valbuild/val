@@ -1,7 +1,9 @@
 import {
   STUDIO_APP_SCOPE,
   STUDIO_SERVICE_WORKER_SOURCE,
+  studioAppIconFromQuery,
   studioManifest,
+  studioManifestUrl,
 } from "./studioApp";
 
 /**
@@ -183,5 +185,41 @@ describe("the Studio's manifest", () => {
     expect(
       manifest.icons.every((icon) => icon.src.startsWith("/api/val/")),
     ).toBe(true);
+  });
+});
+
+describe("the project's icon in the manifest", () => {
+  const icon = {
+    src: "/val/brand/mark_a1b2c.png",
+    type: "image/png",
+    sizes: "512x512",
+  };
+
+  test("travels on the manifest's URL and back", () => {
+    const url = new URL(
+      studioManifestUrl("/api/val", icon),
+      "https://site.example",
+    );
+    expect(url.pathname).toBe("/api/val/manifest.webmanifest");
+    expect(studioAppIconFromQuery(url.searchParams)).toEqual(icon);
+  });
+
+  test("is the only icon, so the browser cannot pick Val's instead", () => {
+    expect(studioManifest("site.example", "/api/val", icon).icons).toEqual([
+      icon,
+    ]);
+  });
+
+  test("is refused when it is not an image URL a manifest may name", () => {
+    const query = (fields: Record<string, string>) =>
+      studioAppIconFromQuery(
+        new URLSearchParams({ ...icon, icon: icon.src, ...fields }),
+      );
+    expect(query({ icon: "//evil.example/x.png" })).toBeNull();
+    expect(query({ icon: "http://evil.example/x.png" })).toBeNull();
+    expect(query({ icon: "javascript:alert(1)" })).toBeNull();
+    expect(query({ type: "text/html" })).toBeNull();
+    expect(query({ sizes: "big" })).toBeNull();
+    expect(query({ icon: "https://remote.val.build/x.png" })).not.toBeNull();
   });
 });
