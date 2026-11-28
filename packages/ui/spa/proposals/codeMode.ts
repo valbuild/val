@@ -128,6 +128,20 @@ export function withCodeModeParam(url: string): string {
   return next.href;
 }
 
+/**
+ * `url`, with the assistant open on its conversation (`?panel=ai`) when it
+ * names one (`?session=`). The `</>` menu goes to a proposal in code mode
+ * with the conversation that asked for it; the proposal's address is another
+ * origin, which has no memory of the assistant being open, so without this
+ * the person arrived with the conversation closed and had to find it.
+ */
+export function withConversationOpen(url: string): string {
+  const next = new URL(url);
+  if (next.searchParams.get("session") === null) return url;
+  next.searchParams.set("panel", "ai");
+  return next.href;
+}
+
 /** Whether `url` asks for code mode. */
 export function asksForCodeMode(url: string): boolean {
   return new URL(url).searchParams.get(CODE_MODE_PARAM) === "on";

@@ -993,7 +993,8 @@ const ShellFrame = memo(function ShellFrame({
   }, [openPanel]);
   /** Whether the assistant is on screen: in its place, or in front on a phone. */
   const assistantOpen =
-    breakpoint === "mobile" ? chatOpen && phonePane === "chat" : chatOpen;
+    aiEnabled &&
+    (breakpoint === "mobile" ? chatOpen && phonePane === "chat" : chatOpen);
   /*
    * Dismissed floating notices, by id. In memory: a reload shows them again,
    * which is what a reload is for, and a notice with new words has a new id.
@@ -1330,12 +1331,18 @@ const ShellFrame = memo(function ShellFrame({
   // Same rule for the assistant, which is not a destination but is just as
   // absent: a `?panel=ai` link into a project without one would otherwise
   // restore an empty panel that nothing can fill.
+  //
+  // Not by closing it: `aiEnabled` is false until the Studio is connected,
+  // too, so closing it here closed every `?panel=ai` link -- and the
+  // conversation the `</>` menu carries to a proposal -- before the Studio
+  // knew there WAS an assistant. Open stays what the person asked for, and
+  // the assistant is shown while there is one (`assistantOpen`, the layout's
+  // `aiEnabled && chatOpen`).
   useEffect(() => {
     if (openPanel === "ai" && !aiEnabled) {
       setOpenPanel(null);
     }
-    if (chatOpen && !aiEnabled) setChatOpen(false);
-  }, [openPanel, chatOpen, aiEnabled, setOpenPanel]);
+  }, [openPanel, aiEnabled, setOpenPanel]);
   // The phone's own sheets. Above a phone the switcher, the proposal's menu and
   // the top bar's buttons are those things, so a sheet left open across a
   // resize - or restored from a link - would be a second copy of them.
@@ -1883,8 +1890,8 @@ const ShellFrame = memo(function ShellFrame({
   ]);
   // A pane that opens is the one in use.
   useEffect(() => {
-    if (chatOpen) usePane("chat");
-  }, [chatOpen, usePane]);
+    if (aiEnabled && chatOpen) usePane("chat");
+  }, [aiEnabled, chatOpen, usePane]);
   useEffect(() => {
     if (contentOpen) usePane("content");
   }, [contentOpen, usePane]);

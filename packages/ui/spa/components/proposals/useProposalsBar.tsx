@@ -97,6 +97,7 @@ import {
   setCodeModeBusy,
   useCodeModeState,
   withCodeModeParam,
+  withConversationOpen,
   withoutCodeModeParam,
 } from "../../proposals/codeMode";
 import {
@@ -368,8 +369,11 @@ export function useProposalsBar({
   const go = useCallback((origin: string, to?: string, inCodeMode = false) => {
     if (to !== undefined) setLeaving(to);
     const target = sameStudioPageAt(origin, window.location);
-    // The `</>` menu: the proposal's Studio turns code mode on there.
-    window.location.assign(inCodeMode ? withCodeModeParam(target) : target);
+    // The `</>` menu: the proposal's Studio turns code mode on there, with
+    // the conversation that asked for it open.
+    window.location.assign(
+      inCodeMode ? withConversationOpen(withCodeModeParam(target)) : target,
+    );
   }, []);
 
   const failed = useCallback(

@@ -603,6 +603,17 @@ function mockOf(target: HttpTarget) {
      * a queue of their own, so they never take a turn queued for the chat.
      * Nothing queued, a hidden prompt is answered with a message saying so.
      */
+    /**
+     * The address `name` is served at, as home answers once it is made:
+     * the Studio goes there to open it. Unset, proposals have none.
+     */
+    async proposalAddress(name: string, address: string): Promise<void> {
+      await control(target, "proposal-address", {
+        method: "POST",
+        body: { name, address },
+      });
+    },
+
     async hiddenScript(script: AiScript): Promise<void> {
       await control(target, "ai-hidden-script", {
         method: "POST",

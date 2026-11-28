@@ -141,6 +141,8 @@ const needsTanstackApp =
  */
 const needsHttpApp =
   willRun("chromium-http") ||
+  // `codeModeFromSite.spec.ts` starts on the site and ends in the proposal.
+  willRun("chromium-proposal") ||
   willRun("tanstack-http") ||
   willRun("http-warmup") ||
   (webkitRequested &&

@@ -1272,7 +1272,15 @@ export function useAI(
     setAssistantWorking(isStreaming);
     return () => setAssistantWorking(false);
   }, [isStreaming]);
-  const [isLoadingSession, setIsLoadingSession] = useState(false);
+  /*
+   * A chat opened on a conversation (`?session=`, as the `</>` menu takes
+   * one to a proposal) is loading it from the first render: the load waits
+   * for the assistant to connect, and until then an empty chat with its
+   * suggestions said the conversation was gone, then filled in.
+   */
+  const [isLoadingSession, setIsLoadingSession] = useState(
+    () => opts?.initialSessionId != null,
+  );
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);

@@ -3,6 +3,7 @@ import {
   codeModeNow,
   codeModeOffMessage,
   withCodeModeParam,
+  withConversationOpen,
   withoutCodeModeParam,
 } from "./codeMode";
 import { commitRefusalOf, ProposalsApiError } from "./proposalsClient";
@@ -70,6 +71,20 @@ describe("the code mode parameter", () => {
       "https://p.example.com/val/~/home?session=s1",
     );
     expect(asksForCodeMode("https://p.example.com/val")).toBe(false);
+  });
+});
+
+describe("a conversation taken to code mode", () => {
+  test("opens the assistant on it there", () => {
+    expect(
+      withConversationOpen("https://p.example.com/val/~/home?session=s1"),
+    ).toBe("https://p.example.com/val/~/home?session=s1&panel=ai");
+  });
+
+  test("leaves an address with no conversation as it is", () => {
+    expect(withConversationOpen("https://p.example.com/val/~/home")).toBe(
+      "https://p.example.com/val/~/home",
+    );
   });
 });
 

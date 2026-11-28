@@ -472,6 +472,12 @@ type State = {
   aiImages: Map<string, MockAiImage>;
   /** Chat sessions, as `/ai/sessions` reports them. */
   aiSessions: Map<string, MockAiSession>;
+  /**
+   * The address a proposal is served at, where a test gave it one
+   * (`mock.proposalAddress`): the proposal app's, so the Studio can go
+   * there. Otherwise `null`, as home answers while one is being made.
+   */
+  proposalAddresses: Map<string, string>;
   /** Queued turns of the chat: one is consumed by each visible `ai_prompt`. */
   aiScripts: AiScript[];
   /**
@@ -571,6 +577,7 @@ function emptyState(): State {
     aiSessions: new Map(),
     aiScripts: [],
     aiHiddenScripts: [],
+    proposalAddresses: new Map(),
     aiPrompts: [],
     aiToolCalls: [],
     aiOffline: false,
@@ -3282,7 +3289,7 @@ function proposalJson(proposal: MockProposal, read = false) {
     status: proposal.status,
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,
-    address: null,
+    address: state.proposalAddresses.get(proposal.name) ?? null,
     changes: patchesOn(proposal.branch).filter((patch) => !patch.applied)
       .length,
     kind: "editor",
@@ -4897,6 +4904,20 @@ const controlPlane: Handler = async (req, res, url) => {
     }
     state.aiScripts.push(body);
     json(res, 200, { queued: state.aiScripts.length });
+    return;
+  }
+  if (action === "proposal-address" && req.method === "POST") {
+    const body = await readJsonBody<{ name?: string; address?: string }>(req);
+    if (
+      !body ||
+      typeof body.name !== "string" ||
+      typeof body.address !== "string"
+    ) {
+      json(res, 400, { message: "name and address are required" });
+      return;
+    }
+    state.proposalAddresses.set(body.name, body.address);
+    json(res, 200, { ok: true });
     return;
   }
   if (action === "ai-hidden-script" && req.method === "POST") {
