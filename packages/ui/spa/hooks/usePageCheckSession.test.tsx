@@ -89,7 +89,15 @@ const page: Pick<AssistantPage, "readPage" | "readPageLog"> = {
   readPageLog: () => null,
 };
 
-function render(ws = socket(), withPage = true, staged = STAGED) {
+function render(
+  ws = socket(),
+  withPage = true,
+  staged = STAGED,
+  code: {
+    files?: Record<string, string | null>;
+    site?: Record<string, string>;
+  } = {},
+) {
   const hook = renderHook(() =>
     usePageCheckSession({
       sendWsMessage: ws.send,
@@ -101,11 +109,11 @@ function render(ws = socket(), withPage = true, staged = STAGED) {
       proposals: {
         get: async () => ({ ...proposal, staged }),
         files: async () => ({
-          files: { "src/Hero.tsx": "<h1>Spring</h1>" },
+          files: code.files ?? { "src/Hero.tsx": "<h1>Spring</h1>" },
           staged: STAGED,
         }),
       },
-      siteSource: async () => ({}),
+      siteSource: async () => code.site ?? {},
     }),
   );
   return { ws, hook };
@@ -496,5 +504,94 @@ describe("a page check of a change the preview does not show", () => {
     expect(prompt?.message).toContain(
       "The page in the preview is the site's build, which has these files.",
     );
+  });
+});
+
+/**
+ * G2 in `docs/handoff/code-mode-test-rig-plan.md`: a change a quick preview
+ * cannot show, decided by the product from what is staged, not by the model.
+ *
+ * A quick preview runs the change's code for the browser in the last build.
+ * The last build's server is the one answering, so a route the change adds
+ * is not served (its link goes to a 404), one it removes still is, and a
+ * dependency it adds is in no layer the page can load. The page in front is
+ * then not the change, whatever it shows, and a model asked to judge it
+ * passes or fails something nobody can see yet.
+ *
+ * KNOWN GAP, as `test.failing`: the page check asks the model today. Turn
+ * these into `test` once the product decides them.
+ */
+describe("a page check of a change a quick preview cannot show (G2)", () => {
+  const BUILD_REQUIRED = { ...STAGED, buildRequired: true };
+  const SITE = {
+    "package.json": `{ "dependencies": { "react": "^19.2.8" } }\n`,
+    "src/routes/index.tsx": "export const Route = {};\n",
+    "src/routes/about.tsx": "export const Route = {};\n",
+  };
+  let unregister: () => void = () => {};
+  beforeEach(() => {
+    setStagedPreview(null);
+    resetPageCheck();
+    resetBackgroundLint();
+    resetProposalTypecheck();
+    unregister = setQuickPreviewRunner(async () => ({
+      status: "shown",
+      ms: 0,
+      timings: [],
+    }));
+  });
+  afterEach(() => unregister());
+
+  /** The check, once the quick preview of the staged files is in front. */
+  async function checkOf(files: Record<string, string | null>) {
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED, {
+      files,
+      site: SITE,
+    });
+    hook.result.current.verify(null);
+    await flush();
+    act(() => setStagedPreview({ inputs: INPUTS, status: "shown" }));
+    await flush();
+    return { ws, check: pageCheckOf(NAME) };
+  }
+
+  test.failing.each([
+    [
+      "a route it adds",
+      {
+        "src/routes/pricing.tsx": "export const Route = {};\n",
+        "src/routes/index.tsx": "export const Route = { pricing: true };\n",
+      },
+    ],
+    ["a route it removes", { "src/routes/about.tsx": null }],
+    [
+      "a dependency it adds",
+      {
+        "package.json": `{ "dependencies": { "react": "^19.2.8", "date-fns": "^4.1.0" } }\n`,
+      },
+    ],
+  ])(
+    "%s: blocked, by the product, with a Build as the way to see it",
+    async (_kind, files) => {
+      const { ws, check } = await checkOf(files);
+      // No model is asked to judge a page the change is not on...
+      expect(ws.prompts()).toHaveLength(0);
+      // ...and the person and the assistant are told it needs a Build.
+      expect(check).toMatchObject({
+        status: "done",
+        report: { status: "blocked", findings: [] },
+      });
+      expect(check.status === "done" ? check.report.summary : "").toMatch(
+        /built|Build/,
+      );
+    },
+  );
+
+  test("a change to a component, with the same quick preview, is checked on the page", async () => {
+    // The control: it is the kind of change, not the quick preview, that blocks.
+    const { ws } = await checkOf({
+      "src/components/Hero.tsx": "<h1>Spring</h1>",
+    });
+    expect(ws.prompts()).toHaveLength(1);
   });
 });
