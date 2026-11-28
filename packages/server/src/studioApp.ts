@@ -1,9 +1,9 @@
 import {
-  STUDIO_APP_SCOPE,
   STUDIO_ICON_PATHS,
   STUDIO_MANIFEST_PATH,
   STUDIO_SERVICE_WORKER_PATH,
   STUDIO_SERVICE_WORKER_SOURCE,
+  STUDIO_WORKER_SCOPE,
   studioAppIconFromQuery,
   studioManifest,
   ValServerGenericResult,
@@ -55,7 +55,7 @@ export function serveStudioAppFile(
       headers: {
         "Content-Type": "text/javascript; charset=utf-8",
         // Served under the API route, controlling the Studio's route.
-        "Service-Worker-Allowed": STUDIO_APP_SCOPE,
+        "Service-Worker-Allowed": STUDIO_WORKER_SCOPE,
         "Cache-Control": "no-cache",
       },
       body: STUDIO_SERVICE_WORKER_SOURCE,

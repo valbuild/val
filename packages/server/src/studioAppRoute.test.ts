@@ -60,7 +60,7 @@ describe("the Studio app's files", () => {
     expect(JSON.parse(res.body)).toMatchObject({
       name: "Val · www.example.com",
       scope: "/val",
-      start_url: "/val",
+      start_url: "/val/~",
       display: "standalone",
     });
   });
@@ -68,8 +68,9 @@ describe("the Studio app's files", () => {
   test("the worker may control the Studio's route from under the API's", async () => {
     const res = await get("/studio-sw.js");
     expect(res.status).toBe(200);
+    // With the slash: `/val` would take `/val-preview` from the preview's worker.
     expect("headers" in res && res.headers?.["Service-Worker-Allowed"]).toBe(
-      "/val",
+      "/val/",
     );
   });
 

@@ -1,6 +1,6 @@
 import {
-  STUDIO_APP_SCOPE,
   STUDIO_SERVICE_WORKER_SOURCE,
+  STUDIO_START_URL,
   studioAppIconFromQuery,
   studioManifest,
   studioManifestUrl,
@@ -19,7 +19,7 @@ type FakeFetchEvent = {
   respondWith: (response: Promise<Response>) => void;
 };
 
-function fakeCaches() {
+function fakeCaches(failWrites: boolean) {
   const stores = new Map<string, Map<string, Response>>();
   const keyOf = (request: Request | string) =>
     typeof request === "string" ? new URL(request, ORIGIN).href : request.url;
@@ -32,6 +32,12 @@ function fakeCaches() {
         match: async (request: Request | string) =>
           store.get(keyOf(request))?.clone(),
         put: async (request: Request | string, response: Response) => {
+          if (failWrites) {
+            throw new DOMException(
+              "The quota has been exceeded.",
+              "QuotaExceededError",
+            );
+          }
           store.set(keyOf(request), response);
         },
         keys: async () => [...store.keys()].map((url) => new Request(url)),
@@ -43,10 +49,14 @@ function fakeCaches() {
 
 const ORIGIN = "https://site.example";
 
-function load(network: (request: Request) => Promise<Response>) {
+function load(
+  network: (request: Request) => Promise<Response>,
+  options: { failWrites?: boolean } = {},
+) {
   const listeners: Record<string, (event: FakeFetchEvent) => void> = {};
   const self = {
-    location: { origin: ORIGIN },
+    // Where the API route serves it: the worker reads the route from here.
+    location: { origin: ORIGIN, pathname: "/api/val/studio-sw.js" },
     skipWaiting: () => undefined,
     clients: { claim: async () => undefined },
     addEventListener: (
@@ -56,7 +66,7 @@ function load(network: (request: Request) => Promise<Response>) {
       listeners[type] = listener;
     },
   };
-  const caches = fakeCaches();
+  const caches = fakeCaches(options.failWrites ?? false);
   const calls: string[] = [];
   const fetch = (request: Request) => {
     calls.push(new URL(request.url).pathname);
@@ -149,10 +159,10 @@ describe("the Studio's service worker", () => {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     });
-    const live = await sw.request(STUDIO_APP_SCOPE, { navigate: true });
+    const live = await sw.request(STUDIO_START_URL, { navigate: true });
     expect(await live?.text()).toBe("<html>studio</html>");
     online = false;
-    const offline = await sw.request(`${STUDIO_APP_SCOPE}/~/content`, {
+    const offline = await sw.request("/val/~/content", {
       navigate: true,
     });
     expect(await offline?.text()).toBe("<html>studio</html>");
@@ -166,8 +176,45 @@ describe("the Studio's service worker", () => {
       Object.defineProperty(res, "redirected", { value: true });
       return res;
     });
-    await sw.request(STUDIO_APP_SCOPE, { navigate: true });
+    await sw.request(STUDIO_START_URL, { navigate: true });
     expect(sw.caches.stores.get("val-studio-page")?.size ?? 0).toBe(0);
+  });
+  test("caches only the Studio's own files, not another response under /static/", async () => {
+    const sw = load(async () => immutable("x"));
+    expect(
+      sw.request("/api/val/modules/~/content/static/1.2.3/page.val.ts"),
+    ).toBeNull();
+    expect(sw.request("/static/1.2.3/app.js")).toBeNull();
+    expect(sw.request("/api/val/static/1.2.3/app")).not.toBeNull();
+  });
+
+  test("an older version's file stores without evicting the newer version", async () => {
+    // A tab still on the old Studio, fetching a file after the new one loaded.
+    const sw = load(async (request) => immutable(request.url));
+    await sw.request("/api/val/static/1.10.0/app");
+    await sw.request("/api/val/static/1.9.0/chunk.js");
+    const store = sw.caches.stores.get("val-studio-static");
+    expect([...(store?.keys() ?? [])]).toContain(
+      `${ORIGIN}/api/val/static/1.10.0/app`,
+    );
+  });
+
+  test("a full cache never costs the response the network gave", async () => {
+    const sw = load(async () => immutable("app"), { failWrites: true });
+    const res = await sw.request("/api/val/static/1.2.3/app");
+    expect(await res?.text()).toBe("app");
+  });
+
+  test("a page that loaded is served even when it cannot be stored", async () => {
+    const sw = load(
+      async () =>
+        new Response("<html>live</html>", {
+          headers: { "Content-Type": "text/html" },
+        }),
+      { failWrites: true },
+    );
+    const res = await sw.request(STUDIO_START_URL, { navigate: true });
+    expect(await res?.text()).toBe("<html>live</html>");
   });
 });
 
@@ -176,7 +223,7 @@ describe("the Studio's manifest", () => {
     const manifest = studioManifest("www.example.com", "/api/val");
     expect(manifest).toMatchObject({
       id: "/val",
-      start_url: "/val",
+      start_url: "/val/~",
       scope: "/val",
       display: "standalone",
       name: "Val · www.example.com",

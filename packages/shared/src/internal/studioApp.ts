@@ -21,8 +21,24 @@
  * projects on one phone are two icons that can be told apart.
  */
 
-/** The scope and start of the installed app: the Studio's route. */
+/** The scope of the installed app: the Studio's route. */
 export const STUDIO_APP_SCOPE = "/val";
+
+/**
+ * Where the installed app starts: the Studio's content view, which both
+ * framework bindings serve under `/val/`. Not `/val` itself, because the
+ * worker's scope is {@link STUDIO_WORKER_SCOPE} and a page is controlled by a
+ * worker only when it STARTS inside that scope.
+ */
+export const STUDIO_START_URL = "/val/~";
+
+/**
+ * The worker's scope: `/val/`, with the slash. A scope is a plain prefix, so
+ * `/val` would also take `/val-preview` -- the route the Components view
+ * renders each component through -- away from the quick preview's worker,
+ * which serves those frames their staged code (`quickPreview.ts`).
+ */
+export const STUDIO_WORKER_SCOPE = "/val/";
 
 /** Where Val's API serves the manifest: under `/api/val`. */
 export const STUDIO_MANIFEST_PATH = "/manifest.webmanifest";
@@ -130,7 +146,7 @@ export function studioManifest(
     name: `Val · ${host}`,
     short_name: "Val",
     description: `Edit the content of ${host}`,
-    start_url: STUDIO_APP_SCOPE,
+    start_url: STUDIO_START_URL,
     scope: STUDIO_APP_SCOPE,
     display: "standalone",
     background_color: STUDIO_APP_BACKGROUND,
@@ -168,14 +184,17 @@ export function studioManifest(
  * It does two things, and deliberately nothing else:
  *
  * 1. **The Studio's own files, cache first.** `/api/val/static/<version>/...`
- *    is what the server already marks `immutable`, and only a response that
- *    says so is stored. A new Val version is a new path, so nothing is ever
- *    stale; when a file of a new version is stored, every other version's is
- *    deleted. A path without a version (a dev server's) is never stored.
- * 2. **The `/val` document, network first.** Stored on every successful load
- *    and served only when the network fails, so an installed Studio opened
- *    offline starts and shows its own error with a way to retry, instead of
- *    the browser's.
+ *    (the API route read from the worker's own address, and nothing else
+ *    that merely contains `/static/`) is what the server already marks
+ *    `immutable`, and only a response that says so is stored. A new Val
+ *    version is a new path, so nothing is ever stale; storing a file of the
+ *    newest version drops older versions' files, and a file of an older one
+ *    drops nothing. A path without a version (a dev server's) is never
+ *    stored. Cache Storage is best effort throughout.
+ * 2. **The Studio's document, network first.** Stored on every successful
+ *    load and served only when the FETCH fails (never when storing does), so
+ *    an installed Studio opened offline starts and shows its own error with
+ *    a way to retry, instead of the browser's.
  *
  * CONTENT IS NEVER CACHED HERE. Sources, patches, schemas and the head go
  * through the Studio's client and its stores, which assume the server's
@@ -194,7 +213,13 @@ export const STUDIO_SERVICE_WORKER_SOURCE = `
 "use strict";
 const STATIC_CACHE = "val-studio-static";
 const PAGE_CACHE = "val-studio-page";
-const STATIC = /\\/static\\/(\\d+\\.\\d+\\.\\d+[^/]*)\\//;
+const PAGE_KEY = "${STUDIO_START_URL}";
+// Served at <api route>${STUDIO_SERVICE_WORKER_PATH}, so the API route is
+// read from the worker's own address rather than assumed.
+const STATIC_PREFIX =
+  self.location.pathname.slice(0, -"${STUDIO_SERVICE_WORKER_PATH}".length) +
+  "/static/";
+const VERSION = /^(\\d+)\\.(\\d+)\\.(\\d+)[^/]*$/;
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
@@ -210,42 +235,90 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(page(request));
     return;
   }
-  const version = url.pathname.match(STATIC);
+  const version = versionOf(url.pathname);
   if (version) {
-    event.respondWith(staticFile(request, version[1]));
+    event.respondWith(staticFile(request, version));
   }
 });
 
+/** The Studio version a path is a file of, or null when it is not one. */
+function versionOf(pathname) {
+  if (!pathname.startsWith(STATIC_PREFIX)) return null;
+  const segment = pathname.slice(STATIC_PREFIX.length).split("/")[0];
+  return VERSION.test(segment) ? segment : null;
+}
+
+function newer(a, b) {
+  const x = a.match(VERSION);
+  const y = b.match(VERSION);
+  for (let i = 1; i <= 3; i++) {
+    if (Number(x[i]) !== Number(y[i])) return Number(x[i]) > Number(y[i]);
+  }
+  return false;
+}
+
+// Storage is best effort: a full disk or a refused cache must never cost a
+// response the network delivered.
 async function staticFile(request, version) {
-  const cache = await caches.open(STATIC_CACHE);
-  const hit = await cache.match(request);
-  if (hit) return hit;
+  try {
+    const hit = await (await caches.open(STATIC_CACHE)).match(request);
+    if (hit) return hit;
+  } catch (error) {
+    // read past the cache
+  }
   const response = await fetch(request);
   const cacheControl = response.headers.get("Cache-Control") || "";
   if (response.ok && cacheControl.includes("immutable")) {
-    await cache.put(request, response.clone());
-    for (const key of await cache.keys()) {
-      const other = new URL(key.url).pathname.match(STATIC);
-      if (!other || other[1] !== version) await cache.delete(key);
+    try {
+      await store(request, response.clone(), version);
+    } catch (error) {
+      // served uncached
     }
   }
   return response;
 }
 
+/**
+ * Stored, and older versions dropped -- but only by the newest version. A tab
+ * still on an older Studio fetching one of its files must not evict the new
+ * one's, so a file of an older version is stored and drops nothing.
+ */
+async function store(request, response, version) {
+  const cache = await caches.open(STATIC_CACHE);
+  await cache.put(request, response);
+  const keys = await cache.keys();
+  const versions = keys
+    .map((key) => versionOf(new URL(key.url).pathname))
+    .filter((other) => other !== null);
+  if (versions.some((other) => newer(other, version))) return;
+  for (const key of keys) {
+    const other = versionOf(new URL(key.url).pathname);
+    if (other === null || newer(version, other)) await cache.delete(key);
+  }
+}
+
 async function page(request) {
+  let response;
   try {
-    const response = await fetch(request);
-    const type = response.headers.get("Content-Type") || "";
-    if (response.ok && !response.redirected && type.includes("text/html")) {
-      const cache = await caches.open(PAGE_CACHE);
-      await cache.put("${STUDIO_APP_SCOPE}", response.clone());
-    }
-    return response;
+    response = await fetch(request);
   } catch (error) {
-    const cache = await caches.open(PAGE_CACHE);
-    const hit = await cache.match("${STUDIO_APP_SCOPE}");
-    if (hit) return hit;
+    // Offline: the last Studio page, if there is one.
+    try {
+      const hit = await (await caches.open(PAGE_CACHE)).match(PAGE_KEY);
+      if (hit) return hit;
+    } catch (ignored) {
+      // no cache to fall back on
+    }
     throw error;
   }
+  const type = response.headers.get("Content-Type") || "";
+  if (response.ok && !response.redirected && type.includes("text/html")) {
+    try {
+      await (await caches.open(PAGE_CACHE)).put(PAGE_KEY, response.clone());
+    } catch (ignored) {
+      // served uncached
+    }
+  }
+  return response;
 }
 `;

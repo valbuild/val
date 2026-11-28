@@ -1,8 +1,8 @@
 import {
   STUDIO_APP_BACKGROUND,
-  STUDIO_APP_SCOPE,
   STUDIO_ICON_PATHS,
   STUDIO_SERVICE_WORKER_PATH,
+  STUDIO_WORKER_SCOPE,
   StudioAppIcon,
   studioManifestUrl,
 } from "@valbuild/shared/internal";
@@ -222,7 +222,7 @@ export function startStudioApp(apiRoute: string): void {
   ) {
     navigator.serviceWorker
       .register(`${apiRoute}${STUDIO_SERVICE_WORKER_PATH}`, {
-        scope: STUDIO_APP_SCOPE,
+        scope: STUDIO_WORKER_SCOPE,
       })
       .catch((error) => {
         // The Studio works the same without it, only slower to start.
@@ -241,11 +241,11 @@ export function startStudioApp(apiRoute: string): void {
     set({
       kind: "prompt",
       install: async () => {
+        // An offer can be used once, accepted or dismissed: the button goes
+        // until the browser makes another, which it does after a dismissal
+        // while the app is still installable.
+        set(NONE);
         await event.prompt();
-        const choice = await event.userChoice;
-        // The event can be used once; the browser fires another if it is
-        // still installable after a dismissal.
-        if (choice.outcome === "accepted") set(NONE);
       },
     });
   });
