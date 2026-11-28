@@ -2442,12 +2442,20 @@ function promptTextOf(message: unknown): string {
  * user attached and the mock resolves it, exactly as a model would after reading
  * the `[Attached images]` list.
  */
-function substituteImageKeys(args: unknown, imageKeys: string[]): unknown {
+function substituteImageKeys(
+  args: unknown,
+  imageKeys: string[],
+  renderId: string | null = null,
+): unknown {
   if (args === undefined) return args;
-  const filled = JSON.stringify(args).replace(
-    /\{\{imageKey:(\d+)\}\}/g,
-    (whole, index: string) => imageKeys[Number(index)] ?? whole,
-  );
+  const filled = JSON.stringify(args)
+    .replace(
+      /\{\{imageKey:(\d+)\}\}/g,
+      (whole, index: string) => imageKeys[Number(index)] ?? whole,
+    )
+    // The render id the turn's last tool answered with, as a model passes
+    // it on to `read_page`'s `at` (`proposals/renders.ts` in the Studio).
+    .replace(/\{\{renderId\}\}/g, (whole) => renderId ?? whole);
   return JSON.parse(filled);
 }
 
@@ -2517,6 +2525,8 @@ async function playAiTurn(
         : "No script was queued for this turn.",
   };
   let timedSteps = 0;
+  /** The last `renderId` a tool of this turn answered with. */
+  let lastRenderId: string | null = null;
   for (const step of script.steps) {
     if (step.type === "text") {
       send({ type: "ai_streaming", id: messageId, chunk: step.text });
@@ -2538,7 +2548,11 @@ async function playAiTurn(
       continue;
     }
     const toolCallId = randomUUID();
-    const args = substituteImageKeys(step.arguments ?? {}, imageKeys);
+    const args = substituteImageKeys(
+      step.arguments ?? {},
+      imageKeys,
+      lastRenderId,
+    );
     const answered = new Promise<{ result: unknown; isError: boolean }>(
       (resolve) => {
         pendingToolResults.set(toolCallId, resolve);
@@ -2605,6 +2619,8 @@ async function playAiTurn(
       isError: answer.isError,
       hidden: prompt.hidden === true,
     });
+    const renderId: unknown = Reflect.get(Object(answer.result), "renderId");
+    if (typeof renderId === "string") lastRenderId = renderId;
   }
   /**
    * Stream the reply, then close the turn — in that order, as the real service

@@ -25,6 +25,7 @@ const WHAT: Record<CanvasRequest, string> = {
     "say what went wrong on it (its console errors and failed requests)",
   quickPreview: "show a quick preview",
   editInline: "be edited in place",
+  render: "say which change it shows",
   "interact:settle":
     "be used from the Studio (opened at another path, or resized and read again)",
   "interact:click": "be clicked from the Studio",

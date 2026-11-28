@@ -1003,6 +1003,8 @@ export function isValCanvasPageMessage(
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "pageLogRead" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "rendered" &&
+      typeof Reflect.get(Object(data), "id") === "string") ||
     (message.type === "interacted" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&

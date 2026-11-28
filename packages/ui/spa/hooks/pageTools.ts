@@ -12,6 +12,7 @@ import type {
   PageSnapshot,
   PickedElement,
 } from "@valbuild/shared/internal";
+import { rendersAtLeast } from "@valbuild/shared/internal";
 import type { AITool } from "./useAIWebSocket";
 import type {
   PageInteractor,
@@ -32,6 +33,12 @@ import type { CanvasDevice } from "../components/shell/canvas/types";
  * Without `device`: in the Studio the preview's width is the person's
  * switch, and the assistant changing it under them would be a surprise.
  */
+/** How long `read_page` with `at` waits for the page to show the change. */
+export const READ_PAGE_AT_TIMEOUT_MS = 60_000;
+
+/** How often it reads the page while it waits. */
+const READ_PAGE_AT_POLL_MS = 500;
+
 export const READ_PAGE_TOOL: AITool = {
   name: "read_page",
   description:
@@ -57,6 +64,16 @@ export const READ_PAGE_TOOL: AITool = {
       max_items: {
         type: "number",
         description: "How many items of the outline at most (default 300).",
+      },
+      at: {
+        type: "string",
+        description:
+          "A renderId a tool answered with (an edit, quick_preview, a build): read the page only once it shows that change or a later one. " +
+          "Without it, the page is read as it is now, which may be from before your change.",
+      },
+      timeout_ms: {
+        type: "number",
+        description: `With at: how long to wait for the page to show it (default ${READ_PAGE_AT_TIMEOUT_MS}). A quick preview can take a minute.`,
       },
     },
     required: [],
@@ -232,6 +249,9 @@ export type ReadPageDeps = {
   pointedAt: PickedElement | null;
   /** What to answer while there is no page. */
   noPage?: string;
+  /** For tests: the clock, and waiting on it. */
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 };
 
 /**
@@ -259,11 +279,62 @@ export async function runReadPage(
     typeof input["max_items"] === "number" && input["max_items"] > 0
       ? Math.min(input["max_items"], 1000)
       : undefined;
+  const at = typeof input["at"] === "string" ? input["at"] : null;
+  const timeoutMs =
+    typeof input["timeout_ms"] === "number" && input["timeout_ms"] >= 0
+      ? Math.min(input["timeout_ms"], 10 * 60_000)
+      : READ_PAGE_AT_TIMEOUT_MS;
+  const now = deps.now ?? Date.now;
+  const sleep =
+    deps.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const read = deps.readPage;
   try {
-    const snapshot = await deps.readPage({
-      ...(selector !== undefined ? { selector } : {}),
-      ...(maxItems !== undefined ? { maxItems } : {}),
-    });
+    const readOnce = () =>
+      read({
+        ...(selector !== undefined ? { selector } : {}),
+        ...(maxItems !== undefined ? { maxItems } : {}),
+      });
+    let snapshot: PageSnapshot | null = null;
+    if (at === null) {
+      snapshot = await readOnce();
+    } else {
+      /*
+       * Waiting for a change is waiting through what it takes: a quick
+       * preview or a build loads a new document, and a read sent to the one
+       * going away is never answered. So a read that fails here is "not
+       * yet", and the next read asks the page that came.
+       */
+      const until = now() + timeoutMs;
+      let lastError: string | null = null;
+      for (;;) {
+        try {
+          snapshot = await readOnce();
+          lastError = null;
+        } catch (error) {
+          snapshot = null;
+          lastError = error instanceof Error ? error.message : String(error);
+        }
+        if (
+          snapshot !== null &&
+          rendersAtLeast(snapshot.renderId ?? null, at)
+        ) {
+          break;
+        }
+        if (now() >= until) {
+          return failed(
+            `The page does not show ${at} yet: after ${Math.round(timeoutMs / 1000)} seconds it ` +
+              (snapshot === null
+                ? `could not be read (${lastError ?? "no answer"}). `
+                : snapshot.renderId !== undefined
+                  ? `still shows ${snapshot.renderId}, from before it. `
+                  : "has not said which change it shows (its Val packages may be older than the Studio's). ") +
+              "Do not judge the change from this page. Read again with a longer timeout_ms, or check whether the quick preview or build failed.",
+          );
+        }
+        await sleep(READ_PAGE_AT_POLL_MS);
+      }
+    }
     const logged =
       snapshot.log !== undefined
         ? snapshot.log.errors + snapshot.log.failedRequests

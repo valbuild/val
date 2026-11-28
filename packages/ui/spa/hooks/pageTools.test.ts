@@ -4,6 +4,7 @@ import type {
 } from "@valbuild/shared/internal";
 import type { PageInteractRequest } from "../components/shell/canvas/CanvasFrame";
 import { PageRefusedError } from "../components/shell/canvas/canvasInteraction";
+import { renderIdOf } from "@valbuild/shared/internal";
 import {
   INTERACT_PAGE_TOOL,
   NO_PREVIEW,
@@ -154,6 +155,112 @@ describe("screenshot_page", () => {
       result: { success: false, error: "The page did not answer." },
       isError: true,
     });
+  });
+});
+
+/**
+ * Render ids (`proposals/renders.ts`): a tool that changes the page answers
+ * with one, the page writes it on itself once it shows the change, and
+ * `read_page` with `at` reads the page only once it does -- or says it does
+ * not yet, rather than answering with the page before the change.
+ */
+describe("read_page at a render id", () => {
+  const page = (renderId?: string) => ({
+    url: "https://p1--site.valstart.dev/",
+    title: "Home",
+    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
+    outline: [],
+    ...(renderId !== undefined ? { renderId } : {}),
+  });
+  const earlier = renderIdOf(1700000000000, 1);
+  const asked = renderIdOf(1700000000000, 2);
+  const later = renderIdOf(1700000000000, 3);
+
+  /** A page that shows these, one read after another, and a clock. */
+  function showing(...shows: (string | undefined)[]) {
+    let reads = 0;
+    let now = 0;
+    return {
+      deps: {
+        readPage: async () => page(shows[Math.min(reads++, shows.length - 1)]),
+        pointedAt: null,
+        now: () => now,
+        sleep: async (ms: number) => {
+          now += ms;
+        },
+      },
+      reads: () => reads,
+      waited: () => now,
+    };
+  }
+
+  test("says which change the page shows", async () => {
+    const answer = await runReadPage({}, showing(asked).deps);
+    expect(answer.result).toMatchObject({ success: true, renderId: asked });
+  });
+
+  test("waits for the page to show the change, then reads it", async () => {
+    const page = showing(earlier, earlier, asked);
+    const answer = await runReadPage({ at: asked }, page.deps);
+    expect(answer).toMatchObject({
+      isError: false,
+      result: { success: true, renderId: asked },
+    });
+    expect(page.reads()).toBe(3);
+  });
+
+  test("a page that shows a later change shows this one too", async () => {
+    const page = showing(later);
+    const answer = await runReadPage({ at: asked }, page.deps);
+    expect(answer.result).toMatchObject({ success: true, renderId: later });
+    expect(page.reads()).toBe(1);
+  });
+
+  test("gives up after 60 seconds, and says what the page shows instead", async () => {
+    const page = showing(earlier);
+    const answer = await runReadPage({ at: asked }, page.deps);
+    expect(answer.isError).toBe(true);
+    expect(page.waited()).toBeGreaterThanOrEqual(60_000);
+    expect(page.waited()).toBeLessThan(62_000);
+    const error = String(Reflect.get(Object(answer.result), "error"));
+    expect(error).toContain(asked);
+    expect(error).toContain(earlier);
+  });
+
+  test("a page that reloads while it waits is read again, not given up on", async () => {
+    let reads = 0;
+    let now = 0;
+    const answer = await runReadPage(
+      { at: asked },
+      {
+        readPage: async () => {
+          reads++;
+          // The document it asked went away: the canvas loads the next.
+          if (reads === 2) throw new Error("The page did not answer.");
+          return page(reads >= 3 ? asked : earlier);
+        },
+        pointedAt: null,
+        now: () => now,
+        sleep: async (ms: number) => {
+          now += ms;
+        },
+      },
+    );
+    expect(answer.result).toMatchObject({ success: true, renderId: asked });
+  });
+
+  test("waits as long as it is asked to", async () => {
+    const page = showing(undefined);
+    const answer = await runReadPage(
+      { at: asked, timeout_ms: 5_000 },
+      page.deps,
+    );
+    expect(answer.isError).toBe(true);
+    expect(page.waited()).toBeLessThan(7_000);
+    // A page that never said which change it shows: said so.
+    expect(String(Reflect.get(Object(answer.result), "error"))).toContain(
+      "has not said",
+    );
   });
 });
 

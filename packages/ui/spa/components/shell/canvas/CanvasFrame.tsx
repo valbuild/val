@@ -63,6 +63,7 @@ import {
 } from "../../../stores/react/sourceRelay";
 import type { ModuleVersion } from "@valbuild/shared/internal";
 import { unansweredRequestError, type FrameBridge } from "./canvasCapabilities";
+import { connectRenderTarget } from "../../../proposals/renders";
 import {
   INLINE_TOOLBAR_ATTRIBUTE,
   PREVIEW_VIEW_CONTROL_ATTRIBUTE,
@@ -928,6 +929,8 @@ export function CanvasFrame({
         if (shooting === undefined) return;
         shootings.current.delete(message.requestId);
         shooting(message);
+      } else if (message.type === "rendered") {
+        // The page wrote the id on itself: `read_page` reads it from there.
       } else {
         pickedHere.current = message.paths[0] ?? null;
         onPick?.(message.paths);
@@ -1839,6 +1842,28 @@ export function CanvasFrame({
   const holds = state.status === "ready" ? state.holds : NO_HOLDS;
   const holdsVersions =
     state.status === "ready" ? state.holdsVersions : NO_HELD_VERSIONS;
+  /**
+   * The page in the preview, as the target of render ids
+   * (`proposals/renders.ts`): each document that is live and says it writes
+   * them is sent every id it can show. A page this Studio relays nothing to
+   * (a proposal's, reading its own drafts) is told no version to wait for:
+   * nothing here tells it when its content moves.
+   */
+  const rendersHere =
+    state.status === "ready" &&
+    bridgeAnswers(bridge.current?.capabilities, "render");
+  useEffect(() => {
+    if (!rendersHere) return;
+    return connectRenderTarget((id, seq) =>
+      send({
+        val: VAL_CANVAS_MESSAGE,
+        type: "render",
+        id,
+        seq: relaySources ? seq : null,
+      }),
+    );
+  }, [rendersHere, documentEpoch, relaySources, send]);
+
   useValCatchUp(isLive, documentEpoch, {
     update: relaySources ? sendSourceUpdate : null,
     holds: () => holds,

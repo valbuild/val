@@ -25,6 +25,8 @@ const ops = new JSONOps();
  */
 const FOLLOW_UP_SETTLE_MS = 500;
 import { useValSystem } from "../stores/react/SystemContext";
+import { mintRender } from "../proposals/renders";
+import { savedSeqOf } from "../stores/savedSeq";
 import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
 import { createTurnTimer, describeTurnTiming } from "./turnTiming";
 import { usePageCheckSession } from "./usePageCheckSession";
@@ -1097,7 +1099,7 @@ export function useAI(
        */
       writesPersonsWebSearchAnswer?: boolean,
     ): Promise<
-      | { status: "patch-synced"; patchId: PatchId }
+      | { status: "patch-synced"; patchId: PatchId; renderId: string }
       | { status: "patch-error"; message: string }
     > => {
       if (valSystem === null) {
@@ -1139,7 +1141,16 @@ export function useAI(
       if (res.status !== "created") {
         return { status: "patch-error", message: res.message };
       }
-      return { status: "patch-synced", patchId: res.record.patchId };
+      return {
+        status: "patch-synced",
+        patchId: res.record.patchId,
+        // The page shows it once it shows what its save makes: see
+        // `proposals/renders.ts`, and `read_page`'s `at`.
+        renderId: mintRender({
+          inputs: null,
+          seq: savedSeqOf(valSystem.system, res.record.patchId),
+        }),
+      };
     },
     [valSystem],
   );
@@ -2224,6 +2235,7 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: res.patchId,
+                  renderId: res.renderId,
                   message: "Patch applied successfully.",
                 },
               });
@@ -2489,6 +2501,7 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
+                  renderId: patchRes.renderId,
                   // The entry's key, which is a ref in a remote gallery.
                   filePath: entryKey,
                   message: "Image converted to patch successfully.",
@@ -2627,6 +2640,7 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
+                  renderId: patchRes.renderId,
                   filePath: args.file_path,
                   message: "Image removed from gallery successfully.",
                 },
@@ -2931,12 +2945,25 @@ export function useAI(
           // Shown in the shell's canvas, which registered it.
           const toolCallId = message.toolCallId;
           const messageId = message.id;
+          const proposalName = currentProposalRef.current?.name ?? null;
           void runQuickPreviewTool(quickPreviewRunner()).then(
-            ({ result, isError }) => {
+            async ({ result, isError }) => {
+              // The quick preview of what is staged: see `proposals/renders.ts`.
+              const renderId =
+                proposalName !== null && !isError
+                  ? mintRender({
+                      inputs: await codeClients.proposals
+                        .get(proposalName)
+                        .then((proposal) => proposal.staged?.inputs ?? null)
+                        .catch(() => null),
+                      seq: null,
+                    })
+                  : null;
               sendToolResult({
                 type: "ai_tool_result",
                 toolCallId,
-                result,
+                result:
+                  renderId === null ? result : { ...Object(result), renderId },
                 ...(isError ? { isError: true } : {}),
               });
               chatRef.current?.completeToolCall(messageId, toolCallId);
@@ -3016,7 +3043,7 @@ export function useAI(
               nameOf: (id) => profilesRef.current[id]?.fullName ?? null,
               system: () => valSystemRef.current?.system ?? null,
             }),
-          }).then(({ result, isError }) => {
+          }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
                 toolName === "edit_file" ||
@@ -3027,10 +3054,25 @@ export function useAI(
             ) {
               proposalCodeChanged();
             }
+            const staged = stagedCode(toolName, toolArgs, { result, isError });
+            /*
+             * What the page will show once it is of these staged files -- a
+             * quick preview of them, or a build that has them: the render id
+             * `read_page`'s `at` waits for (`proposals/renders.ts`).
+             */
+            const renderId =
+              proposalName !== null &&
+              !isError &&
+              (staged || toolName === "build_proposal")
+                ? mintRender({
+                    inputs: await stagedInputs().catch(() => null),
+                    seq: null,
+                  })
+                : null;
             // Checked beside the conversation, not in it: what the checks
             // find reaches the assistant on a later tool answer. Only once
             // files were staged: a lint that only looked changed nothing.
-            if (stagedCode(toolName, toolArgs, { result, isError })) {
+            if (staged) {
               if (proposalName !== null) {
                 scheduleBackgroundChecks(proposalName, {
                   client: codeClients.proposals,
@@ -3045,7 +3087,8 @@ export function useAI(
             sendToolResult({
               type: "ai_tool_result",
               toolCallId,
-              result,
+              result:
+                renderId === null ? result : { ...Object(result), renderId },
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
@@ -3232,6 +3275,7 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
+                  renderId: patchRes.renderId,
                   message:
                     toolName === "duplicate_source"
                       ? "Duplicated successfully."
