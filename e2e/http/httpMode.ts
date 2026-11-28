@@ -360,10 +360,18 @@ export type MockAiToolCall = {
   arguments: unknown;
   result: unknown;
   isError: boolean;
+  /** Played for a hidden prompt (the page check), not for the chat. */
+  hidden: boolean;
 };
 
 export type MockAiState = {
-  prompts: { sessionId: string | null; text: string; imageKeys: string[] }[];
+  prompts: {
+    sessionId: string | null;
+    text: string;
+    imageKeys: string[];
+    /** Sent by the Studio for itself (the page check, a commit summary). */
+    hidden: boolean;
+  }[];
   toolCalls: MockAiToolCall[];
   sessions: { id: string; name: string | null }[];
   images: {
@@ -375,6 +383,7 @@ export type MockAiState = {
     bytes: number;
   }[];
   queuedScripts: number;
+  queuedHiddenScripts: number;
 };
 
 async function control<T>(
@@ -586,6 +595,19 @@ function mockOf(target: HttpTarget) {
      */
     async aiScript(script: AiScript): Promise<void> {
       await control(target, "ai-script", { method: "POST", body: script });
+    },
+
+    /**
+     * Queue what the assistant does for the next prompt the Studio sends for
+     * itself (`hidden: true`): the page check, or a commit summary. These have
+     * a queue of their own, so they never take a turn queued for the chat.
+     * Nothing queued, a hidden prompt is answered with a message saying so.
+     */
+    async hiddenScript(script: AiScript): Promise<void> {
+      await control(target, "ai-hidden-script", {
+        method: "POST",
+        body: script,
+      });
     },
 
     /** What the assistant was asked, what it called, and what it was answered. */

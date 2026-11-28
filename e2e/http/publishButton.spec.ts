@@ -53,7 +53,8 @@ test.describe("the Publish button in http mode", () => {
   test("publishes with the AI's message, and asks for nothing", async ({
     page,
   }) => {
-    await mock.aiScript({
+    // The commit summary is a hidden prompt: its own queue (`hiddenScript`).
+    await mock.hiddenScript({
       steps: [],
       response: "Rename Theodor on the authors page",
     });
@@ -102,7 +103,10 @@ test.describe("the Publish button in http mode", () => {
     ]);
     await editTeddy(page);
     // Queued after the edits and before the press: the box asks when it opens.
-    await mock.aiScript({ steps: [], response: "Require commit messages" });
+    await mock.hiddenScript({
+      steps: [],
+      response: "Require commit messages",
+    });
 
     await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
     await publishButton(page).click();

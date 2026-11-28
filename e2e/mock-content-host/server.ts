@@ -372,6 +372,8 @@ type RecordedToolCall = {
   arguments: unknown;
   result: unknown;
   isError: boolean;
+  /** Played for a hidden prompt (the page check), not for the chat. */
+  hidden: boolean;
 };
 
 /** A prompt the Studio sent, flattened to the parts a test asserts on. */
@@ -379,6 +381,11 @@ type RecordedPrompt = {
   sessionId: string | null;
   text: string;
   imageKeys: string[];
+  /**
+   * A prompt the Studio sends for itself rather than for the chat: the page
+   * check (`usePageCheckSession`) and the commit summary.
+   */
+  hidden: boolean;
 };
 
 type MockAiSession = {
@@ -465,8 +472,14 @@ type State = {
   aiImages: Map<string, MockAiImage>;
   /** Chat sessions, as `/ai/sessions` reports them. */
   aiSessions: Map<string, MockAiSession>;
-  /** Queued turns: one is consumed by each `ai_prompt`. */
+  /** Queued turns of the chat: one is consumed by each visible `ai_prompt`. */
   aiScripts: AiScript[];
+  /**
+   * Queued turns of the prompts the Studio sends for itself (`hidden: true`:
+   * the page check, a commit summary), kept apart so they never take a turn
+   * a test queued for the chat. G1 in `docs/handoff/code-mode-test-rig-plan.md`.
+   */
+  aiHiddenScripts: AiScript[];
   /** Every prompt the Studio has sent. */
   aiPrompts: RecordedPrompt[];
   /** Every tool call played, with the Studio's answer. */
@@ -557,6 +570,7 @@ function emptyState(): State {
     aiImages: new Map(),
     aiSessions: new Map(),
     aiScripts: [],
+    aiHiddenScripts: [],
     aiPrompts: [],
     aiToolCalls: [],
     aiOffline: false,
@@ -2448,6 +2462,7 @@ async function playAiTurn(
     message?: unknown;
     reportUsage?: boolean;
     reportTimings?: boolean;
+    hidden?: boolean;
   },
 ): Promise<void> {
   /**
@@ -2467,6 +2482,7 @@ async function playAiTurn(
     sessionId: prompt.sessionId ?? null,
     text: promptTextOf(prompt.message),
     imageKeys,
+    hidden: prompt.hidden === true,
   });
   let session = state.aiSessions.get(sessionId);
   if (session) {
@@ -2490,9 +2506,15 @@ async function playAiTurn(
       socket.send(JSON.stringify(message));
     }
   };
-  const script = state.aiScripts.shift() ?? {
+  const script = (prompt.hidden === true
+    ? state.aiHiddenScripts
+    : state.aiScripts
+  ).shift() ?? {
     steps: [],
-    response: "No script was queued for this turn.",
+    response:
+      prompt.hidden === true
+        ? "No script was queued for this hidden prompt."
+        : "No script was queued for this turn.",
   };
   let timedSteps = 0;
   for (const step of script.steps) {
@@ -2581,6 +2603,7 @@ async function playAiTurn(
       arguments: args,
       result: answer.result,
       isError: answer.isError,
+      hidden: prompt.hidden === true,
     });
   }
   /**
@@ -4860,6 +4883,16 @@ const controlPlane: Handler = async (req, res, url) => {
     json(res, 200, { queued: state.aiScripts.length });
     return;
   }
+  if (action === "ai-hidden-script" && req.method === "POST") {
+    const body = await readJsonBody<AiScript>(req);
+    if (!body || !Array.isArray(body.steps)) {
+      json(res, 400, { message: "An ai script needs a steps array" });
+      return;
+    }
+    state.aiHiddenScripts.push(body);
+    json(res, 200, { queued: state.aiHiddenScripts.length });
+    return;
+  }
   if (action === "ai-session-sha256" && req.method === "POST") {
     const body = await readJsonBody<{ enabled?: boolean }>(req);
     state.aiSessionSha256 = body?.enabled !== false;
@@ -4886,6 +4919,7 @@ const controlPlane: Handler = async (req, res, url) => {
         bytes: image.data.byteLength,
       })),
       queuedScripts: state.aiScripts.length,
+      queuedHiddenScripts: state.aiHiddenScripts.length,
     });
     return;
   }
@@ -5261,6 +5295,7 @@ aiWss.on("connection", (socket) => {
           sessionId?: string;
           message?: unknown;
           reportUsage?: boolean;
+          hidden?: boolean;
         },
       ).catch((err) => {
         console.error("[mock-content-host] ai turn failed", err);
