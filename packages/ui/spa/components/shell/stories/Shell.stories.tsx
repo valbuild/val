@@ -40,6 +40,7 @@ import {
   ThemeSettingsFields,
   ThemeSettingsValue,
 } from "../SettingsPanel";
+import { LogsInPreviewsPlace, type LogsTarget } from "../Logs";
 import { AppWindow, Sparkles } from "lucide-react";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
@@ -221,6 +222,12 @@ export default meta;
 
 type HarnessProps = {
   openPanel: ShellPanel | null;
+  /**
+   * A site Val Build hosts: the account panel has Logs, and `open` shows the
+   * page as Logs opens it -- in the preview's place, or over the Studio on a
+   * phone. `<val-logs>` is Val Build's; without it, its link there.
+   */
+  logs?: "account" | "open";
   selectionId: string | null;
   empty: boolean;
   /**
@@ -320,6 +327,14 @@ function deploymentsFor(
  * would, because the theme is content and the draft is what the Studio reads.
  * `Shell/SettingsPanel`'s `AppearanceThemed` story shows that half.
  */
+/** A site Val Build hosts, for the account panel's Logs. */
+const STORY_LOGS: LogsTarget = {
+  project: "acme/marketing-site",
+  adminHref: "https://admin.val.build/~/acme/marketing-site/logs",
+  webComponentsUrl: "https://content.val.build/wc/v1",
+  studioMode: "http",
+};
+
 function MockSettingsSections() {
   const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
@@ -384,6 +399,7 @@ function MockSettingsSections() {
 
 function ShellHarness({
   openPanel,
+  logs,
   selectionId,
   empty,
   noPendingChanges,
@@ -426,6 +442,7 @@ function ShellHarness({
    * dev-server setting.
    */
   const [autoSave, setAutoSave] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(logs === "open");
   // Select's two modes, so its menu can be seen: see `SelectButton`.
   const [selectMode, setSelectMode] =
     useState<CanvasSelectMode>(DEFAULT_SELECT_MODE);
@@ -472,6 +489,15 @@ function ShellHarness({
   return (
     <Shell
       renderSettings={() => <MockSettingsSections />}
+      onOpenLogs={logs !== undefined ? () => setLogsOpen(true) : undefined}
+      logsPage={
+        logsOpen ? (
+          <LogsInPreviewsPlace
+            target={STORY_LOGS}
+            onClose={() => setLogsOpen(false)}
+          />
+        ) : undefined
+      }
       versions={mockVersions}
       // The Pages panel's External pages button is only there when the app can
       // render the dialog, so the story has to supply it for the button to
@@ -753,6 +779,30 @@ export const NotificationsOpen: Story = {
     ...Default.args,
     openPanel: "notifications",
     selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The account panel of a project on Hosted: Logs, under the project's links,
+ * opens the site's requests and errors.
+ */
+export const AccountLogs: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "account",
+    selectionId: mockSelectionIds.home,
+    mode: "http",
+    logs: "account",
+  },
+};
+
+/** After Logs: the page in the preview's place; on a phone, over the Studio. */
+export const LogsOpen: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    mode: "http",
+    logs: "open",
   },
 };
 

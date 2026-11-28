@@ -554,12 +554,6 @@ export type ShellProps = {
    */
   renderPlanStatus?: (placement: "top-bar" | "column") => ReactNode;
   /**
-   * The hosted site's recent errors, in the account panel under the deploy
-   * feed. Absent for a project Val Build does not host. A render prop so it
-   * is only mounted -- and only asks Val Build -- when the panel is open.
-   */
-  renderSiteErrors?: () => ReactNode;
-  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -583,6 +577,17 @@ export type ShellProps = {
     now: (editor: ReactNode) => ReactNode;
     past: ReactNode;
   };
+  /**
+   * The hosted site's logs, opened from the account panel: shown where the
+   * preview is, as History's past is, until closed. A phone has no preview
+   * column, so there it covers the Studio instead.
+   */
+  logsPage?: ReactNode;
+  /**
+   * The account panel's Logs, for a site Val Build hosts: the app opens
+   * `logsPage`. The panel closes first, so the page is not under it.
+   */
+  onOpenLogs?: () => void;
   onPublish?: () => void;
   /**
    * The real publish control, when there is one. See `TopBarProps` — the app
@@ -888,10 +893,11 @@ const ShellFrame = memo(function ShellFrame({
   floatingNotices = NO_FLOATING_NOTICES,
   initialDismissedNotices,
   renderPlanStatus,
-  renderSiteErrors,
   renderHistory,
   previewStatus,
   history,
+  logsPage,
+  onOpenLogs,
   onPublish,
   publishSlot,
   onPreview,
@@ -1973,11 +1979,13 @@ const ShellFrame = memo(function ShellFrame({
   const openPanes = useMemo(
     () => ({
       content: contentOpen,
-      // History takes the preview's place: the column is there either way.
+      // History and Logs take the preview's place: the column is there
+      // either way.
       preview:
-        stage !== undefined
+        logsPage !== undefined ||
+        (stage !== undefined
           ? stageOpen
-          : (isCanvasOpen && canCanvas) || history !== undefined,
+          : (isCanvasOpen && canCanvas) || history !== undefined),
       // A sketch is about a page, and the stage shows none
       sketch: sketchOpen && stage === undefined,
       chat: aiEnabled && chatOpen,
@@ -1987,6 +1995,7 @@ const ShellFrame = memo(function ShellFrame({
       isCanvasOpen,
       canCanvas,
       history,
+      logsPage,
       sketchOpen,
       aiEnabled,
       chatOpen,
@@ -2250,7 +2259,11 @@ const ShellFrame = memo(function ShellFrame({
               skipTransition={skipTransition}
               previewStatus={previewStatus}
               replacePreview={
-                breakpoint !== "mobile" && stage !== undefined && stageOpen ? (
+                breakpoint !== "mobile" && logsPage !== undefined ? (
+                  logsPage
+                ) : breakpoint !== "mobile" &&
+                  stage !== undefined &&
+                  stageOpen ? (
                   <div className="h-full min-h-0" data-val-pane="components">
                     {stage}
                   </div>
@@ -2698,10 +2711,14 @@ const ShellFrame = memo(function ShellFrame({
                * feed (`mode === "http"`); the panel was missed.
                */
               deployments={mode === "fs" ? undefined : deployments}
-              // In dev too, unlike the feed: a developer working locally on a
-              // hosted project is the person most likely to want to know what
-              // the live site is throwing.
-              siteErrors={renderSiteErrors?.()}
+              onOpenLogs={
+                onOpenLogs
+                  ? () => {
+                      closePanel();
+                      onOpenLogs();
+                    }
+                  : undefined
+              }
               // Passed through as-is: absent means there is no session to end, and
               // the panel then shows no Sign out button rather than a dead one.
               onSignOut={onSignOut}
@@ -2739,6 +2756,14 @@ const ShellFrame = memo(function ShellFrame({
               // beside the one behind the menu button.
               navSwitcher={breakpoint === "mobile" ? undefined : navSwitcher}
             />
+          )}
+
+          {breakpoint === "mobile" && logsPage !== undefined && (
+            // No preview column on a phone to put it in: the whole screen,
+            // with the page's own way back.
+            <div className="fixed inset-0 z-overlay bg-bg-primary p-2">
+              {logsPage}
+            </div>
           )}
 
           {openPanel === "utility" && (

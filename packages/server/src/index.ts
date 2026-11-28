@@ -69,6 +69,17 @@ export type {
   SiteErrorsAnswer,
   SiteErrorsFailureReason,
 } from "./siteErrors";
+// And its last hour of requests, for `val logs` and the MCP tool `get_logs`.
+export { fetchSiteLogs, siteLogRequestLevel } from "./siteLogs";
+export type {
+  FetchSiteLogsOptions,
+  FetchSiteLogsResult,
+  SiteLogLine,
+  SiteLogRequest,
+  SiteLogRequestLevel,
+  SiteLogsAnswer,
+  SiteLogsFailureReason,
+} from "./siteLogs";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";
