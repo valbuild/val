@@ -106,3 +106,36 @@ export const ASSET_BASE = "/_app/a/";
 /** The module a resolved asset import becomes. */
 export const assetModule = (url: string) =>
   `export default ${JSON.stringify(url)}\n`;
+
+/** Base64 of `text`'s UTF-8 bytes, where there is no `Buffer` (a browser). */
+function utf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  // In chunks: `fromCharCode` takes its arguments on the stack.
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * A build's input with every asset written as text moved to `assets`.
+ *
+ * The project file map is text, and so is everything the Studio's code tools
+ * write -- an SVG among it. Left in `files`, `import logo from "./logo.svg"`
+ * resolved to the SVG as SOURCE and failed to parse (`Unexpected JSX
+ * expression`), where `val publish`, which reads a checkout, finds the same
+ * file as an asset (`readProjectFiles`). Bytes given as an asset win over the
+ * same path as text.
+ */
+export function withTextAssets<
+  T extends { files: Record<string, string>; assets?: Record<string, string> },
+>(input: T): T & { assets: Record<string, string> } {
+  const files: Record<string, string> = {};
+  const assets: Record<string, string> = {};
+  for (const [path, text] of Object.entries(input.files)) {
+    if (isAsset(path)) assets[path] = utf8Base64(text);
+    else files[path] = text;
+  }
+  return { ...input, files, assets: { ...assets, ...input.assets } };
+}

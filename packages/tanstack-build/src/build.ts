@@ -16,7 +16,7 @@ import {
   usesTailwind,
   type CssModuleLoader,
 } from "./tailwind";
-import { assetModule, isAsset, resolveAsset } from "./assets";
+import { assetModule, isAsset, resolveAsset, withTextAssets } from "./assets";
 import { sha256Hex } from "./hash";
 import { buildInputId } from "./inputId";
 import { valModulesEntry } from "./valModules";
@@ -1046,7 +1046,9 @@ async function buildOnce(
   return { code: entry.code, chunks: split };
 }
 
-export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
+export async function buildUserApp(given: BuildInput): Promise<BuildOutput> {
+  // An asset written as text (an SVG a code tool wrote) is built as one.
+  const input = withTextAssets(given);
   const warnings: Array<string> = [];
   const started = performance.now();
 
