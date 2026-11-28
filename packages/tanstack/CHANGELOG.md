@@ -1,5 +1,71 @@
 # @valbuild/tanstack
 
+## 0.156.1
+
+### Patch Changes
+
+- Updated dependencies [[`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c), [`604d91a`](https://github.com/valbuild/val/commit/604d91a54fbf19e319c39867217caad8bb2f7e8d), [`99b798c`](https://github.com/valbuild/val/commit/99b798ce785c11543891b58b3d53a66339953882)]:
+  - @valbuild/ui@0.156.1
+  - @valbuild/server@0.156.1
+  - @valbuild/shared@0.156.1
+  - @valbuild/react@0.156.1
+  - @valbuild/language-server@0.156.1
+  - @valbuild/mcp@0.156.1
+
+## 0.156.0
+
+### Patch Changes
+
+- [#1104](https://github.com/valbuild/val/pull/1104) [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2) Thanks [@freekh](https://github.com/freekh)! - A quick preview no longer fails every page check with React's hydration error (React error 418)
+
+  In code mode, a change is first shown as a quick preview: the page the last build's server rendered, run by the proposal's new code. The new code used to _hydrate_ that page after the old markup had been taken out, and React reported the empty page as a hydration failure on every quick preview. The page check read it as the site's own error, and asked the assistant to fix something that was never there.
+
+  Now `ValProvider` has the new code _render_ the site on a quick preview's page instead, as the page is hydrated, so there is nothing to fail. The last build's page stays on screen until the new one replaces it, rather than the page going empty first. Every other page, for every visitor, is hydrated exactly as before, and a real hydration bug is still reported.
+
+  Nothing changes in your project. It takes effect once the site's build is on this version: the quick preview starts from that build's page.
+
+- Updated dependencies [[`332c386`](https://github.com/valbuild/val/commit/332c386621f3aab44412307352319e176824160d), [`27b87f6`](https://github.com/valbuild/val/commit/27b87f6fadb27ccb9d67c0a07ac560772d4e3ae4), [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2), [`0cf24ba`](https://github.com/valbuild/val/commit/0cf24ba78e5e0a86ed594b58ff7f7fb5e7fcc440), [`7c47276`](https://github.com/valbuild/val/commit/7c472766183a425ef022e84d341e666c48a6bc3b)]:
+  - @valbuild/server@0.156.0
+  - @valbuild/shared@0.156.0
+  - @valbuild/ui@0.156.0
+  - @valbuild/language-server@0.156.0
+  - @valbuild/mcp@0.156.0
+  - @valbuild/react@0.156.0
+
+## 0.155.0
+
+### Minor Changes
+
+- [`3a10d09`](https://github.com/valbuild/val/commit/3a10d09525a064844353e23138ba1d49bcf67e16) Thanks [@freekh](https://github.com/freekh)! - `ValImage` in `@valbuild/tanstack` now takes the props `next/image` takes, and published remote images are resized for the screen they are shown on.
+
+  ```tsx
+  <ValImage
+    src={page.hero.image}
+    sizes="(min-width: 1024px) 50vw, 100vw"
+    priority
+    placeholder="blur"
+  />
+  ```
+
+  - **Resized remote images.** A published `s.image().remote()` (or any image with `files: { remote: true }`) gets a `srcset`, and the host that serves it — Val's platform on Cloudflare, or `remote.val.build` — answers each width with the image scaled down in AVIF or WebP. Pass `sizes` for an image CSS shows smaller than it is; without it the `srcset` is 1x and 2x the rendered width.
+  - **`next/image`'s props:** `sizes`, `quality`, `fill`, `priority` / `preload`, `placeholder` / `blurDataURL`, `loader`, `unoptimized` and `overrideSrc`.
+  - **`getValImageProps`**, the counterpart of `next/image`'s `getImageProps`, for a `<picture>`.
+  - **Lazy by default:** `loading="lazy"` and `decoding="async"`, as `next/image` does. Pass `priority` for the largest image above the fold.
+  - Given only a `width` or a `height`, the other now follows the image's aspect ratio.
+
+  Local images and drafts are served as before. A `loader` of your own is used for every image, local ones included.
+
+### Patch Changes
+
+- Updated dependencies [[`f6c3195`](https://github.com/valbuild/val/commit/f6c31956b4883705ff87e6aa46778d5d48bd38d3), [`36154ff`](https://github.com/valbuild/val/commit/36154ff212e52523a635781c2843e88346a4a90f), [`3a10d09`](https://github.com/valbuild/val/commit/3a10d09525a064844353e23138ba1d49bcf67e16)]:
+  - @valbuild/core@0.155.0
+  - @valbuild/shared@0.155.0
+  - @valbuild/ui@0.155.0
+  - @valbuild/language-server@0.155.0
+  - @valbuild/mcp@0.155.0
+  - @valbuild/react@0.155.0
+  - @valbuild/server@0.155.0
+
 ## 0.154.4
 
 ### Patch Changes

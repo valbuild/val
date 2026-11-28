@@ -222,6 +222,7 @@ export function MediaPanel({
                   // The module, because that is what the row is about; the
                   // the directory is the row's meta.
                   title={gallery.moduleFilePath}
+                  tourTarget={`module:${gallery.moduleFilePath}`}
                   expanded={open}
                   /*
                    * The row expands. That is all it does.

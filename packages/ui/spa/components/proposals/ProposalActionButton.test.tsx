@@ -216,13 +216,54 @@ describe("ProposalActionButton, with Save that updates the preview", () => {
     onSaveAndBuild: jest.fn(),
   });
 
-  test("Save stays the main half once everything is saved, disabled with nothing to do", () => {
+  test("once everything is saved and the preview is up to date, Save has become Publish", () => {
+    const h = wired();
+    render(<ProposalActionButton location={location({ unsaved: 0 })} {...h} />);
+    expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    expect(h.onPublish).toHaveBeenCalledTimes(1);
+  });
+
+  test("while the preview updates, Save says so and waits; Publish comes after", () => {
     render(
-      <ProposalActionButton location={location({ unsaved: 0 })} {...wired()} />,
+      <ProposalActionButton
+        location={location({ unsaved: 0, code: { state: "building" } })}
+        {...wired()}
+      />,
     );
-    const save = screen.getByRole("button", { name: /^Save/ });
+    const save = screen.getByRole("button", { name: /^Updating/ });
     expect(save.hasAttribute("disabled")).toBe(true);
     expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
+  });
+
+  test("with everything saved and validation errors, Publish is Fix N and leads to them", () => {
+    const h = wired();
+    const onShow = jest.fn();
+    render(
+      <ProposalActionButton
+        location={location({ unsaved: 0 })}
+        {...h}
+        saveBlockedBy={{ errors: 2, onShow }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Fix 2/ }));
+    expect(onShow).toHaveBeenCalledTimes(1);
+    expect(h.onPublish).not.toHaveBeenCalled();
+  });
+
+  test("a refused Publish on the main half is disabled, and says why", () => {
+    render(
+      <ProposalActionButton
+        location={location({
+          unsaved: 0,
+          publishBlockedBy: "It is being brought up to date with the site.",
+        })}
+        {...wired()}
+      />,
+    );
+    const publish = screen.getByRole("button", { name: /^Publish/ });
+    expect(publish.hasAttribute("disabled")).toBe(true);
+    expect(publish.getAttribute("title")).toMatch(/brought up to date/);
   });
 
   test("with a build due and nothing to save, Save builds", () => {

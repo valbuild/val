@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { openStudio, test } from "../studio";
+import { contentSelect, contentSelectOn, openStudio, test } from "../studio";
 
 /**
  * The two Selects, one each side of the preview (`SelectButton`).
@@ -31,17 +31,10 @@ test.describe("pointing at the page", () => {
       timeout: 60_000,
     });
 
-    const contentSelect = page.getByRole("button", {
-      name: "Select on the page",
-    });
-    await expect(
-      contentSelect,
-      "Content's Select is in its header",
-    ).toBeVisible();
-    await contentSelect.click();
-    await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    const select = contentSelect(page);
+    await expect(select, "Content's Select is in its header").toBeVisible();
+    await select.click();
+    await expect(contentSelectOn(page)).toHaveAttribute("aria-pressed", "true");
 
     await page.getByRole("button", { name: "AI assistant" }).first().click();
     const assistantSelect = page.getByRole("button", {
@@ -54,7 +47,7 @@ test.describe("pointing at the page", () => {
     // A click on the page has one owner: Content's Select is not pressed,
     // whether Content is a column or folded to a strip.
     await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
+      contentSelectOn(page),
       "Content's Select stayed on while the assistant's picked",
     ).toHaveCount(0);
 

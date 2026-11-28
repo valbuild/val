@@ -46,7 +46,7 @@
 import { expect } from "@playwright/test";
 import { readdirSync } from "node:fs";
 import path from "node:path";
-import { discardAll, openStudio, test } from "../studio";
+import { chooseSelectMode, discardAll, openStudio, test } from "../studio";
 
 const MODULE = "/src/routes/_site.landing.val.ts";
 const STUDIO = `/val/~${MODULE}?p=${encodeURIComponent('"/landing"')}`;
@@ -98,7 +98,9 @@ test("one field write, by what it renders", async ({ page }) => {
   await expect(page.getByRole("tab", { name: /On this page \d/ })).toBeVisible({
     timeout: 60_000,
   });
-  await page.getByRole("button", { name: "Select on the page" }).click();
+  // Plain Select: this measures typing in the column's field, which is
+  // where a pick of a text lands in that mode.
+  await chooseSelectMode(page, "select");
   const frame = page.frameLocator('iframe[title="Preview of /landing"]');
   const title = frame.locator("main h1").first();
   const titleText = (await title.innerText()).trim();

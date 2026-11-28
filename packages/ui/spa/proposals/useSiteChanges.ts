@@ -6,10 +6,10 @@ import {
   useModulesWithPatches,
 } from "../components/ValProvider";
 import { useSchemas } from "../components/ValFieldProvider";
-import type { ChangeTreeNode } from "../utils/computeChangedSourcePaths";
-import { toCompareStructure } from "../compare/toCompareStructure";
-import { isPageModule } from "../utils/pageRoutes";
-import { siteChangeTrees } from "./siteDiff";
+import {
+  toReviewPageModel,
+  type ReviewModuleInput,
+} from "../reviewPage/toReviewPageModel";
 
 /**
  * What a proposal changes on the site, saved and unsaved alike: what Review
@@ -26,9 +26,12 @@ export type SiteChanges =
   | { status: "error"; message: string; retry: () => void }
   | {
       status: "ready";
-      trees: ChangeTreeNode[];
-      /** The "before" column, for the modules the proposal changed. */
-      siteSources: Partial<Record<ModuleFilePath, Json>>;
+      /**
+       * Every module the proposal may have changed, with the site's Source
+       * for it and the proposal's: what Review diffs.
+       */
+      modules: ReviewModuleInput[];
+      /** How many fields Review would list, for the count beside its button. */
       changeCount: number;
     };
 
@@ -116,30 +119,31 @@ export function useSiteChanges(inProposal: boolean): SiteChanges {
     ) {
       return { status: "loading" };
     }
-    const siteSources: Partial<Record<ModuleFilePath, Json>> = {};
-    const trees = siteChangeTrees(
-      moduleFilePaths.map((moduleFilePath) => {
-        // Saved in the proposal: the site's own. Otherwise the base, which
-        // is the site's for every module the proposal has not saved.
-        const site =
-          moduleFilePath in fetched.modules
-            ? fetched.modules[moduleFilePath]
-            : sources.base[moduleFilePath];
-        if (site !== undefined) siteSources[moduleFilePath] = site;
-        return {
-          moduleFilePath,
-          site,
-          now: sources.now[moduleFilePath],
-          schema: schemas.data[moduleFilePath],
-        };
-      }),
-    );
-    const { changeCount } = toCompareStructure({
-      trees,
-      isPageModule: (moduleFilePath) =>
-        isPageModule(schemas.data[moduleFilePath]),
+    const modules = moduleFilePaths.map((moduleFilePath): ReviewModuleInput => {
+      // Saved in the proposal: the site's own. Otherwise the base, which is
+      // the site's for every module the proposal has not saved.
+      const site =
+        moduleFilePath in fetched.modules
+          ? fetched.modules[moduleFilePath]
+          : sources.base[moduleFilePath];
+      return {
+        moduleFilePath,
+        schema: schemas.data[moduleFilePath],
+        before: site,
+        after: sources.now[moduleFilePath],
+      };
     });
-    return { status: "ready", trees, siteSources, changeCount };
+    /*
+     * Counted by the function Review is built with, so the number beside the
+     * button and the page it opens cannot disagree.
+     */
+    const { changeCount } = toReviewPageModel({
+      modules,
+      left: { label: "" },
+      right: { label: "" },
+      profiles: {},
+    });
+    return { status: "ready", modules, changeCount };
   }, [inProposal, fetched, sources, schemas, moduleFilePaths, retry]);
 }
 

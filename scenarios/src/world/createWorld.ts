@@ -439,8 +439,22 @@ export type ProposalAt = {
    * (`VAL_BUILD_INPUTS`), read here from the content host as the platform
    * holds them. A staging alone is served at once on the build the address
    * already runs (`stage` does that); a save is served by this.
+   *
+   * `registry: "missing"`: the build has no `val.modules` entry beside its
+   * client chunks, as `@valbuild/tanstack-build` leaves a project whose Val
+   * modules could not be bundled for the browser (`valModulesEntry`), or a
+   * builder that predates the entry: its server still names one, and a
+   * Studio importing it is answered 404.
+   *
+   * `modules`: what the build of the staged files evaluates to, where no
+   * Studio's evaluation said so (`stage`'s `evaluateIn` does): a Studio
+   * that cannot bundle staged code -- one that builds on Val Build -- never
+   * evaluates it, and the build is the first to.
    */
-  redeploy(): Promise<void>;
+  redeploy(options?: {
+    registry?: "missing";
+    modules?: AnyModule[];
+  }): Promise<void>;
   /** Publish in the proposal: the press the Studio makes (`pressMerge`). */
   merge(commitMessage?: string): ReturnType<StudioJobClient["pressMerge"]>;
   /**
@@ -1926,7 +1940,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             return { status: "uploaded", publishId: randomUUID() };
           },
         }),
-      async redeploy() {
+      async redeploy(options) {
         // The platform built what is staged, and serves that build.
         const built = await fetch(
           `${host.contentHost.url}/__test__/proposals/${name}/built`,
@@ -1948,7 +1962,14 @@ export async function createWorld(options: WorldOptions): Promise<World> {
               }
             : {}),
         };
-        deployCode(serverModules);
+        deployCode(options?.modules ?? serverModules);
+        if (
+          options?.registry === "missing" &&
+          host.mode === "http" &&
+          host.http.publishBuild !== undefined
+        ) {
+          buildEntries.delete(valModulesEntryPath(host.http.publishBuild));
+        }
       },
       merge: (commitMessage) =>
         createStudioJobClient({ api: "/api/val", fetchImpl: send }).pressMerge(

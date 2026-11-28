@@ -17,19 +17,22 @@ const ids = (n: number): PatchId[] =>
     return id;
   });
 
-/** Every param the two endpoints repeat ids under. */
+/**
+ * `patch_id` is what `GET /patches` repeats its ids under; the short one checks
+ * the budget is derived from the name rather than fixed. (It was `DELETE
+ * /patches`' param, which takes its ids in the body now.)
+ */
 const PARAMS = ["patch_id", "id"] as const;
 
 /**
- * `GET /patches` takes its ids as repeated `patch_id` params and `DELETE
- * /patches` as repeated `id` params, and nothing bounded how many. A project
+ * `GET /patches` takes its ids as repeated `patch_id` params, and nothing
+ * bounded how many. A project
  * with 650 pending changes put all of them on one URL, and the request never
  * reached the handler — 431 from Node's request-head cap, 413 from a proxy in
  * front of it.
  *
- * These two used to be separate functions with budgets 4x apart, implying two
- * different limits existed. One splitter now, one budget, and the only thing
- * that differs is the param name.
+ * One splitter, one budget, and the only thing a caller chooses is the param
+ * name.
  */
 describe("chunkPatchIds", () => {
   describe.each(PARAMS)("&%s=", (paramName) => {
@@ -60,13 +63,13 @@ describe("chunkPatchIds", () => {
 
     it("asks for nothing when there is nothing to ask for", () => {
       // Not one empty request: an unfiltered `GET /patches` answers with the
-      // whole table, and `DELETE /patches` requires at least one id.
+      // whole table.
       expect(chunkPatchIds([], paramName)).toEqual([]);
     });
   });
 
   /**
-   * The two endpoints spend the same budget on differently-priced ids, so the
+   * Every param spends the same budget on differently-priced ids, so a
    * cheaper param fits more. That is the whole reason the cost is derived from
    * the param name rather than hardcoded once.
    */

@@ -70,6 +70,12 @@ export type PanelRowProps = {
    */
   action?: ReactNode;
   title?: string;
+  /**
+   * What the guided tour calls this row (`data-val-tour`): `page:/blog`, or
+   * `module:/content/footer.val.ts`. How the assistant's guide points at a
+   * row it asks someone to open. See `assistantGuide.ts`.
+   */
+  tourTarget?: string;
 };
 
 /**
@@ -98,6 +104,7 @@ export function PanelRow({
   action,
   expanded,
   title,
+  tourTarget,
 }: PanelRowProps) {
   const hasErrors = errorCount !== undefined && errorCount > 0;
   const notes = [
@@ -117,6 +124,7 @@ export function PanelRow({
       // `group/row` so an action can reveal itself on hover over the whole row,
       // not only over itself.
       className="group/row flex items-center pr-2"
+      data-val-tour={tourTarget}
       style={{ paddingLeft: 8 + depth * 12 }}
     >
       <button

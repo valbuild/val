@@ -1,25 +1,23 @@
 import { useCallback, useMemo } from "react";
 import {
   useCommittedPatches,
-  useCurrentAuthorId,
   useDeletePatches,
   usePatchSets,
-  useValMode,
 } from "../components/ValProvider";
 import { pendingPatchSets } from "../utils/computeChangedSourcePaths";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { ReviewView } from "./ReviewView";
 import { useReviewModel } from "./useReviewModel";
-import { reviewRowId, reviewSourcePath } from "./toReviewModel";
-import { ReviewCompare } from "./ReviewCompare";
-import { canOpenReviewCompare } from "./reviewCompareParam";
-import { useReviewCompareParam } from "../components/ValRouter";
+import { reviewRowId } from "./toReviewModel";
+import { useNavigation, VAL_REVIEW_ROUTE } from "../components/ValRouter";
 import type { ReviewPublishSelected } from "./ReviewView";
 import { planSelection } from "./publishSelected";
 import { usePublishSelected } from "./usePublishSelected";
 
 /**
- * `/val/review`, wired up.
+ * `/val/changes`, wired up: the pending changes as the steps they were made
+ * in, and the way to take steps back. Review (`/val/review`) shows what they
+ * add up to and changes nothing; this is where a revert is made.
  *
  * The seam between the page and the system, and it is thin by design: the page
  * renders a `ReviewModel` and nothing else, so everything here is either
@@ -64,8 +62,8 @@ export function ReviewSurface({
    * one here offers Revert over a change that is already live, and it cannot
    * honour it: the patch is in a commit.
    *
-   * Filtered ONCE, here, so the model, the row actions and the compare dialog
-   * are all reading the same set. Filtering only the model would leave
+   * Filtered ONCE, here, so the model and the row actions are reading the
+   * same set. Filtering only the model would leave
    * `patchIdsOf` mapping a row back to committed ids.
    */
   const committedPatchIds = useCommittedPatches();
@@ -74,21 +72,8 @@ export function ReviewSurface({
     [allPatchSets, committedPatchIds],
   );
   const model = useReviewModel(patchSets);
-  const mode = useValMode();
-  const currentAuthorId = useCurrentAuthorId();
   const { deletePatches } = useDeletePatches();
-  /*
-   * The diff opens OVER this page rather than navigating to one. It is a
-   * detail you read and close — you come back to the list you were deciding
-   * over — and a route would take the list off screen to show you part of it.
-   *
-   * Open is a fact about the URL (`?compare`), so the dialog, and the change
-   * it is open on, is a link. Opened and closed with `replace`: the dialog is
-   * a layer over this page, not a page of its own, so Back leaves the review
-   * rather than stepping through every time the dialog was opened.
-   */
-  const { reviewCompare, setReviewCompare } = useReviewCompareParam();
-  const compareSourcePath = reviewCompare?.sourcePath ?? null;
+  const navigation = useNavigation();
 
   const patchIdsOf = useCallback(
     (rowIds: string[]) => {
@@ -99,22 +84,6 @@ export function ReviewSurface({
     },
     [patchSets],
   );
-  /*
-   * The dialog's row ids are SOURCE paths, not patch-set ids — its rows are
-   * finer than this page's. A patch set is dropped when the path it changed is
-   * among them, which is the same unit a discard can honour: a patch out of
-   * the middle of a set cannot go alone.
-   */
-  const patchIdsOfPaths = useCallback(
-    (paths: string[]) => {
-      const wanted = new Set(paths);
-      return patchSets
-        .filter((patchSet) => wanted.has(reviewSourcePath(patchSet)))
-        .flatMap((patchSet) => patchSet.patches.map((patch) => patch.patchId));
-    },
-    [patchSets],
-  );
-
   const selectedPublish = usePublishSelected();
   const publishSelected = useMemo<ReviewPublishSelected | undefined>(() => {
     if (!canPublishSelected) return undefined;
@@ -137,52 +106,24 @@ export function ReviewSurface({
     };
   }, [canPublishSelected, patchIdsOf, patchSets, selectedPublish]);
 
-  /*
-   * A link to a change that is not pending opens nothing: it has shipped, or
-   * been discarded, since the link was made. See `canOpenReviewCompare`.
-   */
-  const compareOpen =
-    reviewCompare !== null &&
-    canOpenReviewCompare(patchSets, compareSourcePath);
-
   return (
-    <>
-      <ReviewView
-        model={model}
-        onCompare={() =>
-          setReviewCompare({ sourcePath: null }, { replace: true })
-        }
-        onRestore={onRestore}
-        /*
-         * Reverting a pending change deletes the patch. That is what `discard`
-         * MEANS at this layer — see `undoWords` for why the button says
-         * "Revert" — and it is the one action here that destroys something,
-         * which is why it is the only red control on the page.
-         */
-        onDiscard={(rowIds) => deletePatches(patchIdsOf(rowIds))}
-        onDiscardAll={onDiscardAll}
-        discardAllDescription={discardAllDescription}
-        publishSelected={publishSelected}
-        portalContainer={portalContainer}
-      />
-      <ReviewCompare
-        patchSets={patchSets}
-        mode={mode}
-        open={compareOpen}
-        onOpenChange={(open) => {
-          if (!open) setReviewCompare(null, { replace: true });
-        }}
-        focusSourcePath={compareSourcePath}
-        currentAuthorId={currentAuthorId}
-        /*
-         * The dialog's rows are source paths; the patches behind them are what
-         * a discard drops. Same mapping the page's own Revert does, one level
-         * down: the dialog is finer-grained, so it names paths rather than
-         * patch sets.
-         */
-        onUndo={(rowIds) => deletePatches(patchIdsOfPaths(rowIds))}
-      />
-    </>
+    <ReviewView
+      model={model}
+      // What these steps add up to: the differences, on Review.
+      onCompare={() => navigation.navigate(VAL_REVIEW_ROUTE)}
+      onRestore={onRestore}
+      /*
+       * Reverting a pending change deletes the patch. That is what `discard`
+       * MEANS at this layer — see `undoWords` for why the button says
+       * "Revert" — and it is the one action here that destroys something,
+       * which is why it is the only red control on the page.
+       */
+      onDiscard={(rowIds) => deletePatches(patchIdsOf(rowIds))}
+      onDiscardAll={onDiscardAll}
+      discardAllDescription={discardAllDescription}
+      publishSelected={publishSelected}
+      portalContainer={portalContainer}
+    />
   );
 }
 

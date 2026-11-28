@@ -181,33 +181,6 @@ describe("the page check's session", () => {
     }
   });
 
-  test("a quick preview that never says so does not hold the check for good", async () => {
-    jest.useFakeTimers();
-    const unregister = setQuickPreviewRunner(async () => ({
-      status: "shown",
-      ms: 0,
-      timings: [],
-    }));
-    try {
-      const { ws, hook } = render(socket(), true, {
-        ...STAGED,
-        buildRequired: true,
-      });
-      hook.result.current.verify(null);
-      await act(async () => {
-        await jest.advanceTimersByTimeAsync(PAGE_CHECK_PREVIEW_WAIT_MS - 1);
-      });
-      expect(ws.prompts()).toHaveLength(0);
-      await act(async () => {
-        await jest.advanceTimersByTimeAsync(1);
-      });
-      expect(ws.prompts()).toHaveLength(1);
-    } finally {
-      unregister();
-      jest.useRealTimers();
-    }
-  });
-
   test("its tools are answered here, a note from the assistant rides on the next answer, and its report reaches the assistant", async () => {
     const { ws, hook } = render();
     hook.result.current.verify(null);
@@ -359,4 +332,169 @@ test("with no preview, verify says so and spends nothing", () => {
   const { hook } = render(socket(), false);
   expect(hook.result.current.verify(null)).toEqual({ status: "not-here" });
   expect(hook.result.current.left()).toBe(3);
+});
+
+/**
+ * Reported from code mode: the assistant made every button's border red,
+ * and the page check said it was not on the page -- "the preview appears to
+ * be a build from before the change" -- while it was. The assistant was sent
+ * back to fix what was already fixed, and the checks bar said the change
+ * had failed.
+ *
+ * The page check reads whatever page is in the preview. After a change,
+ * that is the last build until the change's quick preview comes to the
+ * front. It waited 20 seconds for that and then read the page anyway --
+ * shorter than Val Build takes to make a quick preview and the page to load
+ * it -- and it read the page anyway when the quick preview could not be made
+ * at all. Either way it judged a page the change could not be on.
+ *
+ * So the check looks at the page only once the page is known to have the
+ * change, and says so to the model; otherwise it says, without the model,
+ * that the page was not checked and why.
+ */
+describe("a page check of a change the preview does not show", () => {
+  const BUILD_REQUIRED = { ...STAGED, buildRequired: true };
+  let unregister: () => void = () => {};
+  beforeEach(() => {
+    setStagedPreview(null);
+    resetPageCheck();
+    resetBackgroundLint();
+    resetProposalTypecheck();
+    // The shell shows quick previews here.
+    unregister = setQuickPreviewRunner(async () => ({
+      status: "shown",
+      ms: 0,
+      timings: [],
+    }));
+  });
+  afterEach(() => {
+    unregister();
+    jest.useRealTimers();
+  });
+
+  test("it waits as long as Val Build takes to make the quick preview, and the page to load it", async () => {
+    jest.useFakeTimers();
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED);
+    hook.result.current.verify(null);
+    // Val Build builds the quick preview (45 seconds is not unusual), and
+    // the page in the preview loads it (`useQuickPreview` gives it 30).
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(75_000);
+    });
+    expect(ws.prompts()).toHaveLength(0);
+    act(() => setStagedPreview({ inputs: INPUTS, status: "shown" }));
+    await flush();
+    expect(ws.prompts()).toHaveLength(1);
+  });
+
+  test("once the quick preview is in front, the check is told the page is the change", async () => {
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED);
+    hook.result.current.verify(null);
+    await flush();
+    act(() => setStagedPreview({ inputs: INPUTS, status: "shown" }));
+    await flush();
+    const [prompt] = ws.prompts();
+    expect(prompt?.message).toContain(
+      "The page in the preview is a quick preview of exactly these files: the change is on it.",
+    );
+  });
+
+  test("a change its quick preview could not show is not looked for on the page", async () => {
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED);
+    hook.result.current.verify(null);
+    await flush();
+    act(() =>
+      setStagedPreview({
+        inputs: INPUTS,
+        status: "failed",
+        message: "The page with the quick preview did not load.",
+      }),
+    );
+    await flush();
+
+    // No model is asked to judge a page the change is not on...
+    expect(ws.prompts()).toHaveLength(0);
+    // ...the person is told the page was not checked, and why...
+    expect(pageCheckOf(NAME)).toMatchObject({
+      status: "done",
+      inputs: INPUTS,
+      notShown: "failed",
+      report: {
+        status: "blocked",
+        summary:
+          "The page was not checked: the change could not be shown in a quick preview, so it is on the page once the proposal is built. The quick preview said: The page with the quick preview did not load.",
+        findings: [],
+      },
+    });
+    // ...and so is the assistant, which is not sent to fix it.
+    expect(await takeToolNotices(NAME, async () => INPUTS)).toMatchObject({
+      page_check: { status: "blocked" },
+    });
+    // The next check can run.
+    expect(hook.result.current.verify(null)).toEqual({ status: "started" });
+  });
+
+  test("a project with no quick previews is not looked at until it is built", async () => {
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED);
+    hook.result.current.verify(null);
+    await flush();
+    act(() => setStagedPreview({ inputs: INPUTS, status: "off" }));
+    await flush();
+    expect(ws.prompts()).toHaveLength(0);
+    expect(pageCheckOf(NAME)).toMatchObject({
+      status: "done",
+      notShown: "off",
+      report: {
+        status: "blocked",
+        summary:
+          "The page was not checked: this project makes no quick previews, so the change is on the page once the proposal is built.",
+      },
+    });
+  });
+
+  test("where no quick preview can be shown, the last build is not checked for the change", async () => {
+    unregister();
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED);
+    hook.result.current.verify(null);
+    await flush();
+    expect(ws.prompts()).toHaveLength(0);
+    expect(pageCheckOf(NAME)).toMatchObject({
+      status: "done",
+      notShown: "no-quick-preview",
+      report: {
+        status: "blocked",
+        summary:
+          "The page was not checked: no quick preview can be shown here, so the change is on the page once the proposal is built.",
+      },
+    });
+  });
+
+  test("a quick preview that never says so does not hold the check for good, and the page is not judged without it", async () => {
+    jest.useFakeTimers();
+    const { ws, hook } = render(socket(), true, BUILD_REQUIRED);
+    hook.result.current.verify(null);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(PAGE_CHECK_PREVIEW_WAIT_MS);
+    });
+    expect(ws.prompts()).toHaveLength(0);
+    expect(pageCheckOf(NAME)).toMatchObject({
+      status: "done",
+      notShown: "timeout",
+      report: {
+        status: "blocked",
+        summary: `The page was not checked: the quick preview of the change was not on the page within ${PAGE_CHECK_PREVIEW_WAIT_MS / 1000} seconds.`,
+      },
+    });
+    expect(hook.result.current.verify(null)).toEqual({ status: "started" });
+  });
+
+  test("a change the served build already has is checked on the page as it is", async () => {
+    const { ws, hook } = render(socket(), true, STAGED);
+    hook.result.current.verify(null);
+    await flush();
+    const [prompt] = ws.prompts();
+    expect(prompt?.message).toContain(
+      "The page in the preview is the site's build, which has these files.",
+    );
+  });
 });

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   Code2,
@@ -8,7 +8,7 @@ import {
   Rows3,
   Sparkles,
 } from "lucide-react";
-import { Avatar } from "../components/Avatar";
+import { ProfileAvatar } from "../components/Avatar";
 import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import { ChangeKindIcon, changeKindLabel } from "../compare/ChangeKindIcon";
@@ -45,13 +45,20 @@ export function ReviewPage({
   onOpenChanges,
   onOpenSession,
   renderPage,
+  renderCode,
+  mode = "unknown",
   initialLayout = "inline",
   initialSelected,
+  initialRowId = null,
   initialView = "fields",
 }: {
   model: ReviewPageModel;
-  /** The button that finishes the job: Publish, or Save in a local project. */
-  publish: { label: string; onPublish: () => void };
+  /**
+   * The button that finishes the job: Publish, or Save in a local project.
+   * Absent where the Studio's own bar has it: a second one beside it would be
+   * two ways to do one thing.
+   */
+  publish?: { label: string; onPublish: () => void };
   /**
    * Go to the steps behind the changes, where they can be reverted: all of
    * them (`null`), or the ones that made one change.
@@ -61,9 +68,25 @@ export function ReviewPage({
   onOpenSession?: (sessionId: string) => void;
   /** Draw one side of a page. Absent: pages cannot be looked at as pages. */
   renderPage?: (page: ComparePageView) => ReactNode;
+  /**
+   * Draw the code changes, in place of the list of files this page draws
+   * from `model.code`. For code mode, whose view of them also says whether
+   * the preview is built from them.
+   */
+  renderCode?: () => ReactNode;
+  /**
+   * Decides what an author with no profile is called: in a local project
+   * that is the developer's own unsaved work, elsewhere an unknown author.
+   */
+  mode?: "fs" | "http" | "unknown";
   initialLayout?: DiffLayout;
   /** A nav node id, `REVIEW_CODE_ID`, or `reviewPageId(url)`. */
   initialSelected?: string;
+  /**
+   * The change a link opened the page on: a row of the pane it opens on,
+   * scrolled to and marked.
+   */
+  initialRowId?: string | null;
   initialView?: "fields" | "page";
 }) {
   const [layout, setLayout] = useState<DiffLayout>(initialLayout);
@@ -71,6 +94,21 @@ export function ReviewPage({
     initialSelected ?? firstSelectable(model),
   );
   const [view, setView] = useState<"fields" | "page">(initialView);
+  /*
+   * The row a link named, found by its id on the element `DiffFields` puts it
+   * on. Looked up under this page's own root: the Studio is in a shadow root,
+   * where `document.querySelector` finds nothing.
+   */
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (initialRowId === null) return;
+    const row = [
+      ...(rootRef.current?.querySelectorAll("[data-field-id]") ?? []),
+    ].find((element) => element.getAttribute("data-field-id") === initialRowId);
+    if (row === undefined) return;
+    row.scrollIntoView({ block: "center" });
+    row.setAttribute("data-linked", "true");
+  }, [initialRowId]);
 
   const pane = selected === null ? undefined : model.panes[selected];
   const showingCode = selected === REVIEW_CODE_ID && model.code !== undefined;
@@ -84,7 +122,10 @@ export function ReviewPage({
     model.affected === undefined;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-bg-primary text-fg-primary">
+    <div
+      ref={rootRef}
+      className="flex h-full min-h-0 w-full flex-col bg-bg-primary text-fg-primary"
+    >
       <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border-primary px-4 py-3">
         <div className="min-w-0">
           <h1 className="text-base font-semibold">Review</h1>
@@ -120,9 +161,11 @@ export function ReviewPage({
             <History size={14} aria-hidden />
             Changes and revert
           </Button>
-          <Button size="xs" onClick={publish.onPublish} disabled={empty}>
-            {publish.label}
-          </Button>
+          {publish !== undefined && (
+            <Button size="xs" onClick={publish.onPublish} disabled={empty}>
+              {publish.label}
+            </Button>
+          )}
         </div>
       </header>
 
@@ -179,10 +222,14 @@ export function ReviewPage({
                   </span>
                 }
               >
-                <ReviewCodePane
-                  code={model.code}
-                  onOpenSession={onOpenSession}
-                />
+                {renderCode !== undefined ? (
+                  renderCode()
+                ) : (
+                  <ReviewCodePane
+                    code={model.code}
+                    onOpenSession={onOpenSession}
+                  />
+                )}
               </PaneFrame>
             ) : pageOnly !== null && renderPage !== undefined ? (
               <PaneFrame title={pageOnly} location="No content changed here">
@@ -203,6 +250,7 @@ export function ReviewPage({
                 }
                 onViewChange={setView}
                 renderPage={renderPage}
+                mode={mode}
                 onOpenChanges={onOpenChanges}
                 onOpenSession={onOpenSession}
               />
@@ -417,6 +465,7 @@ function ContentPane({
   view,
   onViewChange,
   renderPage,
+  mode,
   onOpenChanges,
   onOpenSession,
 }: {
@@ -426,6 +475,7 @@ function ContentPane({
   view: "fields" | "page";
   onViewChange: (view: "fields" | "page") => void;
   renderPage?: (page: ComparePageView) => ReactNode;
+  mode: "fs" | "http" | "unknown";
   onOpenChanges: (rowId: string | null) => void;
   onOpenSession?: (sessionId: string) => void;
 }) {
@@ -484,6 +534,7 @@ function ContentPane({
                 row={rowsById.get(field.id)}
                 field={field}
                 model={model}
+                mode={mode}
                 onOpenChanges={onOpenChanges}
                 onOpenSession={onOpenSession}
               />
@@ -506,12 +557,14 @@ function RowMeta({
   row,
   field,
   model,
+  mode,
   onOpenChanges,
   onOpenSession,
 }: {
   row: ReviewRow | undefined;
   field: FieldDiff;
   model: ReviewPageModel;
+  mode: "fs" | "http" | "unknown";
   onOpenChanges: (rowId: string | null) => void;
   onOpenSession?: (sessionId: string) => void;
 }) {
@@ -540,18 +593,16 @@ function RowMeta({
           </span>
         ))}
       <span className="flex -space-x-1.5">
-        {row.authorIds.map((id) => {
-          const profile = model.profiles[id];
-          return (
-            <Avatar
-              key={id}
-              size="xs"
-              name={profile?.fullName ?? null}
-              imageUrl={profile?.avatar?.url}
-              className="ring-2 ring-bg-primary"
-            />
-          );
-        })}
+        {row.authorIds.map((id) => (
+          // The one way a person is drawn here, so someone with no profile
+          // is named the way the rest of the Studio names them.
+          <ProfileAvatar
+            key={id}
+            profile={model.profiles[id] ?? null}
+            mode={mode}
+            className="ring-2 ring-bg-primary"
+          />
+        ))}
       </span>
       <button
         type="button"

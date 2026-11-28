@@ -380,7 +380,7 @@ export type MockAiState = {
 async function control<T>(
   target: HttpTarget,
   action: string,
-  init?: { method: "POST"; body?: unknown },
+  init?: { method: "POST" | "PUT"; body?: unknown },
 ): Promise<T> {
   const res = await fetch(
     `http://localhost:${target.mockPort}/__test__/${action}`,
@@ -445,6 +445,40 @@ function mockOf(target: HttpTarget) {
         method: "POST",
         body: { enabled: true, delayMs: options.delayMs ?? 0 },
       });
+    },
+
+    /**
+     * The files the site's live build was made from, as a publish leaves the
+     * platform holding them (`GET /v1/project-source`): what the assistant's
+     * code tools read, search and edit. `null`: never published.
+     */
+    async projectSource(files: Record<string, string> | null): Promise<void> {
+      await control(target, "project-source", {
+        method: "PUT",
+        body: { files },
+      });
+    },
+
+    /**
+     * Make Val Build build this project's proposals (`POST /build` with
+     * `{ inputs }`), each taking `delayMs`: off by default, so a Build is made
+     * in the tab. Nothing is bundled; the proposal is answered built.
+     */
+    async serverBuilds(options: { delayMs?: number } = {}): Promise<void> {
+      await control(target, "server-builds", {
+        method: "POST",
+        body: { enabled: true, delayMs: options.delayMs ?? 0 },
+      });
+    },
+
+    /** Every build Val Build was asked for and finished. */
+    async serverBuildsMade(): Promise<{ proposal: string; inputs: string }[]> {
+      return (
+        await control<{ made: { proposal: string; inputs: string }[] }>(
+          target,
+          "server-builds",
+        )
+      ).made;
     },
 
     /** Every quick preview Val Build was asked for and made. */

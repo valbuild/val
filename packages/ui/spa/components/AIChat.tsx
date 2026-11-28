@@ -90,9 +90,11 @@ import {
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
+  GuideCardActions,
   ToolActivity,
 } from "./AIChatToolActivities";
 import type { CodeModeRequest } from "./CodeModeRequestCard";
+import type { GuideRequest } from "./shell/assistantGuide";
 import { Spinner } from "./designSystem/spinner";
 import { Avatar } from "./Avatar";
 import { PeopleStack } from "./proposals/PeopleStack";
@@ -358,6 +360,16 @@ export type AIChatHandle = {
     request: CodeModeRequest,
   ) => void;
   /**
+   * Show a tool call as the assistant offering to show how something is done,
+   * or move the card on: offered, showing, declined, ended. See
+   * `GuideRequestCard`.
+   */
+  setGuideRequest: (
+    messageId: string,
+    toolCallId: string,
+    request: GuideRequest,
+  ) => void;
+  /**
    * Turn a tool call's row, already shown, into a question for the person:
    * a call the Studio found it has to ask about only once it ran
    * (`interact_page`'s form submit, `pageSubmitGate.ts`).
@@ -532,6 +544,12 @@ export type AIChatProps = {
   onEnableCodeMode?: (toolCallId: string) => void;
   /** Its "Not now". */
   onDeclineCodeMode?: (toolCallId: string) => void;
+  /**
+   * A `show_guide` card's buttons: start the tour, say no, or stop it. The
+   * app answers the tool call and updates the activity's `guideRequest`.
+   * See `GuideRequestCard`.
+   */
+  guideActions?: GuideCardActions;
   /** A chat several people work in: see `AIChatTogether`. */
   together?: AIChatTogether;
   /**
@@ -995,6 +1013,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onCancelToolQuestion,
     onEnableCodeMode,
     onDeclineCodeMode,
+    guideActions,
     initialMessages,
     initialShowSessions = false,
     together,
@@ -1553,39 +1572,20 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       toolCallId: string,
       request: CodeModeRequest,
     ) {
-      const withRequest = (activities: ToolActivity[] | undefined) =>
-        (activities ?? []).map((t) =>
-          t.toolCallId === toolCallId ? { ...t, codeModeRequest: request } : t,
-        );
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== messageId) return prev;
-        return {
-          lastActivityAt: Date.now(),
-          message: withPauseSynced(
-            {
-              ...prev.message,
-              toolActivities: withRequest(prev.message.toolActivities),
-            },
-            Date.now(),
-          ),
-        };
-      });
-      // A card answered after its turn ended is in the transcript by then.
-      setCompletedMessages((prev) =>
-        prev.some(
-          (message) =>
-            message.id === messageId || message.segmentOf === messageId,
-        )
-          ? prev.map((message) =>
-              message.id === messageId || message.segmentOf === messageId
-                ? {
-                    ...message,
-                    toolActivities: withRequest(message.toolActivities),
-                  }
-                : message,
-            )
-          : prev,
-      );
+      updateToolActivity(messageId, toolCallId, (t) => ({
+        ...t,
+        codeModeRequest: request,
+      }));
+    },
+    setGuideRequest(
+      messageId: string,
+      toolCallId: string,
+      request: GuideRequest,
+    ) {
+      updateToolActivity(messageId, toolCallId, (t) => ({
+        ...t,
+        guideRequest: request,
+      }));
     },
     askToolQuestions(
       messageId: string,
@@ -2457,6 +2457,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 }}
                 onEnableCodeMode={onEnableCodeMode}
                 onDeclineCodeMode={onDeclineCodeMode}
+                guideActions={guideActions}
               />
             ))
           )}
@@ -3117,6 +3118,7 @@ function MessageBubble({
   onCancelToolQuestion,
   onEnableCodeMode,
   onDeclineCodeMode,
+  guideActions,
   footer,
 }: {
   message: ChatMessage;
@@ -3132,6 +3134,7 @@ function MessageBubble({
   onCancelToolQuestion: (toolCallId: string) => void;
   onEnableCodeMode?: (toolCallId: string) => void;
   onDeclineCodeMode?: (toolCallId: string) => void;
+  guideActions?: GuideCardActions;
 }) {
   if (message.fromChecks) {
     return <ChecksNotice text={getTextContent(message.content)} />;
@@ -3199,6 +3202,7 @@ function MessageBubble({
           onCancel={onCancelToolQuestion}
           onEnableCodeMode={onEnableCodeMode}
           onDeclineCodeMode={onDeclineCodeMode}
+          guideActions={guideActions}
         />
       )}
       {hasBubble && (

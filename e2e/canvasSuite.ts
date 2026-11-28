@@ -1,7 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
+  chooseSelectMode,
   clearPatchChain,
   closeNavPanel,
+  contentSelect,
+  contentSelectOn,
   expandRow,
   openSiteMap,
   openStudio,
@@ -285,7 +288,12 @@ export function defineCanvasSuite(): void {
        * Clicked inside the frame, so this also proves the capture-phase handler
        * is intercepting: the element clicked here sits inside a link, and without
        * the intercept the frame would navigate instead of reporting.
+       *
+       * In plain Select, which opens every field in the column: what Select
+       * starts in types in a text where the page shows it instead
+       * (`inlineEditingSuite.ts`).
        */
+      await chooseSelectMode(studio, "select");
       const frame = page
         .frames()
         .find((candidate) => candidate.url().includes("val_canvas=1"));
@@ -739,12 +747,12 @@ export function defineCanvasSuite(): void {
 
       // Off in the normal view: the page is there to be read and clicked through
       // like a page.
-      const pick = studio.getByRole("button", { name: "Select on the page" });
+      const pick = contentSelect(studio);
       await expect(pick, "picking had no control of its own").toBeVisible();
       await pick.click();
 
       await expect(
-        studio.getByRole("button", { name: "Stop selecting on the page" }),
+        contentSelectOn(studio),
         "the button did not turn picking on",
       ).toBeVisible();
       // Still the normal view — that is the whole point of the button.
@@ -754,9 +762,7 @@ export function defineCanvasSuite(): void {
 
       // Switching to the fields view still turns it on by itself.
       await studio.getByRole("tab", { name: /On this page/ }).click();
-      await expect(
-        studio.getByRole("button", { name: "Stop selecting on the page" }),
-      ).toBeVisible();
+      await expect(contentSelectOn(studio)).toBeVisible();
     });
   });
 }

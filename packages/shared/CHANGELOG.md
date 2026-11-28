@@ -1,5 +1,54 @@
 # @valbuild/shared
 
+## 0.156.1
+
+### Patch Changes
+
+- [#1082](https://github.com/valbuild/val/pull/1082) [`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c) Thanks [@freekh](https://github.com/freekh)! - Discarding many changes is now one request, and a discard that only partly succeeds no longer leaves discarded changes on screen.
+
+  When some of the changes could not be discarded, for example because one was part of a publish that was running, the Studio said nothing had been discarded and kept showing changes that were already gone. It now drops the ones that were discarded, keeps the rest, and says how many went through, with **Try again** (or **Cancel publish**) for the ones that are left. **Cancel publish** is offered again when a running publish holds a change: that refusal never reached the Studio before.
+
+  `DELETE /api/val/patches` now takes its ids in the body (`{ "ids": [...] }`), and still accepts the `id` query parameters older Studio tabs send. When it answers 500 because some changes were refused, it now also says which ones it deleted (`deleted`) and the version it moved to (`headVersion`).
+
+## 0.156.0
+
+### Patch Changes
+
+- [#1104](https://github.com/valbuild/val/pull/1104) [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2) Thanks [@freekh](https://github.com/freekh)! - A quick preview no longer fails every page check with React's hydration error (React error 418)
+
+  In code mode, a change is first shown as a quick preview: the page the last build's server rendered, run by the proposal's new code. The new code used to _hydrate_ that page after the old markup had been taken out, and React reported the empty page as a hydration failure on every quick preview. The page check read it as the site's own error, and asked the assistant to fix something that was never there.
+
+  Now `ValProvider` has the new code _render_ the site on a quick preview's page instead, as the page is hydrated, so there is nothing to fail. The last build's page stays on screen until the new one replaces it, rather than the page going empty first. Every other page, for every visitor, is hydrated exactly as before, and a real hydration bug is still reported.
+
+  Nothing changes in your project. It takes effect once the site's build is on this version: the quick preview starts from that build's page.
+
+## 0.155.0
+
+### Patch Changes
+
+- [#1081](https://github.com/valbuild/val/pull/1081) [`14548b9`](https://github.com/valbuild/val/commit/14548b907c16e66ee0e0131ae505aae4b336c74e) Thanks [@freekh](https://github.com/freekh)! - Experimental: a Components view in Val Studio
+
+  When a project links components to its content with `s.object(...).component(() => import(...))`, the Studio's rail gets a **Components** button. It opens `/val/components`, where you can:
+
+  - see every component side by side, rendered by your site on its `/val-preview` route, at phone, tablet or desktop width, in the preview's place, with Content and the Assistant opened from the top bar as beside a page;
+  - search the content of the components, and open the use a match is in;
+  - open **Pages** to see the components a page is made of, stacked in the order its content has them, with a list of components inside another nested under it;
+  - pick content with the same **Select** as beside a page's preview, and with **Select & edit** type straight into a component's preview;
+  - switch the Preview pane between **Page** and **Components** from the Preview button's menu;
+  - jump to a component from the page (**Open in Components** in the controls over it) or from its fields (the **Show in Components** icon);
+  - see the assistant's code changes in the previews as soon as code mode's quick preview has them;
+  - open one and step through every place the content uses it (← and →), or see all of them side by side next to its examples;
+  - edit the fields of the use on screen in the Content pane beside it, or click content in the preview to jump to its field;
+
+  What is on screen is in the address, so a component, a use of it and a screen width can be shared as a link.
+
+  `.component(load, { name: "Hero" })` names a component in the Studio. Without a name it is called after its object's literal field (`type: s.literal("hero")` is "Hero"), or the field it is used in.
+
+  `.component(load, { examples })` takes a record of named examples, as stories are, rather than one `example`: `examples: { longTitle: {...}, empty: {...} }`. The Studio shows them as "Long title" and "Empty". The preview route takes one by name: `/val-preview?p=…&example=longTitle`.
+
+- Updated dependencies [[`f6c3195`](https://github.com/valbuild/val/commit/f6c31956b4883705ff87e6aa46778d5d48bd38d3), [`3a10d09`](https://github.com/valbuild/val/commit/3a10d09525a064844353e23138ba1d49bcf67e16)]:
+  - @valbuild/core@0.155.0
+
 ## 0.154.4
 
 ### Patch Changes
