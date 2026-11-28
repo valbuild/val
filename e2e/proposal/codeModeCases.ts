@@ -650,10 +650,6 @@ export const CASES: CodeModeCase[] = [
       build: "no-reload",
     },
     levels: ["headless", "build", "browser"],
-    knownBug: {
-      what: "an image the tools write is built as code: `logo.svg` goes to the builder as a source file, and fails to parse (`Unexpected JSX expression`), where `val publish` would take it as an asset",
-      levels: ["build", "browser"],
-    },
   },
   {
     id: "K24",
