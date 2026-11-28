@@ -95,7 +95,7 @@ import {
   FoldedNoticeChip,
   type FloatingNoticeItem,
 } from "./FloatingNotices";
-import { availableDestinations } from "./shellDataMapping";
+import { availableDestinations, pageSourcePathsOf } from "./shellDataMapping";
 import { TourActions, TourObserved, tourTargetsOnScreen } from "./StudioTour";
 import {
   readTourCompleted,
@@ -1323,34 +1323,61 @@ const ShellFrame = memo(function ShellFrame({
   /** The phone's "Back to chat": the tour closes, and the conversation is in front. */
   const backToChatFromTour = useCallback(() => {
     closeTour({ backToChat: true });
+    // A panel the guide had them open is drawn over the conversation.
+    setOpenPanel(null);
     setChatOpen(true);
     setPhonePane("chat");
-  }, [closeTour, setPhonePane]);
+  }, [closeTour, setOpenPanel, setPhonePane]);
   /** What a step that moves on by itself watches. See `TourObserved`. */
+  /** Every page there is, by source path. See `TourObserved.pages`. */
+  const pagePaths = useMemo(() => pageSourcePathsOf(data.pages), [data.pages]);
   const tourObserved = useMemo<Omit<TourObserved, "reviewCount">>(
     () => ({
       selectedPath: selectedCanvasPath ?? null,
       openPanel,
       locale: locale ?? null,
+      pages: pagePaths,
     }),
-    [selectedCanvasPath, openPanel, locale],
+    [selectedCanvasPath, openPanel, locale, pagePaths],
   );
   /** "Do it for me": the same calls the visitor's own clicks make. */
-  const tourActions = useMemo<TourActions>(
-    () => ({
-      ...(onSelectCanvasPath
+  const tourActions = useMemo<TourActions>(() => {
+    const openPath = onSelectCanvasPath
+      ? (path: SourcePath) => {
+          onSelectCanvasPath(path);
+          // As a tap on the page does (`onPicked`): on a phone the field
+          // is in the other pane, and opening it without going there
+          // leaves the visitor looking at the page it was opened from.
+          // And out from under a panel, as picking a row in one does
+          // (`select`): the assistant's guide leaves Pages open between
+          // steps, and on a phone it covers the field just opened.
+          if (breakpoint === "mobile") {
+            setWorkspacePane("editor");
+            setOpenPanel(null);
+          }
+        }
+      : undefined;
+    return {
+      ...(openPath ? { openPath } : {}),
+      ...(onTourWrite ? { write: onTourWrite } : {}),
+      ...(onTourAddPage
         ? {
-            openPath: (path: SourcePath) => {
-              onSelectCanvasPath(path);
-              // As a tap on the page does (`onPicked`): on a phone the field
-              // is in the other pane, and opening it without going there
-              // leaves the visitor looking at the page it was opened from.
-              if (breakpoint === "mobile") setWorkspacePane("editor");
+            /*
+             * Never over a page that is there already: the add is an `add`
+             * at the page's key, and on an existing key that replaces the
+             * page with an empty one. The New page form refuses a taken URL;
+             * here the page is opened instead, which is what the step wanted
+             * to get to (`hasMovedOn` counts it).
+             */
+            addPage: (path: SourcePath) => {
+              if (pagePaths.has(path)) {
+                openPath?.(path);
+                return;
+              }
+              onTourAddPage(path);
             },
           }
         : {}),
-      ...(onTourWrite ? { write: onTourWrite } : {}),
-      ...(onTourAddPage ? { addPage: onTourAddPage } : {}),
       ...(onLocaleChange && locales && locales.length > 0
         ? {
             nextLocale: () => {
@@ -1361,17 +1388,18 @@ const ShellFrame = memo(function ShellFrame({
             },
           }
         : {}),
-    }),
-    [
-      onSelectCanvasPath,
-      breakpoint,
-      onTourWrite,
-      onTourAddPage,
-      onLocaleChange,
-      locales,
-      locale,
-    ],
-  );
+    };
+  }, [
+    onSelectCanvasPath,
+    breakpoint,
+    setOpenPanel,
+    onTourWrite,
+    onTourAddPage,
+    pagePaths,
+    onLocaleChange,
+    locales,
+    locale,
+  ]);
   const tourSteps = useMemo(
     () =>
       buildTourSteps

@@ -14,6 +14,8 @@ import {
 } from "./assistantGuide";
 import { useShellTour } from "./shellTour";
 import { readTourCompleted } from "./tourSteps";
+import type { SourcePath } from "@valbuild/core";
+import { tourTargetsOnScreen } from "./StudioTour";
 
 jest.mock("../../validation/schemaValidationBridge", () => ({
   createSchemaValidationBridge: () => ({
@@ -88,15 +90,17 @@ const ARGS: ShowGuideArgs = {
 function GuideFromTheChat({
   onCard,
   onAnswer,
+  args = ARGS,
 }: {
   onCard: (request: GuideRequest) => void;
   onAnswer: (request: GuideRequest) => void;
+  args?: ShowGuideArgs;
 }) {
   const tour = useShellTour();
-  const built = guideTourSteps(ARGS);
+  const built = guideTourSteps(args);
   if ("error" in built) throw new Error(built.error);
   const call = createGuideCall({
-    title: ARGS.title,
+    title: args.title,
     steps: built.steps,
     onChange: onCard,
     onAnswer,
@@ -127,6 +131,11 @@ function GuideFromTheChat({
 function shell(
   onCard: (request: GuideRequest) => void,
   onAnswer: (request: GuideRequest) => void,
+  extra: {
+    args?: ShowGuideArgs;
+    onTourAddPage?: (path: SourcePath) => void;
+    onSelectCanvasPath?: (path: SourcePath) => void;
+  } = {},
 ) {
   return (
     <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
@@ -138,7 +147,15 @@ function shell(
             onThemeChange={() => undefined}
             initialSelectionId={mockSelectionIds.home}
             aiEnabled
-            aiSlot={<GuideFromTheChat onCard={onCard} onAnswer={onAnswer} />}
+            aiSlot={
+              <GuideFromTheChat
+                onCard={onCard}
+                onAnswer={onAnswer}
+                args={extra.args}
+              />
+            }
+            onTourAddPage={extra.onTourAddPage}
+            onSelectCanvasPath={extra.onSelectCanvasPath}
             canvasPage={mockCanvasPage}
             skipTransition
           />
@@ -257,4 +274,106 @@ test("a guide is not the Studio's tour: taking one does not mark it taken", () =
   expect(document.querySelector("[data-val-tour-card]")).toBeNull();
   // What the launcher's glow is read from. See `readTourCompleted`.
   expect(readTourCompleted()).toBe(false);
+});
+
+test("Back to chat with Pages open shows the conversation, not Pages", () => {
+  render(shell(jest.fn(), jest.fn()));
+  openTheAssistant();
+  fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
+  fireEvent.click(within(card()).getByRole("button", { name: "Do it for me" }));
+  act(() => jest.advanceTimersByTime(1000));
+  expect(screen.getByRole("dialog", { name: "Pages" })).toBeTruthy();
+
+  fireEvent.click(within(card()).getByRole("button", { name: "Back to chat" }));
+  expect(paneShown("Assistant")).toBe("page");
+  expect(screen.queryByRole("dialog", { name: "Pages" })).toBeNull();
+});
+
+/** A post the mock site has, and one it has not. */
+const EXISTING = '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"';
+const NEW = '/app/blog/[slug]/page.val.ts?p="/blog/my-first-post"';
+const addPage = (path: string): ShowGuideArgs => ({
+  title: "Add a post",
+  steps: [
+    {
+      point_at: { control: "new-page" },
+      title: "Add the post",
+      text: "New page.",
+      done_when: { page_added: path },
+    },
+  ],
+});
+
+test("Do it for me never adds over a page that is there: it opens it", () => {
+  const onTourAddPage = jest.fn();
+  const onSelectCanvasPath = jest.fn();
+  render(
+    shell(jest.fn(), jest.fn(), {
+      args: addPage(EXISTING),
+      onTourAddPage,
+      onSelectCanvasPath,
+    }),
+  );
+  openTheAssistant();
+  fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
+  fireEvent.click(within(card()).getByRole("button", { name: "Do it for me" }));
+  expect(onTourAddPage).not.toHaveBeenCalled();
+  expect(onSelectCanvasPath).toHaveBeenCalledWith(EXISTING);
+});
+
+test("Do it for me adds a page that is not there yet", () => {
+  const onTourAddPage = jest.fn();
+  render(
+    shell(jest.fn(), jest.fn(), {
+      args: addPage(NEW),
+      onTourAddPage,
+      onSelectCanvasPath: jest.fn(),
+    }),
+  );
+  openTheAssistant();
+  fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
+  fireEvent.click(within(card()).getByRole("button", { name: "Do it for me" }));
+  expect(onTourAddPage).toHaveBeenCalledWith(NEW);
+});
+
+describe("tourTargetsOnScreen", () => {
+  const realRect = Element.prototype.getBoundingClientRect;
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = realRect;
+    document.body.innerHTML = "";
+  });
+
+  test("lists what can be seen, not rows scrolled away or off in an inert pane", () => {
+    const root = document.createElement("div");
+    const make = (name: string, top: number, inert = false) => {
+      const node = document.createElement("button");
+      node.setAttribute("data-val-tour", name);
+      node.dataset.top = String(top);
+      if (inert) {
+        const pane = document.createElement("div");
+        pane.setAttribute("inert", "");
+        pane.append(node);
+        root.append(pane);
+      } else {
+        root.append(node);
+      }
+    };
+    make("page:/", 100);
+    make("page:/far-down", 5000);
+    make("page:/in-a-pane-off-to-the-side", 100, true);
+    document.body.append(root);
+    Element.prototype.getBoundingClientRect = function () {
+      const top = Number(this.getAttribute("data-top") ?? "0");
+      const box = { left: 10, top, width: 200, height: 28 };
+      return {
+        ...box,
+        x: box.left,
+        y: box.top,
+        right: box.left + box.width,
+        bottom: box.top + box.height,
+        toJSON: () => box,
+      };
+    };
+    expect(tourTargetsOnScreen(root)).toEqual(["page:/"]);
+  });
 });

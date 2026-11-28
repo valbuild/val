@@ -1,5 +1,6 @@
 import {
   GuideRequest,
+  createGuideCall,
   ShowGuideArgs,
   guideResult,
   guideTargetsOnScreen,
@@ -96,6 +97,24 @@ describe("guideTourSteps", () => {
     );
     expect(result).toEqual({
       error: "steps[1].point_at.field is not a source path.",
+    });
+  });
+
+  test("so is one the core parser refuses: an unclosed quote", () => {
+    const result = guideTourSteps(
+      parse({
+        title: "x",
+        steps: [
+          {
+            point_at: { field: '/content/footer.val.ts?p="title' },
+            title: "bad",
+            text: "bad",
+          },
+        ],
+      }),
+    );
+    expect(result).toEqual({
+      error: "steps[0].point_at.field is not a source path.",
     });
   });
 
@@ -229,5 +248,55 @@ describe("guideTargetsOnScreen", () => {
       pageRows: ["/", "/blog"],
       moduleRows: ["/content/footer.val.ts"],
     });
+  });
+});
+
+describe("createGuideCall", () => {
+  const tour = () => ({
+    start: jest.fn(),
+    stop: jest.fn(),
+    targetsOnScreen: () => [],
+  });
+  const call = () => {
+    const onChange = jest.fn();
+    const onAnswer = jest.fn();
+    const built = guideTourSteps(
+      parse({ title: "x", steps: [{ title: "a", text: "a" }] }),
+    );
+    if ("error" in built) throw new Error(built.error);
+    return {
+      onChange,
+      onAnswer,
+      guide: createGuideCall({
+        title: "x",
+        steps: built.steps,
+        onChange,
+        onAnswer,
+      }),
+    };
+  };
+
+  test("retired while offered: the card settles, nothing is answered, and it cannot start", () => {
+    const { guide, onChange, onAnswer } = call();
+    const shell = tour();
+    guide.retire(shell);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: { kind: "declined" } }),
+    );
+    guide.start(shell);
+    expect(shell.start).not.toHaveBeenCalled();
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  test("retired while showing: the tour closes, and nothing is answered", () => {
+    const { guide, onAnswer } = call();
+    const shell = tour();
+    guide.start(shell);
+    const run = shell.start.mock.calls[0][0];
+    // The shell's stop closes the run, which tells it so.
+    shell.stop.mockImplementation(() => run.onClose({ backToChat: false }));
+    guide.retire(shell);
+    expect(shell.stop).toHaveBeenCalledWith(run);
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 });

@@ -108,12 +108,71 @@ function firstOnScreen(
 ): DOMRect | null {
   for (const node of scope.querySelectorAll(selector)) {
     if (!(node instanceof HTMLElement)) continue;
-    const box = node.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) continue;
-    if (isCovered(scope, node, box)) continue;
-    return box;
+    const box = seenBox(scope, node);
+    if (box) return box;
   }
   return null;
+}
+
+/**
+ * Where `node` is on screen, if the person can see it there; null if not.
+ *
+ * The one test of "can be seen" for both drawing a ring and telling the
+ * assistant what it can point at, so the two never disagree:
+ *
+ * - a box at all (`display: none` measures zero);
+ * - not in a pane that is off to one side of a phone's strip (`inert`);
+ * - inside the viewport -- a row scrolled out of its list still has a box,
+ *   and the browser cannot say what is drawn over a point it does not show;
+ * - nothing else drawn over its middle (`isCovered`).
+ */
+function seenBox(scope: Document | ShadowRoot, node: Element): DOMRect | null {
+  const box = node.getBoundingClientRect();
+  if (box.width === 0 || box.height === 0) return null;
+  if (node.closest("[inert]")) return null;
+  if (!inViewport(box)) return null;
+  if (isCovered(scope, node, box)) return null;
+  return box;
+}
+
+function inViewport(box: DOMRect): boolean {
+  const middleX = box.left + box.width / 2;
+  const middleY = box.top + box.height / 2;
+  return (
+    middleX >= 0 &&
+    middleY >= 0 &&
+    middleX <= window.innerWidth &&
+    middleY <= window.innerHeight
+  );
+}
+
+/**
+ * Scroll a step's target into view when it is there but scrolled out of
+ * sight: a row further down Pages than the phone shows. Only what is laid
+ * out and reachable -- not in a pane off to one side -- and only once per
+ * step, so the tour does not fight someone scrolling.
+ */
+function revealTarget(root: HTMLElement, target?: string, field?: SourcePath) {
+  const scope = root.getRootNode();
+  if (!(scope instanceof Document || scope instanceof ShadowRoot)) return;
+  const selectors = [
+    ...(field
+      ? [
+          `[data-canvas-field=${JSON.stringify(field)}], [data-val-studio-path=${JSON.stringify(field)}]`,
+        ]
+      : []),
+    ...(target ? [`[data-val-tour~="${target}"]`] : []),
+  ];
+  for (const selector of selectors) {
+    for (const node of scope.querySelectorAll(selector)) {
+      const box = node.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      if (node.closest("[inert]")) continue;
+      if (inViewport(box)) continue;
+      node.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+  }
 }
 
 /**
@@ -126,9 +185,7 @@ export function tourTargetsOnScreen(root: Element): string[] {
   if (!(scope instanceof Document || scope instanceof ShadowRoot)) return [];
   const names = new Set<string>();
   for (const node of root.querySelectorAll("[data-val-tour]")) {
-    const box = node.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) continue;
-    if (isCovered(scope, node, box)) continue;
+    if (seenBox(scope, node) === null) continue;
     for (const name of (node.getAttribute("data-val-tour") ?? "").split(
       /\s+/,
     )) {
@@ -407,6 +464,11 @@ export type TourObserved = {
   openPanel: ShellPanel | null;
   /** The language shown, where the project has more than one. */
   locale: string | null;
+  /**
+   * The source path of every page there is, where the Studio knows them:
+   * what tells a "page added" step that it was THAT page. See `hasMovedOn`.
+   */
+  pages?: ReadonlySet<string>;
 };
 
 /**
@@ -436,8 +498,22 @@ export function hasMovedOn(
       return (
         now.selectedPath !== null && isPathWithin(now.selectedPath, moveOn.path)
       );
-    case "edit":
     case "newPage":
+      // Without the pages, any change counts, as for an edit.
+      if (now.pages === undefined) {
+        return now.reviewCount > atStart.reviewCount;
+      }
+      // There already: "Do it for me" opens it rather than add over it, and
+      // opening it is the step done.
+      if (atStart.pages?.has(moveOn.path)) {
+        return (
+          now.selectedPath !== null &&
+          isPathWithin(now.selectedPath, moveOn.path)
+        );
+      }
+      // That page, and not another one or an edit elsewhere.
+      return now.pages.has(moveOn.path);
+    case "edit":
       return now.reviewCount > atStart.reviewCount;
     case "panel":
       return now.openPanel === moveOn.panel;
@@ -581,6 +657,8 @@ export function StudioTour({
     top: number;
     left: number;
   } | null>(null);
+  /** The step whose target was scrolled into view. See `revealTarget`. */
+  const revealed = useRef<number | null>(null);
   /** On a phone, the edge the card is a sheet along. See `sheetSide`. */
   const [sheet, setSheet] = useState<"top" | "bottom" | null>(null);
   const [arrow, setArrow] = useState<CardArrow | null>(null);
@@ -694,6 +772,10 @@ export function StudioTour({
       const card = cardRef.current;
       if (!root || !card) return;
       let box = measureTarget(root, step?.target, step?.field);
+      if (box === null && revealed.current !== stepIndex) {
+        revealed.current = stepIndex;
+        revealTarget(root, step?.target, step?.field);
+      }
       let avoid = measureAvoid(root);
       /*
        * A step that opens a panel is ABOUT that panel. When the control it

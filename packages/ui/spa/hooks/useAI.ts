@@ -3652,6 +3652,10 @@ export function useAI(
           if (questionMessageId === message.id) {
             pendingQuestionsRef.current.delete(toolCallId);
             codeModeRequestsRef.current.delete(toolCallId);
+            // A guide of the stopped turn: offered, it can no longer be
+            // started; showing, it closes. Its answer has nobody to go to.
+            guidesRef.current.get(toolCallId)?.retire(shellTourRef.current);
+            guidesRef.current.delete(toolCallId);
           }
         }
         if (activeIdRef.current === message.id) {
@@ -4069,6 +4073,16 @@ export function useAI(
     }
     const sent = sendWsMessage({ type: "ai_cancel", id });
     if (!sent) {
+      // Its guides too, as the `ai_cancelled` branch retires them.
+      for (const [toolCallId, turnId] of Array.from(
+        pendingQuestionsRef.current.entries(),
+      )) {
+        const call = guidesRef.current.get(toolCallId);
+        if (turnId !== id || call === undefined) continue;
+        call.retire(shellTourRef.current);
+        guidesRef.current.delete(toolCallId);
+        pendingQuestionsRef.current.delete(toolCallId);
+      }
       // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
       if (activeIdRef.current !== id) {
         chatRef.current?.startAssistantMessage(id);
@@ -4388,7 +4402,7 @@ export function useAI(
       refuseHeldPageRequests();
       // A tour the assistant started belongs to that conversation.
       for (const call of guidesRef.current.values()) {
-        call.abandon(shellTourRef.current);
+        call.retire(shellTourRef.current);
       }
       guidesRef.current.clear();
       pendingQuestionsRef.current.clear();

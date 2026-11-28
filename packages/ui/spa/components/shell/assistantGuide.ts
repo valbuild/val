@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SourcePath } from "@valbuild/core";
+import { Internal, type SourcePath } from "@valbuild/core";
 import type { AITool } from "../../hooks/useAIWebSocket";
 import { isSourcePath } from "../../utils/sourcePath";
 import type { TourMoveOn, TourRun, TourStep, TourStepEnd } from "./tourSteps";
@@ -186,16 +186,18 @@ export function guideTourSteps(
       } else if ("module_row" in point) {
         tourStep.target = `module:${point.module_row}`;
       } else if ("field" in point) {
-        if (!isSourcePath(point.field)) {
+        const field = sourcePathOf(point.field);
+        if (field === null) {
           return { error: `${where}.point_at.field is not a source path.` };
         }
-        tourStep.field = point.field;
+        tourStep.field = field;
       } else {
-        if (!isSourcePath(point.on_page)) {
+        const onPage = sourcePathOf(point.on_page);
+        if (onPage === null) {
           return { error: `${where}.point_at.on_page is not a source path.` };
         }
         // The page outlines it itself, and the ring goes round the page.
-        tourStep.page = point.on_page;
+        tourStep.page = onPage;
         tourStep.target = "canvas";
       }
     }
@@ -239,8 +241,21 @@ function moveOnOf(
   return { type: "edit" };
 }
 
+/**
+ * `value` as a source path, or null when it is not one -- including one whose
+ * `?p=` part the core parser refuses (`?p="title`, an unclosed quote), which
+ * `isSourcePath` alone lets through and which would throw later, when "Do it
+ * for me" opened or added it.
+ */
 function sourcePathOf(value: string): SourcePath | null {
-  return isSourcePath(value) ? value : null;
+  if (!isSourcePath(value)) return null;
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(value);
+  try {
+    Internal.splitModulePath(modulePath);
+  } catch {
+    return null;
+  }
+  return value;
 }
 
 /** What the assistant is told when the card is answered or the tour ends. */
@@ -364,10 +379,12 @@ export type GuideCall = {
   /** The card's Stop: the tour closes, and the assistant is told. */
   stop: (tour: ShellTour) => void;
   /**
-   * The conversation went away (a new session): close the tour without
-   * answering, because the caller answers every open call itself.
+   * The call is no longer the assistant's to answer -- its turn was stopped,
+   * or the conversation went away: close the tour, settle the card, and
+   * answer nothing, since there is nobody waiting. It cannot be started
+   * after this.
    */
-  abandon: (tour: ShellTour | null) => void;
+  retire: (tour: ShellTour | null) => void;
 };
 
 export function createGuideCall({
@@ -409,7 +426,7 @@ export function createGuideCall({
   return {
     request: () => request,
     start(tour) {
-      if (request.state.kind !== "offered") return;
+      if (answered || request.state.kind !== "offered") return;
       run = {
         steps,
         from: "assistant",
@@ -444,9 +461,18 @@ export function createGuideCall({
     stop(tour) {
       if (run !== null) tour.stop(run);
     },
-    abandon(tour) {
+    retire(tour) {
+      if (answered) return;
       answered = true;
       if (run !== null) tour?.stop(run);
+      move(
+        request.state.kind === "offered"
+          ? { kind: "declined" }
+          : {
+              kind: "ended",
+              outcome: { finished, reached, steps: ends.slice() },
+            },
+      );
     },
   };
 }
