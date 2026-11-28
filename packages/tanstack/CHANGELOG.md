@@ -1,5 +1,17 @@
 # @valbuild/tanstack
 
+## 0.157.0
+
+### Patch Changes
+
+- [#1114](https://github.com/valbuild/val/pull/1114) [`2cc168e`](https://github.com/valbuild/val/commit/2cc168e2866a98f362ec1945df371f1acef23f07) Thanks [@freekh](https://github.com/freekh)! - A page rendered from a server draft (`<ValProvider draft={...}>`) can be edited on the page again. Its text was rendered with Val's edit tags but never marked as editable, so Select & edit found nothing to edit, and the Studio could not point at the page's text.
+- Updated dependencies [[`3e6c0ad`](https://github.com/valbuild/val/commit/3e6c0ad11c0ef2f118f379c1ed08233a76d78acd), [`3e6c0ad`](https://github.com/valbuild/val/commit/3e6c0ad11c0ef2f118f379c1ed08233a76d78acd)]:
+  - @valbuild/ui@0.157.0
+  - @valbuild/react@0.157.0
+  - @valbuild/server@0.157.0
+  - @valbuild/language-server@0.157.0
+  - @valbuild/mcp@0.157.0
+
 ## 0.156.1
 
 ### Patch Changes
