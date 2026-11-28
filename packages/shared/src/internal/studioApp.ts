@@ -182,6 +182,10 @@ export function studioManifest(
  * answer is current; a worker answering for them would be a second, older
  * copy of the content that nothing invalidates.
  *
+ * Registered only when the Studio runs as the installed app (see
+ * `startStudioApp`): a tab's browser cache already keeps the immutable files,
+ * and a worker controlling a tab hides its requests from test harnesses.
+ *
  * Not registered in a demo: the demo's own worker has scope `/`, and a worker
  * scoped to `/val` would take the Studio's page from it, along with the
  * uploads and files it relays.

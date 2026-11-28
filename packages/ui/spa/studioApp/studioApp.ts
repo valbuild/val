@@ -187,8 +187,9 @@ function applyIcon() {
 
 /**
  * Make the Studio at `/val` installable: link the manifest and the iOS tags,
- * register the worker that caches the Studio's own files, and keep the
- * browser's install offer for the button in the account panel.
+ * register the worker that caches the Studio's own files when it runs as the
+ * installed app, and keep the browser's install offer for the button in the
+ * account panel.
  *
  * Done by the Studio rather than by `ValApp`, so every framework binding gets
  * it the same way. Once per page.
@@ -203,7 +204,22 @@ export function startStudioApp(apiRoute: string): void {
   addHeadElements(apiRoute);
   applyIcon();
 
-  if ("serviceWorker" in navigator && window.isSecureContext) {
+  /*
+   * The worker is the installed app's, and registered only there.
+   *
+   * In a tab it adds nothing: the Studio's files are `immutable`, so the
+   * browser's own cache already keeps them, and there is no home screen to
+   * open from offline. And it costs something real: once a worker with a
+   * fetch handler controls a page, WebKit sends EVERY request through it,
+   * even the ones it passes on, and Playwright's `page.route` then never
+   * sees them -- which broke `publishHandoff.spec.ts` in WebKit, and would
+   * break any project's own tests that route the Studio's requests.
+   */
+  if (
+    isStandalone() &&
+    "serviceWorker" in navigator &&
+    window.isSecureContext
+  ) {
     navigator.serviceWorker
       .register(`${apiRoute}${STUDIO_SERVICE_WORKER_PATH}`, {
         scope: STUDIO_APP_SCOPE,
