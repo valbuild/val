@@ -1,6 +1,6 @@
 # Code mode: status of fixes and tests (2026-11-27)
 
-Handoff from session `session_01RT854RPGz6zM8tTg93SRaK` ("Code mode Build/hydration issues testing").
+Handoff note. Session ids below are for reference only; another account cannot open them. The test-rig plan is in `docs/handoff/code-mode-test-rig-plan.md`.
 
 ## What was reported, and where it stands
 
@@ -55,8 +55,8 @@ None of these block CI (the e2e matrix is non-blocking; the blocking `smoke` job
 
 ## What is left
 
-1. **CSS in quick previews / builds** (report 4b): val#1112 open, in `session_01RT854RrhFz8oM1uBCuXcG4`. When it lands, add a test that a new Tailwind class's style is on the page after a quick preview and after a Build.
-2. **Test rig for tool-made changes**: `session_01RT854V1KWBuKRAUwCbLBXn` has a plan and is **waiting on 4 decisions** from the user: (1) whether the mock's quick preview really bundles, (2) scripted turns in valbuild/home, (3) product marks G2 blocked, (4) gaps in the catalogue.
+1. **CSS in quick previews / builds** (report 4b): valbuild/val#1112 open, done separately. When it lands, add a test that a new Tailwind class's style is on the page after a quick preview and after a Build.
+2. **Test rig for tool-made changes**: planned, not started. The plan, its catalogue (K1–K20), invariants (I1–I9), harness shape and **4 open decisions** are in `docs/handoff/code-mode-test-rig-plan.md`.
 3. **Templates → 0.156.1** (bump all six, `minimumReleaseAgeExclude`, `node scripts/release-age.mjs`, install-check, reseed mirrors). Not started.
 4. **Loop re-run on 0.156.1** (home `loop.ts`, quick-preview step), and fixing the old loop drift. Optional.
 5. **Intermittent tests above**: the `loginDialog` repeat is a real product bug worth its own session.
