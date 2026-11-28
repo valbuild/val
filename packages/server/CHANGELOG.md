@@ -1,5 +1,61 @@
 # @valbuild/server
 
+## 0.158.0
+
+### Minor Changes
+
+- [#1064](https://github.com/valbuild/val/pull/1064) [`df0f024`](https://github.com/valbuild/val/commit/df0f02488c1c2efffd73adf35768286121a57ebe) Thanks [@freekh](https://github.com/freekh)! - See what your hosted site's server is throwing. Val Build now keeps the errors
+  and warnings of sites it hosts — uncaught exceptions, `console.error` and
+  `console.warn`, requests stopped for using too much CPU or memory, and 5xx
+  responses — grouped, for 7 days, with which ones the build that is live now
+  brought. Three ways to read them:
+
+  - **In the Studio**, under Logs in the account panel (your avatar), for a
+    project on Hosted: every request and what it printed, live, with the
+    errors grouped a tab away. It opens where the preview is, or over the
+    Studio on a phone.
+  - **`val errors`** prints them for the project in `val.config`, newest first.
+    `--verbose` adds stacks, `--json` gives Val Build's answer as is, and
+    `--limit` caps how many. It uses your `val login`, or `VAL_API_KEY`.
+  - **The MCP tool `get_site_errors`**, so an agent asked why a page is broken
+    can read what the server said.
+
+  Secrets, tokens and query strings are taken out before anything is kept, and
+  `console.log` is not kept at all.
+
+- [#1064](https://github.com/valbuild/val/pull/1064) [`df0f024`](https://github.com/valbuild/val/commit/df0f02488c1c2efffd73adf35768286121a57ebe) Thanks [@freekh](https://github.com/freekh)! - See what your hosted site's server did in the last hour, request by request.
+  Val Build now keeps every request a hosted site served for an hour — its path,
+  status, how long it took, how it ended and every line it printed. The Studio
+  shows them under Logs in the account panel; two more things read them:
+
+  - **`val logs`** prints them oldest first, each with the lines it printed
+    under it. `-f` follows: new requests appear as they come (it can take up to a
+    minute for them to start). `--since 30m`, `--level error,warn` and
+    `--search "status:5xx path:/blog/*"` narrow it, `--json` gives Val Build's
+    answer as is, and `--verbose` adds stacks. It uses your `val login`, or
+    `VAL_API_KEY`, like `val errors`.
+  - **The MCP tool `get_logs`**, so an agent can see what happened on the
+    request that failed, not only that something did.
+
+  The search takes words and filters: `status:5xx`, `status:404`, `path:/blog/*`,
+  `method:post`, `level:error`, `build:live` and `is:stopped`. Secrets, tokens
+  and query strings are taken out before anything is kept.
+
+- [#1117](https://github.com/valbuild/val/pull/1117) [`19dec90`](https://github.com/valbuild/val/commit/19dec90192f5344379967cafeaff0edcedcc1666) Thanks [@freekh](https://github.com/freekh)! - The Studio can be added to the home screen. It then opens full screen at `/val`, without the browser's address bar, and starts faster.
+
+  - **Install it from the account panel**, under **This device**: **Install app** on a computer, **Add to home** on a phone. In Chrome, Edge and on Android it opens the browser's install dialog. Safari on iPhone and iPad has no such dialog, so it opens a short illustrated guide to the Share menu instead, showing the icon the app will get.
+  - **Your logo is the icon.** The project's logo from `s.settings()` (`theme.logo`) becomes the app's icon once it is published, if it is an SVG or a square image of at least 144 pixels (512 is best). Otherwise the icon is Val's.
+  - **One app per site.** The Studio and its sign-in live on your site's own domain, so each site gets its own icon, named after its host.
+  - **Faster start.** In the installed app, a service worker scoped to `/val` caches the Studio's own versioned scripts and styles, and keeps the last Studio page so the app still opens without a network. Content, drafts and patches are never cached. The Studio in a browser tab is unchanged.
+  - **Nothing to set up.** The manifest, icons and worker are served by the `/api/val` route your app already has.
+
+### Patch Changes
+
+- Updated dependencies [[`df0f024`](https://github.com/valbuild/val/commit/df0f02488c1c2efffd73adf35768286121a57ebe), [`19dec90`](https://github.com/valbuild/val/commit/19dec90192f5344379967cafeaff0edcedcc1666)]:
+  - @valbuild/ui@0.158.0
+  - @valbuild/shared@0.158.0
+  - @valbuild/core@0.158.0
+
 ## 0.157.0
 
 ### Patch Changes
