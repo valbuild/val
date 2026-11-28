@@ -18,6 +18,7 @@ import { useRouter, useRouterState } from "@tanstack/react-router";
 import React, { useEffect } from "react";
 import { ValScript } from "./ValScript";
 import { ValOverlayProvider } from "./ValOverlayContext";
+import { QuickPreviewRender } from "./QuickPreviewRender";
 import {
   SET_AUTO_TAG_JSX_ENABLED,
   isReactDevelopmentBuild,
@@ -44,6 +45,7 @@ import { floatDarkBg, floatLightBg } from "./fallbackColors";
 import {
   installPageLogInCanvasFrame,
   isValCanvasFrame,
+  QUICK_PREVIEW_PARAM,
 } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { isLiveSitePage, type ValDraft } from "./ValDraft";
@@ -166,7 +168,7 @@ export const ValTanStackProvider = (props: {
    * from a route outside it -- has to be handed the value then too, or it
    * stays off until the next page load.
    *
-   * A SELF-HOSTED site (Custom hosting) has no platform to hand it the
+   * A SELF-HOSTED site (on Pro) has no platform to hand it the
    * setting, so the provider reads nothing there: the layout's loader reads
    * `VAL_ANALYTICS` from the server's environment and passes it here, as
    * the showcase's `fetchValAnalytics()` does --
@@ -388,6 +390,16 @@ export const ValTanStackProvider = (props: {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  /*
+   * Whether this page was opened as a quick preview (`?val_quick=`), as the
+   * address said when it was first rendered: the same on the server and in
+   * the browser, and kept for the page's life (see `QuickPreviewRender`).
+   */
+  const openedAsQuickPreview = useRouterState({
+    select: (state) =>
+      new URLSearchParams(state.location.searchStr).has(QUICK_PREVIEW_PARAM),
+  });
+  const [quickPreview] = React.useState(openedAsQuickPreview);
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("val-provider:pathname", {
@@ -766,7 +778,14 @@ export const ValTanStackProvider = (props: {
       // A visitor: only analytics tags content, and only after hydration
       // (`useEncodesEditTags`), so this cannot reach a component still
       // hydrating either.
-      SET_AUTO_TAG_JSX_ENABLED(analytics);
+      //
+      // Or not known YET: `mountOverlay` is undefined until its own effect
+      // has run. A page rendered from a server draft is tagged regardless,
+      // because its hooks encode edit tags from the render after hydration on
+      // (`useEncodesEditTags`), and only this turns them into attributes:
+      // switched off here, that render left its tags in the text, untagged,
+      // and nothing renders it again -- so Select & edit found nothing to edit.
+      SET_AUTO_TAG_JSX_ENABLED(analytics || (hasDraft && draftMode === true));
     } else {
       if (analytics) {
         SET_AUTO_TAG_JSX_ENABLED(true);
@@ -819,7 +838,7 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode, analytics]);
+  }, [mountOverlay, draftMode, analytics, hasDraft]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -905,7 +924,12 @@ export const ValTanStackProvider = (props: {
       suspend={suspendActive}
       store={valStore}
     >
-      {props.children}
+      <QuickPreviewRender
+        quickPreview={quickPreview}
+        onServer={router.isServer}
+      >
+        {props.children}
+      </QuickPreviewRender>
       {platformAnalytics !== null && (
         <PlatformAnalytics value={platformAnalytics} />
       )}

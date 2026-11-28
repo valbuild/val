@@ -552,7 +552,13 @@ export const ValNextProvider = (props: {
 
   React.useEffect(() => {
     if (!mountOverlay) {
-      SET_AUTO_TAG_JSX_ENABLED(false);
+      // Not known to be an editor -- or not known YET: `mountOverlay` is
+      // undefined until its own effect has run. A page rendered from a server
+      // draft is tagged regardless, because its hooks encode edit tags from
+      // the render after hydration on (`useEncodesEditTags`), and only this
+      // turns them into attributes: switched off here, that render left its
+      // tags in the text, untagged, and nothing renders it again.
+      SET_AUTO_TAG_JSX_ENABLED(hasDraft && draftMode === true);
     } else {
       if (draftMode) {
         SET_AUTO_TAG_JSX_ENABLED(true);
@@ -599,7 +605,7 @@ export const ValNextProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode]);
+  }, [mountOverlay, draftMode, hasDraft]);
 
   React.useEffect(() => {
     if (!mountOverlay) {

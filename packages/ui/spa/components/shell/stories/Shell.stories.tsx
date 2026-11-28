@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import type { CanvasSelectMode } from "../../../hooks/selectModePreference";
+import {
+  DEFAULT_SELECT_MODE,
+  type CanvasSelectMode,
+} from "../../../hooks/selectModePreference";
 import { ReadOnlyCard } from "../ReadOnlyNotice";
 import { PlanNoticeCard } from "../planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "../planLimits/PlanStatusBar";
@@ -441,7 +444,8 @@ function ShellHarness({
   const [autoSave, setAutoSave] = useState(false);
   const [logsOpen, setLogsOpen] = useState(logs === "open");
   // Select's two modes, so its menu can be seen: see `SelectButton`.
-  const [selectMode, setSelectMode] = useState<CanvasSelectMode>("select");
+  const [selectMode, setSelectMode] =
+    useState<CanvasSelectMode>(DEFAULT_SELECT_MODE);
   const full = empty ? emptyShellData : mockShellData;
   // A project of nothing but content files: no `s.router`, no `s.imagedir()`.
   // The shell answers by showing one destination instead of three.

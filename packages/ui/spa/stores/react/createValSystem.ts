@@ -560,70 +560,74 @@ export function createValSystem(
     },
 
     discardPatches: async (patchIds) => {
+      if (patchIds.length === 0) {
+        // Not a request: the server requires at least one id.
+        return { status: "discarded", patchIds: [] };
+      }
       /*
-       * One request per chunk the URL can carry: "discard all" on a long chain
-       * otherwise built a query string the server refuses before the handler
-       * sees it.
-       *
-       * SEQUENTIAL, not a fan-out: each request deletes patches the next one's
-       * chain is computed against, and a half-applied `Promise.all` is harder to
-       * reason about than a stop at the first failure. (This rationale used to
-       * live in `chunkPatchIdsForDelete`'s docblock; it belongs at the call site
-       * that depends on it, not in the splitter, which has no opinion on order.)
+       * ONE request, with the ids in the body. They used to go in the query
+       * string, which a long chain outgrew, so a big discard was a sequence of
+       * deletes -- and when one after the first failed, the ones before it had
+       * deleted patches this answer then did not mention.
        */
-      const deleted: PatchId[] = [];
-      // The highest any chunk reported: each delete moves the chain on, so the
-      // last is the newest, and taking the max says so without relying on it.
-      let headVersion: number | undefined = undefined;
-      for (const chunk of chunkPatchIds(patchIds, "id")) {
-        const res = await client("/patches", "DELETE", {
-          query: { id: chunk },
-          body: { reportHeadVersion: true },
-        });
-        if (res.status !== 200) {
-          // A change held by a running publish is refused one patch at a time,
-          // and the refusal names the publish: that is what lets the Studio
-          // offer to cancel it rather than only say no.
-          if (res.status === 500 && "errors" in res.json) {
-            for (const error of res.json.errors) {
-              if ("publishJobId" in error && error.publishJobId !== undefined) {
-                return {
-                  status: "error",
-                  message: error.message,
-                  publishJobId: error.publishJobId,
-                };
-              }
-            }
-          }
-          return {
-            status: "error",
-            message:
-              res.status !== null && "message" in res.json
-                ? res.json.message
-                : `DELETE /patches failed with status ${res.status ?? "network"}`,
-          };
-        }
-        // The ids the server says it deleted. A partial delete must not make the
-        // client forget a patch that still exists.
+      const res = await client("/patches", "DELETE", {
+        // Not in the query any more: see `ids` on the route.
+        query: { id: undefined },
+        body: { ids: patchIds, reportHeadVersion: true },
+      });
+      if (res.status === 200) {
         if (Array.isArray(res.json)) {
           // A server that predates `reportHeadVersion` answers with the bare
           // ids, and says nothing about the version.
-          deleted.push(...res.json);
-        } else {
-          deleted.push(...res.json.deleted);
-          const reported = res.json.headVersion;
-          if (
-            reported !== undefined &&
-            (headVersion === undefined || reported > headVersion)
-          ) {
-            headVersion = reported;
-          }
+          return { status: "discarded", patchIds: res.json };
         }
+        return {
+          status: "discarded",
+          // The ids the server says it deleted, not the ids we asked about.
+          patchIds: res.json.deleted,
+          ...(res.json.headVersion !== undefined
+            ? { headVersion: res.json.headVersion }
+            : {}),
+        };
       }
+      if (res.status === 500 && "errors" in res.json) {
+        /*
+         * Some patches were refused, one at a time -- and the others may well
+         * have gone, which `deleted` says. A change held by a running publish
+         * names the publish: that is what lets the Studio offer to cancel it
+         * rather than only say no.
+         */
+        const held = res.json.errors.find(
+          (error) =>
+            "publishJobId" in error && error.publishJobId !== undefined,
+        );
+        const firstError = res.json.errors[0];
+        return {
+          status: "error",
+          message:
+            held !== undefined
+              ? held.message
+              : firstError !== undefined
+                ? firstError.message
+                : res.json.message,
+          ...(held !== undefined && "publishJobId" in held && held.publishJobId
+            ? { publishJobId: held.publishJobId }
+            : {}),
+          discarded: res.json.deleted ?? [],
+          ...(res.json.headVersion !== undefined
+            ? { headVersion: res.json.headVersion }
+            : {}),
+        };
+      }
+      // Nothing is known to be deleted: the server, or the store behind it,
+      // failed as a whole.
       return {
-        status: "discarded",
-        patchIds: deleted,
-        ...(headVersion !== undefined ? { headVersion } : {}),
+        status: "error",
+        message:
+          res.status !== null && "message" in res.json
+            ? res.json.message
+            : `DELETE /patches failed with status ${res.status ?? "network"}`,
+        discarded: [],
       };
     },
 

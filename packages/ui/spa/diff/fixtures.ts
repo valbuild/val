@@ -214,7 +214,7 @@ export const bodyField: FieldDiff = {
       {
         kind: "block",
         id: "body-quote",
-        tag: "quote",
+        tag: "p",
         change: "moved",
         after: "Editors never see git. They see a page and a Publish button.",
         movedBy: -2,

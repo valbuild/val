@@ -175,6 +175,18 @@ export type DiscardPatches = (patchIds: PatchId[]) => Promise<
        * cancelled. Absent from a server that does not say.
        */
       publishJobId?: string;
+      /**
+       * The patches that WERE deleted, though the discard as a whole failed:
+       * one change refused (a running publish holds it) does not stop the
+       * others going. They are gone on the server, so they must be forgotten
+       * here too -- kept, they are shown, saved and published again.
+       *
+       * Required, and `[]` when nothing went (the server could not be reached,
+       * or the store behind it failed), so every answer says which it was.
+       */
+      discarded: PatchId[];
+      /** As on `discarded`: the chain version those deletes moved to. */
+      headVersion?: number;
     }
 >;
 

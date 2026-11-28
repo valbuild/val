@@ -87,6 +87,7 @@ import {
   ProposalSaveAndBuildButton,
   ProposalSaveButton,
   nextProposalAction,
+  publishRefusingErrors,
 } from "../proposals/ProposalBar";
 import {
   FloatingNotices,
@@ -1739,14 +1740,21 @@ const ShellFrame = memo(function ShellFrame({
   // `TopBarProposals.onSaveAndBuild`.
   const phoneSaveAndBuild =
     proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
-  // Save that updates the preview stays the main action for good, as it is
-  // in `ProposalActionButton`: Commit and Publish are behind the caret.
+  // The same rule as `ProposalActionButton`: Save while there is anything
+  // to save or update, and Publish once there is not.
   const phoneAction =
     proposals !== undefined && phoneProposal !== null
-      ? phoneSaveAndBuild !== undefined
-        ? "save"
-        : nextProposalAction(phoneProposal, proposals.onBuild !== undefined)
+      ? nextProposalAction(
+          phoneProposal,
+          proposals.onBuild !== undefined,
+          phoneSaveAndBuild !== undefined,
+        )
       : null;
+  const phonePublishErrors =
+    publishRefusingErrors(proposals?.saveBlockedBy, {
+      codeMode: proposals?.codeMode?.on === true,
+      saveBuilds: phoneSaveAndBuild !== undefined,
+    }) ?? undefined;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
       phoneAction === "save" && phoneSaveAndBuild !== undefined ? (
@@ -1778,6 +1786,7 @@ const ShellFrame = memo(function ShellFrame({
         <ProposalPublishButton
           location={phoneProposal}
           onPublish={proposals.onPublish}
+          blockedBy={phonePublishErrors}
           className="h-8"
         />
       )
@@ -2139,6 +2148,12 @@ const ShellFrame = memo(function ShellFrame({
             }
             codeMode={assistantSelect?.codeMode === true}
             onUseContent={() => usePane("content")}
+            // A pick opened a field in Content: switched off, it is switched
+            // on, and folded, it is used, which is what unfolds it.
+            onRevealContent={() => {
+              setContentOpen(true);
+              usePane("content");
+            }}
             // Closing Content's sheet hands its room back to the pane
             // beside it -- or, with none open, switches Content off, since
             // there is nothing to fold it behind (the top bar's switch

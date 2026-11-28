@@ -19,6 +19,7 @@ import {
   describeDependencies,
   isDependenciesState,
   previewUpdateOf,
+  publishRefusingErrors,
   type PreviewUpdate,
 } from "../proposals/ProposalBar";
 
@@ -75,12 +76,16 @@ export function ChangesSheet({
   const blocked =
     here !== null && here.unsaved > 0 && !codeMode ? errors : null;
   const commit = proposals?.commit;
+  const publishErrors = publishRefusingErrors(proposals?.saveBlockedBy, {
+    codeMode,
+    saveBuilds: saveAndUpdate !== undefined,
+  });
   const publishRefusedBy =
     here === null
       ? null
       : (here.publishBlockedBy ??
-        (errors !== null && (codeMode || saveAndUpdate !== undefined)
-          ? `Fix the ${errors.errors === 1 ? "validation error" : `${errors.errors} validation errors`} first: only valid content is published.`
+        (publishErrors !== null
+          ? `Fix the ${publishErrors.errors === 1 ? "validation error" : `${publishErrors.errors} validation errors`} first: only valid content is published.`
           : null));
   return (
     <FloatingPanel

@@ -2,6 +2,7 @@ import { MouseEvent, useCallback } from "react";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   useNavigation,
+  VAL_CHANGES_ROUTE,
   VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
   VAL_REVIEW_ROUTE,
@@ -13,7 +14,8 @@ export type NavTarget =
   | ModuleFilePath
   | typeof VAL_COMPARE_ROUTE
   | typeof VAL_ERRORS_ROUTE
-  | typeof VAL_REVIEW_ROUTE;
+  | typeof VAL_REVIEW_ROUTE
+  | typeof VAL_CHANGES_ROUTE;
 
 export type NavLinkParams = {
   scrollToPath?: SourcePath | ModuleFilePath;

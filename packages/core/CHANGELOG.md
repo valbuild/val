@@ -1,5 +1,50 @@
 # @valbuild/core
 
+## 0.155.0
+
+### Minor Changes
+
+- [`3a10d09`](https://github.com/valbuild/val/commit/3a10d09525a064844353e23138ba1d49bcf67e16) Thanks [@freekh](https://github.com/freekh)! - `ValImage` in `@valbuild/tanstack` now takes the props `next/image` takes, and published remote images are resized for the screen they are shown on.
+
+  ```tsx
+  <ValImage
+    src={page.hero.image}
+    sizes="(min-width: 1024px) 50vw, 100vw"
+    priority
+    placeholder="blur"
+  />
+  ```
+
+  - **Resized remote images.** A published `s.image().remote()` (or any image with `files: { remote: true }`) gets a `srcset`, and the host that serves it — Val's platform on Cloudflare, or `remote.val.build` — answers each width with the image scaled down in AVIF or WebP. Pass `sizes` for an image CSS shows smaller than it is; without it the `srcset` is 1x and 2x the rendered width.
+  - **`next/image`'s props:** `sizes`, `quality`, `fill`, `priority` / `preload`, `placeholder` / `blurDataURL`, `loader`, `unoptimized` and `overrideSrc`.
+  - **`getValImageProps`**, the counterpart of `next/image`'s `getImageProps`, for a `<picture>`.
+  - **Lazy by default:** `loading="lazy"` and `decoding="async"`, as `next/image` does. Pass `priority` for the largest image above the fold.
+  - Given only a `width` or a `height`, the other now follows the image's aspect ratio.
+
+  Local images and drafts are served as before. A `loader` of your own is used for every image, local ones included.
+
+### Patch Changes
+
+- [#1081](https://github.com/valbuild/val/pull/1081) [`14548b9`](https://github.com/valbuild/val/commit/14548b907c16e66ee0e0131ae505aae4b336c74e) Thanks [@freekh](https://github.com/freekh)! - Experimental: a Components view in Val Studio
+
+  When a project links components to its content with `s.object(...).component(() => import(...))`, the Studio's rail gets a **Components** button. It opens `/val/components`, where you can:
+
+  - see every component side by side, rendered by your site on its `/val-preview` route, at phone, tablet or desktop width, in the preview's place, with Content and the Assistant opened from the top bar as beside a page;
+  - search the content of the components, and open the use a match is in;
+  - open **Pages** to see the components a page is made of, stacked in the order its content has them, with a list of components inside another nested under it;
+  - pick content with the same **Select** as beside a page's preview, and with **Select & edit** type straight into a component's preview;
+  - switch the Preview pane between **Page** and **Components** from the Preview button's menu;
+  - jump to a component from the page (**Open in Components** in the controls over it) or from its fields (the **Show in Components** icon);
+  - see the assistant's code changes in the previews as soon as code mode's quick preview has them;
+  - open one and step through every place the content uses it (← and →), or see all of them side by side next to its examples;
+  - edit the fields of the use on screen in the Content pane beside it, or click content in the preview to jump to its field;
+
+  What is on screen is in the address, so a component, a use of it and a screen width can be shared as a link.
+
+  `.component(load, { name: "Hero" })` names a component in the Studio. Without a name it is called after its object's literal field (`type: s.literal("hero")` is "Hero"), or the field it is used in.
+
+  `.component(load, { examples })` takes a record of named examples, as stories are, rather than one `example`: `examples: { longTitle: {...}, empty: {...} }`. The Studio shows them as "Long title" and "Empty". The preview route takes one by name: `/val-preview?p=…&example=longTitle`.
+
 ## 0.154.2
 
 ### Patch Changes

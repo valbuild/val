@@ -67,6 +67,11 @@ export type PageCheckState =
       name: string;
       inputs: string | null;
       report: PageCheckReport;
+      /**
+       * The page was not looked at, because the change could not be on it:
+       * `pageCheckNotShown`. Absent when the check read the page.
+       */
+      notShown?: PageNotShown["reason"];
     }
   /** It did not finish: the AI service, or the session, failed. */
   | {
@@ -139,6 +144,56 @@ export function pageCheckReported(
 ): void {
   lastReport = { name, inputs, report, told: false };
   set({ status: "done", name, inputs, report });
+}
+
+/**
+ * Why a change was not on the page to check -- so it was not looked for:
+ *
+ * - `failed`: its quick preview could not be made or shown.
+ * - `off`: Val Build makes no quick previews for this project.
+ * - `no-quick-preview`: none can be shown here (no canvas to show it in).
+ * - `timeout`: its quick preview was not in front within `waitedMs`.
+ *
+ * In all four the page in the preview is the last build, which the change
+ * is not in: reading it can only find the change missing.
+ */
+export type PageNotShown =
+  | { reason: "failed"; message: string }
+  | { reason: "off" }
+  | { reason: "no-quick-preview" }
+  | { reason: "timeout"; waitedMs: number };
+
+/** What the person and the assistant are told for each. */
+function notShownSummary(why: PageNotShown): string {
+  switch (why.reason) {
+    case "failed":
+      return `The page was not checked: the change could not be shown in a quick preview, so it is on the page once the proposal is built. The quick preview said: ${why.message}`;
+    case "off":
+      return "The page was not checked: this project makes no quick previews, so the change is on the page once the proposal is built.";
+    case "no-quick-preview":
+      return "The page was not checked: no quick preview can be shown here, so the change is on the page once the proposal is built.";
+    case "timeout":
+      return `The page was not checked: the quick preview of the change was not on the page within ${Math.round(why.waitedMs / 1000)} seconds.`;
+  }
+}
+
+/**
+ * The staged files `inputs` were not on the page, so the page check did
+ * not look at it: reported as `blocked`, saying why, without a model --
+ * one asked to judge a page the change is not on reports it missing.
+ */
+export function pageCheckNotShown(
+  name: string,
+  inputs: string | null,
+  why: PageNotShown,
+): void {
+  const report: PageCheckReport = {
+    status: "blocked",
+    summary: notShownSummary(why),
+    findings: [],
+  };
+  lastReport = { name, inputs, report, told: false };
+  set({ status: "done", name, inputs, report, notShown: why.reason });
 }
 
 /** It ended without reporting. */
@@ -285,7 +340,8 @@ export const PAGE_CHECK_SYSTEM_PROMPT = `You check a change another assistant ju
 - The message says what changed and, when the other assistant said, what to look at. Check that on the page as it is now: the text, the order, the styles of what changed, and that the page logged no errors.
 - read_page reads the page; with a selector, one element's computed styles, its size and how many lines it wraps to. When read_page counts errors or failed requests, read_page_log says what they were.
 - read_file, search_code and list_files read the code, to know what the page should show. Read only what you need.
-- The typecheck and Val's lint rules are run by the Studio, and the message says what they found. Do not check types yourself. When the code does not compile, the preview may show the build from before the change: then report blocked, unless the change is on the page.
+- The typecheck and Val's lint rules are run by the Studio, and the message says what they found. Do not check types yourself.
+- The message says what the page in the preview is. When it is a quick preview of the changed files, the change is in the page's code: what you do not see is a finding about the change, never a sign of a build from before it.
 - Finish with report, once. Each finding says what you saw, what was expected, and where (a selector or a file) -- never "check X". Report pass only when you saw the change on the page.
 - A tool answer can carry messages_from_main: notes from the other assistant. Follow them.
 - message_main sends the other assistant a note before your report. Only when it cannot wait.
@@ -300,6 +356,8 @@ export type PageCheckContext = {
   typecheck: string;
   /** The background lint, in a line. */
   lint: string;
+  /** What the page in the preview is, in a line: whether the change is on it. */
+  page?: string;
 };
 
 /** The message a page check run starts with. */
@@ -328,6 +386,7 @@ export function pageCheckPrompt(
     `Files the proposal changes: ${files}.`,
     `Typecheck: ${context.typecheck}`,
     `Lint: ${context.lint}`,
+    ...(context.page !== undefined ? [context.page] : []),
   ].join("\n");
 }
 
