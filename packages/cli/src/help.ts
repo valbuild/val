@@ -82,6 +82,30 @@ Options:
   runs it on an upgrade's install before a connected project can publish the upgrade.
   Fails when it could not.`,
 
+  errors: `Description: what the hosted site has thrown, warned or been stopped for in the last
+  7 days, grouped and newest first, with which ones the live build brought. Kept by
+  Val Build for sites it hosts. Authenticates with the "val login" token in
+  .val/pat.json, else VAL_API_KEY, for the project in val.config (or VAL_PROJECT).
+Options:
+  --root [root], -r [root] Set project root directory (default process.cwd())
+  --limit [n]              At most this many groups, 1 to 200 (default 100)
+  --json                   Print Val Build's answer as JSON
+  --verbose                Print each error's stack`,
+
+  logs: `Description: what the hosted site's server did in the last hour: each request, oldest
+  first, with its status, how long it took and every line it printed. Kept by Val Build
+  for sites it hosts, for an hour. Authenticates like "val errors".
+Options:
+  --root [root], -r [root] Set project root directory (default process.cwd())
+  --follow, -f             Keep printing new requests as they come (Ctrl-C to stop)
+  --since [time]           How far back: 30s, 15m, 1h or an ISO time (default 15m)
+  --level [levels]         Only requests at these levels: error, warn, info (e.g. error,warn)
+  --search [query]         Words to find, and filters: status:5xx, path:/blog/*, method:post,
+                           level:error, build:live, is:stopped
+  --limit [n]              At most this many requests, 1 to 1000 (default 200)
+  --json                   Print Val Build's answer as JSON (one request per line with -f)
+  --verbose                Print each error's stack`,
+
   "list-unused-files": `Description: EXPERIMENTAL.
   List files that are in the configured files directory (public/val) but not in use by any Val module.
   This is useful for cleaning up unused files.

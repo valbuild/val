@@ -1,10 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { Compass, X } from "lucide-react";
+import { Compass, Sparkles, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { isPathWithin } from "../../utils/sourcePath";
-import { TourMoveOn, TourStep } from "./tourSteps";
+import { TourMoveOn, TourStep, TourStepEnd } from "./tourSteps";
 import { ShellPanel } from "./types";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 
@@ -27,6 +27,20 @@ const CARD_WIDTH_WITH_CODE = 380;
  * in the middle of the page covers the heading it is asking you to click.
  */
 const SHEET_BELOW = 640;
+/** How often an open step is measured again. See the layout effect. */
+const REMEASURE_MS = 250;
+/** The spotlight's dimming. */
+const SCRIM = "rgb(0 0 0 / 0.55)";
+
+function sameBox(a: Box | null, b: Box | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.top === b.top &&
+    a.left === b.left &&
+    a.width === b.width &&
+    a.height === b.height
+  );
+}
 
 /**
  * The element this step is about, in coordinates relative to `root`.
@@ -79,18 +93,130 @@ function measureTarget(
   return rect ? relativeTo(root, rect) : null;
 }
 
-/** The first element matching `selector` that has a box on screen. */
+/**
+ * The first element matching `selector` that has a box on screen AND can be
+ * seen there.
+ *
+ * Having a box is not the same as being seen. On a phone a panel opens over
+ * the whole Studio, and the menu button that opened it is still laid out
+ * underneath: a ring drawn around it outlined a patch of the panel, and the
+ * card pointed at nothing anybody could find.
+ */
 function firstOnScreen(
   scope: Document | ShadowRoot,
   selector: string,
 ): DOMRect | null {
   for (const node of scope.querySelectorAll(selector)) {
     if (!(node instanceof HTMLElement)) continue;
-    const box = node.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) continue;
-    return box;
+    const box = seenBox(scope, node);
+    if (box) return box;
   }
   return null;
+}
+
+/**
+ * Where `node` is on screen, if the person can see it there; null if not.
+ *
+ * The one test of "can be seen" for both drawing a ring and telling the
+ * assistant what it can point at, so the two never disagree:
+ *
+ * - a box at all (`display: none` measures zero);
+ * - not in a pane that is off to one side of a phone's strip (`inert`);
+ * - inside the viewport -- a row scrolled out of its list still has a box,
+ *   and the browser cannot say what is drawn over a point it does not show;
+ * - nothing else drawn over its middle (`isCovered`).
+ */
+function seenBox(scope: Document | ShadowRoot, node: Element): DOMRect | null {
+  const box = node.getBoundingClientRect();
+  if (box.width === 0 || box.height === 0) return null;
+  if (node.closest("[inert]")) return null;
+  if (!inViewport(box)) return null;
+  if (isCovered(scope, node, box)) return null;
+  return box;
+}
+
+function inViewport(box: DOMRect): boolean {
+  const middleX = box.left + box.width / 2;
+  const middleY = box.top + box.height / 2;
+  return (
+    middleX >= 0 &&
+    middleY >= 0 &&
+    middleX <= window.innerWidth &&
+    middleY <= window.innerHeight
+  );
+}
+
+/**
+ * Scroll a step's target into view when it is there but scrolled out of
+ * sight: a row further down Pages than the phone shows. Only what is laid
+ * out and reachable -- not in a pane off to one side -- and only once per
+ * step, so the tour does not fight someone scrolling.
+ */
+function revealTarget(root: HTMLElement, target?: string, field?: SourcePath) {
+  const scope = root.getRootNode();
+  if (!(scope instanceof Document || scope instanceof ShadowRoot)) return;
+  const selectors = [
+    ...(field
+      ? [
+          `[data-canvas-field=${JSON.stringify(field)}], [data-val-studio-path=${JSON.stringify(field)}]`,
+        ]
+      : []),
+    ...(target ? [`[data-val-tour~="${target}"]`] : []),
+  ];
+  for (const selector of selectors) {
+    for (const node of scope.querySelectorAll(selector)) {
+      const box = node.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      if (node.closest("[inert]")) continue;
+      if (inViewport(box)) continue;
+      node.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+  }
+}
+
+/**
+ * Every tour target the person can see right now, by name: what the
+ * assistant can point a guide at. The same test the tour draws with, so a
+ * name listed here is one a step can ring.
+ */
+export function tourTargetsOnScreen(root: Element): string[] {
+  const scope = root.getRootNode();
+  if (!(scope instanceof Document || scope instanceof ShadowRoot)) return [];
+  const names = new Set<string>();
+  for (const node of root.querySelectorAll("[data-val-tour]")) {
+    if (seenBox(scope, node) === null) continue;
+    for (const name of (node.getAttribute("data-val-tour") ?? "").split(
+      /\s+/,
+    )) {
+      if (name !== "") names.add(name);
+    }
+  }
+  return [...names];
+}
+
+/**
+ * Whether something other than the tour is drawn over the middle of `node`.
+ *
+ * The tour's own layers are skipped: the spotlight's sheet is over everything
+ * on purpose. Anything else on top that is not `node`, inside it or around it
+ * is in the way. Where the browser cannot say -- the point is off screen, or
+ * there is no `elementsFromPoint`, as in jsdom -- it is not covered: a ring
+ * that might be hidden is better than none.
+ */
+export function isCovered(
+  scope: Pick<Document | ShadowRoot, "elementsFromPoint">,
+  node: Element,
+  box: { left: number; top: number; width: number; height: number },
+): boolean {
+  if (typeof scope.elementsFromPoint !== "function") return false;
+  const hits = scope.elementsFromPoint(
+    box.left + box.width / 2,
+    box.top + box.height / 2,
+  );
+  const top = hits.find((hit) => !hit.closest("[data-val-tour-layer]"));
+  if (!top) return false;
+  return !(top === node || node.contains(top) || top.contains(node));
 }
 
 function relativeTo(root: HTMLElement, rect: DOMRect): Box {
@@ -225,6 +351,43 @@ export function placeCard(
 }
 
 /**
+ * How far above the bottom of the shell a sheet's lower edge sits, in px: the
+ * bottom bars and their margin (`CLEAR_OF_BOTTOM_BARS`, without the safe area,
+ * which only moves it further up and so only makes the estimate cautious).
+ */
+const SHEET_CLEARANCE = 76;
+/** And how far below the top a sheet at the top starts: under the top bar. */
+const SHEET_TOP = 56;
+
+/**
+ * Which edge a phone's sheet goes along: the bottom, unless that would cover
+ * what the step is about.
+ *
+ * The bottom first because it is where a thumb is, and because the top bar is
+ * where most targets are. But a field low on the screen is exactly where a
+ * sheet along the bottom lands, so the sheet moves to the top for that one --
+ * the bars at the bottom are never covered, since the sheet sits above them.
+ */
+export function sheetSide(
+  target: Box | null,
+  shell: { height: number },
+  cardHeight: number,
+): "top" | "bottom" {
+  if (!target) return "bottom";
+  const bottom = {
+    top: shell.height - SHEET_CLEARANCE - cardHeight,
+    left: 0,
+    width: Number.MAX_SAFE_INTEGER,
+    height: cardHeight,
+  };
+  if (!overlaps(target, bottom)) return "bottom";
+  const top = { ...bottom, top: SHEET_TOP };
+  // Covered either way -- a target taller than what is left -- the bottom,
+  // where the buttons are easiest to reach.
+  return overlaps(target, top) ? "bottom" : "top";
+}
+
+/**
  * The card's arrow: which of its edges faces the target, and how far along
  * that edge the arrow sits, in px from the edge's start (its left, or its top).
  */
@@ -301,6 +464,11 @@ export type TourObserved = {
   openPanel: ShellPanel | null;
   /** The language shown, where the project has more than one. */
   locale: string | null;
+  /**
+   * The source path of every page there is, where the Studio knows them:
+   * what tells a "page added" step that it was THAT page. See `hasMovedOn`.
+   */
+  pages?: ReadonlySet<string>;
 };
 
 /**
@@ -330,8 +498,22 @@ export function hasMovedOn(
       return (
         now.selectedPath !== null && isPathWithin(now.selectedPath, moveOn.path)
       );
-    case "edit":
     case "newPage":
+      // Without the pages, any change counts, as for an edit.
+      if (now.pages === undefined) {
+        return now.reviewCount > atStart.reviewCount;
+      }
+      // There already: "Do it for me" opens it rather than add over it, and
+      // opening it is the step done.
+      if (atStart.pages?.has(moveOn.path)) {
+        return (
+          now.selectedPath !== null &&
+          isPathWithin(now.selectedPath, moveOn.path)
+        );
+      }
+      // That page, and not another one or an edit elsewhere.
+      return now.pages.has(moveOn.path);
+    case "edit":
       return now.reviewCount > atStart.reviewCount;
     case "panel":
       return now.openPanel === moveOn.panel;
@@ -413,6 +595,17 @@ export type StudioTourProps = {
   act?: TourActions;
   /** Outline a place on the page (a step's `page`), or nothing. */
   onHighlightPage?: (path: SourcePath | null) => void;
+  /** A step was left, and how. See `TourRun.onStepEnd`. */
+  onStepEnd?: (index: number, how: TourStepEnd) => void;
+  /** The step shown changed: on every step, the first included. */
+  onStepChange?: (index: number) => void;
+  /** Written by the assistant: the card says so. See `TourRun.from`. */
+  from?: "assistant";
+  /**
+   * Leave the tour for the conversation. Offered on a phone, where the
+   * conversation is a pane of its own and the person cannot see it from here.
+   */
+  onBackToChat?: () => void;
 };
 
 /**
@@ -432,6 +625,10 @@ export function StudioTour({
   observed = NOT_OBSERVED,
   act = {},
   onHighlightPage,
+  onStepEnd,
+  onStepChange,
+  from,
+  onBackToChat,
 }: StudioTourProps) {
   const ring = look === "ring";
   const [index, setIndex] = useState(0);
@@ -460,10 +657,22 @@ export function StudioTour({
     top: number;
     left: number;
   } | null>(null);
-  const [asSheet, setAsSheet] = useState(false);
+  /** The step whose target was scrolled into view. See `revealTarget`. */
+  const revealed = useRef<number | null>(null);
+  /** On a phone, the edge the card is a sheet along. See `sheetSide`. */
+  const [sheet, setSheet] = useState<"top" | "bottom" | null>(null);
   const [arrow, setArrow] = useState<CardArrow | null>(null);
   const step = steps[stepIndex];
   const isLast = stepIndex === steps.length - 1;
+  /**
+   * The assistant's guide of one step is a pointer -- "Publish is here" --
+   * not a tour: no count of one, and "Got it" rather than "Done". Only the
+   * assistant's: the demo's short tours are tours, and say so.
+   */
+  const single = from === "assistant" && steps.length === 1;
+  useEffect(() => {
+    onStepChange?.(stepIndex);
+  }, [stepIndex, onStepChange]);
 
   // The panel this step wants, before anything is measured: the rail button it
   // spotlights does not move, but the panel opening is what the step is FOR.
@@ -497,7 +706,14 @@ export function StudioTour({
   const done =
     moveOn !== undefined &&
     hasMovedOn(moveOn, observed, startedAt.current.observed);
-  const advance = () => {
+  /*
+   * Whether "Do it for me" was pressed during this step. What it does is
+   * what the person would have, so the step moves on the same way either
+   * way -- and the assistant asked to be told which it was.
+   */
+  const doneForThem = useRef<number | null>(null);
+  const advance = (how: TourStepEnd) => {
+    onStepEnd?.(stepIndex, how);
     if (!isLast) {
       setIndex(stepIndex + 1);
       return;
@@ -510,13 +726,17 @@ export function StudioTour({
   useEffect(() => {
     if (!done) return;
     const timer = window.setTimeout(
-      () => advanceRef.current(),
+      () =>
+        advanceRef.current(
+          doneForThem.current === stepIndex ? "done-for-them" : "did-it",
+        ),
       MOVE_ON_DELAY_MS,
     );
     return () => window.clearTimeout(timer);
   }, [done, stepIndex]);
   const doItForMe = () => {
     if (!moveOn) return;
+    doneForThem.current = stepIndex;
     switch (moveOn.type) {
       case "open":
         act.openPath?.(moveOn.path);
@@ -551,35 +771,73 @@ export function StudioTour({
       const root = rootRef.current;
       const card = cardRef.current;
       if (!root || !card) return;
-      const box = measureTarget(root, step?.target, step?.field);
-      setTarget(box);
+      let box = measureTarget(root, step?.target, step?.field);
+      if (box === null && revealed.current !== stepIndex) {
+        revealed.current = stepIndex;
+        revealTarget(root, step?.target, step?.field);
+      }
+      let avoid = measureAvoid(root);
+      /*
+       * A step that opens a panel is ABOUT that panel. When the control it
+       * points at cannot be seen -- on a phone the panel opens over it -- the
+       * panel itself is what to show, and there is nothing left to keep
+       * clear of.
+       */
+      if (!box && step?.panel && avoid) {
+        box = avoid;
+        avoid = null;
+      }
       const rootRect = root.getBoundingClientRect();
-      const sheet = ring && rootRect.width < SHEET_BELOW;
-      setAsSheet(sheet);
       const size = { width: card.offsetWidth, height: card.offsetHeight };
+      /*
+       * On a phone the card is a sheet, in both looks: there is no room
+       * BESIDE anything, and a card placed above or below its target
+       * covered the panel the step had just opened to explain.
+       */
+      const side =
+        rootRect.width < SHEET_BELOW
+          ? sheetSide(box, { height: rootRect.height }, size.height)
+          : null;
       const at = placeCard(
         box,
         { width: rootRect.width, height: rootRect.height },
         size,
-        measureAvoid(root),
+        avoid,
       );
-      setPlacement(at);
-      // A sheet along the bottom is not beside anything, so it points at
-      // nothing; the ring above it does that.
-      setArrow(sheet ? null : pointArrow(box, { ...at, ...size }));
+      // Only when something moved: this runs on a timer while the tour is
+      // open, and a new object every time would render the tour every time.
+      setTarget((current) => (sameBox(current, box) ? current : box));
+      setSheet(side);
+      setPlacement((current) =>
+        current && current.top === at.top && current.left === at.left
+          ? current
+          : at,
+      );
+      // A sheet is not beside anything, so it points at nothing; the ring or
+      // the spotlight does that.
+      const nextArrow = side ? null : pointArrow(box, { ...at, ...size });
+      setArrow((current) =>
+        current?.side === nextArrow?.side &&
+        current?.offset === nextArrow?.offset
+          ? current
+          : nextArrow,
+      );
     };
     measure();
     /*
      * A panel sliding in, a phone rotating, the browser resizing: all of them
      * move what is being pointed at, or what has to be kept clear.
      *
-     * Two more passes, because the panel a step opens is mounted by an effect
-     * of its own: on the frame the step changes there is nothing to measure
-     * yet, and one frame later it may be laid out but not settled.
+     * And measured again, a few times a second, for as long as the step is
+     * up. The panel a step opens is mounted by an effect of its own and then
+     * slides in, the phone's panes slide sideways, a list loads under a
+     * field: nothing announces any of it, and two passes at fixed times
+     * (which is what this was) left the ring wherever the slide had got to.
+     * A measure is a few lookups and nothing renders unless something moved.
      */
     const frames = [
       requestAnimationFrame(measure),
-      window.setTimeout(measure, 120),
+      window.setInterval(measure, REMEASURE_MS),
     ];
     window.addEventListener("resize", measure);
     /*
@@ -594,11 +852,11 @@ export function StudioTour({
     scrolls?.addEventListener("scroll", measure, true);
     return () => {
       cancelAnimationFrame(frames[0]);
-      window.clearTimeout(frames[1]);
+      window.clearInterval(frames[1]);
       window.removeEventListener("resize", measure);
       scrolls?.removeEventListener("scroll", measure, true);
     };
-  }, [stepIndex, step?.target, step?.field, ring]);
+  }, [stepIndex, step?.target, step?.field, step?.panel]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -675,6 +933,8 @@ export function StudioTour({
   return (
     <div
       ref={rootRef}
+      // What `isCovered` looks past: the tour is over everything on purpose.
+      data-val-tour-layer=""
       // In the ring look the overlay lets every click through but the card's:
       // the visitor is being asked to do things in the Studio behind it.
       className={cn(
@@ -736,23 +996,30 @@ export function StudioTour({
          */
         <div
           aria-hidden
+          data-val-tour-dim={target ? "spotlight" : "all"}
           className={cn(
             "absolute pointer-events-none transition-[top,left,width,height] duration-200",
             target
               ? "rounded-md ring-2 ring-border-brand-secondary"
               : "inset-0 rounded-none",
           )}
-          style={{
-            ...(target
+          /*
+           * With nothing to point at, the scrim is the element's own FILL.
+           * It was the same shadow as the spotlight's, and the shadow of a box
+           * as big as the shell falls entirely outside the shell: nothing was
+           * dimmed at all, on any screen.
+           */
+          style={
+            target
               ? {
                   top: target.top - 4,
                   left: target.left - 4,
                   width: target.width + 8,
                   height: target.height + 8,
+                  boxShadow: `0 0 0 9999px ${SCRIM}`,
                 }
-              : {}),
-            boxShadow: "0 0 0 9999px rgb(0 0 0 / 0.55)",
-          }}
+              : { background: SCRIM }
+          }
         />
       )}
       {ring && (
@@ -786,8 +1053,9 @@ export function StudioTour({
         // Focusable only programmatically: it is a container, and a tab stop of
         // its own would put an extra empty stop before the buttons.
         tabIndex={-1}
+        data-val-tour-sheet={sheet ?? undefined}
         style={
-          asSheet
+          sheet
             ? undefined
             : {
                 width: step.code ? CARD_WIDTH_WITH_CODE : CARD_WIDTH,
@@ -801,9 +1069,11 @@ export function StudioTour({
           "absolute rounded-lg border border-border-float bg-bg-float p-3.5 shadow-lg focus-visible:outline-none",
           ring &&
             "pointer-events-auto transition-[top,left] duration-300 ease-out motion-reduce:transition-none",
-          // Along the bottom, above the bars there, the full width less a
-          // margin: the ring stays visible above it.
-          asSheet && ["left-3 right-3", CLEAR_OF_BOTTOM_BARS],
+          // Along the bottom, above the bars there, or under the top bar when
+          // the bottom would cover the target: the full width less a margin.
+          sheet && "left-3 right-3",
+          sheet === "bottom" && CLEAR_OF_BOTTOM_BARS,
+          sheet === "top" && "top-14",
         )}
       >
         {arrow && (
@@ -820,6 +1090,26 @@ export function StudioTour({
                 : { top: arrow.offset - 5 }
             }
           />
+        )}
+        {from === "assistant" && (
+          /*
+           * Whose words these are. The Studio's own tour speaks for the
+           * Studio; this one was written a moment ago by the assistant, for
+           * this person, and should not be mistaken for the product's.
+           */
+          <div className="mb-2 flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-border-brand-secondary">
+            <Sparkles size={11} className="shrink-0" />
+            <span>From the assistant</span>
+            {onBackToChat && (
+              <button
+                type="button"
+                onClick={onBackToChat}
+                className="ml-auto rounded px-1.5 py-0.5 text-[0.6875rem] font-medium normal-case tracking-normal text-fg-secondary underline underline-offset-2 hover:bg-bg-float-raised hover:text-fg-primary"
+              >
+                Back to chat
+              </button>
+            )}
+          </div>
         )}
         <div className="flex items-start gap-2">
           {/*
@@ -872,9 +1162,11 @@ export function StudioTour({
           </button>
         </div>
         <div className="mt-3.5 flex items-center gap-2">
-          <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
-            {stepIndex + 1} / {steps.length}
-          </span>
+          {!single && (
+            <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
+              {stepIndex + 1} / {steps.length}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             {moveOn ? (
               /*
@@ -887,7 +1179,7 @@ export function StudioTour({
               <>
                 <button
                   type="button"
-                  onClick={advance}
+                  onClick={() => advance("skipped")}
                   className="inline-flex h-7 items-center rounded-md px-2 text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
                 >
                   Skip
@@ -916,10 +1208,10 @@ export function StudioTour({
                 )}
                 <button
                   type="button"
-                  onClick={advance}
+                  onClick={() => advance("read")}
                   className="inline-flex h-7 items-center rounded-md border border-border-brand-primary bg-bg-brand-primary px-2.5 text-xs font-medium text-fg-brand-primary hover:bg-bg-brand-primary-hover"
                 >
-                  {isLast ? "Done" : "Next"}
+                  {single ? "Got it" : isLast ? "Done" : "Next"}
                 </button>
               </>
             )}

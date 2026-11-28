@@ -220,6 +220,7 @@ export function DataPanel({
           depth={depth}
           selected={selectedId === node.id}
           title={node.module.moduleFilePath}
+          tourTarget={`module:${node.module.moduleFilePath}`}
           onClick={() => onSelect(node.module)}
           leading={<Braces size={13} className="text-fg-secondary-alt" />}
           label={node.module.name}

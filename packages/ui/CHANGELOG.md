@@ -1,5 +1,23 @@
 # @valbuild/ui
 
+## 0.157.0
+
+### Minor Changes
+
+- [#1118](https://github.com/valbuild/val/pull/1118) [`3e6c0ad`](https://github.com/valbuild/val/commit/3e6c0ad11c0ef2f118f379c1ed08233a76d78acd) Thanks [@freekh](https://github.com/freekh)! - The assistant can show you how to do something
+
+  Ask the assistant how to do something in the Studio, or where something is, and it offers to show you. Choose "Show me how" and it draws a box around each thing to click, one step at a time, with a short note beside it. The Studio stays usable underneath: each step moves on when you do it, and "Do it for me" does it for you if you would rather watch. Stop it from the chat or the card at any time. The assistant is told how it went, so it can carry on from there.
+
+  On a phone the guide starts on the page, since the chat fills the screen, and "Back to chat" takes you back.
+
+### Patch Changes
+
+- [#1118](https://github.com/valbuild/val/pull/1118) [`3e6c0ad`](https://github.com/valbuild/val/commit/3e6c0ad11c0ef2f118f379c1ed08233a76d78acd) Thanks [@freekh](https://github.com/freekh)! - The guided tour works on phones
+
+  On a phone, the tour's boxes were drawn around buttons hidden under the panel they had just opened, the assistant's step outlined part of the Data panel, and the steps after it were explained over the conversation. Each step now outlines something you can see: the panel itself, when the button that opens it is covered. The card is a sheet along the bottom (or the top, when the bottom would cover what it points at), and the steps after the assistant's go back to the page.
+
+  Steps with nothing to point at, such as the welcome, also dim the screen behind the card again, on every screen size.
+
 ## 0.156.1
 
 ### Patch Changes

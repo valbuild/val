@@ -58,6 +58,28 @@ export type {
   RemoteFileAuth,
   ResolveRemoteFileAuthResult,
 } from "./valServerConfig";
+// A hosted site's recent errors from Val Build, for `val errors` and the MCP
+// tool `get_site_errors`: one client, so the two read the same answer the same
+// way. The Studio reads it through its admin proxy instead.
+export { fetchSiteErrors } from "./siteErrors";
+export type {
+  FetchSiteErrorsOptions,
+  FetchSiteErrorsResult,
+  SiteError,
+  SiteErrorsAnswer,
+  SiteErrorsFailureReason,
+} from "./siteErrors";
+// And its last hour of requests, for `val logs` and the MCP tool `get_logs`.
+export { fetchSiteLogs, siteLogRequestLevel } from "./siteLogs";
+export type {
+  FetchSiteLogsOptions,
+  FetchSiteLogsResult,
+  SiteLogLine,
+  SiteLogRequest,
+  SiteLogRequestLevel,
+  SiteLogsAnswer,
+  SiteLogsFailureReason,
+} from "./siteLogs";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";

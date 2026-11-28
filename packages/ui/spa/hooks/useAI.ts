@@ -223,6 +223,17 @@ import {
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
+import {
+  SHOW_GUIDE_TOOL,
+  ShowGuideArgs,
+  createGuideCall,
+  guideResult,
+  guideTargetsOnScreen,
+  guideTourSteps,
+  type GuideCall,
+} from "../components/shell/assistantGuide";
+import { useShellTour } from "../components/shell/shellTour";
+import type { GuideCardActions } from "../components/AIChatToolActivities";
 import { isInCodeMode } from "./assistantPersona";
 import {
   readProjectContext,
@@ -1464,6 +1475,15 @@ export function useAI(
   const pendingQuestionsRef = useRef<Map<string, string>>(new Map());
   // The `request_code_mode` cards shown, by tool call: what each asked.
   const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
+  /**
+   * The shell's guided tour, which `show_guide` runs. Null outside a shell,
+   * where the tool is not offered at all.
+   */
+  const shellTour = useShellTour();
+  const shellTourRef = useRef(shellTour);
+  shellTourRef.current = shellTour;
+  // The `show_guide` cards open, by tool call. See `GuideCall`.
+  const guidesRef = useRef<Map<string, GuideCall>>(new Map());
   // Prompts whose turn has searched the web: see `webSearchGate.ts`.
   const webSearchedPromptsRef = useRef<Set<string>>(new Set());
   // Tool calls held for the person, by tool call, and which gate holds each:
@@ -1938,6 +1958,61 @@ export function useAI(
             // Waits on the person, as a question does: answered by the card.
             pendingQuestionsRef.current.set(message.toolCallId, message.id);
           }
+        } else if (message.name === "show_guide") {
+          const refuse = (error: string) => {
+            sendToolResult({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: false, error },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          };
+          const parsed = ShowGuideArgs.safeParse(message.arguments);
+          if (!parsed.success) {
+            refuse(`Malformed arguments: ${z.prettifyError(parsed.error)}`);
+            return;
+          }
+          const built = guideTourSteps(parsed.data);
+          if ("error" in built) {
+            refuse(built.error);
+            return;
+          }
+          const chat = chatRef.current;
+          if (shellTourRef.current === null || chat === null) {
+            refuse(
+              "A guide cannot be shown here. Explain the steps in words instead.",
+            );
+            return;
+          }
+          const messageId = message.id;
+          const toolCallId = message.toolCallId;
+          const call = createGuideCall({
+            title: parsed.data.title,
+            why: parsed.data.why,
+            steps: built.steps,
+            onChange: (request) =>
+              chatRef.current?.setGuideRequest(messageId, toolCallId, request),
+            onAnswer: (request) => {
+              guidesRef.current.delete(toolCallId);
+              pendingQuestionsRef.current.delete(toolCallId);
+              const sent = sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: true, ...guideResult(request) },
+              });
+              if (!sent) {
+                failUndeliveredQuestion(messageId);
+                return;
+              }
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            },
+          });
+          guidesRef.current.set(toolCallId, call);
+          chat.setGuideRequest(messageId, toolCallId, call.request());
+          // Waits on the person, as a question does: answered by the card,
+          // or by the tour ending.
+          pendingQuestionsRef.current.set(toolCallId, messageId);
         } else if (message.name === "ask_user_question") {
           pendingQuestionsRef.current.set(message.toolCallId, message.id);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
@@ -2694,6 +2769,14 @@ export function useAI(
               valSourcePath: currentSourcePath,
               browserPathname,
               ...(routeSourcePath ? { routeSourcePath } : {}),
+              // What show_guide can point at now. See `guideTargetsOnScreen`.
+              ...(shellTourRef.current !== null
+                ? {
+                    guideTargets: guideTargetsOnScreen(
+                      shellTourRef.current.targetsOnScreen(),
+                    ),
+                  }
+                : {}),
             },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
@@ -3569,6 +3652,10 @@ export function useAI(
           if (questionMessageId === message.id) {
             pendingQuestionsRef.current.delete(toolCallId);
             codeModeRequestsRef.current.delete(toolCallId);
+            // A guide of the stopped turn: offered, it can no longer be
+            // started; showing, it closes. Its answer has nobody to go to.
+            guidesRef.current.get(toolCallId)?.retire(shellTourRef.current);
+            guidesRef.current.delete(toolCallId);
           }
         }
         if (activeIdRef.current === message.id) {
@@ -3821,6 +3908,7 @@ export function useAI(
                   : { kind: "site" }
                 : null,
               pageCheck: pageChecked,
+              guides: shellTourRef.current !== null,
               projectInstructions: projectContext?.instructions ?? null,
               projectMap: projectContext?.mapText ?? null,
             }),
@@ -3828,6 +3916,8 @@ export function useAI(
               withWebSearchWaits(
                 [
                   ...ALL_TOOLS,
+                  // Only where there is a tour to run it in: the shell.
+                  ...(shellTourRef.current !== null ? [SHOW_GUIDE_TOOL] : []),
                   ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
                   // In the Studio: the page in its preview. Without
                   // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.
@@ -3983,6 +4073,16 @@ export function useAI(
     }
     const sent = sendWsMessage({ type: "ai_cancel", id });
     if (!sent) {
+      // Its guides too, as the `ai_cancelled` branch retires them.
+      for (const [toolCallId, turnId] of Array.from(
+        pendingQuestionsRef.current.entries(),
+      )) {
+        const call = guidesRef.current.get(toolCallId);
+        if (turnId !== id || call === undefined) continue;
+        call.retire(shellTourRef.current);
+        guidesRef.current.delete(toolCallId);
+        pendingQuestionsRef.current.delete(toolCallId);
+      }
       // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
       if (activeIdRef.current !== id) {
         chatRef.current?.startAssistantMessage(id);
@@ -4268,6 +4368,22 @@ export function useAI(
     [answerCodeModeRequest],
   );
 
+  /** A `show_guide` card's buttons. See `GuideRequestCard`. */
+  const guideActions = useMemo<GuideCardActions>(
+    () => ({
+      start: (toolCallId) => {
+        const tour = shellTourRef.current;
+        if (tour !== null) guidesRef.current.get(toolCallId)?.start(tour);
+      },
+      decline: (toolCallId) => guidesRef.current.get(toolCallId)?.decline(),
+      stop: (toolCallId) => {
+        const tour = shellTourRef.current;
+        if (tour !== null) guidesRef.current.get(toolCallId)?.stop(tour);
+      },
+    }),
+    [],
+  );
+
   // Reject any pending ask_user_question tool calls. ask_user_question sets
   // timeoutMs: null, so the server waits indefinitely for a result — if we
   // navigate away from the session without answering, that conversation would
@@ -4284,6 +4400,11 @@ export function useAI(
         });
       }
       refuseHeldPageRequests();
+      // A tour the assistant started belongs to that conversation.
+      for (const call of guidesRef.current.values()) {
+        call.retire(shellTourRef.current);
+      }
+      guidesRef.current.clear();
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
       gatedCallsRef.current.clear();
@@ -4526,6 +4647,7 @@ export function useAI(
     /** A `request_code_mode` card's buttons. See `CodeModeRequestCard`. */
     enableCodeMode,
     declineCodeMode,
+    guideActions,
     /** In a proposal: who is in the chat, and whose turn runs. See Flow H. */
     shared,
     /**

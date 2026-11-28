@@ -41,6 +41,23 @@ declare module "react" {
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";
       }>;
+      "val-logs": CustomElementProps<{
+        /** `org/name` of the project whose site this is. */
+        project: string;
+        /** The Studio's proxy to Val Build. */
+        "api-base"?: string;
+        /** `summary` in Settings › Logs, `page` in the preview's place. */
+        layout?: "summary" | "page";
+        tab?: "requests" | "errors";
+        query?: string;
+        live?: "off";
+        assistant?: string;
+        /** The project's Logs in Val Build. */
+        "admin-url"?: string;
+        theme?: "light" | "dark";
+        /** `fs` locally, `http` deployed: what "sign in again" means. */
+        mode?: "fs" | "http";
+      }>;
       "val-env-vars": CustomElementProps<{
         /** `org/name` of the project whose variables and secrets these are. */
         project: string;
