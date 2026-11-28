@@ -655,6 +655,7 @@ export function PagesPanel({
           depth={depth}
           selected={selectedId === page.id}
           title={page.urlPath}
+          tourTarget={`page:${page.urlPath}`}
           // A row with children is a disclosure and has to say whether it is
           // open — the media panel's rows always did. It matters more now that
           // a small site map arrives expanded: without this, neither a screen

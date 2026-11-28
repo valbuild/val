@@ -45,6 +45,11 @@ export type AssistantSystemPromptInput = {
   code: CodeToolsWhere | null;
   /** A page check reads the preview after this turn's changes. */
   pageCheck: boolean;
+  /**
+   * `show_guide` is offered: the Studio can run a guided tour. Optional
+   * because only the shell can.
+   */
+  guides?: boolean;
   /** `readProjectInstructions`, in code mode. */
   projectInstructions: string | null;
   /** `projectMapText`, in code mode. */
@@ -55,6 +60,19 @@ export type AssistantSystemPromptInput = {
  * What the system prompt says about sketchpads, when they are offered: see
  * `sketchpadsOn` where the prompt is sent.
  */
+/**
+ * When to offer to SHOW someone, and how to write the steps. The person asked
+ * for this to be an offer: someone who asked a question may want the answer
+ * and not the lesson.
+ */
+const GUIDES_PROMPT_SECTION = `- show_guide: offer to show the person how to do something in the Studio themselves, one box at a time. Use it when they ask HOW to do something or WHERE something is ("how do I add a blog post?", "where do I publish?"), or seem lost. They see a card and choose whether to be shown, so it is always an offer; do not ask first in text. Do not use it when they asked you to make the change: make it. Give a one-line answer in text as well, so a "No thanks" still leaves them with the answer.
+  - Write each step as something they do: a short title ("Open Pages", "Tap + New") and one or two plain sentences. Name the thing so it can be found without the box, since on a phone it may be behind the menu. Never write "this button here".
+  - Point only at things that exist: get_current_context lists what is on screen (guideTargets: controls, and the rows of an open panel). A row in Pages, Data or Media can only be pointed at once that panel is open, so open it in the step before (done_when: { panel_open: ... }).
+  - Prefer done_when on every step the person acts in, so it moves on by itself and offers "Do it for me". Leave it out only for a step that is read.
+  - One step is a single pointer: use it for "where is…" questions.
+  - The answer says how it went: "finished", "stopped" (backToChat means they want to talk) or "declined". Carry on from there; do not offer the same guide twice in a row.
+`;
+
 const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad, highlight_sketchpad_blocks, clear_sketchpad_highlights: see "Sketchpads" below.
 
 ## Sketchpads
@@ -137,7 +155,7 @@ ${input.codeMode ? CODE_MODE_TOOLS_INTRO : "Always call get_all_schema first unl
 - set_session_name: give the current chat session a short, descriptive name once the topic is clear. ${input.codeMode ? CODE_MODE_SESSION_NAME : "Call this at least once per session, early in the conversation."} Max 5 words, plain language (e.g. 'Update homepage hero text'). If there is a title or a topic use it directly.
 - get_source_path_from_route: given a URL path like '/blogs/blog-1', find which Next.js page module it belongs to and return the source path. Use this when the user mentions a specific page URL or route.
 - ask_user_question: ask the user 1-4 structured clarification questions at once, rendered together in one card. Each question is single-select by default; set multiSelect: true on a question to let the user pick multiple options (e.g. "Which sections should I update?"). You may set defaults (option indices to pre-select) to bias toward the most likely answer. Use ONLY when the user's request is ambiguous and a small set of concrete options would resolve it (e.g. "Which page should I update — Home, About, or Contact?"). When several clarifications are needed, group them into a SINGLE call rather than asking sequentially. Do NOT use for open-ended questions or yes/no checks — just ask in plain text instead. Never call this more than once in a row; if the user answered with custom "Other" text, proceed with that — do not re-ask. If the tool result is an error (user cancelled), drop the structured-question approach and ask once in plain text instead.
-${input.sketchpads ? SKETCHPADS_PROMPT_SECTION : ""}
+${input.guides === true ? GUIDES_PROMPT_SECTION : ""}${input.sketchpads ? SKETCHPADS_PROMPT_SECTION : ""}
 ## navigate_to: how to build a source path
 A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
 Example: /content/authors.val.ts?p="jane" navigates to the "jane" entry in the authors module.
