@@ -228,11 +228,15 @@ const k14Hero = edited(
   heroTitle,
   `      <h1 className="text-5xl font-bold">{title.toFixed(2)}</h1>`,
 );
-const k15Hero = edited(
-  heroSection,
-  heroImport,
-  `${heroImport}\nimport { useState } from "react";`,
-);
+/**
+ * Val's lint rules (the `lint` tool) are Val's, not ESLint's: a `c.define`
+ * whose path is not its own file's is one of them.
+ */
+const K15_MODULE = "src/content/extra.val.ts";
+const k15Module = `import { c, s } from "../../val.config";
+
+export default c.define("/src/content/other.val.ts", s.string(), "Ekstra");
+`;
 const k16Hero = edited(heroSection, heroTitle, `      <h1 className="text-5xl`);
 const k17Hero = edited(
   heroSection,
@@ -537,18 +541,10 @@ export const CASES: CodeModeCase[] = [
   },
   {
     id: "K15",
-    title: "a lint problem",
-    turns: [
-      [
-        edit(
-          HERO_FILE,
-          heroImport,
-          `${heroImport}\nimport { useState } from "react";`,
-        ),
-      ],
-    ],
+    title: "a Val lint problem: a c.define path that is not the file's own",
+    turns: [[write({ [K15_MODULE]: k15Module })]],
     expect: {
-      staged: { [HERO_FILE]: k15Hero },
+      staged: { [K15_MODULE]: k15Module },
       preview: { kind: "shown" },
       lint: { problems: 1 },
       build: "no-reload",

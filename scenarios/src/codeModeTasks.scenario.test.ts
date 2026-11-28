@@ -1,10 +1,7 @@
 import { initVal } from "@valbuild/core";
-import { createWorld, type World } from "./world/createWorld";
-import type { CodeToolAnswer } from "../../packages/ui/spa/proposals/proposalCode";
-import {
-  reportCodeMode,
-  resetCodeMode,
-} from "../../packages/ui/spa/proposals/codeMode";
+import type { World } from "./world/createWorld";
+import { buildLands, ok, openCodeModeProposal } from "./world/codeMode";
+import { resetCodeMode } from "../../packages/ui/spa/proposals/codeMode";
 import { resetStagedCode } from "../../packages/ui/spa/proposals/stagedCode";
 import {
   BUTTON_FILE,
@@ -97,12 +94,6 @@ const eyebrowProp = {
   new_string: `        eyebrow="Nyhet"\n        title="Dette er så gøy"`,
 };
 
-/** A tool's answer, narrowed: it succeeded, and this is what it said. */
-function ok(answer: CodeToolAnswer): Record<string, unknown> {
-  expect(answer.isError ? JSON.stringify(answer.result) : "ok").toBe("ok");
-  return Object(answer.result);
-}
-
 describe("code-mode tasks, start to finish", () => {
   let world: World | null = null;
   afterEach(async () => {
@@ -114,56 +105,14 @@ describe("code-mode tasks, start to finish", () => {
 
   /** The proposal `</>` made, in code mode, with the site's code in it. */
   const open = async () => {
-    world = await createWorld({
+    const opened = await openCodeModeProposal({
       config,
       modules: [before],
-      server: "http",
-      sourceText: {
-        [HOME]: homeText,
-        ...Object.fromEntries(
-          Object.entries(siteCode).map(([path, text]) => [`/${path}`, text]),
-        ),
-      },
-      proposal: { open: "Code mode" },
+      moduleText: { [HOME]: homeText },
+      code: siteCode,
     });
-    const proposal = world.proposal;
-    if (proposal === null) throw new Error("not at a proposal's address");
-    if (world.server.mode !== "http") throw new Error("not on http");
-    // What the site's last publish left the platform holding: the live
-    // build's files, which the code tools read by version.
-    const published = await fetch(
-      `${world.server.contentUrl}/__test__/project-source`,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          files: { [HOME_FILE]: homeText, ...siteCode },
-        }),
-      },
-    );
-    if (!published.ok) throw new Error(`project-source: ${published.status}`);
-    const editor = await world.studio("editor");
-    const turned = await proposal.codeMode(true);
-    // What `useProposalsBar` does with the proposal it reads.
-    reportCodeMode({
-      name: proposal.name,
-      displayName: turned.displayName,
-      on: true,
-    });
-    await world.settle();
-    return { world, proposal, editor, assistant: proposal.assistant(editor) };
-  };
-
-  /** The build lands at the address, and the Studio has time to react. */
-  const buildLands = async (
-    world: World,
-    options?: Parameters<NonNullable<World["proposal"]>["redeploy"]>[0],
-  ) => {
-    await world.proposal?.redeploy(options);
-    await world.clock.advance(21_000);
-    await world.settle();
-    await world.clock.advance(4_000);
-    await world.settle();
+    world = opened.world;
+    return opened;
   };
 
   test("T1 make the hero dark: search, read, edit, check, build", async () => {
