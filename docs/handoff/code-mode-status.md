@@ -10,7 +10,7 @@ Handoff note. Session ids below are for reference only; another account cannot o
 | 2   | Page check always reports React error 418 (hydration)                                    | Fixed, released in 0.156.0. Confirmed gone by the user live                        | `packages/tanstack/src/QuickPreviewRender.tsx`, `ValTanStackProvider.tsx`; val#1104 |
 | 3   | Checks bar not dismissible; fills the screen on a phone                                  | Fixed, released in 0.156.1                                                         | `packages/ui/spa/components/ChecksBar.tsx`; val#1111                                |
 | 4   | Page check says a fixed change (red button borders) is not on the page                   | Page-check half fixed, released in 0.156.1                                         | `packages/ui/spa/hooks/usePageCheckSession.ts`, `proposals/pageCheck.ts`; val#1111  |
-| 4b  | New Tailwind classes may have no CSS in a quick preview / Build (live stylesheet reused) | **Open**: val#1112 (other session), not merged                                     | session `session_01RT854RrhFz8oM1uBCuXcG4`                                          |
+| 4b  | New Tailwind classes may have no CSS in a quick preview / Build (live stylesheet reused) | **Open**: valbuild/val#1112, not merged                                            | being done separately                                                               |
 
 Releases: **0.156.0** (#418 fix), **0.156.1** (checks bar, page check; plus #1082 discard and #1109 Publish button from other sessions). Both on npm.
 Templates: bumped to 0.156.0 and reseeded (valbuild/templates#66). **Not yet bumped to 0.156.1.**
