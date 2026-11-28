@@ -723,3 +723,20 @@ export function toShellLogo(
     ...(alt ? { alt } : {}),
   };
 }
+
+/**
+ * The source path of every page in the tree: what a guided tour's "a page
+ * was added" step checks, and what keeps its "Do it for me" from adding over
+ * a page that is already there.
+ */
+export function pageSourcePathsOf(pages: ShellPage[]): ReadonlySet<string> {
+  const paths = new Set<string>();
+  const walk = (list: ShellPage[]) => {
+    for (const page of list) {
+      if (page.sourcePath !== undefined) paths.add(page.sourcePath);
+      if (page.children) walk(page.children);
+    }
+  };
+  walk(pages);
+  return paths;
+}

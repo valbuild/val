@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { SourcePath } from "@valbuild/core";
 import { StudioTour, TourObserved, hasMovedOn } from "./StudioTour";
-import { TourStep } from "./tourSteps";
+import { TourMoveOn, TourStep } from "./tourSteps";
 import { demoTourStepsFromSite } from "../../demo/demoTour";
 import { isSourcePath } from "../../utils/sourcePath";
 
@@ -394,5 +394,43 @@ describe("the demo script's tours", () => {
     );
     fireEvent.click(screen.getByText("Do it for me"));
     expect(write).toHaveBeenCalledWith(blocks, block, true);
+  });
+});
+
+describe("a page-added step", () => {
+  const ADDED = sourcePath('/app/blog/[slug]/page.val.ts?p="/blog/new"');
+  const OTHER = sourcePath('/app/blog/[slug]/page.val.ts?p="/blog/other"');
+  const moveOn: TourMoveOn = { type: "newPage", path: ADDED };
+
+  test("is done when THAT page is there, not when anything changed", () => {
+    const start = observed({ pages: new Set([OTHER]) });
+    expect(
+      hasMovedOn(
+        moveOn,
+        observed({ reviewCount: 1, pages: new Set([OTHER]) }),
+        start,
+      ),
+    ).toBe(false);
+    expect(
+      hasMovedOn(
+        moveOn,
+        observed({ reviewCount: 1, pages: new Set([OTHER, ADDED]) }),
+        start,
+      ),
+    ).toBe(true);
+  });
+
+  test("a page that was there already is done by opening it", () => {
+    const start = observed({ pages: new Set([ADDED]) });
+    expect(
+      hasMovedOn(moveOn, observed({ pages: new Set([ADDED]) }), start),
+    ).toBe(false);
+    expect(
+      hasMovedOn(
+        moveOn,
+        observed({ selectedPath: ADDED, pages: new Set([ADDED]) }),
+        start,
+      ),
+    ).toBe(true);
   });
 });
