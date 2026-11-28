@@ -169,6 +169,18 @@ export const createValClient = (
         };
         if (res.status === 500) {
           Internal.log.error("Server responded with an error", json);
+          /*
+           * A 500 the route DECLARES is an answer, not just a failure, and is
+           * handed on as declared. `DELETE /patches` is why: its 500 names the
+           * changes a running publish holds, and the ones it deleted all the
+           * same. Every 500 used to be flattened to its message here, so the
+           * Studio never saw either -- it could not offer to cancel the
+           * publish, and kept showing changes that were already gone.
+           */
+          const declared = apiEndpoint.res?.safeParse(valClientResult);
+          if (declared?.success) {
+            return valClientResult;
+          }
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           return {
             status: 500,

@@ -37,7 +37,7 @@ counts.
 | Where beacons go             | `POST /api/val/analytics` on the site's own origin, which ad blockers rarely list.                                                                                                                                              |
 | How it is turned on          | **Off by default.** Only in the hosted project's settings, which reach the site as `VAL_ANALYTICS`. No `val.config.ts` option.                                                                                                  |
 | Stega leaking out of the DOM | Encode exactly as draft mode does, and warn in dev about every place a tag survived. See [The leak warning](#the-leak-warning).                                                                                                 |
-| Price                        | $25 a month per project, 100k page views included, graduated above that. In `home`.                                                                                                                                             |
+| Price                        | A tier of page views a month, from $19 for 100,000 to $169 for 10 million (`home`: `types/src/billing/analyticsTiers.ts`).                                                                                                      |
 
 ---
 

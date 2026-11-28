@@ -1,5 +1,23 @@
 # @valbuild/cli
 
+## 0.156.1
+
+### Patch Changes
+
+- Updated dependencies [[`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c)]:
+  - @valbuild/server@0.156.1
+  - @valbuild/shared@0.156.1
+  - @valbuild/language-server@0.156.1
+
+## 0.156.0
+
+### Patch Changes
+
+- Updated dependencies [[`332c386`](https://github.com/valbuild/val/commit/332c386621f3aab44412307352319e176824160d), [`27b87f6`](https://github.com/valbuild/val/commit/27b87f6fadb27ccb9d67c0a07ac560772d4e3ae4), [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2)]:
+  - @valbuild/server@0.156.0
+  - @valbuild/shared@0.156.0
+  - @valbuild/language-server@0.156.0
+
 ## 0.155.0
 
 ### Patch Changes

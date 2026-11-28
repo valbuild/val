@@ -80,3 +80,23 @@ export {
   type HeadTree,
   type ModuleAnswer,
 } from "../head";
+export type { FoldResult, FoldRefusal } from "../proposalMerge/foldContent";
+export type { Files as ProjectFiles } from "../proposalMerge/project";
+
+/**
+ * Content written back into a project's files, for connecting a project Val
+ * Build hosts to a repository (valbuild/home,
+ * docs/plans/connect-with-history.md, phase 6a). See
+ * `proposalMerge/foldContent.ts`.
+ *
+ * Loaded when it is called, never with this entry: it brings the TypeScript
+ * compiler, and this entry is also what a site's page reads content through,
+ * which must evaluate none of it (`servingPath.test.ts` in
+ * `@valbuild/tanstack`).
+ */
+export async function foldContent(
+  ...args: Parameters<typeof import("../proposalMerge/foldContent").foldContent>
+): ReturnType<typeof import("../proposalMerge/foldContent").foldContent> {
+  const { foldContent } = await import("../proposalMerge/foldContent");
+  return foldContent(...args);
+}

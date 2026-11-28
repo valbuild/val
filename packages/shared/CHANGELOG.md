@@ -1,5 +1,27 @@
 # @valbuild/shared
 
+## 0.156.1
+
+### Patch Changes
+
+- [#1082](https://github.com/valbuild/val/pull/1082) [`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c) Thanks [@freekh](https://github.com/freekh)! - Discarding many changes is now one request, and a discard that only partly succeeds no longer leaves discarded changes on screen.
+
+  When some of the changes could not be discarded, for example because one was part of a publish that was running, the Studio said nothing had been discarded and kept showing changes that were already gone. It now drops the ones that were discarded, keeps the rest, and says how many went through, with **Try again** (or **Cancel publish**) for the ones that are left. **Cancel publish** is offered again when a running publish holds a change: that refusal never reached the Studio before.
+
+  `DELETE /api/val/patches` now takes its ids in the body (`{ "ids": [...] }`), and still accepts the `id` query parameters older Studio tabs send. When it answers 500 because some changes were refused, it now also says which ones it deleted (`deleted`) and the version it moved to (`headVersion`).
+
+## 0.156.0
+
+### Patch Changes
+
+- [#1104](https://github.com/valbuild/val/pull/1104) [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2) Thanks [@freekh](https://github.com/freekh)! - A quick preview no longer fails every page check with React's hydration error (React error 418)
+
+  In code mode, a change is first shown as a quick preview: the page the last build's server rendered, run by the proposal's new code. The new code used to _hydrate_ that page after the old markup had been taken out, and React reported the empty page as a hydration failure on every quick preview. The page check read it as the site's own error, and asked the assistant to fix something that was never there.
+
+  Now `ValProvider` has the new code _render_ the site on a quick preview's page instead, as the page is hydrated, so there is nothing to fail. The last build's page stays on screen until the new one replaces it, rather than the page going empty first. Every other page, for every visitor, is hydrated exactly as before, and a real hydration bug is still reported.
+
+  Nothing changes in your project. It takes effect once the site's build is on this version: the quick preview starts from that build's page.
+
 ## 0.155.0
 
 ### Patch Changes

@@ -4,7 +4,13 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
-import { discardAll, openStudio, test } from "../studio";
+import {
+  chooseSelectMode,
+  contentSelect,
+  discardAll,
+  openStudio,
+  test,
+} from "../studio";
 import { serverSource } from "./serverState";
 
 /**
@@ -65,7 +71,7 @@ async function openLanding(page: Page): Promise<FrameLocator> {
     timeout: 60_000,
   });
   // The controls are drawn only while Select is on.
-  await page.getByRole("button", { name: "Select on the page" }).click();
+  await contentSelect(page).click();
   return page.frameLocator('iframe[title="Preview of /landing"]');
 }
 
@@ -215,7 +221,10 @@ test.describe("arranging sections on the page", () => {
     await expect(cards.nth(0)).toContainText("Content");
     await expect(cards.nth(1)).toContainText("A component");
 
-    // A click on a field inside a card opens that field, not the card.
+    // A click on a field inside a card opens that field, not the card: in
+    // plain Select, which opens a text in the column instead of typing in
+    // it where it is.
+    await chooseSelectMode(page, "select");
     await cards.nth(0).getByText("Content", { exact: true }).click();
     await expect
       .poll(() => decodeURIComponent(page.url()))

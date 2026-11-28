@@ -523,12 +523,25 @@ type State = {
    */
   quickPreview: { delayMs: number } | null;
   quickPreviewsMade: { proposal: string; inputs: string }[];
+  /**
+   * Val Build's own build of a proposal (`POST /proposals/:name/build` with
+   * `{ inputs }` and no `publishId`): `null` while Val Build does not build
+   * this project, the default, so the Studio builds in the tab. Turned on by
+   * a test (`POST /__test__/server-builds`), which says how long one takes;
+   * `made` is every build it finished, with the staged inputs it was of.
+   * Nothing is bundled: the address goes on serving the app it serves, and
+   * the proposal says it is built, which is all the Studio's Build waits for.
+   */
+  serverBuild: { delayMs: number } | null;
+  serverBuildsMade: { proposal: string; inputs: string }[];
 };
 
 function emptyState(): State {
   return {
     quickPreview: null,
     quickPreviewsMade: [],
+    serverBuild: null,
+    serverBuildsMade: [],
     patches: new Map(),
     proposals: new Map(),
     proposalsEnabled: false,
@@ -3650,6 +3663,14 @@ async function proposalServeBuild(
   const body = await readJsonBody<{ publishId?: unknown; inputs?: unknown }>(
     req,
   );
+  if (
+    body?.publishId === undefined &&
+    typeof body?.inputs === "string" &&
+    state.serverBuild !== null
+  ) {
+    await proposalServerBuild(res, proposal, body.inputs, state.serverBuild);
+    return;
+  }
   if (typeof body?.publishId !== "string" || typeof body.inputs !== "string") {
     serverBuildsOff(res);
     return;
@@ -3666,6 +3687,40 @@ async function proposalServeBuild(
   proposal.built = { hash: sha(body.publishId).slice(0, 12), inputs };
   if (proposal.git.takenIn !== null) proposal.git.takenIn.building = false;
   proposal.updatedAt = nowIso();
+  json(res, 200, { proposal: proposalJson(proposal, true) });
+}
+
+/**
+ * Val Build's own build of what a proposal stages, when a test turned it on
+ * (`state.serverBuild`): answered once it is "built", after `delayMs`, as
+ * content answers a build Val Build already finished -- `built` names these
+ * inputs, which is what `buildProposalOnServer` waits for. A build of files
+ * that are no longer what is staged is refused, as content refuses it.
+ */
+async function proposalServerBuild(
+  res: ServerResponse,
+  proposal: MockProposal,
+  inputs: string,
+  build: { delayMs: number },
+): Promise<void> {
+  if (stagedJson(proposal).inputs !== inputs) {
+    json(res, 409, {
+      statusCode: 409,
+      message: "The staged files changed since this was asked for.",
+      details: { code: "inputs-moved" },
+    });
+    return;
+  }
+  if (build.delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, build.delayMs));
+  }
+  proposal.built = {
+    hash: sha(`server-build:${proposal.name}:${inputs}`).slice(0, 12),
+    inputs,
+  };
+  if (proposal.git.takenIn !== null) proposal.git.takenIn.building = false;
+  proposal.updatedAt = nowIso();
+  state.serverBuildsMade.push({ proposal: proposal.name, inputs });
   json(res, 200, { proposal: proposalJson(proposal, true) });
 }
 
@@ -3994,6 +4049,122 @@ async function proposalMerge(
 }
 
 /** `/v1/{project}/proposals[/...]`: the routes `ValOpsHttp` reaches. */
+/**
+ * Sketchpads, as valbuild/home keeps them at `/v1/{project}/sketchpads`: in
+ * memory here, with the version check the service does in one statement.
+ * Shapes are `Sketchpad` / `SketchpadSummary` in `@valbuild/shared`, and the
+ * client is `packages/server/src/sketchpads/httpSketchpadStore.ts`.
+ */
+type MockSketchpad = {
+  id: string;
+  page: string | null;
+  title: string | null;
+  text: string;
+  version: number;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+};
+const sketchpads = new Map<string, MockSketchpad>();
+
+async function sketchpadsRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  rest: string,
+): Promise<void> {
+  const profile = req.headers["x-val-profile-id"];
+  const by = typeof profile === "string" ? profile : null;
+  const now = new Date().toISOString();
+  if (rest === "/sketchpads") {
+    if (req.method === "GET") {
+      const archived = url.searchParams.get("archived") ?? "exclude";
+      const page = url.searchParams.get("page");
+      const list = [...sketchpads.values()]
+        .filter((s) => page === null || s.page === page)
+        .filter((s) =>
+          archived === "include"
+            ? true
+            : archived === "only"
+              ? s.archived
+              : !s.archived,
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map(({ text, ...summary }) => {
+          void text;
+          return summary;
+        });
+      json(res, 200, { sketchpads: list });
+      return;
+    }
+    if (req.method === "POST") {
+      const body = await readJsonBody<{
+        text?: string;
+        title?: string | null;
+        page?: string | null;
+      }>(req);
+      if (typeof body?.text !== "string") {
+        json(res, 400, { message: "A sketchpad needs a text" });
+        return;
+      }
+      const sketchpad: MockSketchpad = {
+        id: randomUUID(),
+        page: body.page ?? null,
+        title: body.title ?? null,
+        text: body.text,
+        version: 1,
+        archived: false,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: by,
+        updatedBy: by,
+      };
+      sketchpads.set(sketchpad.id, sketchpad);
+      json(res, 200, { sketchpad });
+      return;
+    }
+  }
+  const id = decodeURIComponent(rest.slice("/sketchpads/".length));
+  const current = sketchpads.get(id);
+  if (!current) {
+    json(res, 404, { message: `No sketchpad ${id}` });
+    return;
+  }
+  if (req.method === "GET") {
+    json(res, 200, { sketchpad: current });
+    return;
+  }
+  if (req.method === "PATCH") {
+    const change = await readJsonBody<{
+      baseVersion?: number;
+      text?: string;
+      title?: string | null;
+      page?: string | null;
+      archived?: boolean;
+    }>(req);
+    if (change?.baseVersion !== current.version) {
+      json(res, 409, { sketchpad: current });
+      return;
+    }
+    const sketchpad: MockSketchpad = {
+      ...current,
+      ...(change.text !== undefined ? { text: change.text } : {}),
+      ...(change.title !== undefined ? { title: change.title } : {}),
+      ...(change.page !== undefined ? { page: change.page } : {}),
+      ...(change.archived !== undefined ? { archived: change.archived } : {}),
+      version: current.version + 1,
+      updatedAt: now,
+      updatedBy: by,
+    };
+    sketchpads.set(id, sketchpad);
+    json(res, 200, { sketchpad });
+    return;
+  }
+  json(res, 405, { message: `${req.method} is not a sketchpad route` });
+}
+
 async function proposalsRoute(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4357,6 +4528,7 @@ const controlPlane: Handler = async (req, res, url) => {
   if (action === "reset" && req.method === "POST") {
     state = emptyState();
     countedDeployments = [];
+    sketchpads.clear();
     buildBases = new Map();
     /*
      * A reset changes every chain -- every patch is gone -- so it moves each
@@ -4390,6 +4562,20 @@ const controlPlane: Handler = async (req, res, url) => {
     state.quickPreview =
       body?.enabled === false ? null : { delayMs: body?.delayMs ?? 0 };
     json(res, 200, { ok: true });
+    return;
+  }
+  if (action === "server-builds" && req.method === "POST") {
+    // Val Build builds this project's proposals, each taking `delayMs`.
+    const body = await readJsonBody<{ enabled?: boolean; delayMs?: number }>(
+      req,
+    );
+    state.serverBuild =
+      body?.enabled === false ? null : { delayMs: body?.delayMs ?? 0 };
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (action === "server-builds" && req.method === "GET") {
+    json(res, 200, { made: state.serverBuildsMade });
     return;
   }
   if (action === "quick-previews" && req.method === "GET") {
@@ -4931,6 +5117,10 @@ async function handle(
     } else {
       await commitFile(req, res, url);
     }
+    return;
+  }
+  if (rest === "/sketchpads" || rest.startsWith("/sketchpads/")) {
+    await sketchpadsRoute(req, res, url, rest);
     return;
   }
   if (rest === "/proposals" || rest.startsWith("/proposals/")) {

@@ -2935,7 +2935,29 @@ export const ValServer = (
             },
           };
         }
-        const ids = query.id;
+        /*
+         * In the body, from the Studio; in the query, from a tab opened before
+         * the ids moved there. One or the other: a request with both is a bug
+         * in whatever sent it, and deleting the union would hide it.
+         */
+        const fromBody = req.body?.ids;
+        const fromQuery = query.id;
+        if (fromBody !== undefined && fromQuery !== undefined) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Send the patch ids either in the body (`ids`) or in the query (`id`), not both",
+            },
+          };
+        }
+        const ids = fromBody ?? fromQuery ?? [];
+        if (ids.length === 0) {
+          return {
+            status: 400,
+            json: { message: "At least one patch id is required" },
+          };
+        }
         const deleteRes = await serverOps.deletePatches(ids);
         if ("error" in deleteRes && deleteRes.error !== undefined) {
           /*
@@ -2962,6 +2984,15 @@ export const ValServer = (
             status: 500,
             json: {
               message: "Failed to delete patches",
+              /*
+               * The ones that went, though others did not. Without them the
+               * Studio kept showing -- and saving, and publishing -- changes
+               * that were already gone.
+               */
+              deleted: deleteRes.deleted,
+              ...(deleteRes.headVersion !== undefined
+                ? { headVersion: deleteRes.headVersion }
+                : {}),
               errors: Object.entries(deleteRes.errors).map(([id, error]) => ({
                 patchId: id as PatchId,
                 ...error,

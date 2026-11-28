@@ -118,6 +118,24 @@ describe("/patches when the content service fails part of the way", () => {
         }),
       );
     };
+    /** As the Studio sends it now (`"body"`), or as a tab from before did. */
+    const discardIds = (ids: string[], where: "body" | "query") => {
+      const url = new URL(`http://localhost:3000${route}/patches`);
+      if (where === "query") {
+        for (const id of ids) url.searchParams.append("id", id);
+      }
+      return makeRoute()(
+        fakeRequest({
+          method: "DELETE",
+          url,
+          headers: session(),
+          json:
+            where === "body"
+              ? { ids, reportHeadVersion: true }
+              : { reportHeadVersion: true },
+        }),
+      );
+    };
 
     test("a content service that answers 503 deleted nothing", async () => {
       contentAnswers([
@@ -137,6 +155,78 @@ describe("/patches when the content service fails part of the way", () => {
       global.fetch = unreachable;
       const res = await discard();
       expect(res.status).toBe(502);
+    });
+
+    /*
+     * One change refused, because a running publish holds it, does not stop
+     * the others going. The 500 used to name only the refusal, so the Studio
+     * kept showing -- and saving, and publishing -- the change that WAS
+     * deleted.
+     */
+    test("a delete that refuses some says which ones did go", async () => {
+      contentAnswers([
+        {
+          status: 200,
+          body: {
+            deleted: [FIRST],
+            errors: [
+              {
+                patchId: SECOND,
+                message: "It is being published right now.",
+                publishJobId: "job-1",
+              },
+            ],
+            headVersions: { main: 4 },
+          },
+        },
+      ]);
+      const res = await discardIds([FIRST, SECOND], "body");
+      expect(res.status).toBe(500);
+      expect("json" in res ? res.json : null).toEqual({
+        message: "Failed to delete patches",
+        errors: [
+          {
+            patchId: SECOND,
+            message: "It is being published right now.",
+            publishJobId: "job-1",
+          },
+        ],
+        deleted: [FIRST],
+        headVersion: 4,
+      });
+    });
+
+    /*
+     * The ids in the body, all of them in one request: a discard of a long
+     * chain used to be one request per chunk of the query string, and a
+     * chunk failing after the first left the earlier deletes unreported.
+     */
+    test("ids in the body are deleted in one call to the content service", async () => {
+      const sent: unknown[] = [];
+      global.fetch = async (_input, init) => {
+        sent.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({ deleted: [FIRST, SECOND, HEAD] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      };
+      const res = await discardIds([FIRST, SECOND, HEAD], "body");
+      expect(res.status).toBe(200);
+      expect(sent).toEqual([{ patchIds: [FIRST, SECOND, HEAD] }]);
+    });
+
+    test("ids in the query still work, for a tab opened before", async () => {
+      contentAnswers([{ status: 200, body: { deleted: [FIRST, SECOND] } }]);
+      const res = await discardIds([FIRST, SECOND], "query");
+      expect(res.status).toBe(200);
+      expect("json" in res ? res.json : null).toEqual({
+        deleted: [FIRST, SECOND],
+      });
+    });
+
+    test("no ids is refused", async () => {
+      const res = await discardIds([], "body");
+      expect(res.status).toBe(400);
     });
 
     test("a delete the content service did is still a 200", async () => {

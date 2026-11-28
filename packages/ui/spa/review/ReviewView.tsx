@@ -182,7 +182,7 @@ export function ReviewView({
       <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-b border-border-primary px-6 py-5">
         <div className="min-w-0">
           <h1 className="truncate text-lg font-medium text-fg-primary">
-            Review changes
+            Changes
           </h1>
           {/*
            * The whole publish, never the filtered view. A filter narrows what
@@ -231,7 +231,7 @@ export function ReviewView({
            */}
           <Button size="sm" variant="secondary" onClick={onCompare}>
             <GitCompareArrows size={13} aria-hidden />
-            Compare changes
+            Review
           </Button>
         </div>
       </header>

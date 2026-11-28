@@ -17,6 +17,11 @@ import path from "path";
 import { insertValJsonEntry, removeValJsonEntry, TSOps } from "../patch/ts/ops";
 import { analyzeValModule } from "../patch/ts/valModule";
 import {
+  flatMapErrors,
+  ValSyntaxError,
+  type ValSyntaxErrorTree,
+} from "../patch/ts/syntax";
+import {
   codeOf,
   type Files,
   type Project,
@@ -494,7 +499,7 @@ export function writeContent(
  * removed loses its line -- and each entry is its own `.val.json`. An entry
  * whose content did not change keeps its file's text exactly.
  */
-function writeEntries(
+export function writeEntries(
   file: string,
   text: string,
   chosenFiles: Files,
@@ -544,6 +549,29 @@ function writeEntries(
   return written;
 }
 
+/**
+ * What the AST operations said, in words: a `PatchError` or `Error` has a
+ * message, a syntax error tree has one per node. `String()` of either is
+ * `[object Object]`.
+ */
+function writeErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (isSyntaxErrorTree(error)) {
+    return flatMapErrors(error, (e) => e.message).join("; ");
+  }
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String(error.message);
+  }
+  return String(error);
+}
+
+function isSyntaxErrorTree(error: unknown): error is ValSyntaxErrorTree {
+  if (error instanceof ValSyntaxError) return true;
+  return (
+    Array.isArray(error) && error.length > 0 && error.every(isSyntaxErrorTree)
+  );
+}
+
 function isRecord(value: Value): value is { [key: string]: JSONValue } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -554,7 +582,7 @@ function unwrap(
 ): ts.SourceFile {
   if (result.isErr(written)) {
     throw new Error(
-      `could not write the merge into ${file}: ${String(written.error)}`,
+      `could not write the merge into ${file}: ${writeErrorText(written.error)}`,
     );
   }
   return written.value;

@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { discardAll, openStudio, test } from "../studio";
+import { contentSelectOn, discardAll, openStudio, test } from "../studio";
 
 /**
  * The Components view (`/val/components`): every component the showcase
@@ -132,9 +132,7 @@ test("a page's components, stacked as its content has them", async ({
     "Heading",
   );
   // The same Select as beside a page's preview
-  await expect(
-    page.getByRole("button", { name: "Stop selecting on the page" }),
-  ).toBeVisible();
+  await expect(contentSelectOn(page)).toBeVisible();
 });
 
 test("the Preview switch's menu chooses between the page and the components", async ({

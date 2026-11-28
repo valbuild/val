@@ -62,6 +62,14 @@ export const VAL_HISTORY_ROUTE = "/val/history";
  */
 export const VAL_REVIEW_ROUTE = "/val/review";
 /**
+ * The pending changes as steps, and the way to take steps back.
+ *
+ * A route of its own, beside Review: Review shows what would change and
+ * changes nothing; this is the list a revert is made from. Two questions, two
+ * addresses, and a link from every change in the first to the second.
+ */
+export const VAL_CHANGES_ROUTE = "/val/changes";
+/**
  * adept, tried out: lockfiles, upgrades and type bundles for this project.
  *
  * Linked from nowhere on purpose. It is for the people building adept, until
@@ -97,6 +105,7 @@ type ValStandaloneRoute =
   | typeof VAL_ERRORS_ROUTE
   | typeof VAL_HISTORY_ROUTE
   | typeof VAL_REVIEW_ROUTE
+  | typeof VAL_CHANGES_ROUTE
   | typeof VAL_COMPONENTS_ROUTE;
 
 type NavigateParams = {
@@ -148,6 +157,7 @@ type ValRouterContextValue = {
   isErrorsView: boolean;
   isHistoryView: boolean;
   isReviewView: boolean;
+  isChangesView: boolean;
   isAdeptView: boolean;
   isComponentsView: boolean;
   errorFields: SourcePath[];
@@ -328,6 +338,7 @@ export function ValRouter({
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [isHistoryView, setIsHistoryView] = useState(false);
   const [isReviewView, setIsReviewView] = useState(false);
+  const [isChangesView, setIsChangesView] = useState(false);
   const [isAdeptView, setIsAdeptView] = useState(false);
   const [isComponentsView, setIsComponentsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
@@ -381,6 +392,7 @@ export function ValRouter({
         setIsErrorsView(false);
         setIsHistoryView(false);
         setIsReviewView(false);
+        setIsChangesView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
         setReady(true);
@@ -396,6 +408,7 @@ export function ValRouter({
         setIsCompareView(false);
         setIsHistoryView(false);
         setIsReviewView(false);
+        setIsChangesView(false);
         setErrorFields(
           new URLSearchParams(location.search).getAll(
             "error-field",
@@ -413,6 +426,7 @@ export function ValRouter({
         setIsCompareView(false);
         setIsErrorsView(false);
         setIsReviewView(false);
+        setIsChangesView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
         setReady(true);
@@ -427,6 +441,21 @@ export function ValRouter({
         setIsErrorsView(false);
         setIsHistoryView(false);
         setIsReviewView(false);
+        setIsChangesView(false);
+        setErrorFields([]);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      if (
+        location.pathname === VAL_CHANGES_ROUTE ||
+        location.pathname === VAL_CHANGES_ROUTE + "/"
+      ) {
+        setIsChangesView(true);
+        setIsReviewView(false);
+        setIsCompareView(false);
+        setIsErrorsView(false);
+        setIsHistoryView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
         setReady(true);
@@ -434,6 +463,7 @@ export function ValRouter({
       }
       if (isReviewPath(location.pathname)) {
         setIsReviewView(true);
+        setIsChangesView(false);
         setIsCompareView(false);
         setIsErrorsView(false);
         setIsHistoryView(false);
@@ -446,6 +476,7 @@ export function ValRouter({
       setIsErrorsView(false);
       setIsHistoryView(false);
       setIsReviewView(false);
+      setIsChangesView(false);
       setErrorFields([]);
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
@@ -517,6 +548,7 @@ export function ValRouter({
       const isErrors = path === VAL_ERRORS_ROUTE;
       const isHistory = path === VAL_HISTORY_ROUTE;
       const isReview = path === VAL_REVIEW_ROUTE;
+      const isChanges = path === VAL_CHANGES_ROUTE;
       const isHome = path === VAL_HOME_ROUTE;
       const isComponents = path === VAL_COMPONENTS_ROUTE;
       /** A whole view, so there is no module path to append. */
@@ -525,6 +557,7 @@ export function ValRouter({
         isErrors ||
         isHistory ||
         isReview ||
+        isChanges ||
         isHome ||
         isComponents;
       const errorFieldsQuery =
@@ -542,11 +575,13 @@ export function ValRouter({
             ? VAL_HISTORY_ROUTE
             : isReview
               ? VAL_REVIEW_ROUTE
-              : isHome
-                ? VAL_HOME_ROUTE
-                : isComponents
-                  ? VAL_COMPONENTS_ROUTE
-                  : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+              : isChanges
+                ? VAL_CHANGES_ROUTE
+                : isHome
+                  ? VAL_HOME_ROUTE
+                  : isComponents
+                    ? VAL_COMPONENTS_ROUTE
+                    : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       /**
        * Carry the studio's own state across the navigation.
        *
@@ -618,6 +653,7 @@ export function ValRouter({
       const isErrors = path === VAL_ERRORS_ROUTE;
       const isHistory = path === VAL_HISTORY_ROUTE;
       const isReview = path === VAL_REVIEW_ROUTE;
+      const isChanges = path === VAL_CHANGES_ROUTE;
       const isHome = path === VAL_HOME_ROUTE;
       const isComponents = path === VAL_COMPONENTS_ROUTE;
       const isStandalone =
@@ -625,6 +661,7 @@ export function ValRouter({
         isErrors ||
         isHistory ||
         isReview ||
+        isChanges ||
         isHome ||
         isComponents;
       const finalTo = hrefOf(path, params);
@@ -636,6 +673,7 @@ export function ValRouter({
       setIsErrorsView(isErrors);
       setIsHistoryView(isHistory);
       setIsReviewView(isReview);
+      setIsChangesView(isChanges);
       setIsAdeptView(false);
       setIsComponentsView(isComponents);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
@@ -750,6 +788,7 @@ export function ValRouter({
         isErrorsView,
         isHistoryView,
         isReviewView,
+        isChangesView,
         isAdeptView,
         isComponentsView,
         errorFields,
@@ -777,6 +816,7 @@ export function useNavigation() {
     isErrorsView,
     isHistoryView,
     isReviewView,
+    isChangesView,
     isAdeptView,
     isComponentsView,
     errorFields,
@@ -791,6 +831,7 @@ export function useNavigation() {
     isErrorsView,
     isHistoryView,
     isReviewView,
+    isChangesView,
     isAdeptView,
     isComponentsView,
     errorFields,

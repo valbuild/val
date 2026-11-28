@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import type { Plugin as EsbuildPlugin } from "esbuild";
 import type { Plugin } from "vite";
 
 /**
@@ -20,7 +21,7 @@ import type { Plugin } from "vite";
  * Redirected only for imports FROM ESLint's own packages, so nothing else in
  * the Studio is handed a different `path` or `esquery` than it asked for.
  */
-export function eslintInBrowserPlugin({ root }: { root: string }): Plugin {
+function redirects({ root }: { root: string }) {
   const require = createRequire(path.join(root, "package.json"));
   // Its ES module build: `pathe` exports no `package.json` to find it by.
   const pathe = path.join(path.dirname(require.resolve("pathe")), "index.mjs");
@@ -30,14 +31,41 @@ export function eslintInBrowserPlugin({ root }: { root: string }): Plugin {
   );
   const fromEslint = (importer: string | undefined) =>
     importer !== undefined && /[\\/](?:eslint|@eslint)[\\/]/.test(importer);
+  return (source: string, importer: string | undefined): string | null => {
+    if (!fromEslint(importer)) return null;
+    if (source === "node:path" || source === "path") return pathe;
+    if (source === "esquery") return esquery;
+    return null;
+  };
+}
+
+export function eslintInBrowserPlugin({ root }: { root: string }): Plugin {
+  const redirect = redirects({ root });
   return {
     name: "val:eslint-in-browser",
     enforce: "pre",
-    resolveId(source, importer) {
-      if (!fromEslint(importer)) return null;
-      if (source === "node:path" || source === "path") return pathe;
-      if (source === "esquery") return esquery;
-      return null;
+    resolveId: redirect,
+  };
+}
+
+/**
+ * The same redirects for `vite dev`'s dependency pre-bundling, which esbuild
+ * does and which never runs Rollup's `resolveId`: without it `eslint/universal`
+ * is bundled with the ES module `esquery` and `lint` throws in dev.
+ */
+export function eslintInBrowserEsbuildPlugin({
+  root,
+}: {
+  root: string;
+}): EsbuildPlugin {
+  const redirect = redirects({ root });
+  return {
+    name: "val:eslint-in-browser",
+    setup(build) {
+      build.onResolve({ filter: /^(?:node:path|path|esquery)$/ }, (args) => {
+        const path = redirect(args.path, args.importer);
+        return path === null ? null : { path };
+      });
     },
   };
 }

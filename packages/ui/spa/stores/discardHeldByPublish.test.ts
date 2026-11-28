@@ -34,6 +34,7 @@ describe("a discard refused because a publish holds the change", () => {
         message:
           "This change is being published right now, so it cannot be discarded until the publish ends.",
         publishJobId: "job-1",
+        discarded: [],
       }),
       mode: "http",
     });
@@ -58,6 +59,7 @@ describe("a discard refused because a publish holds the change", () => {
       message:
         "This change is being published right now, so it cannot be discarded until the publish ends.",
       publishJobId: "job-1",
+      discarded: [],
     });
   });
 });

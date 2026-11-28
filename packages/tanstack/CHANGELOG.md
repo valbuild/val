@@ -1,5 +1,37 @@
 # @valbuild/tanstack
 
+## 0.156.1
+
+### Patch Changes
+
+- Updated dependencies [[`156b58e`](https://github.com/valbuild/val/commit/156b58e6a268c704db8aac6eb6769e6cca518f2c), [`604d91a`](https://github.com/valbuild/val/commit/604d91a54fbf19e319c39867217caad8bb2f7e8d), [`99b798c`](https://github.com/valbuild/val/commit/99b798ce785c11543891b58b3d53a66339953882)]:
+  - @valbuild/ui@0.156.1
+  - @valbuild/server@0.156.1
+  - @valbuild/shared@0.156.1
+  - @valbuild/react@0.156.1
+  - @valbuild/language-server@0.156.1
+  - @valbuild/mcp@0.156.1
+
+## 0.156.0
+
+### Patch Changes
+
+- [#1104](https://github.com/valbuild/val/pull/1104) [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2) Thanks [@freekh](https://github.com/freekh)! - A quick preview no longer fails every page check with React's hydration error (React error 418)
+
+  In code mode, a change is first shown as a quick preview: the page the last build's server rendered, run by the proposal's new code. The new code used to _hydrate_ that page after the old markup had been taken out, and React reported the empty page as a hydration failure on every quick preview. The page check read it as the site's own error, and asked the assistant to fix something that was never there.
+
+  Now `ValProvider` has the new code _render_ the site on a quick preview's page instead, as the page is hydrated, so there is nothing to fail. The last build's page stays on screen until the new one replaces it, rather than the page going empty first. Every other page, for every visitor, is hydrated exactly as before, and a real hydration bug is still reported.
+
+  Nothing changes in your project. It takes effect once the site's build is on this version: the quick preview starts from that build's page.
+
+- Updated dependencies [[`332c386`](https://github.com/valbuild/val/commit/332c386621f3aab44412307352319e176824160d), [`27b87f6`](https://github.com/valbuild/val/commit/27b87f6fadb27ccb9d67c0a07ac560772d4e3ae4), [`3955b0e`](https://github.com/valbuild/val/commit/3955b0ec25a2c0759f8323efd88529e6867f17e2), [`0cf24ba`](https://github.com/valbuild/val/commit/0cf24ba78e5e0a86ed594b58ff7f7fb5e7fcc440), [`7c47276`](https://github.com/valbuild/val/commit/7c472766183a425ef022e84d341e666c48a6bc3b)]:
+  - @valbuild/server@0.156.0
+  - @valbuild/shared@0.156.0
+  - @valbuild/ui@0.156.0
+  - @valbuild/language-server@0.156.0
+  - @valbuild/mcp@0.156.0
+  - @valbuild/react@0.156.0
+
 ## 0.155.0
 
 ### Minor Changes

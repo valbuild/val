@@ -7,7 +7,7 @@ import { act } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { Internal, initVal, type ModuleFilePath } from "@valbuild/core";
-import { raw, stegaClean } from "@valbuild/react/stega";
+import { autoTagJSX, raw, stegaClean } from "@valbuild/react/stega";
 import { type ValDraft } from "@valbuild/react/internal";
 import { initValClient } from "./client/initValClient";
 import { ValNextProvider } from "./ValNextProvider";
@@ -49,6 +49,9 @@ const draft: ValDraft = {
 };
 
 const { useValRouteStega } = initValClient(config);
+
+// What importing `@valbuild/next` does: edit tags become `data-val-path`.
+autoTagJSX();
 
 /** What a page does with a route: `null` is `notFound()`. */
 function Page() {
@@ -118,6 +121,22 @@ describe("ValProvider's draft prop on Next", () => {
     } finally {
       errors.mockRestore();
     }
+  });
+
+  test("after hydration the text is tagged, so the canvas can find it", async () => {
+    // Hydrated from a server draft, the hooks start encoding edit tags in
+    // the render after hydration. Whatever they encode has to become a
+    // `data-val-path` there: no later render comes to do it, so an untagged
+    // text kept its edit tag on the page and Select & edit could not find it.
+    container.innerHTML = renderToString(tree({ draft }));
+    await act(async () => {
+      root = hydrateRoot(container, tree({ draft }));
+    });
+    const span = container.querySelector("[data-testid=val]");
+    expect(span?.getAttribute("data-val-path")).toBe(
+      `${path}?p="/notes/uncommitted"."title"`,
+    );
+    expect(span?.textContent).toBe("uncommitted page");
   });
 
   test("without it, nothing changes: the server render is the published content", () => {

@@ -74,7 +74,13 @@ exactly the same way, and now with a comment claiming it is fixed.
 The block itself carries a comment explaining the trap, so anyone reading
 `index.css` meets it before they trust a token in it.
 
-## An array of OBJECTS is still diffed by index
+## An array of OBJECTS is still diffed by index, in the old compare view
+
+**Not in Review any more.** Review (`/val/review`) diffs two Sources with
+`diff/diffSource.ts`, which matches array items by what they are
+(`diff/matchSequence.ts`): an insertion is one line and a reorder says what
+moved, for objects too. What follows is still true of the old `/val/compare`
+view (`ComparePatchSets`), which is to be removed.
 
 `s.array(s.string() | s.number() | s.boolean())` is diffed by content — see
 `utils/listDiff.ts` and `PrimitiveListDiff.tsx` — so a reorder reads as a
