@@ -19,6 +19,9 @@ import {
   markEmptyTextFields,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
+  markRendered,
+  VAL_RENDER_EVENT,
+  VAL_RENDER_SHOWN_EVENT,
   replayKeys,
   screenshotPage,
   restoreScroll,
@@ -221,6 +224,24 @@ export function ValCanvasBridge({
     // already displaying.
     window.parent.postMessage(message, "*");
   }, []);
+
+  /** The page shows the change `id`: written on it, and the Studio told. */
+  const rendered = React.useCallback(
+    (id: string) => {
+      markRendered(document, id);
+      post({ val: VAL_CANVAS_MESSAGE, type: "rendered", id });
+    },
+    [post],
+  );
+  React.useEffect(() => {
+    const shown = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const id: unknown = Reflect.get(Object(event.detail), "id");
+      if (typeof id === "string") rendered(id);
+    };
+    window.addEventListener(VAL_RENDER_SHOWN_EVENT, shown);
+    return () => window.removeEventListener(VAL_RENDER_SHOWN_EVENT, shown);
+  }, [rendered]);
 
   /**
    * The last payload posted, as a string.
@@ -718,6 +739,24 @@ export function ValCanvasBridge({
         );
         return;
       }
+      if (message.type === "render") {
+        // Which change the page shows, written on it for `read_page`
+        // (`renderMark.ts`). Only from the Studio: an id from anywhere else
+        // would let another window say what the page shows.
+        if (event.source !== window.parent) return;
+        if (event.origin !== window.location.origin) return;
+        const id = message.id;
+        // The provider takes it when its server-read content has to reach
+        // `seq` first, and says when it has (`VAL_RENDER_SHOWN_EVENT`).
+        const taken = !window.dispatchEvent(
+          new CustomEvent(VAL_RENDER_EVENT, {
+            detail: { id, seq: message.seq },
+            cancelable: true,
+          }),
+        );
+        if (!taken) rendered(id);
+        return;
+      }
       if (message.type === "confirmed") {
         // How far the server holds the editor's changes: what the provider
         // re-reads its server-rendered content on. Relayed like the two above.
@@ -737,7 +776,7 @@ export function ValCanvasBridge({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [scan, post]);
+  }, [scan, post, rendered]);
 
   // What the hooks could not read for its schema: the Studio says the code
   // changed, with a reload. What was refused before the bridge mounted, then

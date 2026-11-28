@@ -142,6 +142,8 @@ export type CanvasRequest =
   | "readPageLog"
   | "quickPreview"
   | "editInline"
+  /** Writes a `render` id on the page once it shows the change. */
+  | "render"
   | InteractCapability;
 
 /** An action of `interact`, as a capability: see {@link CanvasRequest}. */
@@ -164,6 +166,7 @@ export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
   "readPageLog",
   "quickPreview",
   "editInline",
+  "render",
   // Written out, not mapped from `PAGE_ACTION_KINDS`: this module is read
   // while `pageInteraction.ts` is still loading (it imports the inspection,
   // which imports this). `pageInteraction.test.ts` holds the two equal.
@@ -487,6 +490,15 @@ export type ValCanvasPageMessage =
     }
   | {
       /**
+       * The page shows the change `id` (`render`), and has written it on
+       * itself for `read_page` (`renderMark.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "rendered";
+      id: string;
+    }
+  | {
+      /**
        * What `readPageLog` asked for: what the page logged as going wrong
        * (`pageLog.ts`), or why it could not be read.
        */
@@ -695,6 +707,21 @@ export type ValCanvasStudioMessage =
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "confirmed";
+      seq: number | null;
+    }
+  | {
+      /**
+       * The page shows the change `id` once it shows the server's content at
+       * `seq` (`null`: as it is once connected): write `id` on the page then
+       * (`markRendered`), for `read_page` to wait for (`renderMark.ts`).
+       *
+       * Sent once the change can be on this document: an edit once the
+       * server holds it, a quick preview or a Build once this document is
+       * it. Asked only of a bridge whose `ready` lists `render`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "render";
+      id: string;
       seq: number | null;
     }
   | {
@@ -1448,7 +1475,11 @@ export function isValCanvasStudioMessage(
     message.type === "focusInlineEdit" ||
     (message.type === "confirmed" &&
       ((data as { seq?: unknown }).seq === null ||
-        typeof (data as { seq?: unknown }).seq === "number"))
+        typeof (data as { seq?: unknown }).seq === "number")) ||
+    (message.type === "render" &&
+      typeof Reflect.get(Object(data), "id") === "string" &&
+      (Reflect.get(Object(data), "seq") === null ||
+        typeof Reflect.get(Object(data), "seq") === "number"))
   );
 }
 

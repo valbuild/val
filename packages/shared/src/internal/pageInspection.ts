@@ -15,6 +15,7 @@ import type { ModuleFilePath } from "@valbuild/core";
 import { VAL_CANVAS_PARAM } from "./valCanvasProtocol";
 import type { PageLogCounts } from "./pageLog";
 import { QUICK_PREVIEW_PARAM } from "./quickPreview";
+import { readRendered } from "./renderMark";
 
 /** Where the page is: what a new build is opened at. */
 export type PageLocation = {
@@ -92,6 +93,13 @@ export type PageSnapshot = {
    * the browser, after it loaded, is not in it.
    */
   modules?: ModuleFilePath[];
+  /**
+   * The change the page says it shows (`renderMark.ts`): the render id of
+   * the latest edit, quick preview or Build the Studio told it it shows.
+   * Absent before the Studio told it any, and from a bridge of a release
+   * before render ids.
+   */
+  renderId?: string;
 };
 
 const TEXT_LENGTH = 160;
@@ -257,9 +265,11 @@ export function readPageSnapshot(
     node = walker.nextNode();
   }
   const scrollY = Math.round(win?.scrollY ?? 0);
+  const renderId = readRendered(doc);
   return {
     url: win?.location.href ?? "",
     title: doc.title,
+    ...(renderId !== null ? { renderId } : {}),
     viewport: {
       width: win?.innerWidth ?? 0,
       height: win?.innerHeight ?? 0,

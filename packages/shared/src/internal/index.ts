@@ -46,6 +46,7 @@ export * from "./inlineEditing";
 export * from "./inlineEditKeys";
 export * from "./emptyTextFields";
 export * from "./pageInspection";
+export * from "./renderMark";
 export * from "./pageScreenshot";
 export * from "./pageLog";
 export * from "./pageInteraction";

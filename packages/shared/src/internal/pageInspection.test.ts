@@ -8,6 +8,7 @@ import {
   watchPageLocation,
 } from "./pageInspection";
 import { describeElement } from "./elementPicker";
+import { markRendered, renderIdOf } from "./renderMark";
 
 beforeEach(() => {
   document.title = "Our people";
@@ -112,4 +113,16 @@ test("a navigation is reported, once", () => {
   stop();
   jest.useRealTimers();
   expect(seen).toEqual(["/", "/blog"]);
+});
+
+test("says which change it shows, which no text on the page does", () => {
+  document.body.innerHTML = `<main><h1>Spring</h1></main>`;
+  document.documentElement.removeAttribute("data-val-render");
+  expect(readPageSnapshot(document).renderId).toBeUndefined();
+  const id = renderIdOf(1700000000000, 3);
+  markRendered(document, id);
+  const snapshot = readPageSnapshot(document);
+  expect(snapshot.renderId).toBe(id);
+  expect(JSON.stringify(snapshot.outline)).not.toContain(id);
+  document.documentElement.removeAttribute("data-val-render");
 });

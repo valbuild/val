@@ -33,6 +33,7 @@ import {
   isDraft,
   dispatchCodeChanged,
   startRefreshLoop,
+  takeRenders,
   windowCodeChangedReporter,
   type RefreshLoop,
 } from "@valbuild/react/internal";
@@ -585,7 +586,10 @@ export const ValTanStackProvider = (props: {
       },
     });
     refreshLoopRef.current = loop;
+    // A render id waits for the loaders of its version (`takeRenders`).
+    const stopTaking = takeRenders(() => refreshLoopRef.current);
     return () => {
+      stopTaking();
       refreshLoopRef.current = null;
       loop.stop();
     };

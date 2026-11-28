@@ -23,6 +23,7 @@ export * from "../internal/inlineEditKeys";
 export * from "../internal/inlineEditOnPage";
 export * from "../internal/emptyTextFields";
 export * from "../internal/pageInspection";
+export * from "../internal/renderMark";
 export * from "../internal/pageScreenshot";
 export * from "../internal/pageLog";
 export * from "../internal/pageInteraction";

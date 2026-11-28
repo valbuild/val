@@ -19,6 +19,7 @@ import {
   isDraft,
   dispatchCodeChanged,
   startRefreshLoop,
+  takeRenders,
   windowCodeChangedReporter,
   type RefreshLoop,
   type ValDraft,
@@ -364,7 +365,14 @@ export const ValNextProvider = (props: {
       },
     });
     refreshLoopRef.current = loop;
+    /*
+     * A render id waits for its version's refresh (`takeRenders`). Here that
+     * is when the refresh is sent, not when it is back: `router.refresh()`
+     * does not say. TanStack's loaders do, so its pages are exact.
+     */
+    const stopTaking = takeRenders(() => refreshLoopRef.current);
     return () => {
+      stopTaking();
       refreshLoopRef.current = null;
       loop.stop();
     };

@@ -9,6 +9,10 @@ import { renderToString } from "react-dom/server";
 import { Internal, initVal, type ModuleFilePath } from "@valbuild/core";
 import { autoTagJSX } from "@valbuild/react/stega";
 import { type ValDraft } from "@valbuild/react/internal";
+import {
+  VAL_RENDER_EVENT,
+  VAL_RENDER_SHOWN_EVENT,
+} from "@valbuild/shared/internal";
 import { initValClient } from "./client/initValClient";
 import { ValTanStackProvider } from "./ValTanStackProvider";
 
@@ -172,6 +176,76 @@ describe("which Studio's messages refresh the page", () => {
     expect(mockInvalidate).toHaveBeenCalledTimes(0);
     await send({ type: "confirmed", seq: 4 });
     expect(mockInvalidate).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A render id (`renderMark.ts`): the canvas bridge asks the page whether
+   * it has to wait before the id is written. The page takes it, and says it
+   * shows the change once its loaders have re-run for that version and come
+   * back -- not when the version is confirmed, which is when they start.
+   */
+  test("a render waits for the loaders of its version to come back", async () => {
+    await mounted();
+    await send({ type: "sources-synced" });
+    await send({ type: "confirmed", seq: 3 });
+    const shown: unknown[] = [];
+    const listen = (event: Event) =>
+      shown.push(event instanceof CustomEvent ? event.detail : null);
+    window.addEventListener(VAL_RENDER_SHOWN_EVENT, listen);
+    let loaded: () => void = () => {};
+    mockInvalidate.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (loaded = resolve)),
+    );
+    try {
+      let taken = false;
+      await act(async () => {
+        taken = !window.dispatchEvent(
+          new CustomEvent(VAL_RENDER_EVENT, {
+            detail: { id: "r-a-1", seq: 4 },
+            cancelable: true,
+          }),
+        );
+      });
+      expect(taken).toBe(true);
+      await send({ type: "confirmed", seq: 4 });
+      expect(mockInvalidate).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(shown).toEqual([]);
+      await act(async () => {
+        loaded();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(shown).toEqual([{ id: "r-a-1" }]);
+    } finally {
+      window.removeEventListener(VAL_RENDER_SHOWN_EVENT, listen);
+    }
+  });
+
+  test("a render of a version the page shows already is said at once", async () => {
+    await mounted();
+    await send({ type: "sources-synced" });
+    await send({ type: "confirmed", seq: 3 });
+    const shown: unknown[] = [];
+    const listen = (event: Event) =>
+      shown.push(event instanceof CustomEvent ? event.detail : null);
+    window.addEventListener(VAL_RENDER_SHOWN_EVENT, listen);
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(VAL_RENDER_EVENT, {
+            detail: { id: "r-a-2", seq: 3 },
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(shown).toEqual([{ id: "r-a-2" }]);
+      expect(mockInvalidate).toHaveBeenCalledTimes(0);
+    } finally {
+      window.removeEventListener(VAL_RENDER_SHOWN_EVENT, listen);
+    }
   });
 });
 

@@ -17,7 +17,7 @@ export {
   isDraft,
   type ValDraft,
 } from "./draft";
-export { startRefreshLoop, type RefreshLoop } from "./refreshLoop";
+export { startRefreshLoop, takeRenders, type RefreshLoop } from "./refreshLoop";
 export {
   bundleSource,
   entryOfModuleSource,

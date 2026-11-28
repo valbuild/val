@@ -137,4 +137,135 @@ describe("startRefreshLoop", () => {
     loop.refresh();
     expect(refreshes()).toBe(0);
   });
+
+  /**
+   * `shown(seq)`: when the page shows the server's content at `seq`, which is
+   * when a render id waiting on it is written on the page (`data-val-render`).
+   * Its loaders or server components show it once a refresh made AFTER the
+   * server confirmed `seq` has come back.
+   */
+  describe("shown", () => {
+    const settles = () => {
+      const done: (() => void)[] = [];
+      let refreshes = 0;
+      const loop = startRefreshLoop({
+        refresh: () => {
+          refreshes++;
+          return new Promise<void>((resolve) => done.push(resolve));
+        },
+      });
+      return { loop, done, refreshes: () => refreshes };
+    };
+    const tick = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
+    const resolved = (promise: Promise<void>) => {
+      let is = false;
+      void promise.then(() => {
+        is = true;
+      });
+      return () => is;
+    };
+
+    test("waits for the refresh of a version at or after it, and for that refresh to come back", async () => {
+      const { loop, done } = settles();
+      loop.changed();
+      const shown = resolved(loop.shown(2));
+      loop.confirmed(2);
+      await tick();
+      expect(shown()).toBe(false);
+      done[0]?.();
+      await tick();
+      expect(shown()).toBe(true);
+    });
+
+    test("a version not confirmed yet is not shown", async () => {
+      const { loop, done } = settles();
+      loop.changed();
+      loop.confirmed(1);
+      const shown = resolved(loop.shown(2));
+      done[0]?.();
+      await tick();
+      expect(shown()).toBe(false);
+      loop.confirmed(2);
+      done[1]?.();
+      await tick();
+      expect(shown()).toBe(true);
+    });
+
+    test("a refresh that started before the version was confirmed does not show it", async () => {
+      const { loop, done } = settles();
+      loop.changed();
+      loop.confirmed(1);
+      const shown = resolved(loop.shown(2));
+      // Confirmed while the refresh of 1 is still out: that one asked a
+      // server that may not have had 2.
+      loop.confirmed(2);
+      done[0]?.();
+      await tick();
+      expect(shown()).toBe(false);
+      done[1]?.();
+      await tick();
+      expect(shown()).toBe(true);
+    });
+
+    test("a page rendered from the draft it was connected at shows that version without a refresh", async () => {
+      const { loop, refreshes } = settles();
+      loop.confirmed(3);
+      const shown = resolved(loop.shown(3));
+      await tick();
+      expect(refreshes()).toBe(0);
+      expect(shown()).toBe(true);
+    });
+
+    test("a version already shown resolves at once", async () => {
+      const { loop, done } = settles();
+      loop.changed();
+      loop.confirmed(4);
+      done[0]?.();
+      await tick();
+      const shown = resolved(loop.shown(2));
+      await tick();
+      expect(shown()).toBe(true);
+    });
+
+    test("a refresh that fails still ends: what came back is what is shown", async () => {
+      const fails: (() => void)[] = [];
+      const loop = startRefreshLoop({
+        refresh: () =>
+          new Promise<void>((_, reject) => {
+            fails.push(() => reject(new Error("the route did not answer")));
+          }),
+      });
+      loop.changed();
+      const shown = resolved(loop.shown(1));
+      loop.confirmed(1);
+      fails[0]?.();
+      await tick();
+      expect(shown()).toBe(true);
+    });
+
+    test("a refresh that cannot say when it is done (Next) shows the version once it is sent", async () => {
+      const { loop } = counting();
+      loop.changed();
+      const shown = resolved(loop.shown(1));
+      loop.confirmed(1);
+      await tick();
+      expect(shown()).toBe(true);
+    });
+
+    test("no version (null) is shown once the page is connected and nothing is refreshing", async () => {
+      const { loop, done } = settles();
+      const shown = resolved(loop.shown(null));
+      await tick();
+      expect(shown()).toBe(false);
+      loop.changed();
+      loop.confirmed(1);
+      await tick();
+      expect(shown()).toBe(false);
+      done[0]?.();
+      await tick();
+      expect(shown()).toBe(true);
+    });
+  });
 });

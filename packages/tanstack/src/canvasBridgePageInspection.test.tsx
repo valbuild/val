@@ -6,7 +6,11 @@ import {
   BRIDGE_CAPABILITIES,
   type CanvasRequest,
   pageLogOf,
+  readRendered,
+  RENDER_ATTRIBUTE,
   VAL_CANVAS_MESSAGE,
+  VAL_RENDER_EVENT,
+  VAL_RENDER_SHOWN_EVENT,
   type ValCanvasPageMessage,
   type ValCanvasStudioMessage,
 } from "@valbuild/shared/internal";
@@ -170,6 +174,16 @@ describe("the canvas bridge, looked at from the Studio", () => {
         },
         answer: "quickPreviewStored",
       },
+      render: {
+        // Nothing on this page waits for its content: written at once.
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "render",
+          id: "r-a-1",
+          seq: null,
+        },
+        answer: "rendered",
+      },
       editInline: {
         // Nothing offered, so nothing to edit: said, not left unanswered.
         ask: {
@@ -245,6 +259,76 @@ describe("the canvas bridge, looked at from the Studio", () => {
         ).toBe(true),
       );
     }
+  });
+
+  describe("render ids", () => {
+    afterEach(() => document.documentElement.removeAttribute(RENDER_ATTRIBUTE));
+
+    it("writes a render on the page, and says so, when nothing on it waits", async () => {
+      render(<ValCanvasBridge draftMode />);
+      tell({ val: VAL_CANVAS_MESSAGE, type: "render", id: "r-a-1", seq: 3 });
+      await waitFor(() =>
+        expect(posted).toContainEqual({
+          val: VAL_CANVAS_MESSAGE,
+          type: "rendered",
+          id: "r-a-1",
+        }),
+      );
+      expect(readRendered(document)).toBe("r-a-1");
+    });
+
+    it("waits for the page to say it shows the change, where the page takes it", async () => {
+      // As the provider takes it, while its server-read content catches up.
+      const taken: unknown[] = [];
+      const take = (event: Event) => {
+        event.preventDefault();
+        taken.push(event instanceof CustomEvent ? event.detail : null);
+      };
+      window.addEventListener(VAL_RENDER_EVENT, take);
+      try {
+        render(<ValCanvasBridge draftMode />);
+        tell({ val: VAL_CANVAS_MESSAGE, type: "render", id: "r-a-2", seq: 5 });
+        await settle();
+        expect(taken).toEqual([{ id: "r-a-2", seq: 5 }]);
+        expect(readRendered(document)).toBeNull();
+        expect(posted.some((message) => message.type === "rendered")).toBe(
+          false,
+        );
+        act(() => {
+          window.dispatchEvent(
+            new CustomEvent(VAL_RENDER_SHOWN_EVENT, {
+              detail: { id: "r-a-2" },
+            }),
+          );
+        });
+        await waitFor(() => expect(readRendered(document)).toBe("r-a-2"));
+        expect(posted).toContainEqual({
+          val: VAL_CANVAS_MESSAGE,
+          type: "rendered",
+          id: "r-a-2",
+        });
+      } finally {
+        window.removeEventListener(VAL_RENDER_EVENT, take);
+      }
+    });
+
+    it("keeps the latest change it shows, whatever arrives late", async () => {
+      render(<ValCanvasBridge draftMode />);
+      tell({ val: VAL_CANVAS_MESSAGE, type: "render", id: "r-a-9", seq: null });
+      tell({ val: VAL_CANVAS_MESSAGE, type: "render", id: "r-a-8", seq: null });
+      await settle();
+      await waitFor(() => expect(readRendered(document)).toBe("r-a-9"));
+    });
+
+    it("takes a render from nobody but its parent", async () => {
+      render(<ValCanvasBridge draftMode />);
+      tell(
+        { val: VAL_CANVAS_MESSAGE, type: "render", id: "r-a-3", seq: null },
+        { source: null, origin: "https://elsewhere.example" },
+      );
+      await settle();
+      expect(readRendered(document)).toBeNull();
+    });
   });
 
   it("answers readPageLog with what went wrong on the page", async () => {
