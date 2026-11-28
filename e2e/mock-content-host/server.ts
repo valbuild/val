@@ -401,7 +401,16 @@ type MockAiSession = {
    * closed, so what is on screen after reopening it comes from HERE rather than
    * from anything the browser still held.
    */
-  messages: { role: "user" | "assistant"; content: string }[];
+  messages: {
+    role: "user" | "assistant";
+    content: string;
+    /**
+     * On a user message: the tools its turn called, as content keeps them
+     * (`AIToolCallSummaries`): what a conversation carried to code mode
+     * reads to know it still ends on the request (`continueHandoff.ts`).
+     */
+    toolCalls?: { toolCallId: string; name: string; isError: boolean }[];
+  }[];
 };
 
 type State = {
@@ -2512,10 +2521,12 @@ async function playAiTurn(
     };
     state.aiSessions.set(sessionId, session);
   }
-  session.messages.push({
+  const asked: MockAiSession["messages"][number] = {
     role: "user",
     content: promptTextOf(prompt.message),
-  });
+    toolCalls: [],
+  };
+  session.messages.push(asked);
   const send = (message: unknown): void => {
     if (socket.readyState === socket.OPEN) {
       socket.send(JSON.stringify(message));
@@ -2625,6 +2636,11 @@ async function playAiTurn(
       result: answer.result,
       isError: answer.isError,
       hidden: prompt.hidden === true,
+    });
+    asked.toolCalls?.push({
+      toolCallId,
+      name: step.name,
+      isError: answer.isError,
     });
     const renderId: unknown = Reflect.get(Object(answer.result), "renderId");
     if (typeof renderId === "string") lastRenderId = renderId;

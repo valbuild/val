@@ -70,6 +70,7 @@ import { updateProposalWithCode } from "../../proposals/updateWithCode";
 import { studioCodeUpdateDeps } from "../../proposals/studioCodeUpdate";
 import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
+import { withContinuation } from "../../proposals/continueHandoff";
 import { toAdminLinks } from "../shell/shellDataMapping";
 import { useSaveUnsaved, useValConfig } from "../ValFieldProvider";
 import {
@@ -198,6 +199,18 @@ const DEPENDENCIES_POLL_MS = 5_000;
  * proposal (`ValOpsHttp`'s commit), so it shares the patch handling, the
  * validation gate and the error reporting with Publish on the site.
  */
+/*
+ * To a proposal in code mode, with the conversation open there and, when it
+ * has one, carried on by itself (`continueHandoff.ts`): its own id, so it is
+ * carried on at most once.
+ */
+function carriedToCodeMode(target: string): string {
+  const opened = withConversationOpen(withCodeModeParam(target));
+  return new URL(opened).searchParams.get("session") === null
+    ? opened
+    : withContinuation(opened, randomUUID());
+}
+
 export function useProposalsBar({
   unsaved,
   portalContainer,
@@ -371,9 +384,7 @@ export function useProposalsBar({
     const target = sameStudioPageAt(origin, window.location);
     // The `</>` menu: the proposal's Studio turns code mode on there, with
     // the conversation that asked for it open.
-    window.location.assign(
-      inCodeMode ? withConversationOpen(withCodeModeParam(target)) : target,
-    );
+    window.location.assign(inCodeMode ? carriedToCodeMode(target) : target);
   }, []);
 
   const failed = useCallback(

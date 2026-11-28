@@ -224,6 +224,32 @@ export function useCodeModeState(): CodeModeState {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
+/**
+ * The proposal this Studio is in, once its code mode is on -- or `null`
+ * after `timeoutMs` without. What a conversation carried to a proposal in
+ * code mode waits for before it carries on (`continueHandoff.ts`): the
+ * Studio turns it on when it arrives (`?val_code_mode=on`).
+ */
+export function whenCodeModeOn(
+  timeoutMs: number,
+): Promise<NonNullable<CodeModeState["proposal"]> | null> {
+  const on = () => (state.proposal?.on === true ? state.proposal : null);
+  const now = on();
+  if (now !== null) return Promise.resolve(now);
+  return new Promise((resolve) => {
+    const done = (proposal: NonNullable<CodeModeState["proposal"]> | null) => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(proposal);
+    };
+    const unsubscribe = subscribe(() => {
+      const proposal = on();
+      if (proposal !== null) done(proposal);
+    });
+    const timer = setTimeout(() => done(null), timeoutMs);
+  });
+}
+
 /** The proposal's code mode, as the top bar last read it. */
 export function reportCodeMode(proposal: CodeModeState["proposal"]): void {
   const before = state.proposal;

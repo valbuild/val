@@ -25,7 +25,9 @@ import { mock, sessionCookie } from "./codeModeStudio";
  * - it is never an EMPTY chat that then fills in (an empty chat says the
  *   conversation was lost, even if it comes back a second later);
  * - nothing that was shown disappears again while it loads;
- * - the next message works there, in code mode.
+ * - it carries on there by itself, in code mode: the assistant's next turn
+ *   runs without the person asking again -- once, however often the page
+ *   is loaded (`continueHandoff.ts`).
  *
  * The page is sampled every 50 ms from its first script (`addInitScript`),
  * so a flash of an empty chat is seen even if it lasts one frame or two.
@@ -51,7 +53,6 @@ test.beforeEach(async () => {
 });
 
 const ASKED = "Make the hero section dark";
-const CONTINUED = "Now show me the hero's file";
 /** What an empty chat offers: shown only when there is no conversation. */
 const EMPTY_CHAT = "Summarize recent changes";
 
@@ -119,6 +120,14 @@ test("asked on the site, accepted, and carried on in the proposal: one conversat
   const session = new URL(page.url()).searchParams.get("session");
   expect(session, "the conversation is not in the address").not.toBeNull();
 
+  // What the assistant does once it is carried on: its next turn.
+  await mock.aiScript({
+    steps: [
+      { type: "tool", name: "read_file", arguments: { path: HERO_FILE } },
+    ],
+    response: "Here it is.",
+  });
+
   // The proposal, chosen from the menu the card opened.
   await sampleChat(page);
   await studio
@@ -131,6 +140,9 @@ test("asked on the site, accepted, and carried on in the proposal: one conversat
     { timeout: 120_000 },
   );
   expect(new URL(page.url()).searchParams.get("session")).toBe(session);
+  // The address the proposal was opened at, hand-off and all.
+  const arrivedAt = page.url();
+  expect(new URL(arrivedAt).searchParams.get("val_continue")).not.toBeNull();
 
   // Loaded: the conversation is back, and code mode is on.
   await expect(
@@ -161,34 +173,49 @@ test("asked on the site, accepted, and carried on in the proposal: one conversat
     "the conversation was shown, then gone again",
   ).toEqual([]);
 
-  // And it carries on there, in code mode.
-  const before = (await mock.aiState()).toolCalls.filter(
-    (call) => !call.hidden,
-  ).length;
-  await mock.aiScript({
-    steps: [
-      {
-        type: "tool",
-        name: "read_file",
-        arguments: { path: HERO_FILE },
-      },
-    ],
-    response: "Here it is.",
-  });
-  await send(page, CONTINUED);
+  // And it carries on there by itself, in code mode: the Studio sends the
+  // message that continues the turn (`continueHandoff.ts`), and the
+  // assistant's next turn runs its tools in the proposal.
   await expect
     .poll(
       async () =>
-        (await mock.aiState()).toolCalls.filter((call) => !call.hidden).length,
-      { timeout: 60_000, message: "the next turn did not run in the proposal" },
+        (await mock.aiState()).prompts.filter(
+          (p) => !p.hidden && p.sessionId === session,
+        ).length,
+      {
+        timeout: 120_000,
+        message: "the conversation was not carried on in the proposal",
+      },
     )
-    .toBe(before + 1);
+    .toBe(2);
+  const prompts = (await mock.aiState()).prompts.filter((p) => !p.hidden);
+  expect(prompts.at(-1)?.text).toMatch(/^Code mode is on in/);
+  await expect
+    .poll(
+      async () =>
+        (await mock.aiState()).toolCalls
+          .filter((call) => !call.hidden)
+          .map((call) => call.name),
+      { timeout: 60_000, message: "the carried-on turn did not run its tool" },
+    )
+    .toEqual(["request_code_mode", "read_file"]);
   const read = (await mock.aiState()).toolCalls
     .filter((call) => !call.hidden)
     .at(-1);
-  expect(read?.name).toBe("read_file");
   expect(read?.isError, JSON.stringify(read?.result)).toBe(false);
-  // The prompt went to the same conversation.
-  const prompts = (await mock.aiState()).prompts.filter((p) => !p.hidden);
-  expect(prompts.at(-1)?.sessionId).toBe(session);
+  // Its id is out of the address once used, but nothing hangs on that.
+  expect(new URL(page.url()).searchParams.get("val_continue")).toBeNull();
+
+  // At most once: the page loaded again carries nothing on, though the
+  // address it was opened at named the hand-off.
+  await page.goto(arrivedAt);
+  await expect(
+    page.locator("#val-shadow-root").getByText(ASKED).first(),
+  ).toBeVisible({ timeout: 120_000 });
+  await page.waitForTimeout(15_000);
+  expect(
+    (await mock.aiState()).prompts.filter(
+      (p) => !p.hidden && p.sessionId === session,
+    ).length,
+  ).toBe(2);
 });

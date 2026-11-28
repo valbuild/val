@@ -26,6 +26,16 @@ const ops = new JSONOps();
 const FOLLOW_UP_SETTLE_MS = 500;
 import { useValSystem } from "../stores/react/SystemContext";
 import { mintRender } from "../proposals/renders";
+import {
+  codeModeContinuation,
+  continuationOf,
+  markContinued,
+  wasContinued,
+  withoutContinuation,
+} from "../proposals/continueHandoff";
+
+/** How long a carried conversation waits for code mode before it gives up. */
+const CONTINUE_WAIT_MS = 2 * 60_000;
 import { savedSeqOf } from "../stores/savedSeq";
 import { takeToolNotices, withToolNotices } from "../proposals/toolNotices";
 import { createTurnTimer, describeTurnTiming } from "./turnTiming";
@@ -223,6 +233,7 @@ import {
   openSiteCodeMode,
   requestCodeModeMenu,
   turnOnCodeMode,
+  whenCodeModeOn,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
 import { isInCodeMode } from "./assistantPersona";
@@ -4282,7 +4293,7 @@ export function useAI(
         requestCodeModeMenu();
         answerCodeModeRequest(toolCallId, "asking", {
           success: false,
-          note: "The person was shown the proposals to open in code mode. The change is made in the one they choose, whose Studio opens with code mode on. Tell them that, and stop here.",
+          note: "The person was shown the proposals to open in code mode. The change is made in the one they choose, whose Studio opens with code mode on and this conversation in it, which carries on there by itself. Tell them to choose one, and stop here.",
         });
         return;
       }
@@ -4384,7 +4395,7 @@ export function useAI(
   );
 
   const loadSession = useCallback(
-    async (sessionId: string): Promise<void> => {
+    async (sessionId: string): Promise<ServerMessage[] | null> => {
       rejectPendingQuestions("User switched to a different session.");
       // Not the chat it is leaving's model: the effect above holds this one
       // to the model it continues on. The same chat opened again keeps its
@@ -4401,12 +4412,14 @@ export function useAI(
         );
         takeServerMessages(sessionId, res.messages);
         onSessionBornRef.current?.(sessionId);
+        return res.messages;
       } catch (err) {
         Internal.log.debug("Failed to load session messages, clearing:", err);
         sessionIdRef.current = null;
         setCurrentSessionId(null);
         chatRef.current?.clearMessages();
         onSessionClearedRef.current?.();
+        return null;
       } finally {
         setIsLoadingSession(false);
       }
@@ -4552,7 +4565,31 @@ export function useAI(
     hasLoadedSessionsRef.current = true;
     getSessions({ limit: 1 }).catch(() => {});
     if (initialSessionIdRef.current != null) {
-      loadSession(initialSessionIdRef.current);
+      const loading = loadSession(initialSessionIdRef.current);
+      /*
+       * A conversation the `</>` menu carried here to code mode carries on by
+       * itself, at most once (`continueHandoff.ts`): once code mode is on,
+       * and only while the conversation still ends on the request for it.
+       */
+      const handoff =
+        typeof window === "undefined"
+          ? null
+          : continuationOf(window.location.href);
+      if (handoff !== null && !wasContinued(handoff)) {
+        void loading.then(async (messages) => {
+          if (messages === null) return;
+          const proposal = await whenCodeModeOn(CONTINUE_WAIT_MS);
+          markContinued(handoff);
+          window.history.replaceState(
+            window.history.state,
+            "",
+            withoutContinuation(window.location.href),
+          );
+          if (proposal === null) return;
+          const text = codeModeContinuation(messages, proposal.displayName);
+          if (text !== null) chatRef.current?.sendUserMessage(text);
+        });
+      }
     }
   }, [isChatEnabled, isWsConnected]);
 
