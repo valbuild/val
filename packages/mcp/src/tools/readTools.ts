@@ -20,6 +20,8 @@ import {
 } from "./defineTool";
 import type { ValToolResult } from "./types";
 import { searchContentTool } from "./searchContent";
+import { siteErrorsTool } from "./siteErrors";
+import { siteLogsTool } from "./siteLogs";
 
 /**
  * The tools that only read.
@@ -42,6 +44,8 @@ const ModuleFilePathSchema = z
 export function readTools(): ValToolImpl[] {
   return [
     searchContentTool(),
+    siteErrorsTool(),
+    siteLogsTool(),
     defineTool(
       {
         name: "get_all_schema",

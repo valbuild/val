@@ -11,6 +11,8 @@ import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 import { publish } from "./publish";
 import { ciReport } from "./ciReport";
+import { errors } from "./errors";
+import { logs } from "./logs";
 import { checkBuildTools } from "./checkBuildTools";
 import { decideCliAction, fullHelp } from "./help";
 
@@ -99,6 +101,25 @@ async function main(): Promise<void> {
       url: {
         type: "string",
       },
+      limit: {
+        type: "number",
+      },
+      json: {
+        type: "boolean",
+      },
+      follow: {
+        type: "boolean",
+        alias: "f",
+      },
+      since: {
+        type: "string",
+      },
+      level: {
+        type: "string",
+      },
+      search: {
+        type: "string",
+      },
     },
     hardRejection: false,
   });
@@ -170,6 +191,24 @@ async function main(): Promise<void> {
         commit: flags.commit,
         branch: flags.branch,
         url: flags.url,
+      });
+    case "errors":
+      return errors({
+        root: flags.root,
+        limit: flags.limit,
+        json: flags.json,
+        verbose: flags.verbose,
+      });
+    case "logs":
+      return logs({
+        root: flags.root,
+        since: flags.since,
+        level: flags.level,
+        search: flags.search,
+        limit: flags.limit,
+        json: flags.json,
+        verbose: flags.verbose,
+        follow: flags.follow,
       });
     case "publish":
       return publish({
