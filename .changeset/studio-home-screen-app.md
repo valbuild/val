@@ -7,7 +7,7 @@
 
 The Studio can be added to the home screen. It then opens full screen at `/val`, without the browser's address bar, and starts faster.
 
-- **Install it from the account panel**, under **This device**. In Chrome, Edge and on Android, the button opens the browser's install dialog. In Safari on iPhone and iPad, it shows the two taps that do it from the Share menu.
+- **Install it from the account panel**, under **This device**: **Install app** on a computer, **Add to home** on a phone. In Chrome, Edge and on Android it opens the browser's install dialog. Safari on iPhone and iPad has no such dialog, so it opens a short illustrated guide to the Share menu instead, showing the icon the app will get.
 - **Your logo is the icon.** The project's logo from `s.settings()` (`theme.logo`) becomes the app's icon once it is published, if it is an SVG or a square image of at least 144 pixels (512 is best). Otherwise the icon is Val's.
 - **One app per site.** The Studio and its sign-in live on your site's own domain, so each site gets its own icon, named after its host.
 - **Faster start.** A service worker scoped to `/val` caches the Studio's own versioned scripts and styles, and keeps the last Studio page so the app still opens without a network. Content, drafts and patches are never cached.

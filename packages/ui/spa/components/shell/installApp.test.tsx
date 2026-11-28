@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { AccountPanel } from "./AccountPanel";
 import type { StudioInstall } from "../../studioApp/studioApp";
 import { isIosSafari, studioAppIconOf } from "../../studioApp/studioApp";
@@ -27,27 +27,28 @@ describe("installing the Studio", () => {
   test("asks the browser to install it, where the browser offered to", () => {
     const install = jest.fn(async () => undefined);
     render(panel({ kind: "prompt", install }));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Add Val to Home Screen/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Add to home/ }));
     expect(install).toHaveBeenCalledTimes(1);
+    // The browser's own dialog asks; there is nothing of ours to show.
+    expect(
+      screen.queryByRole("dialog", { name: "Add to Home Screen" }),
+    ).toBeNull();
   });
 
   test("on a computer it is installing an app, not a home screen", () => {
     render(panel({ kind: "prompt", install: async () => undefined }, false));
-    expect(
-      screen.getByRole("button", { name: /Install Val as an app/ }),
-    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Install app/ })).not.toBeNull();
   });
 
-  test("on an iPhone, says the two taps Safari needs, since nothing can ask for them", () => {
+  test("on an iPhone, shows the taps Safari needs in a dialog, since nothing can ask for them", () => {
     render(panel({ kind: "ios" }));
-    expect(screen.queryByText("Add to Home Screen")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: /Add Val to Home Screen/ }),
-    );
-    expect(screen.getByText("Share")).not.toBeNull();
-    expect(screen.getByText("Add to Home Screen")).not.toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "Add to Home Screen" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Add to home/ }));
+    const dialog = screen.getByRole("dialog", { name: "Add to Home Screen" });
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(dialog).getByText(/Share/)).not.toBeNull();
   });
 
   test("is not offered where it cannot be done, or already has been", () => {

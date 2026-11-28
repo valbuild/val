@@ -10,9 +10,7 @@ import {
   Moon,
   Settings2,
   ShieldAlert,
-  Share,
   Smartphone,
-  SquarePlus,
   Sun,
   Users,
 } from "lucide-react";
@@ -30,7 +28,11 @@ import {
 } from "./types";
 import { VersionList } from "./VersionList";
 import type { UpgradeButton } from "../../upgrade/useUpgrade";
-import type { StudioInstall } from "../../studioApp/studioApp";
+import {
+  studioAppIosIconSrc,
+  type StudioInstall,
+} from "../../studioApp/studioApp";
+import { InstallAppDialog } from "./InstallAppDialog";
 
 export type AccountPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -105,6 +107,8 @@ export type AccountPanelProps = {
    * where it cannot be or already is: the section goes.
    */
   install?: StudioInstall;
+  /** Where the install instructions' dialog renders: inside the shadow root. */
+  portalContainer?: HTMLElement | null;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -143,6 +147,7 @@ export function AccountPanel({
   upgrade,
   versions,
   install,
+  portalContainer,
   onClose,
   navSwitcher,
 }: AccountPanelProps) {
@@ -225,7 +230,11 @@ export function AccountPanel({
           <>
             <PanelSectionLabel divided>This device</PanelSectionLabel>
             <div className="px-4 pt-1">
-              <InstallApp install={install} breakpoint={breakpoint} />
+              <InstallApp
+                install={install}
+                breakpoint={breakpoint}
+                portalContainer={portalContainer}
+              />
             </div>
           </>
         )}
@@ -354,25 +363,23 @@ export function AccountPanel({
 function InstallApp({
   install,
   breakpoint,
+  portalContainer,
 }: {
   install: Exclude<StudioInstall, { kind: "none" }>;
   breakpoint: ShellBreakpoint;
+  portalContainer?: HTMLElement | null;
 }) {
   const [showSteps, setShowSteps] = useState(false);
-  const label =
-    breakpoint === "mobile"
-      ? "Add Val to Home Screen"
-      : "Install Val as an app";
   return (
     <>
       <button
         type="button"
-        aria-expanded={install.kind === "ios" ? showSteps : undefined}
+        aria-haspopup={install.kind === "ios" ? "dialog" : undefined}
         onClick={() => {
           if (install.kind === "prompt") {
             void install.install();
           } else {
-            setShowSteps((shown) => !shown);
+            setShowSteps(true);
           }
         }}
         className="flex w-full items-center gap-2.5 rounded-md bg-bg-float-raised px-3 py-2.5 text-left text-xs text-fg-primary hover:bg-bg-float-raised/80"
@@ -383,28 +390,21 @@ function InstallApp({
           <MonitorDown size={15} className="shrink-0 text-fg-secondary" />
         )}
         <span className="min-w-0 flex-1">
-          <span className="block font-medium">{label}</span>
+          <span className="block font-medium">
+            {breakpoint === "mobile" ? "Add to home" : "Install app"}
+          </span>
           <span className="block text-[0.6875rem] text-fg-secondary-alt">
             Opens full screen, without the address bar.
           </span>
         </span>
       </button>
-      {install.kind === "ios" && showSteps && (
-        <ol className="mt-2 space-y-1.5 px-1 text-xs text-fg-secondary">
-          <li className="flex items-center gap-1.5">
-            1. Tap
-            <Share size={13} className="text-fg-primary" aria-hidden />
-            <span className="font-medium text-fg-primary">Share</span>
-            in Safari
-          </li>
-          <li className="flex items-center gap-1.5">
-            2. Choose
-            <SquarePlus size={13} className="text-fg-primary" aria-hidden />
-            <span className="font-medium text-fg-primary">
-              Add to Home Screen
-            </span>
-          </li>
-        </ol>
+      {install.kind === "ios" && (
+        <InstallAppDialog
+          open={showSteps}
+          onOpenChange={setShowSteps}
+          iconSrc={studioAppIosIconSrc()}
+          portalContainer={portalContainer}
+        />
       )}
     </>
   );

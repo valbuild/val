@@ -148,6 +148,22 @@ export function setStudioAppIcon(next: StudioAppIcon | null): void {
   if (started) applyIcon();
 }
 
+/** The project's icon where iOS can use it: PNG and JPEG only. */
+function iosIcon(): StudioAppIcon | null {
+  return icon !== null &&
+    (icon.type === "image/png" || icon.type === "image/jpeg")
+    ? icon
+    : null;
+}
+
+/**
+ * The icon Safari on iPhone and iPad will put on the home screen: what the
+ * instructions show beside "Add", so it is the one the editor then sees.
+ */
+export function studioAppIosIconSrc(): string {
+  return iosIcon()?.src ?? `${route ?? "/api/val"}${STUDIO_ICON_PATHS[180]}`;
+}
+
 /**
  * Point the manifest and the iOS icon at the current icon. iOS takes only
  * PNG and JPEG for `apple-touch-icon`, so an SVG or WebP logo is the app's
@@ -163,15 +179,9 @@ function applyIcon() {
     'link[rel="apple-touch-icon"][data-val-studio-app]',
   );
   if (apple) {
-    const own =
-      icon !== null && (icon.type === "image/png" || icon.type === "image/jpeg")
-        ? icon
-        : null;
-    apple.setAttribute(
-      "href",
-      own ? own.src : `${route}${STUDIO_ICON_PATHS[180]}`,
-    );
-    apple.setAttribute("sizes", own ? own.sizes : "180x180");
+    const own = iosIcon();
+    apple.setAttribute("href", own?.src ?? `${route}${STUDIO_ICON_PATHS[180]}`);
+    apple.setAttribute("sizes", own?.sizes ?? "180x180");
   }
 }
 

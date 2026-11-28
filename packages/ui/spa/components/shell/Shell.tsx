@@ -2564,6 +2564,7 @@ const ShellFrame = memo(function ShellFrame({
             upgrade={breakpoint === "mobile" ? upgrade : undefined}
             versions={versions}
             install={install}
+            portalContainer={portalContainer}
             activity={
               breakpoint === "mobile"
                 ? {
